@@ -49,11 +49,20 @@ async function loadCategories() {
   } catch (err) {
     console.error('Error loading categories:', err);
     showToast('error', 'Failed to load categories: ' + err.message);
-    container.innerHTML = `
-      <div class="banner banner-error">
-        Error loading categories: ${escapeHtml(err.message)}
-      </div>
-    `;
+    if (container) {
+      container.innerHTML = `
+        <div class="banner banner-error" style="display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-3);">
+          <div>Error loading categories: ${escapeHtml(err.message)}</div>
+          <button type="button" id="btn-retry-load-cats" class="btn btn-outline btn-sm" style="background: #fff;">
+            ↻ Retry
+          </button>
+        </div>
+      `;
+      document.getElementById('btn-retry-load-cats')?.addEventListener('click', () => {
+        container.innerHTML = '<div style="padding: var(--space-6); text-align: center; color: var(--text-muted);"><span class="spinner" style="margin-right: 8px;"></span> Loading categories...</div>';
+        loadCategories();
+      });
+    }
   }
 }
 

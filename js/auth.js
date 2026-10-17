@@ -4,7 +4,7 @@
  */
 
 import { AUTH_EMAIL_DOMAIN, isSupabaseConfigured } from './config.js';
-import { getSupabase, DemoDB } from './supabaseClient.js';
+import { getSupabase, DemoDB, clearStaleSupabaseSession } from './supabaseClient.js';
 
 /**
  * Normalizes a student or admin identifier into a Supabase auth email.
@@ -37,6 +37,9 @@ export async function loginWithStudentId(studentId, password) {
     if (!supabase) {
       throw new Error('Could not connect to Supabase. Check your configuration.');
     }
+
+    // Clear any stale local storage tokens before attempting new authentication
+    clearStaleSupabaseSession();
 
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
       email,
@@ -119,19 +122,48 @@ export async function loginWithStudentId(studentId, password) {
  */
 export async function getCurrentProfile() {
   if (isSupabaseConfigured()) {
-    const supabase = await getSupabase();
-    if (!supabase) return null;
+    try {
+      const supabase = await getSupabase();
+      if (!supabase) return null;
 
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.user) return null;
+      const { data, error } = await supabase.auth.getSession();
+      if (error) {
+        console.warn('Session check encountered an error:', error.message);
+        if (
+          error.message?.includes('Refresh Token') ||
+          error.message?.includes('refresh_token') ||
+          error.status === 400
+        ) {
+          clearStaleSupabaseSession();
+          await supabase.auth.signOut().catch(() => {});
+        }
+        return null;
+      }
 
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', session.user.id)
-      .single();
+      const session = data?.session;
+      if (!session?.user) return null;
 
-    return profile || null;
+      const { data: profile, error: profileErr } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', session.user.id)
+        .single();
+
+      if (profileErr) {
+        console.warn('Profile retrieval error:', profileErr.message);
+        clearStaleSupabaseSession();
+        await supabase.auth.signOut().catch(() => {});
+        return null;
+      }
+
+      return profile || null;
+    } catch (err) {
+      console.warn('Error reading current profile:', err);
+      if (err?.message?.includes('Refresh Token') || err?.name === 'AuthApiError') {
+        clearStaleSupabaseSession();
+      }
+      return null;
+    }
   }
 
   return DemoDB.getDemoAuth();
@@ -142,11 +174,16 @@ export async function getCurrentProfile() {
  */
 export async function logoutUser() {
   if (isSupabaseConfigured()) {
-    const supabase = await getSupabase();
-    if (supabase) {
-      await supabase.auth.signOut();
+    try {
+      const supabase = await getSupabase();
+      if (supabase) {
+        await supabase.auth.signOut();
+      }
+    } catch (err) {
+      console.warn('Sign out error:', err);
     }
   }
+  clearStaleSupabaseSession();
   DemoDB.setDemoAuth(null);
   window.location.href = '/index.html';
 }

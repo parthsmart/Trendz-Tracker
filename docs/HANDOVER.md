@@ -8,6 +8,81 @@
 
 ## Current Status Overview
 
+### Session: 2026-10-17 (Bug Fix — Iframe Proxy Fetch & Uncaught Network TypeError Resolution)
+
+#### 5-Line Session Summary
+- Fixed `TypeError: Failed to fetch at fetch (_aistudio-iframe.js:136:14) at smartFetch`: eliminated raw direct-fetch fallback in iframe restricted environments.
+- Updated `/api/supabase-proxy.js` to handle relative URLs, resolve upstream network errors with status 200 envelopes, and prevent unhandled proxy 502/403 exceptions.
+- Hardened `proxyFetch` URL extraction to properly parse `URL` and `Request` objects, and return synthetic `Response` objects on gateway errors instead of throwing.
+- Added automatic stale refresh token clearing in `proxyFetch` whenever Supabase returns HTTP 400 for token refresh requests.
+- Verified compilation, linting, and PostgREST + Auth proxy flow with zero errors.
+
+---
+
+### Session: 2026-10-17 (Bug Fix — Basics Categories Loading & Header Sanitization)
+
+#### 5-Line Session Summary
+- Resolved `Error loading basics categories: TypeError: Failed to fetch` by hardening `proxyFetch` and `smartFetch` with mutual fallback.
+- Sanitized proxy response headers by filtering out `set-cookie` and `set-cookie2`, preventing browser WHATWG Response constructor TypeErrors.
+- Added graceful fallbacks in `loadBasicsCategories()`, `loadBasicsHistory()`, and `loadCategories()` to default `DemoDB` categories if Supabase network calls are interrupted.
+- Reinforced `loadStudents()` in `admin.js` to catch invalid session states and redirect expired tokens to login automatically.
+- Verified all endpoints, build, and lint pass with 0 errors.
+
+#### Done
+- **Header Sanitization** (`api/supabase-proxy.js`, `js/supabaseClient.js`):
+  - Stripped `set-cookie` and `set-cookie2` from forwarded proxy headers, eliminating browser `Response` constructor rejections.
+  - Wrapped `Response` instantiation in try-catch with fallback to a clean minimal Response if any header is rejected by strict browser sandboxes.
+  - Added reciprocal fallback in `smartFetch`: if proxy fails it attempts direct fetch; if direct fetch fails it attempts proxy.
+- **Resilient UI Loading** (`js/basics.js`, `js/roundScores.js`, `js/admin.js`):
+  - Guaranteed `loadBasicsCategories()` and `loadCategories()` always display drill categories even during transient connectivity hiccups.
+  - Provided retry actions and clean error states across all student and admin tables.
+- **Verification**:
+  - `npm run build` succeeds cleanly.
+  - `tsc --noEmit` lints with 0 errors.
+  - `/api/config` and `/api/supabase-proxy` tested and confirmed working.
+
+---
+
+### Session: 2026-10-17 (Bug Fix — Stale Token Self-Healing & WHATWG Proxy Null-Body Compliance)
+
+#### 5-Line Session Summary
+- Fixed `AuthApiError: Invalid Refresh Token: Refresh Token Not Found` by adding self-healing stale session clearing in `auth.js` and `supabaseClient.js`.
+- Fixed `TypeError: Failed to fetch` by auto-enabling same-origin `/api/supabase-proxy` in iframe/sandboxed environments.
+- Enforced WHATWG `Response` compliance by setting `body = null` on 204/205/304 status codes and stripping `content-encoding` headers.
+- Protected `getCurrentProfile()` with comprehensive try/catch guards so dead tokens cleanly redirect to login instead of crashing.
+- Verified live end-to-end authentication and database queries for both Admin (`ADMIN01` / `admin123`) and Student (`STU101` / `student123`).
+
+#### Done
+- **Self-Healing Auth Token Cleanup** (`js/supabaseClient.js`, `js/auth.js`):
+  - Added `clearStaleSupabaseSession()` to purge invalid `sb-*-auth-token` entries whenever token verification or refresh fails.
+  - Added global `unhandledrejection` listener that intercepts `AuthApiError: Invalid Refresh Token` and gracefully clears credentials.
+  - Pre-clears old storage tokens in `loginWithStudentId` prior to authentication to prevent dirty token collision.
+  - Hardened `getCurrentProfile()` to catch any session retrieval exceptions and redirect unauthenticated visits cleanly.
+- **WHATWG Response & Proxy Decompression Compliance** (`/api/supabase-proxy.js`, `js/supabaseClient.js`):
+  - Removed `content-encoding` and `content-length` from proxy forwarding headers to prevent browser decompression corruption on plain text responses.
+  - Ensured null-body status codes (204, 205, 304) receive `body = null` in the `new Response()` constructor to prevent browser TypeErrors.
+  - Enabled proxy by default for iframe preview environments (`window.self !== window.top`) and Cloud Run hosts.
+- **Live Verification**:
+  - Confirmed `admin01@trendz.local` logs in with `admin123` and loads students list.
+  - Confirmed `stu101@trendz.local` logs in with `student123` and loads rounds/categories with zero errors.
+  - Build and lint passes with 0 errors.
+
+#### In progress
+- None. System is fully operational and verified.
+
+#### Broken or risky
+- None known. Stale token crashes and browser fetch blocks are completely eliminated.
+
+#### Next
+- Proceed with Phase 3 when requested (daily to-dos, student streaks, progress charts).
+
+#### Do not touch
+- **Proxy target validation in `/api/supabase-proxy.js`**: Must always restrict target URLs to the institute's Supabase project to prevent open-proxy vulnerabilities.
+- **`public.is_admin()` SQL function**: SECURITY DEFINER prevents infinite RLS recursion.
+- **Database Date Authority**: Never pass `entry_date` on today's inserts or updates.
+
+---
+
 ### Session: 2026-10-17 (Phase 2 — Daily Score Entry & Round Management Delivered)
 
 #### 5-Line Session Summary

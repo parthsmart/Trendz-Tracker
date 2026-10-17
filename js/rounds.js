@@ -99,7 +99,22 @@ async function loadRounds() {
   } catch (err) {
     console.error('Error loading rounds:', err);
     showToast('error', 'Failed to load rounds: ' + err.message);
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--color-danger); padding: var(--space-4);">Error loading rounds.</td></tr>`;
+    if (tbody) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="5" style="text-align: center; color: var(--color-danger); padding: var(--space-6);">
+            <div style="margin-bottom: var(--space-3); font-weight: 500;">Failed to load rounds: ${err.message || 'Network error'}</div>
+            <button type="button" id="btn-retry-load-rounds" class="btn btn-outline btn-sm">
+              ↻ Try Again
+            </button>
+          </td>
+        </tr>
+      `;
+      document.getElementById('btn-retry-load-rounds')?.addEventListener('click', () => {
+        tbody.innerHTML = '<tr><td colspan="5"><div class="skeleton-row"></div></td></tr>';
+        loadRounds();
+      });
+    }
   }
 }
 

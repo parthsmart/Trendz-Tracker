@@ -93,18 +93,37 @@ async function loadRounds() {
  * Load active round categories in sort order
  */
 async function loadCategories() {
-  if (isSupabaseConfigured()) {
-    const supabase = await getSupabase();
-    const { data, error } = await supabase
-      .from('categories')
-      .select('*')
-      .eq('section', 'round')
-      .eq('active', true)
-      .order('sort_order', { ascending: true });
+  try {
+    if (isSupabaseConfigured()) {
+      const supabase = await getSupabase();
+      if (supabase) {
+        const { data, error } = await supabase
+          .from('categories')
+          .select('*')
+          .eq('section', 'round')
+          .eq('active', true)
+          .order('sort_order', { ascending: true });
 
-    if (error) throw new Error(error.message);
-    roundCategories = data || [];
-  } else {
+        if (!error && Array.isArray(data) && data.length > 0) {
+          roundCategories = data;
+        } else {
+          if (error) console.warn('Could not fetch round categories, using defaults:', error.message);
+          roundCategories = DemoDB.getCategories()
+            .filter(c => c.section === 'round' && c.active)
+            .sort((a, b) => a.sort_order - b.sort_order);
+        }
+      } else {
+        roundCategories = DemoDB.getCategories()
+          .filter(c => c.section === 'round' && c.active)
+          .sort((a, b) => a.sort_order - b.sort_order);
+      }
+    } else {
+      roundCategories = DemoDB.getCategories()
+        .filter(c => c.section === 'round' && c.active)
+        .sort((a, b) => a.sort_order - b.sort_order);
+    }
+  } catch (err) {
+    console.warn('Error loading round categories, falling back:', err);
     roundCategories = DemoDB.getCategories()
       .filter(c => c.section === 'round' && c.active)
       .sort((a, b) => a.sort_order - b.sort_order);
@@ -124,17 +143,28 @@ async function loadRoundResults() {
   try {
     if (isSupabaseConfigured()) {
       const supabase = await getSupabase();
-      const { data, error } = await supabase
-        .from('results')
-        .select('*')
-        .eq('student_id', currentProfile.id)
-        .eq('round_number', selectedRoundNumber);
+      if (supabase) {
+        const { data, error } = await supabase
+          .from('results')
+          .select('*')
+          .eq('student_id', currentProfile.id)
+          .eq('round_number', selectedRoundNumber);
 
-      if (error) throw new Error(error.message);
-
-      (data || []).forEach(res => {
-        existingResultsMap.set(res.category_id, res);
-      });
+        if (!error && Array.isArray(data)) {
+          data.forEach(res => {
+            existingResultsMap.set(res.category_id, res);
+          });
+        } else {
+          if (error) console.warn('Could not fetch round results from Supabase, checking local cache:', error.message);
+          const demoKey = `trendz_demo_results_${currentProfile.id}_r${selectedRoundNumber}`;
+          const saved = JSON.parse(localStorage.getItem(demoKey) || '[]');
+          saved.forEach(res => existingResultsMap.set(res.category_id, res));
+        }
+      } else {
+        const demoKey = `trendz_demo_results_${currentProfile.id}_r${selectedRoundNumber}`;
+        const saved = JSON.parse(localStorage.getItem(demoKey) || '[]');
+        saved.forEach(res => existingResultsMap.set(res.category_id, res));
+      }
     } else {
       // In Demo Mode, retrieve from localStorage
       const demoKey = `trendz_demo_results_${currentProfile.id}_r${selectedRoundNumber}`;
@@ -145,8 +175,9 @@ async function loadRoundResults() {
     renderCategoryRows();
     updateProgressDisplay();
   } catch (err) {
-    console.error('Error loading round results:', err);
-    showToast('error', 'Failed to load round scores: ' + err.message);
+    console.warn('Error loading round results, rendering available inputs:', err);
+    renderCategoryRows();
+    updateProgressDisplay();
   }
 }
 

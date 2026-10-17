@@ -9,6 +9,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import createStudentHandler from './api/create-student.js';
 import resetPasswordHandler from './api/reset-password.js';
+import supabaseProxyHandler from './api/supabase-proxy.js';
 
 dotenv.config();
 
@@ -20,6 +21,17 @@ const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
 
+// Public config endpoint (never exposes secret keys)
+app.get('/api/config', (req, res) => {
+  const rawUrl = process.env.SUPABASE_URL || 'https://ctwjujnqxkhononxykdc.supabase.co';
+  const cleanUrl = rawUrl.trim().replace(/\/rest\/v1\/?$/i, '').replace(/\/+$/, '');
+  const anonKey = (process.env.SUPABASE_ANON_KEY || 'sb_publishable_jKPhD4j4mfiAlKu7ljyLbQ_iqJnvcyw').trim();
+  res.json({
+    supabaseUrl: cleanUrl,
+    supabaseAnonKey: anonKey,
+  });
+});
+
 // Mount the serverless API routes locally
 app.post('/api/create-student', (req, res) => {
   return createStudentHandler(req, res);
@@ -27,6 +39,10 @@ app.post('/api/create-student', (req, res) => {
 
 app.post('/api/reset-password', (req, res) => {
   return resetPasswordHandler(req, res);
+});
+
+app.all('/api/supabase-proxy', (req, res) => {
+  return supabaseProxyHandler(req, res);
 });
 
 async function startServer() {

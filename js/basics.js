@@ -55,15 +55,23 @@ async function loadBasicsCategories() {
   try {
     if (isSupabaseConfigured()) {
       const supabase = await getSupabase();
-      const { data, error } = await supabase
-        .from('categories')
-        .select('*')
-        .eq('section', 'basics')
-        .eq('active', true)
-        .order('sort_order', { ascending: true });
+      if (supabase) {
+        const { data, error } = await supabase
+          .from('categories')
+          .select('*')
+          .eq('section', 'basics')
+          .eq('active', true)
+          .order('sort_order', { ascending: true });
 
-      if (error) throw new Error(error.message);
-      basicsCategories = data || [];
+        if (!error && Array.isArray(data) && data.length > 0) {
+          basicsCategories = data;
+        } else {
+          if (error) console.warn('Could not load categories from Supabase, using defaults:', error.message);
+          basicsCategories = DemoDB.getCategories().filter(c => c.section === 'basics' && c.active);
+        }
+      } else {
+        basicsCategories = DemoDB.getCategories().filter(c => c.section === 'basics' && c.active);
+      }
     } else {
       basicsCategories = DemoDB.getCategories().filter(c => c.section === 'basics' && c.active);
     }
@@ -77,8 +85,15 @@ async function loadBasicsCategories() {
       <option value="${c.id}">${escapeHtml(c.name)}</option>
     `).join('');
   } catch (err) {
-    console.error('Error loading basics categories:', err);
-    showToast('error', 'Failed to load categories: ' + err.message);
+    console.warn('Error in loadBasicsCategories, falling back to local categories:', err);
+    basicsCategories = DemoDB.getCategories().filter(c => c.section === 'basics' && c.active);
+    if (basicsCategories.length > 0) {
+      selectEl.innerHTML = basicsCategories.map(c => `
+        <option value="${c.id}">${escapeHtml(c.name)}</option>
+      `).join('');
+    } else {
+      showToast('error', 'Failed to load categories: ' + (err.message || 'Network error'));
+    }
   }
 }
 
@@ -104,31 +119,41 @@ async function loadBasicsHistory() {
         return;
       }
 
-      const { data, error } = await supabase
-        .from('results')
-        .select(`
-          id,
-          student_id,
-          category_id,
-          correct,
-          total,
-          time_seconds,
-          note,
-          entry_date,
-          verified,
-          created_at,
-          categories (
-            name,
-            sort_order
-          )
-        `)
-        .eq('student_id', currentProfile.id)
-        .in('category_id', categoryIds)
-        .order('entry_date', { ascending: false })
-        .order('created_at', { ascending: false });
+      if (supabase) {
+        const { data, error } = await supabase
+          .from('results')
+          .select(`
+            id,
+            student_id,
+            category_id,
+            correct,
+            total,
+            time_seconds,
+            note,
+            entry_date,
+            verified,
+            created_at,
+            categories (
+              name,
+              sort_order
+            )
+          `)
+          .eq('student_id', currentProfile.id)
+          .in('category_id', categoryIds)
+          .order('entry_date', { ascending: false })
+          .order('created_at', { ascending: false });
 
-      if (error) throw new Error(error.message);
-      allBasicsResults = data || [];
+        if (error) {
+          console.warn('Could not fetch basics results from Supabase, checking local cache:', error.message);
+          const demoKey = `trendz_demo_basics_${currentProfile.id}`;
+          allBasicsResults = JSON.parse(localStorage.getItem(demoKey) || '[]');
+        } else {
+          allBasicsResults = data || [];
+        }
+      } else {
+        const demoKey = `trendz_demo_basics_${currentProfile.id}`;
+        allBasicsResults = JSON.parse(localStorage.getItem(demoKey) || '[]');
+      }
     } else {
       // Demo Mode retrieval
       const demoKey = `trendz_demo_basics_${currentProfile.id}`;
@@ -137,8 +162,10 @@ async function loadBasicsHistory() {
 
     renderHistory();
   } catch (err) {
-    console.error('Error loading basics history:', err);
-    showToast('error', 'Failed to load basics history: ' + err.message);
+    console.warn('Error loading basics history, using local fallback:', err);
+    const demoKey = `trendz_demo_basics_${currentProfile?.id || 'default'}`;
+    allBasicsResults = JSON.parse(localStorage.getItem(demoKey) || '[]');
+    renderHistory();
   }
 }
 

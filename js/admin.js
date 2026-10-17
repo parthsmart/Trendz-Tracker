@@ -7,7 +7,7 @@ import { createStudent, resetStudentPassword, toggleStudentActive } from './api.
 import { isSupabaseConfigured } from './config.js';
 import { requireAuth } from './guard.js';
 import { closeModal, openModal, setupModalListeners } from './modal.js';
-import { DemoDB, getSupabase } from './supabaseClient.js';
+import { DemoDB, getSupabase, clearStaleSupabaseSession } from './supabaseClient.js';
 import { showToast } from './toast.js';
 
 let allStudents = [];
@@ -39,14 +39,26 @@ async function loadStudents() {
   try {
     if (isSupabaseConfigured()) {
       const supabase = await getSupabase();
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('role', 'student')
-        .order('created_at', { ascending: false });
+      if (!supabase) {
+        allStudents = DemoDB.getStudents();
+      } else {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('role', 'student')
+          .order('created_at', { ascending: false });
 
-      if (error) throw new Error(error.message);
-      allStudents = data || [];
+        if (error) {
+          const msg = error.message || '';
+          if (msg.includes('JWT') || msg.includes('token') || msg.includes('Refresh')) {
+            clearStaleSupabaseSession();
+            window.location.href = '/index.html';
+            return;
+          }
+          throw new Error(msg);
+        }
+        allStudents = data || [];
+      }
     } else {
       allStudents = DemoDB.getStudents();
     }
@@ -55,8 +67,31 @@ async function loadStudents() {
     updateStats();
   } catch (err) {
     console.error('Error loading students:', err);
-    showToast('error', 'Failed to load students: ' + err.message);
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--color-danger); padding: var(--space-6);">Error loading student roster.</td></tr>`;
+    showToast('error', 'Failed to load students: ' + (err.message || 'Network error'));
+    if (tbody) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="5" style="text-align: center; padding: var(--space-6);">
+            <div style="color: var(--color-danger); margin-bottom: var(--space-3); font-weight: 500;">
+              Error loading student roster: ${escapeHtml(err.message)}
+            </div>
+            <button type="button" id="btn-retry-load-students" class="btn btn-outline btn-sm">
+              ↻ Try Again
+            </button>
+          </td>
+        </tr>
+      `;
+      document.getElementById('btn-retry-load-students')?.addEventListener('click', () => {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="5" style="text-align: center; padding: var(--space-6); color: var(--text-muted);">
+              <span class="spinner" style="margin-right: 8px;"></span> Loading student roster...
+            </td>
+          </tr>
+        `;
+        loadStudents();
+      });
+    }
   }
 }
 

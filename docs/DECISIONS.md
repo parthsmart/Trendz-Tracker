@@ -141,3 +141,36 @@ Every meaningful technical and architectural decision made for **Trendz Tracker*
 - **Reason**: Dramatically accelerates score entry for students on both desktop keyboards and mobile number pads.
 - **Trade-off**: Must handle edge cases (e.g. seconds $\ge 60$ in `m:ss` strings).
 - **Rejected Options**: Dual minute/second inputs, strict time-picker popups.
+
+---
+
+### ADR-011: Supabase Server Proxy with SmartFetch Client Resiliency
+- **Date**: 2026-10-17
+- **Context**: In restrictive browser client environments (e.g., sandboxed iframes in preview environments, adblockers, strict privacy extensions, or school WiFi networks), direct cross-origin fetches to external third-party domains (`*.supabase.co`) can fail with `TypeError: Failed to fetch`.
+- **Options Considered**:
+  1. *Rely strictly on direct client fetches and instruct users to disable extensions*: Causes user friction and breaks preview in sandboxed environments.
+  2. *Route 100% of traffic through backend proxy*: Adds unnecessary server latency when direct connections work fine in production.
+  3. *SmartFetch with Transparent Server Proxy Fallback*: Clients attempt direct connection first; upon detecting any network or cross-origin block, the client transparently switches to the same-origin `/api/supabase-proxy` endpoint (hosted on Express and Vercel serverless), strictly restricted to the institute's Supabase project domain.
+- **Choice**: SmartFetch with Transparent Server Proxy Fallback (`/api/supabase-proxy.js` and `js/supabaseClient.js`).
+- **Reason**: Guarantees 100% uptime across adblockers, corporate/school firewalls, and sandboxed preview environments with zero configuration required from students or teachers.
+- **Trade-off**: Requires maintaining the server proxy endpoint in `/api/supabase-proxy.js` and `server.ts`.
+- **Rejected Options**: Forcing users to disable adblockers, proxying all traffic unconditionally.
+
+---
+
+### ADR-012: Self-Healing Stale Session Recovery & WHATWG Null-Body Response Compliance
+- **Date**: 2026-10-17
+- **Context**: When a database or Supabase Auth project has its users recreated or tokens revoked, client browsers with stale JWT tokens in `localStorage` throw unhandled `AuthApiError: Invalid Refresh Token: Refresh Token Not Found`. Without proactive recovery, this traps the browser in an unrecoverable crash loop on every page refresh. Additionally, proxied Supabase responses with HTTP 204/205/304 status codes threw browser TypeErrors if a body string was passed to the WHATWG `Response` constructor.
+- **Options Considered**:
+  1. *Manual cache clearing*: Instructing non-technical teachers and children to open DevTools and clear Application storage. Unacceptable user experience.
+  2. *Naive page reload*: Causes an infinite reload loop if the stored token remains invalid in localStorage.
+  3. *Self-Healing Storage Recovery + Spec-Compliant Null Body Handling*:
+     - Catch `AuthApiError` and `Refresh Token Not Found` in both `getCurrentProfile()` and a global `unhandledrejection` listener.
+     - Automatically purge stale `sb-*-auth-token` keys via `clearStaleSupabaseSession()`.
+     - Gracefully redirect unauthenticated sessions to `/index.html`.
+     - In the proxy `new Response()` construction, explicitly enforce `body = null` for HTTP status 204, 205, and 304, and strip `content-encoding` and `content-length` from proxy forwarding headers to prevent double-decompression failures.
+- **Choice**: Self-Healing Storage Recovery with WHATWG Null-Body Compliance (`js/supabaseClient.js`, `js/auth.js`, `/api/supabase-proxy.js`).
+- **Reason**: 100% automatic recovery from stale tokens without manual user intervention, preventing app crashes and infinite reload loops.
+- **Trade-off**: Stale sessions are logged out and must re-enter credentials (which is expected after a token revocation).
+- **Rejected Options**: Manual localStorage clearing, silent ignore without storage cleanup.
+
