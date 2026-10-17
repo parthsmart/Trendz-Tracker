@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Learning Resources - Trendz Tracker Admin</title>
+    <meta name="description" content="Manage study materials, rules, calculation guides, and reference links for abacus students." />
+    
+    <!-- Design tokens & unified styles -->
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- Top Bar Contract: 3-Zone Navigation -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <!-- Zone 1: Wordmark & Brand -->
+          <a href="/pages/admin.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <!-- Zone 2: Navigation Links -->
+          <nav class="nav-zone" aria-label="Admin Navigation">
+            <a href="/pages/admin.html" class="nav-link">Students</a>
+            <a href="/pages/todos.html" class="nav-link">Daily To-Do</a>
+            <a href="/pages/resources.html" class="nav-link active">Resources</a>
+            <a href="/pages/categories.html" class="nav-link">Categories</a>
+            <a href="/pages/rounds.html" class="nav-link">Rounds</a>
+          </nav>
+
+          <!-- Zone 3: User Details & Logout Action -->
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Admin</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-role" style="color: var(--text-muted);">Teacher</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Page Content -->
+      <main class="main-content">
+        <div class="container">
+          <!-- Demo Mode Banner Placeholder -->
+          <div id="config-banner-placeholder"></div>
+
+          <!-- Page Heading & Action -->
+          <div class="section-header-row" style="margin-bottom: var(--space-6);">
+            <div>
+              <h1>Learning Resources</h1>
+              <p style="font-size: var(--text-sm);">
+                Publish championship rules, calculation guides, PDF worksheets, and external video links for students.
+              </p>
+            </div>
+            <button type="button" id="btn-open-add-resource" class="btn btn-primary">
+              <span>+ Add Resource</span>
+            </button>
+          </div>
+
+          <!-- Resources Table Card -->
+          <div class="card" style="padding: 0; overflow: hidden;">
+            <div class="table-responsive">
+              <table class="data-table" id="resources-table" aria-label="Learning resources list">
+                <thead>
+                  <tr>
+                    <th style="width: 70px;">Order</th>
+                    <th>Resource Title & Description</th>
+                    <th style="width: 160px;">Topic</th>
+                    <th>External Link</th>
+                    <th style="width: 100px;">Status</th>
+                    <th style="width: 180px; text-align: right;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="resources-tbody">
+                  <tr>
+                    <td colspan="6" class="loading-state">Loading resources...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- Add/Edit Resource Modal -->
+    <div id="modal-resource" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="modal-resource-title">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h2 id="modal-resource-title" class="modal-title">Add Learning Resource</h2>
+          <button type="button" class="modal-close-btn" data-close-modal="modal-resource" aria-label="Close modal">&times;</button>
+        </div>
+
+        <form id="form-resource">
+          <input type="hidden" id="resource-id" value="" />
+
+          <div class="form-group">
+            <label for="resource-title" class="form-label required">Resource Title</label>
+            <input
+              type="text"
+              id="resource-title"
+              class="form-control"
+              placeholder="e.g. Junior Championship Competition Rules 2026"
+              required
+              maxlength="120"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="resource-url" class="form-label required">Destination URL (http:// or https://)</label>
+            <input
+              type="url"
+              id="resource-url"
+              class="form-control"
+              placeholder="https://example.com/guide.pdf"
+              required
+              pattern="^https?://.+"
+              title="URL must start with http:// or https://"
+            />
+            <span class="form-hint">Security restriction: only valid http:// or https:// web addresses are accepted.</span>
+          </div>
+
+          <div class="form-group">
+            <label for="resource-topic" class="form-label required">Topic / Grouping</label>
+            <input
+              type="text"
+              id="resource-topic"
+              class="form-control"
+              list="topic-datalist"
+              placeholder="e.g. Championship Guidelines, Calculation Guides, Drills"
+              required
+              maxlength="60"
+            />
+            <datalist id="topic-datalist">
+              <option value="Championship Guidelines"></option>
+              <option value="Calculation Techniques"></option>
+              <option value="Practice Materials"></option>
+              <option value="Rules & Scoring"></option>
+            </datalist>
+            <span class="form-hint">Resources are grouped under this topic on the student dashboard.</span>
+          </div>
+
+          <div class="form-group">
+            <label for="resource-desc" class="form-label">Summary / Description (Optional)</label>
+            <textarea
+              id="resource-desc"
+              class="form-control"
+              rows="3"
+              placeholder="Brief guidance for students on how to use this study material..."
+              maxlength="300"
+            ></textarea>
+          </div>
+
+          <div class="form-group" style="margin-top: var(--space-3);">
+            <label class="custom-checkbox">
+              <input type="checkbox" id="resource-active" checked />
+              <span>Active (Visible on student dashboards)</span>
+            </label>
+          </div>
+
+          <div class="modal-actions">
+            <button type="button" class="btn btn-outline" data-close-modal="modal-resource">Cancel</button>
+            <button type="submit" id="btn-save-resource" class="btn btn-primary">Save Resource</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Toast Notifications Container -->
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <!-- Scripts -->
+    <script type="module" src="/js/resources.js"></script>
+  </body>
+</html>

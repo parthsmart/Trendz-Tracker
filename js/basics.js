@@ -84,6 +84,13 @@ async function loadBasicsCategories() {
     selectEl.innerHTML = basicsCategories.map(c => `
       <option value="${c.id}">${escapeHtml(c.name)}</option>
     `).join('');
+
+    // Preselect category if passed in URL query parameter (e.g. from Today's To-Do link)
+    const urlParams = new URLSearchParams(window.location.search);
+    const catParam = urlParams.get('cat') || urlParams.get('category_id');
+    if (catParam && selectEl.querySelector(`option[value="${catParam}"]`)) {
+      selectEl.value = catParam;
+    }
   } catch (err) {
     console.warn('Error in loadBasicsCategories, falling back to local categories:', err);
     basicsCategories = DemoDB.getCategories().filter(c => c.section === 'basics' && c.active);
@@ -91,6 +98,12 @@ async function loadBasicsCategories() {
       selectEl.innerHTML = basicsCategories.map(c => `
         <option value="${c.id}">${escapeHtml(c.name)}</option>
       `).join('');
+
+      const urlParams = new URLSearchParams(window.location.search);
+      const catParam = urlParams.get('cat') || urlParams.get('category_id');
+      if (catParam && selectEl.querySelector(`option[value="${catParam}"]`)) {
+        selectEl.value = catParam;
+      }
     } else {
       showToast('error', 'Failed to load categories: ' + (err.message || 'Network error'));
     }

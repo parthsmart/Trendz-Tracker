@@ -252,9 +252,123 @@ This document contains step-by-step test scenarios to verify security boundaries
   3. Notice all published rounds listed newest first with total score counts.
   4. Click **⚡ Add Next Round**.
   5. Notice the modal pre-fills `Round Number` with `max + 1` and `Round Date` with today's date in Indian Standard Time (IST).
-  6. Click **Publish Round**.
-  7. Try to click **Delete** on a round that has scores recorded.
+---
+
+### Test Case 17: Phase 3 Student Dashboard Top Cards (Greeting, Streak & Milestones, Today's To-Do)
+- **Objective**: Verify that the student portal displays authoritative IST date, current/best streak, shields, milestones, and today's to-do checklist.
+- **Steps**:
+  1. Log in as Student `STU101` / `student123`.
+  2. Navigate to `/pages/student.html`.
+  3. Verify the Indian Standard Time date in the header matches today's IST date (`today_ist()`).
+  4. Inspect the **Practice Streak** card:
+     - Check that Current Streak and Best Streak display numbers from `streak_for`.
+     - Check the shield counter and status (`Shield Ready` or `Next shield at day X`).
+     - Check the milestone track: nodes $\le$ current streak are highlighted as `.reached`.
+  5. Inspect the **Today's To-Do** card:
+     - Check the progress indicator (e.g. `"4 of 7 done today"`).
+     - Check that completed tasks have a green checkmark circle and strikethrough text.
+     - Check that pending tasks have an empty circle.
 - **Expected Result**:
-  - The new round is published and immediately selectable by students.
-  - Rounds with recorded scores have their **Delete** button disabled with notice: `"Cannot delete round with recorded results"`.
-  - Empty rounds can be deleted cleanly.
+  - All cards load cleanly without layout shifts.
+  - No client-side clock calculations are performed.
+  - If demo mode is active, the red banner `"DEMO MODE — data is fake"` appears at the top.
+
+---
+
+### Test Case 18: Today's To-Do Deep Links & Basics Preselection
+- **Objective**: Verify clicking to-do tasks routes to the correct entry view and pre-fills categories.
+- **Steps**:
+  1. On `/pages/student.html`, click a Round task (e.g. `Round Drill: Addition`).
+  2. Verify it routes directly to `/pages/round-scores.html`.
+  3. Go back to `/pages/student.html` and click a Basics task (e.g. `Mental Basics: 2-digit 2-rows (2d2r)`).
+  4. Verify it routes to `/pages/basics.html?cat=cat-bas-2`.
+  5. Observe the **Drill Category** dropdown on `/pages/basics.html`.
+- **Expected Result**:
+  - The dropdown automatically preselects `2d2r` without manual student selection.
+  - The student can immediately begin typing correct/total/time values.
+
+---
+
+### Test Case 19: Competition Score Sheet Table (5-Round Pagination, Sticky Column & Summary Rows)
+- **Objective**: Verify the 5-round score sheet table renders competition categories as rows, rounds as columns, color-codes cells, computes summary rows, and scrolls with sticky first column.
+- **Steps**:
+  1. On `/pages/student.html`, scroll to the **Competition Round Score Sheet** section.
+  2. Verify the 5 round columns displayed (newest first).
+  3. Verify each cell shows `correct/total` and `mm:ss` time, color-coded by `js/scoreColors.js` (Green for 0 wrong, Orange for 1-10 wrong, Cyan for >10 wrong).
+  4. Verify the 4 summary rows at the bottom:
+     - `Time Taken`: Sum of all category times formatted as `mm:ss`.
+     - `Final Score`: Sum of correct answers.
+     - `Total Attempt`: Sum of total questions.
+     - `Marks to Correct`: `Total Attempt - Final Score`.
+  5. Verify that rounds with unattempted categories display a `PARTIAL` badge.
+  6. Click `Older Rounds ←` button:
+     - Verify table shifts to the previous batch of 5 older rounds.
+     - Verify range header updates (e.g. `Rounds 235–239`).
+     - Verify `Newer Rounds →` button becomes enabled.
+  7. On mobile or narrow screen, scroll horizontally:
+     - Verify the **Category** column stays pinned (sticky) to the left while rounds scroll smoothly underneath.
+- **Expected Result**:
+  - Pagination shifts by 5 rounds cleanly without reloading the page.
+  - Calculation summaries update instantly per column.
+  - Sticky column maintains visual alignment without text overlap.
+
+---
+
+### Test Case 20: Inline SVG Progress Charts (Accuracy, Speed & Category Drilldown)
+- **Objective**: Verify that 30-day accuracy and speed charts render via inline SVG and provide interactive inspection.
+- **Steps**:
+  1. Scroll to the **Progress Analytics** section on `/pages/student.html`.
+  2. Inspect the **Daily Accuracy Trend** chart:
+     - Verify Y-axis scaled 0% to 100% with horizontal grid lines.
+     - Verify polyline and green shaded area.
+  3. Hover or tap on any circular data dot:
+     - Verify tooltip popup displays the exact date, accuracy percentage, and `correct/total`.
+  4. Inspect the **Daily Speed** chart:
+     - Verify questions/minute trend line and blue shaded area.
+     - Hover/tap on a data dot -> verify tooltip shows speed in `q/min` and total time taken.
+  5. In the **Category History Drilldown** dropdown, select a category (e.g. `ADD` or `1d4r`):
+     - Verify the last 10 entries appear in sequential progression bars.
+     - Verify each entry displays accuracy %, score, time, and speed.
+- **Expected Result**:
+  - Charts are rendered entirely via `<svg>` with zero third-party chart libraries.
+  - Tooltips reposition accurately on both desktop mouse hover and mobile tap.
+  - Screen-reader accessible summary descriptions are present.
+
+---
+
+### Test Case 21: Admin Daily To-Do Management & Section Category Filtering
+- **Objective**: Verify teachers can create, edit, reorder, and toggle daily tasks, and that category options dynamically match the chosen section.
+- **Steps**:
+  1. Log in as Admin (`ADMIN01` / `admin123`).
+  2. Click **Daily To-Do** in the top navigation bar (`/pages/todos.html`).
+  3. Click **+ Add Task**.
+  4. In the modal, change **Section Track** to `basics`:
+     - Observe the **Category Filter** dropdown: verify it lists only basics categories (`1d4r`, `2d2r`).
+  5. Change **Section Track** to `round`:
+     - Verify the category dropdown switches to list only round categories (`ADD`, `SUB`, etc.).
+  6. Fill title `Daily Sprint`, section `round`, category `ADD`, and click **Save Task**.
+  7. Test reordering: click the `▲` or `▼` buttons on any task row.
+  8. Test toggle active: click **Deactivate** / **Activate**.
+- **Expected Result**:
+  - The new task appears in the table ordered by `sort_order`.
+  - Reordering swaps positions smoothly and persists.
+  - Toggling active status reflects immediately on student dashboards.
+
+---
+
+### Test Case 22: Admin Learning Resources Management & Protocol Validation
+- **Objective**: Verify resources management and strict URL validation.
+- **Steps**:
+  1. As Admin, click **Resources** in the top navigation bar (`/pages/resources.html`).
+  2. Click **+ Add Resource**.
+  3. Enter an invalid URL: `javascript:alert(1)` or `ftp://files.com/doc`.
+  4. Click **Save Resource**.
+  5. Verify an error toast appears: `"URL must start with http:// or https://"`.
+  6. Enter a valid URL: `https://trendzabacus.com/rules-2026.pdf`, title `World Championship Guide`, topic `Rules & Scoring`.
+  7. Click **Save Resource**.
+  8. Log in as Student `STU101` and view `/pages/student.html`.
+- **Expected Result**:
+  - Malformed and non-HTTP protocols are blocked client-side and database-side.
+  - The newly created resource appears under the `Rules & Scoring` topic on the student portal.
+  - Clicking the link opens in a new tab with `rel="noopener noreferrer"`.
+

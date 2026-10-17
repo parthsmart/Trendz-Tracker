@@ -124,3 +124,42 @@ This catalog outlines every database table in the Trendz Tracker PostgreSQL sche
 - **Who Writes**: Administrators only (`is_admin() = true`).
 - **Expected Size**: Small, $\approx 50\text{--}200$ active tasks ($\approx 40\text{ KB}$).
 - **Trade-off**: Nullable `level` enables both institute-wide announcements and level-specific homework assignments.
+
+---
+
+### 7. Table: `resources`
+- **Purpose**: Curated curriculum materials, championship rules PDFs, calculation guides, and study links published by teachers.
+- **Columns**:
+  - `id`: `UUID PRIMARY KEY DEFAULT gen_random_uuid()`
+  - `title`: `TEXT NOT NULL`
+  - `url`: `TEXT NOT NULL CHECK (url ~* '^https?://')`
+  - `description`: `TEXT NULL`
+  - `topic`: `TEXT NOT NULL DEFAULT 'General'`
+  - `sort_order`: `INTEGER NOT NULL DEFAULT 0`
+  - `active`: `BOOLEAN NOT NULL DEFAULT true`
+  - `created_at`: `TIMESTAMPTZ NOT NULL DEFAULT now()`
+- **Who Reads**: Every authenticated student and admin (`active = true`).
+- **Who Writes**: Administrators only (`is_admin() = true`).
+- **Expected Size**: $\approx 20\text{--}100$ rows ($\approx 25\text{ KB}$).
+- **Security Check**: Enforces strictly `http://` or `https://` URLs both at database CHECK constraint level and in client validation.
+
+---
+
+### 8. Stored Procedures & Database RPC Catalog
+
+#### `public.today_ist() -> DATE`
+- Returns today's calendar date under Indian Standard Time (`Asia/Kolkata`).
+- Ensures client devices with skewed or modified system clocks cannot forge dates or manipulate streaks.
+
+#### `public.streak_for(p_student UUID) -> TABLE(current_streak INT, best_streak INT, shields INT, active_today BOOLEAN)`
+- Authoritatively calculates:
+  - `current_streak`: Number of consecutive IST calendar days up to today (or yesterday if shield used).
+  - `best_streak`: All-time maximum consecutive days logged by the student.
+  - `shields`: Number of streak freeze shields available/used.
+  - `active_today`: Boolean indicating whether at least one result has been recorded today.
+
+#### `public.todo_for(p_student UUID) -> TABLE(task_id UUID, task_title TEXT, task_section TEXT, task_category_id UUID, done BOOLEAN)`
+- Evaluates completion status of active daily practice goals for a student today:
+  - If `task_category_id` is set: returns `done = true` if student has logged a result for that category today.
+  - If `task_category_id` is null: returns `done = true` if student has logged any result in that section today.
+

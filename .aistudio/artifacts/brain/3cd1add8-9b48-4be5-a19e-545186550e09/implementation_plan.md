@@ -1,156 +1,209 @@
-# Implementation Plan: Phase 2 — Daily Score Entry & Round Management
+# Phase 3: Student Dashboard & Admin Management (Daily To-Do & Resources)
 
-Build Phase 2 of **Trendz Tracker**: daily practice score entry for abacus students (Championship Rounds and Basics speed drills) and round management for instructors, maintaining the vanilla HTML/CSS/JS architecture and safety constraints.
+An interactive, responsive student dashboard and comprehensive administrative management suite for **Trendz Tracker**, designed for students preparing for the Junior Mental Calculation World Championship. Built with vanilla HTML5, CSS custom properties, and modular JavaScript without external frameworks or third-party chart libraries.
+
+---
+
+## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> **Working Rules Protocol Activated**: In accordance with the system rules, no code or documentation files will be created until this plan and its alternatives have been reviewed and approved by you.
+> The following architectural decisions and user preferences have been confirmed and will guide the build:
+
+- **Demo & Offline Fallback**: All mock fallbacks for RPCs (`streak_for`, `todo_for`, `today_ist()`) and the `resources` table are isolated into a single file (`js/demoDb.js`) containing fixed, static sample data (e.g., streak of 8, 1 shield used, 4 of 7 to-dos done). Demo mode is enabled **only** when Supabase keys are placeholders; it is strictly locked out once real credentials exist. A prominent banner *"DEMO MODE — data is fake"* will appear on all pages in demo mode. Admin create actions will be safely blocked in demo mode.
+- **Round History Sheet Pagination**: The competition sheet table displays 5 rounds at a time (newest first). Pagination shifts batches of 5 rounds using "Older" and "Newer" buttons with a descriptive badge (e.g. `Rounds 240–244 · 12 Oct – 17 Oct`), disabling boundaries when reaching newest/oldest rounds. The category column remains sticky on both mobile and desktop.
+- **Responsive Desktop Layout**:
+  - **Top Row (Two-Column Grid)**: Greeting & action buttons, Streak card, Today's to-do, Basics this week, Learning resources.
+  - **Bottom Row (Full Width)**: Sheet-style 5-round score table and inline SVG progress charts (Accuracy, Speed, Category Drilldown) spanning the full width for optimal legibility.
+- **Pure Statistics Calculations (`js/stats.js`)**: All aggregations (accuracy, speed in questions/minute, 30-day trends, category drilldowns) reside in a standalone, pure JS module with no DOM manipulation, ensuring high testability and reliability.
+- **Database-Authoritative Logic & Timezone**: Streaks, shields, and daily to-do completion are calculated strictly within PostgreSQL RPCs (`streak_for`, `todo_for`). Dates and "today" are locked to Indian Standard Time (`Asia/Kolkata`) via `today_ist()`, preventing client clock manipulation.
 
 ---
 
 ## 1. Overview & Core Concept
-In Phase 2, students actively record their daily training scores for the Junior Mental Calculation World Championship:
-1. **Student Screen 1: "Round scores"** (`/pages/round-scores.html`): Students select a competition round, review prefilled/saved attempts across the 24 championship categories, see instant wrong-count feedback with color-coded evaluation, enter time in `mm:ss` or seconds, and save batch progress. Verified rows are locked.
-2. **Student Screen 2: "Basics"** (`/pages/basics.html`): Students log rapid mental speed drills (e.g. `1d4r`, `2d2r` digits and rows). Students can log multiple drills per day, pick dates up to 7 days back, and review historical drills grouped by date.
-3. **Admin: "Rounds" Management** (`/pages/rounds.html`): Teachers create and manage official competition rounds, view practice counts, and use a "Next Round" quick-generator.
-4. **Student Home** (`/pages/student.html`): Streamlined with two prominent action buttons directing to Round Scores and Basics drills.
+
+### What It Delivers
+1. **Student Dashboard (`/pages/student.html`)**:
+   - **Hero & Actions**: Personalized greeting, student code, level badge, and primary buttons for Phase 2 entry screens (*Enter Round Scores* & *Enter Basics*).
+   - **Streak & Shield Card**: Visual streak counter, all-time best streak, freeze/shield status, today's completion indicator, and upcoming milestone markers (7, 25, 50, 100 days) with inline SVG iconography.
+   - **Today's To-Do**: Real-time checklist from `todo_for`, showing completion progress (e.g., "4 of 7 done today"), clickable task links directly pre-filling the relevant entry screen, and an empty state if no tasks are assigned.
+   - **Competition Round Sheet Table**: Faithful recreation of the abacus paper sheet. Active round categories as rows, last 5 rounds as columns, color-coded cells using `js/scoreColors.js`, and summary rows for Total Time, Final Score, Total Attempts, and Marks to be Corrected, plus "Partial" round badges and 5-round pagination.
+   - **Accessible Inline SVG Charts**: 30-day Accuracy trend (`sum(correct)/sum(total)`), 30-day Speed trend (`sum(total) / (sum(time_seconds) / 60)`), and an interactive Category Drilldown showing the last 10 entries with hover/tap inspection tooltips and accessibility summary tables.
+   - **Basics This Week**: 7-day roll-up of mental speed drills (1d4r, 2d2r) showing entry counts, average accuracy, and speed.
+   - **Learning Resources**: Curated practice PDFs, guides, and links grouped by topic, sorted by `sort_order`, with strict HTTP/HTTPS validation and `rel="noopener noreferrer"`.
+
+2. **Admin Daily To-Do Management (`/pages/todos.html`)**:
+   - Interface to view, create, edit, reorder (up/down), and activate/deactivate daily student assignments.
+   - Dynamic category selector that updates according to the chosen section (`round`, `basics`, `elements`, `flash`).
+   - Clear instructional guide explaining task evaluation rules (category-level vs. section-level completion).
+
+3. **Admin Resources Management (`/pages/resources.html`)**:
+   - Management console to list, add, edit, reorder, and activate/deactivate study materials and reference links with browser-side and database-enforced URL validation.
+
+4. **Unified Admin Navigation**:
+   - Standardized top navigation across all admin pages: *Students*, *Daily To-Do*, *Resources*, *Categories*, and *Rounds*.
 
 ---
 
-## 2. Key Product Decisions & Alternatives Considered
+## 2. User Experience & Visual Design
 
-### Decision 1: Database Date Authority (`today_ist()`) & Omitting `entry_date`
-- **Context**: Students practice across various time zones and browser device clocks can be skewed, backdated, or tampered with. The database possesses the canonical `public.today_ist()` function.
-- **Chosen Approach**: Never compute or trust "today" from the browser clock. When inserting a row for today, **do not send `entry_date` in the payload**, allowing the database default (`today_ist()`) to populate it. Only send `entry_date` when a student deliberately picks a historical date (in Basics drills, capped to 7 days). When updating an existing row, never send `entry_date` so the row's original practice date is preserved.
-- **Alternatives Considered**:
-  - *Sending `new Date().toISOString()` from browser*: Rejected because client clocks are easily misconfigured or manipulated, bypassing competition date integrity.
-  - *Calling an RPC to fetch current server date before every save*: Rejected as excessive network latency; relying on Postgres column defaults (`DEFAULT today_ist()`) is simpler and atomic.
+### Design Language & Layout
+- **Design Constitution Compliance**: Follows the `frontend-design` constitution and SaaS dashboard guidelines.
+- **Zero-Pill Discipline**: Static metadata (dates, levels, categories) rendered as clean typography with subtle separators (`·`), reserving bordered pill shapes strictly for interactive buttons, tabs, and score feedback badges.
+- **Tabular Figures**: All timestamps (`mm:ss`), scores (`18/20`), dates, and metrics use tabular numerals (`font-mono` / `tabular-nums`) to prevent layout jitter.
+- **Color Coding**: Reuses `getScoreFeedback` from `js/scoreColors.js` directly:
+  - `0 wrong` (100%): Emerald green (`--color-score-perfect`)
+  - `1–10 wrong`: Amber warning (`--color-score-warning`)
+  - `>10 wrong`: Cyan alert (`--color-score-alert`)
+  - Empty/Unattempted: Neutral slate (`--color-neutral`)
 
-### Decision 2: Batch Round Save Mechanism (No Upsert on Partial Unique Index)
-- **Context**: The `results` table has a partial unique index: `(student_id, round_number, category_id) WHERE round_number IS NOT NULL`. PostgreSQL `INSERT ... ON CONFLICT` with partial unique indexes requires exact matching `WHERE` clauses that can be brittle across Supabase PostgREST versions.
-- **Chosen Approach**: When a student loads a round, client queries all existing results for `(student_id, round_number)`. When clicking **Save**:
-  1. Identify rows that have changed.
-  2. For already-existing rows: issue individual/batch `UPDATE results SET correct = ..., total = ..., time_seconds = ..., note = ... WHERE id = existing.id`.
-  3. For newly-entered rows: issue `INSERT INTO results (...)` without `entry_date`.
-  4. Skip unattempted/empty rows.
-- **Alternatives Considered**:
-  - *PostgREST Upsert (`upsert([...], { onConflict: '...' })`)*: Rejected because PostgREST handles partial unique indexes inconsistently and can trigger duplicate key constraint errors.
-
-### Decision 3: Shared Color Feedback Function & Anti-Pill Discipline
-- **Context**: Students need immediate feedback on their accuracy, but WCAG accessibility and our design constitution dictate that color must never be the sole indicator.
-- **Chosen Approach**: Shared module `js/scoreColors.js`:
-  - `wrong = total - correct`
-  - All correct (`wrong === 0` and `total > 0`): Green (`var(--color-score-perfect)`) + text `"0 wrong"`
-  - 1 to 10 wrong: Orange (`var(--color-score-warning)`) + text `"${wrong} wrong"`
-  - $>10$ wrong: Cyan (`var(--color-score-alert)`) + text `"${wrong} wrong"`
-  - Unattempted / no data: Neutral + text `"—"`
-  - Styled with subtle hairline card borders and clean text labels (no candy pill badges).
-- **Alternatives Considered**:
-  - *Percentage-only badges*: Rejected because in abacus competition, raw error count (penalties) is the decisive championship metric.
-
-### Decision 4: Time Input Parsing & Keyboard Flow
-- **Context**: Students and kids on mobile devices need fast, friction-free input for times (e.g. typing `127` seconds or `2:07` minutes:seconds).
-- **Chosen Approach**: Shared utility `js/timeUtils.js`:
-  - Accepts `"2:07"` or raw seconds `"127"`, formats on blur as `mm:ss` (e.g. `2:07`).
-  - Inputs configured with `inputmode="numeric"`.
-  - Pressing `Enter` automatically advances focus to the next input in the grid for rapid keyboard entry.
-- **Alternatives Considered**:
-  - *Separate minutes and seconds input fields*: Rejected because two fields double the tab stops and slow down fast score entry.
-
----
-
-## 3. Detailed Component & Page Blueprint
-
+### Layout Wireframe (Desktop)
 ```
-trendz-tracker/
-├── pages/
-│   ├── round-scores.html      # NEW: Student Round Score Entry (24 categories)
-│   ├── basics.html            # NEW: Student Basics Speed Drills (digits & rows)
-│   ├── rounds.html            # NEW: Admin Rounds Management & quick creator
-│   ├── student.html           # UPDATED: Prominent buttons to Round Scores & Basics
-│   └── admin.html             # UPDATED: Added nav link to Rounds page
-├── js/
-│   ├── scoreColors.js         # NEW: Shared color & wrong-count feedback logic
-│   ├── timeUtils.js           # NEW: Parser for "2:07" / "127" -> mm:ss & keyboard navigation
-│   ├── roundScores.js         # NEW: Logic for loading round, prefilling, saving, verified locks
-│   ├── basics.js              # NEW: Logic for logging speed drills & 7-day grouped history
-│   ├── rounds.js              # NEW: Admin round listing, creation, and IST next-round proposal
-│   └── config.js              # UPDATED: Demo Mode banner and strict disable when live
-├── css/
-│   ├── variables.css          # UPDATED: Added --color-score-perfect, warning, alert tokens
-│   └── style.css              # UPDATED: Grid row layouts for score entry, verified badges
-└── docs/                      # UPDATED: All 5 documentation files updated for Phase 2
-```
-
-### Detailed Functional Specifications:
-
-#### 1. Student Screen 1: Round Scores (`/pages/round-scores.html`)
-- **Round Selector**: Dropdown showing rounds whose `round_date` is today or earlier, ordered newest first (e.g. `"Round 244 - 3 Oct 2026"`). Default selects the latest round.
-- **Category Roster**: Renders all 24 active `round` categories in competition sort order.
-- **Row Inputs**:
-  - Correct (`inputmode="numeric"`, `min="0"`)
-  - Total Attempted (`inputmode="numeric"`, `min="0"`)
-  - Time (`inputmode="numeric"`, accepts `2:07` or `127`)
-  - Real-time feedback column showing wrong count (e.g. `"2 wrong"`) and dynamic status color.
-- **Progress Counter**: Header banner showing `"17 of 24 done"` dynamically recalculating as rows are completed.
-- **Surprise Task Row**: Includes textarea/input for task description note + optional Correct/Total/Time. Only evaluated with score colors if numbers are present.
-- **Verified Protection**: If row has `verified = true`, inputs are disabled with a padlock symbol and label `"Verified by teacher"`.
-- **Keyboard Navigation**: Pressing `Enter` automatically jumps to the next input in the row or the next category row.
-- **Save Action**: Saves dirty/modified rows only. Pre-existing rows updated via `id`; new rows inserted without `entry_date`. Shows friendly toast for any database trigger errors.
-
-#### 2. Student Screen 2: Basics Speed Drills (`/pages/basics.html`)
-- **Category Selector**: Dropdown of active `basics` categories (`1d4r`, `2d2r`, etc.).
-- **Date Selector**: Radio/segmented toggle or date picker defaulting to "Today". Allows picking past dates up to 7 days back.
-  - When "Today": omits `entry_date` on insert.
-  - When past date: sends `entry_date`.
-- **Drill Inputs**: Correct, Total, Time (formatted as `mm:ss`).
-- **Today's Session List**: Below the form, lists all drills completed today with accuracy color, wrong count, and Edit/Delete buttons (disabled if verified).
-- **7-Day Historical Breakdown**: Clean collapsible/accordion cards grouped by date showing past drills, totals, and speed times.
-
-#### 3. Admin: Rounds Management (`/pages/rounds.html`)
-- **Rounds Table**: Lists round number, date, round type (default `"Category wise"`), and recorded result count.
-- **Add Round Form**:
-  - Number, Date, Type.
-  - **"Add Next Round" Quick Button**: Queries highest round number in table, proposes `max + 1`, and sets today's date in IST.
-- **Edit Modal**: Allows editing round date and type. Prohibits modifying round number.
-- **Delete Protection**: Checks if rows exist in `results` for that round. If count $> 0$, deletion is blocked with a clear warning.
-
-#### 4. Demo Mode Hardening
-- If live Supabase credentials exist in `js/config.js` and `.env`: Demo Mode is strictly locked out.
-- If placeholders remain: A persistent banner displays `"DEMO MODE - data is fake"` across all screens.
-
----
-
-## 4. Technical Architecture & Trust Boundaries
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                            CLIENT BROWSER (UNTRUSTED)                       │
-│                                                                             │
-│   ┌─────────────────────┐   ┌─────────────────────┐   ┌─────────────────┐   │
-│   │ Round Scores Page   │   │     Basics Page     │   │   Rounds Admin  │   │
-│   │ (/round-scores)     │   │     (/basics)       │   │   (/rounds)     │   │
-│   └──────────┬──────────┘   └──────────┬──────────┘   └────────┬────────┘   │
-│              │                         │                       │            │
-│              ▼                         ▼                       ▼            │
-│       [scoreColors.js (Wrong count calculation) & timeUtils.js (mm:ss)]     │
-└───────────────────────┬────────────────────────────────────────┬────────────┘
-                        │                                        │
-                        │ Direct PostgREST via JWT               │
-                        ▼                                        ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                       SUPABASE POSTGRESQL DATABASE                          │
-│                                                                             │
-│   - results (RLS: student_id = auth.uid() AND verified = false)             │
-│   - DEFAULT entry_date = public.today_ist()  <-- Never trusts browser clock │
-│   - Trigger: Enforces 7-day backdating cap & correct <= total               │
-│   - rounds (RLS: authenticated read, admin write)                           │
-│   - categories (RLS: authenticated read, admin write)                       │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│ Top Bar: Brand 🧮 Trendz Tracker | Nav Links | User Code · Sign Out    │
+├────────────────────────────────────────────────────────────────────────┤
+│ [DEMO BANNER (if active)]                                              │
+├───────────────────────────────────┬────────────────────────────────────┤
+│ Greeting & Action Buttons         │ Streak & Milestone Card            │
+│ [Enter Round Scores] [Enter Basics]│ 🔥 Current: 8 | 🛡️ Shield Ready   │
+├───────────────────────────────────┼────────────────────────────────────┤
+│ Today's To-Do (4 of 7 done)       │ Basics This Week (Last 7 Days)     │
+│ [x] Round 242 ADD                 │ 1d4r: 6 entries · 96% · 42 q/m     │
+│ [ ] Basics 2d2r                   │ 2d2r: 4 entries · 88% · 28 q/m     │
+├───────────────────────────────────┴────────────────────────────────────┤
+│ Learning Resources (Grouped by Topic)                                  │
+│ • Championship Rules · Mental Speed Drill Guide                        │
+├────────────────────────────────────────────────────────────────────────┤
+│ Competition Score Sheet (Last 5 Rounds)          [< Older] [Newer >]   │
+│ Categories (Sticky) │ Round 244 │ Round 243 │ Round 242 │ Round 241    │
+│ 1. ADD              │ 20/20     │ 19/20     │ 20/20     │ —            │
+│ 2. SUB              │ 18/20     │ 20/20     │ 17/20     │ —            │
+│ Summary Rows: Time Taken | Final Score | Total Attempt | Corrections   │
+├───────────────────────────────────┬────────────────────────────────────┤
+│ 30-Day Accuracy Trend (SVG)       │ 30-Day Speed (q/min) Trend (SVG)   │
+├───────────────────────────────────┴────────────────────────────────────┤
+│ Category Drilldown: [Select Category ▼] (Last 10 Entries)               │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 5. Review & Approval Gate
-Before writing the code and documentation updates, please confirm:
-1. Does this plan and architectural structure align with your requirements for Phase 2?
-2. Are you ready for me to proceed with creating the files and updating the `/docs` suite?
+## 3. Key Product Decisions & Trade-Offs
+
+### ADR-005: Database-Authoritative Streak & To-Do Evaluation
+- **Chosen Approach**: Calling PostgreSQL RPCs `streak_for(p_student)` and `todo_for(p_student)`.
+- **Why**: Streaks and task completion depend on consecutive calendar dates and specific rule definitions. Calculating streaks in client JavaScript creates clock drift, timezone loopholes (students shifting device clocks backwards to preserve broken streaks), and duplicate business logic. PostgreSQL executes timezone conversions in `Asia/Kolkata` authoritatively.
+- **Alternatives Considered**: Calculating streaks client-side from raw result history. Rejected because local clocks cannot be trusted and fetching years of historical logs wastes client bandwidth.
+
+### ADR-006: Handcrafted Inline SVG Charts over External Chart Libraries
+- **Chosen Approach**: Rendering responsive `<svg viewBox="0 0 W H">` polylines, area fills, grid lines, and interactive hover dots with vanilla DOM nodes.
+- **Why**: Zero external dependencies (Chart.js, Recharts, or D3 add 100KB–300KB and future maintenance burdens). Inline SVG allows precise styling matching CSS design tokens, renders instantly without canvas blur on Retina/high-DPI screens, and embeds accessible SVG `<title>` and keyboard/tap inspection natively.
+- **Alternatives Considered**: Installing Chart.js or ApexCharts. Rejected per user prompt constraints ("Do not add any framework, chart library or other dependency").
+
+### ADR-007: Isolation of Demo Fallback in `js/demoDb.js`
+- **Chosen Approach**: Consolidating all mock data and local fallback responses into a single dedicated file (`js/demoDb.js`), gated strictly by `!isSupabaseConfigured()`.
+- **Why**: Allows instant deletion before production deployment without risking orphaned mock branches inside production modules.
+
+---
+
+## 4. Technical Architecture & Implementation Plan
+
+### System Flow Diagram
+```
+                     ┌──────────────────────────────┐
+                     │     pages/student.html       │
+                     └──────────────┬───────────────┘
+                                    │
+           ┌────────────────────────┼────────────────────────┐
+           ▼                        ▼                        ▼
+  ┌──────────────────┐    ┌──────────────────┐     ┌──────────────────┐
+  │ js/student.js    │    │ js/stats.js      │     │ js/scoreColors.js│
+  │ UI Coordinator   │    │ Pure Math & Aggr │     │ Score Badges     │
+  └────────┬─────────┘    └──────────────────┘     └──────────────────┘
+           │ (Promise.all)
+           ├────────────────────────┬────────────────────────┐
+           ▼                        ▼                        ▼
+  ┌──────────────────┐    ┌──────────────────┐     ┌──────────────────┐
+  │ RPC streak_for   │    │ RPC todo_for     │     │ RPC today_ist    │
+  │ Current/Best/    │    │ Daily task status│     │ IST Date String  │
+  │ Shields/Active   │    │ & direct links   │     │ (Asia/Kolkata)   │
+  └──────────────────┘    └──────────────────┘     └──────────────────┘
+           │
+           ▼
+  ┌──────────────────┐
+  │ 90-Day Results   │ ──► [Calculates: 30d Accuracy, 30d Speed,
+  │ + Categories Join│      Basics 7d Rollup, Sheet 5-Round Grid]
+  └──────────────────┘
+```
+
+### File Changes & Structure
+
+1. **New Pure Logic Module**:
+   - `js/stats.js`: Pure mathematical functions (no DOM code) for:
+     - `calculateAccuracyTrend(results, days = 30)`: Group by IST date, return daily accuracy percentage (`total > 0`).
+     - `calculateSpeedTrend(results, days = 30)`: Group by IST date, calculate questions/minute (`total > 0`, `time_seconds > 0`).
+     - `calculateCategoryHistory(results, categoryId, limit = 10)`: Last N entries for a specific category.
+     - `calculateBasicsWeeklySummary(results, categories)`: Last 7 days breakdown for basics drills.
+     - `buildRoundScoreMatrix(results, categories, roundOffset = 0, batchSize = 5)`: 2D matrix for round sheet table with summary rows (Time, Score, Attempts, Corrections).
+
+2. **Refactored & Extended Student Dashboard**:
+   - `pages/student.html`: Updated HTML shell with skeleton loading states, metric cards grid, full-width sheet table container, SVG chart containers, and resource sections.
+   - `js/student.js`: Main controller loading data via `Promise.all`:
+     - Checks user session; handles optional `studentId` URL query (only permitted if caller is admin).
+     - Renders Streak card with milestone indicators (7, 25, 50, 100 days) and shield status.
+     - Renders Today's To-Do list with deep links (`/pages/round-scores.html` or `/pages/basics.html?cat=...`).
+     - Renders interactive SVG line charts with tooltips and tap inspection.
+     - Renders 5-round score sheet with pagination controls and category stickiness.
+     - Renders Basics this week card and Learning Resources list.
+
+3. **Admin Daily To-Do Management**:
+   - `pages/todos.html`: Clean HTML management view with task table and creation modal.
+   - `js/todos.js`: Logic to fetch tasks from `todos`, add new tasks with dynamic category filtering by section, reorder sort orders, and toggle active state.
+
+4. **Admin Learning Resources Management**:
+   - `pages/resources.html`: Management view for curriculum links and study PDFs.
+   - `js/resources.js`: CRUD logic, sorting, topic grouping, and URL validation (`http://` or `https://`).
+
+5. **Demo Fallback Isolation**:
+   - `js/demoDb.js`: Dedicated file containing fixed sample mocks for `streak_for`, `todo_for`, `today_ist()`, and `resources`.
+
+6. **Shared Styling & Admin Nav**:
+   - `css/style.css`: Add styles for SVG chart containers, tooltip overlays, sticky sheet tables, to-do checklists, and milestone badges.
+   - Update admin navigation across `pages/admin.html`, `pages/categories.html`, and `pages/rounds.html` to include *Daily To-Do* and *Resources*.
+
+7. **Documentation Updates**:
+   - `docs/HANDOVER.md`: Prepend Phase 3 session summary.
+   - `docs/DECISIONS.md`: Record ADR-005, ADR-006, and ADR-007.
+   - `docs/DATA.md`: Document RPC signatures (`streak_for`, `todo_for`, `today_ist`) and `resources` table.
+   - `docs/THREAT.md`: Record junk entries threat, unverified score editing, and third-party resource link threats.
+   - `docs/TESTING.md`: Step-by-step verification checklist for all student and admin views.
+
+---
+
+## 5. Verification Plan
+
+### Automated Build & Lint Check
+- Run `npm run build` to confirm Vite compiles all HTML entries and static assets.
+- Run `npm run lint` (`tsc --noEmit`) to verify clean TypeScript/JS syntax without missing imports or type errors.
+
+### Functional Browser & End-to-End Scenarios
+1. **Student Dashboard Flow**:
+   - Log in as student (`STU101` / `student123`).
+   - Verify IST date header, streak counter, shields, and today's to-do items.
+   - Click a round to-do item -> verify navigation to `/pages/round-scores.html`.
+   - Click a basics to-do item -> verify navigation to `/pages/basics.html` with category selected.
+   - Inspect 5-round sheet table: verify sticky category column, cell color coding (`js/scoreColors.js`), and 4 summary rows.
+   - Click `< Older` and `Newer >` pagination -> verify 5-round shift with descriptive range label.
+   - Inspect SVG charts: test hover/tap tooltips on data points, check accessibility fallback text.
+2. **Admin Daily To-Do Management**:
+   - Log in as admin (`ADMIN01` / `admin123`).
+   - Navigate to `/pages/todos.html`.
+   - Add a task for section "round" -> verify category dropdown populates only round categories.
+   - Add a task for section "basics" -> verify category dropdown populates only basics categories.
+   - Reorder tasks and toggle active/inactive -> verify changes persist.
+3. **Admin Resources Management**:
+   - Navigate to `/pages/resources.html`.
+   - Add a resource with an invalid URL (e.g. `javascript:alert(1)`) -> verify validation error.
+   - Add a valid resource with `https://...` -> verify it appears grouped by topic on `/pages/student.html`.
+4. **Security & Role Constraints**:
+   - As a student, attempt to load `/pages/student.html?studentId=usr-102` -> verify parameter is ignored and only logged-in student's data is displayed.
+   - As an admin, load `/pages/student.html?studentId=usr-102` -> verify viewing student 102's dashboard.

@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Daily To-Do Tasks - Trendz Tracker Admin</title>
+    <meta name="description" content="Set daily practice to-do tasks and goals for abacus competition students." />
+    
+    <!-- Design tokens & unified styles -->
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- Top Bar Contract: 3-Zone Navigation -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <!-- Zone 1: Wordmark & Brand -->
+          <a href="/pages/admin.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <!-- Zone 2: Navigation Links -->
+          <nav class="nav-zone" aria-label="Admin Navigation">
+            <a href="/pages/admin.html" class="nav-link">Students</a>
+            <a href="/pages/todos.html" class="nav-link active">Daily To-Do</a>
+            <a href="/pages/resources.html" class="nav-link">Resources</a>
+            <a href="/pages/categories.html" class="nav-link">Categories</a>
+            <a href="/pages/rounds.html" class="nav-link">Rounds</a>
+          </nav>
+
+          <!-- Zone 3: User Details & Logout Action -->
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Admin</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-role" style="color: var(--text-muted);">Teacher</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Page Content -->
+      <main class="main-content">
+        <div class="container">
+          <!-- Demo Mode Banner Placeholder -->
+          <div id="config-banner-placeholder"></div>
+
+          <!-- Page Heading & Action -->
+          <div class="section-header-row" style="margin-bottom: var(--space-4);">
+            <div>
+              <h1>Daily Practice To-Dos</h1>
+              <p style="font-size: var(--text-sm);">
+                Configure mandatory and recommended daily tasks that appear on student dashboards.
+              </p>
+            </div>
+            <button type="button" id="btn-open-add-todo" class="btn btn-primary">
+              <span>+ Add Task</span>
+            </button>
+          </div>
+
+          <!-- Educational Explanatory Card: How Ticking Works -->
+          <section class="card" style="margin-bottom: var(--space-6); background: var(--surface-raised); border-color: var(--border-subtle);" aria-labelledby="todo-explainer-heading">
+            <div style="display: flex; gap: var(--space-3); align-items: flex-start;">
+              <span style="font-size: 1.5rem;" aria-hidden="true">💡</span>
+              <div>
+                <h3 id="todo-explainer-heading" style="font-size: var(--text-sm); font-weight: 600; margin-bottom: var(--space-1); color: var(--text-main);">
+                  How Daily Task Ticking Works
+                </h3>
+                <p style="font-size: var(--text-xs); color: var(--text-muted); line-height: 1.5; margin: 0;">
+                  Task completion is automatically evaluated by the database for each student today (Indian Standard Time):<br />
+                  • <strong>Category Task:</strong> If a specific category is assigned (e.g. <em>ADD</em> or <em>1d4r</em>), it ticks when the student records a score in that exact category today.<br />
+                  • <strong>Section Task:</strong> If category is left as <em>"Any category in this section"</em>, it automatically ticks when the student completes <strong>any</strong> entry in that section today.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <!-- Tasks Table Card -->
+          <div class="card" style="padding: 0; overflow: hidden;">
+            <div class="table-responsive">
+              <table class="data-table" id="todos-table" aria-label="Daily to-do task list">
+                <thead>
+                  <tr>
+                    <th style="width: 70px;">Order</th>
+                    <th>Task Title</th>
+                    <th style="width: 120px;">Section</th>
+                    <th>Assigned Category</th>
+                    <th style="width: 120px;">Level Target</th>
+                    <th style="width: 100px;">Status</th>
+                    <th style="width: 180px; text-align: right;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="todos-tbody">
+                  <tr>
+                    <td colspan="7" class="loading-state">Loading tasks...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- Add/Edit Task Modal -->
+    <div id="modal-todo" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="modal-todo-title">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h2 id="modal-todo-title" class="modal-title">Add Daily Task</h2>
+          <button type="button" class="modal-close-btn" data-close-modal="modal-todo" aria-label="Close modal">&times;</button>
+        </div>
+
+        <form id="form-todo">
+          <input type="hidden" id="todo-id" value="" />
+
+          <div class="form-group">
+            <label for="todo-title" class="form-label required">Task Title</label>
+            <input
+              type="text"
+              id="todo-title"
+              class="form-control"
+              placeholder="e.g. Competition Addition Drill"
+              required
+              maxlength="100"
+            />
+            <span class="form-hint">Displayed on the student dashboard checklist.</span>
+          </div>
+
+          <div class="form-row-2">
+            <div class="form-group">
+              <label for="todo-section" class="form-label required">Section Track</label>
+              <select id="todo-section" class="form-control" required>
+                <option value="round">Round (Competition Sheet)</option>
+                <option value="basics">Basics (Speed Drills)</option>
+                <option value="elements">Elements</option>
+                <option value="flash">Flash Anzan</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="todo-category" class="form-label">Category Filter (Optional)</label>
+              <select id="todo-category" class="form-control">
+                <option value="">Any category in this section</option>
+              </select>
+              <span class="form-hint">Dropdown shows categories matching the chosen section.</span>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="todo-level" class="form-label">Target Level (Optional)</label>
+            <input
+              type="text"
+              id="todo-level"
+              class="form-control"
+              placeholder="e.g. Level 3 or leave blank for all students"
+              maxlength="40"
+            />
+          </div>
+
+          <div class="form-group" style="margin-top: var(--space-3);">
+            <label class="custom-checkbox">
+              <input type="checkbox" id="todo-active" checked />
+              <span>Active (Visible on student dashboards)</span>
+            </label>
+          </div>
+
+          <div class="modal-actions">
+            <button type="button" class="btn btn-outline" data-close-modal="modal-todo">Cancel</button>
+            <button type="submit" id="btn-save-todo" class="btn btn-primary">Save Task</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Toast Notifications Container -->
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <!-- Scripts -->
+    <script type="module" src="/js/todos.js"></script>
+  </body>
+</html>

@@ -18,6 +18,8 @@ export default defineConfig(() => {
           admin: path.resolve(__dirname, 'pages/admin.html'),
           categories: path.resolve(__dirname, 'pages/categories.html'),
           rounds: path.resolve(__dirname, 'pages/rounds.html'),
+          todos: path.resolve(__dirname, 'pages/todos.html'),
+          resources: path.resolve(__dirname, 'pages/resources.html'),
         },
       },
     },

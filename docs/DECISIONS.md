@@ -174,3 +174,46 @@ Every meaningful technical and architectural decision made for **Trendz Tracker*
 - **Trade-off**: Stale sessions are logged out and must re-enter credentials (which is expected after a token revocation).
 - **Rejected Options**: Manual localStorage clearing, silent ignore without storage cleanup.
 
+---
+
+### ADR-013: Database-Authoritative Streak & To-Do Evaluation (`streak_for`, `todo_for`, `today_ist`)
+- **Date**: 2026-10-17
+- **Context**: Daily practice streaks, freeze shields, and daily task completion require rigorous calendar continuity. If calculated in client-side JavaScript, differences in client device system clocks, timezone shifting (e.g. students rolling back device time to save broken streaks), and client code tampering can compromise competitive integrity.
+- **Options Considered**:
+  1. *Client-side calculation*: Fetching all historical results and calculating streaks and daily to-dos in JavaScript. Vulnerable to device clock tampering, consumes excessive client bandwidth, and duplicates business logic.
+  2. *Hybrid calculation*: Client calculating to-do status, database calculating streaks. Disjointed and prone to edge-case bugs.
+  3. *Pure Database-Authoritative RPCs*: Call PostgreSQL stored procedures `streak_for(p_student uuid)` and `todo_for(p_student uuid)`, with `today_ist()` providing an authoritative Indian Standard Time (`Asia/Kolkata`) reference point once per page load.
+- **Choice**: Pure Database-Authoritative RPCs.
+- **Reason**: Guarantees zero clock drift, eliminates client timezone cheating, minimizes client network bandwidth, and keeps business logic authoritative in SQL.
+- **Trade-off**: Requires database migration with PL/pgSQL functions.
+- **Rejected Options**: Client-side streak counting, browser local date tracking.
+
+---
+
+### ADR-014: Handcrafted Inline SVG Charts over External Chart Libraries
+- **Date**: 2026-10-17
+- **Context**: The student dashboard requires visual progress trends for 30-day accuracy, 30-day speed (questions/minute), and category history drilldowns.
+- **Options Considered**:
+  1. *Chart.js / ApexCharts / Recharts*: Heavy third-party dependencies (150KB–300KB), canvas rasterization blur on high-DPI screens, and vulnerability to future breaking changes or npm supply-chain issues.
+  2. *CSS Bar Charts*: Limited expressiveness for continuous date lines and area trends.
+  3. *Handcrafted Inline SVG (`<svg viewBox="0 0 W H">`)*: Zero external dependencies, razor-sharp vector rendering on all screen sizes, perfect synchronization with CSS design tokens, and built-in accessibility (`<title>`, tabindex data dots, tap-to-inspect tooltips).
+- **Choice**: Handcrafted Inline SVG.
+- **Reason**: Comply with zero-dependency mandate, load instantly with zero bundle bloat, render crisply on Retina displays, and allow full UI control without library constraints.
+- **Trade-off**: Requires manual math calculations for coordinate mapping, polylines, and grid ticks in `js/student.js` and `js/stats.js`.
+- **Rejected Options**: Chart.js, Recharts, D3.
+
+---
+
+### ADR-015: Complete Demo DB Isolation in `js/demoDb.js`
+- **Date**: 2026-10-17
+- **Context**: During prototyping and unconfigured state, the application must provide high-fidelity demo data (fixed streak of 8, 1 shield used, 4 of 7 to-dos done, sample resources, 5 sample rounds) without polluting production logic or allowing demo mutations to be mistaken for real database state.
+- **Options Considered**:
+  1. *Inline mock branches throughout student.js, admin.js, and supabaseClient.js*: Hard to audit and risks leaving demo remnants in production code.
+  2. *Separate Demo build / branch*: Disconnected and difficult to maintain.
+  3. *Single Isolated File (`js/demoDb.js`)*: All static fake data, mock RPCs, and local demo storage are gathered strictly in `js/demoDb.js`. Enabled ONLY when Supabase credentials are placeholder strings; completely unreachable once live credentials are entered.
+- **Choice**: Single Isolated File (`js/demoDb.js`).
+- **Reason**: Safe, clean, and easily deletable prior to production launch. Accompanied by a bold, unmissable red banner `"DEMO MODE — data is fake"` on every page.
+- **Trade-off**: Must maintain matching mock data structures during development.
+- **Rejected Options**: Scattering mock branches across production modules.
+
+

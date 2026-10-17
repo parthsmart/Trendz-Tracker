@@ -79,3 +79,21 @@ The serverless functions in `/api/create-student.js` and `/api/reset-password.js
      - `public.is_admin()` checks `active = true`, immediately revoking administrative privileges if an admin account is deactivated.
      - RLS policies on `profiles` and `results` respect user active status.
      - Deactivated students cannot submit or alter scores.
+
+6. **Junk Entries Keeping a Streak Alive**:
+   - *Risk*: A student can submit nominal junk entries (e.g. 0/1 correct in 1 second, or repeated empty clicks) simply to trigger `active_today = true` and preserve their streak without engaging in genuine championship abacus practice.
+   - *Mitigation in Place*: Stored procedures record activity authoritatively; instructors can view daily attempts and identify anomalous 0-second entries.
+   - *Known Gap*: The current database `streak_for` RPC checks for the presence of any result entry on that calendar date. Future phases can enforce minimum category completion counts, time thresholds, or teacher verification flags.
+
+7. **Students Can Edit Their Unverified Scores**:
+   - *Risk*: Before an instructor reviews practice rounds and sets `verified = true`, students possess RLS permissions to edit, update, or overwrite their unverified score rows (`verified = false`). A student could modify past drills or adjust scores after the fact.
+   - *Mitigation in Place*: Once an instructor verifies a round (`verified = true`), RLS policies permanently revoke student write permissions on those rows.
+   - *Known Gap*: Prior to instructor verification, unverified practice history relies on student honesty.
+
+8. **Resource Links Point to Third-Party Sites**:
+   - *Risk*: The Learning Resources section contains external links to competition guidelines, worksheets, and study guides. If an external domain expires, is hijacked, or alters content, students could be exposed to broken links or malicious third-party content.
+   - *Mitigation in Place*:
+     - The browser input and database schema enforce a strict `CHECK (url ~* '^https?://')` constraint, completely preventing protocol smuggling (e.g. `javascript:`, `data:`, `file:` URIs).
+     - All external links render with `target="_blank"` and `rel="noopener noreferrer"` to prevent window opener hijacking and protect student referrer privacy.
+   - *Known Gap*: Teachers must manually verify that external resource domains remain active and safe.
+
