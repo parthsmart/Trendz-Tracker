@@ -23,6 +23,8 @@
           <!-- Zone 2: Navigation Links -->
           <nav class="nav-zone" aria-label="Student Navigation">
             <a href="/pages/student.html" class="nav-link active">Home</a>
+            <a href="/pages/round-scores.html" class="nav-link">Round Scores</a>
+            <a href="/pages/basics.html" class="nav-link">Basics</a>
           </nav>
 
           <!-- Zone 3: User Details & Logout Action -->
@@ -50,7 +52,7 @@
             <h1 id="welcome-heading">Welcome, <span id="student-display-name">Student</span>!</h1>
             <p>
               Trendz Abacus Practice Portal for the <strong>Junior Mental Calculation World Championship</strong>.
-              Your student profile is active and ready.
+              Log your daily round competition categories and speed drills.
             </p>
 
             <div class="student-info-strip">
@@ -73,36 +75,29 @@
             </div>
           </section>
 
-          <!-- Phase 1 Foundation Notice & Phase 2 Upcoming Modules -->
-          <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
-            <article class="card">
-              <div class="card-header">
-                <h2 class="card-title">Phase 1 Foundation Ready</h2>
+          <!-- Two Large Action Buttons for Student Score Entry -->
+          <div class="action-cards-grid">
+            <a href="/pages/round-scores.html" class="action-card-btn" aria-label="Enter round scores">
+              <div class="action-card-content">
+                <h3>
+                  <span>🏆</span>
+                  <span>Enter Round Scores</span>
+                </h3>
+                <p>Record your competition category scores (ADD, SUB, Roots, Fractions, etc.) for today's active round.</p>
               </div>
-              <div class="card-body">
-                <p style="font-size: var(--text-sm); line-height: 1.6; margin-bottom: var(--space-3);">
-                  Your account has been authenticated using your custom Student ID.
-                  The database tables and Row Level Security policies have been constructed to safeguard your personal practice scores.
-                </p>
-                <div class="status-indicator active">
-                  <span>Authentication & Database Active</span>
-                </div>
-              </div>
-            </article>
+              <span class="action-card-arrow" aria-hidden="true">&rarr;</span>
+            </a>
 
-            <article class="card">
-              <div class="card-header">
-                <h2 class="card-title">Upcoming in Phase 2</h2>
+            <a href="/pages/basics.html" class="action-card-btn" aria-label="Enter basics drills">
+              <div class="action-card-content">
+                <h3>
+                  <span>⚡</span>
+                  <span>Enter Basics</span>
+                </h3>
+                <p>Log mental speed calculation drills (1d4r, 2d2r digits and rows) and view your past 7 days history.</p>
               </div>
-              <div class="card-body">
-                <ul style="padding-left: var(--space-4); font-size: var(--text-sm); color: var(--text-muted); display: flex; flex-direction: column; gap: var(--space-2);">
-                  <li><strong>Round Score Entry:</strong> 24 Championship Categories (Addition, Multiplication, Roots, Time Elapsed, etc.).</li>
-                  <li><strong>Basics Drills:</strong> Digits and rows speed logging (1d4r, 2d2r).</li>
-                  <li><strong>Flash Anzan & Elements:</strong> Live digital calculation logs.</li>
-                  <li><strong>Teacher Verification:</strong> Certified round approvals and personal practice progress.</li>
-                </ul>
-              </div>
-            </article>
+              <span class="action-card-arrow" aria-hidden="true">&rarr;</span>
+            </a>
           </div>
         </div>
       </main>

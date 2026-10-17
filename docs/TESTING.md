@@ -138,3 +138,123 @@ This document contains step-by-step test scenarios to verify security boundaries
   - The `Calendar` row changes to a subdued background with an `Inactive` indicator.
   - The button label changes to `Activate`.
   - The database record retains its row with `active = false` (no rows are dropped, protecting historical scores).
+
+---
+
+### Test Case 9: Student Round Scores Entry & Category Listing
+- **Objective**: Verify that students can select an active round, view the 24 categories in order, enter numbers, and view the progress indicator.
+- **Steps**:
+  1. Log in as a student (`STU101` / `student123`).
+  2. On the student home page, click **Enter Round Scores** (or navigate to `/pages/round-scores.html`).
+  3. Verify the round dropdown displays rounds (e.g. `"Round 244 - 3 Oct 2026"`), defaulting to the newest.
+  4. Verify all 24 active categories are listed in competition sort order (`ADD`, `SUB`, `MIX`, ..., `Surprise Task`).
+  5. In row 1 (`ADD`), enter `Correct: 10`, `Total: 10`, `Time: 1:30`.
+- **Expected Result**:
+  - The progress tracker updates dynamically (e.g. `"1 of 24 completed"`).
+  - Row 1 accuracy badge updates immediately to green: `"0 wrong"`.
+
+---
+
+### Test Case 10: Score Color Feedback & Dual Text Evaluation
+- **Objective**: Verify that score colors match the exact specifications and always pair with descriptive text.
+- **Steps**:
+  1. On `/pages/round-scores.html`, navigate to row 1 (`ADD`):
+     - Enter `Correct: 20`, `Total: 20`.
+     - Observe badge color and text.
+  2. Change `Correct` to `15`, `Total: 20` (5 wrong).
+     - Observe badge color and text.
+  3. Change `Correct` to `5`, `Total: 20` (15 wrong).
+     - Observe badge color and text.
+  4. Clear both inputs.
+     - Observe badge.
+- **Expected Result**:
+  - `20 / 20`: Badge is Green (`--color-score-perfect`) and reads `"0 wrong"`.
+  - `15 / 20`: Badge is Orange (`--color-score-warning`) and reads `"5 wrong"`.
+  - `5 / 20`: Badge is Cyan (`--color-score-alert`) and reads `"15 wrong"`.
+  - Cleared: Badge is neutral gray and reads `"—"`.
+
+---
+
+### Test Case 11: Hybrid Time Parsing ("2:07" vs "127") & Keyboard Enter Flow
+- **Objective**: Verify time formatting flexibility and rapid keyboard navigation.
+- **Steps**:
+  1. In the `Time` input of category `ADD`, type `127` and press Tab or click outside.
+  2. In category `SUB`, type `2:07`.
+  3. Focus on `ADD Correct`, type `15`, and press `Enter`.
+- **Expected Result**:
+  - `127` automatically formats to `"2:07"`.
+  - `2:07` remains `"2:07"`.
+  - Pressing `Enter` automatically advances focus to `ADD Total`, then `ADD Time`, then to the next category row.
+
+---
+
+### Test Case 12: Verified Row Immutability (Teacher Lock)
+- **Objective**: Confirm that rows marked `verified = true` by an instructor are read-only and locked for students.
+- **Steps**:
+  1. Open a round where an instructor has verified a score (or in database set `verified = true` on one row).
+  2. Check the category row inputs on `/pages/round-scores.html`.
+- **Expected Result**:
+  - The inputs for that category are grayed out, disabled, and readonly.
+  - A padlock icon and `"🔒 Verified"` indicator are displayed.
+  - The student cannot alter the values or submit an update for that category.
+
+---
+
+### Test Case 13: Non-Upsert Round Batch Saving & Database Date Default
+- **Objective**: Verify that saving scores updates existing rows by ID, inserts new rows without sending `entry_date`, and avoids partial unique index upsert errors.
+- **Steps**:
+  1. Enter scores for 3 categories in Round 244.
+  2. Click **Save Changes**.
+  3. Inspect the network request payload in browser DevTools.
+  4. Refresh the page and reload Round 244.
+- **Expected Result**:
+  - The network payload for newly inserted rows does NOT include `entry_date`.
+  - A green success toast appears: `"Round scores saved successfully!"`.
+  - On page refresh, the 3 rows are marked `"Saved"` and prefilled with the saved numbers.
+  - Existing rows receive `UPDATE` calls by primary key `id` without `entry_date`.
+
+---
+
+### Test Case 14: Basics Speed Drills & 7-Day History Grouping
+- **Objective**: Verify that students can log multiple basics speed drills per day and review past sessions grouped by date.
+- **Steps**:
+  1. Navigate to `/pages/basics.html`.
+  2. Select category `1d4r`.
+  3. Enter `Correct: 19`, `Total: 20`, `Time: 0:45`.
+  4. Leave Date preset as `"Today (Database IST)"`.
+  5. Click **Save Drill Entry**.
+  6. Repeat with `2d2r` for another drill entry.
+- **Expected Result**:
+  - Both drill sessions appear in the **"Today's Sessions"** list with accuracy colors and wrong counts.
+  - The network payload does NOT contain `entry_date`.
+  - The **"Past 7 Days History"** section displays earlier drills neatly grouped by date with drill counts.
+
+---
+
+### Test Case 15: 7-Day Backdating Trigger Enforcement & Database Error Toasts
+- **Objective**: Verify that backdating beyond 7 days is rejected by the database and produces a friendly error toast.
+- **Steps**:
+  1. On `/pages/basics.html`, change the date preset to `"Pick earlier date"`.
+  2. Pick a date 10 days in the past (or issue an API insert with `entry_date` 10 days ago).
+  3. Click **Save Drill Entry**.
+- **Expected Result**:
+  - If the database trigger fires: `"You can only enter scores for the last 7 days."`.
+  - A red error toast appears showing the exact database trigger message to the student.
+  - No corrupted record is saved.
+
+---
+
+### Test Case 16: Admin Rounds Management & IST Next-Round Proposer
+- **Objective**: Verify admin round creation, editing, and deletion guards.
+- **Steps**:
+  1. Log in as Admin (`ADMIN01` / `admin123`).
+  2. Click **Rounds** in the top navigation bar (`/pages/rounds.html`).
+  3. Notice all published rounds listed newest first with total score counts.
+  4. Click **⚡ Add Next Round**.
+  5. Notice the modal pre-fills `Round Number` with `max + 1` and `Round Date` with today's date in Indian Standard Time (IST).
+  6. Click **Publish Round**.
+  7. Try to click **Delete** on a round that has scores recorded.
+- **Expected Result**:
+  - The new round is published and immediately selectable by students.
+  - Rounds with recorded scores have their **Delete** button disabled with notice: `"Cannot delete round with recorded results"`.
+  - Empty rounds can be deleted cleanly.

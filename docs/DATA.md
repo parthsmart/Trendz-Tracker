@@ -67,18 +67,24 @@ This catalog outlines every database table in the Trendz Tracker PostgreSQL sche
   - `total`: `INTEGER NULL CHECK (total >= 0)`
   - `time_seconds`: `INTEGER NULL CHECK (time_seconds >= 0)`
   - `note`: `TEXT NULL` (used for Surprise Task descriptions or student practice notes)
-  - `entry_date`: `DATE NOT NULL DEFAULT CURRENT_DATE`
+  - `entry_date`: `DATE NOT NULL DEFAULT public.today_ist()` (Indian Standard Time canonical practice day)
   - `verified`: `BOOLEAN NOT NULL DEFAULT false`
   - `created_at`: `TIMESTAMPTZ NOT NULL DEFAULT now()`
 - **Indexes**:
   - Partial Unique Index: `(student_id, round_number, category_id) WHERE round_number IS NOT NULL`
   - Performance Indexes: `(student_id, entry_date DESC)`, `(student_id, category_id)`
+- **Database Trigger & Date Rules**:
+  - `DEFAULT public.today_ist()`: Never computed from client browser clocks.
+  - Insert for today: Client **omits** `entry_date` so the database assigns `today_ist()`.
+  - Insert for past date: Client sends `entry_date`, which is validated by a database trigger (allowing only the past 7 days).
+  - Update: Client **never sends** `entry_date`, preserving the date on which the student originally achieved the score.
+  - Trigger validations: Raises user-friendly Postgres errors if `correct > total` or if scores are backdated beyond 7 days.
 - **Who Reads**:
   - **Student**: Only rows where `student_id = auth.uid()`.
   - **Admin**: All rows.
 - **Who Writes**:
-  - **Student**: Can `INSERT`, `UPDATE`, and `DELETE` their own unverified rows (`verified = false`). Students cannot set `verified = true`.
-  - **Admin**: Can create, edit, verify, or delete any score.
+  - **Student**: Can `INSERT`, `UPDATE`, and `DELETE` their own unverified rows (`verified = false`). Students cannot set `verified = true` or modify rows after an instructor marks them verified.
+  - **Admin**: Can create, edit, verify (`verified = true`), or delete any score.
 - **Expected Size**: High volume. 100 students entering 24 categories daily $\approx 2,400$ rows/day ($\approx 100\text{ MB}$ to $1\text{ GB}$ over multi-year cycles).
 - **Trade-off**: Using a single unified table with nullable fields rather than multiple separate tables simplifies aggregation and streak tracking, but requires partial unique indexes to handle round vs non-round category constraints.
 

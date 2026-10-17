@@ -85,3 +85,59 @@ Every meaningful technical and architectural decision made for **Trendz Tracker*
 - **Reason**: Provides an immediate, functional preview while making it obvious how and where to configure live production credentials.
 - **Trade-off**: Requires maintaining a small mock data store in `js/supabaseClient.js`.
 - **Rejected Options**: Blocking error screens, silent failures.
+
+---
+
+### ADR-007: Database Date Authority (`today_ist()`) & Omitting `entry_date`
+- **Date**: 2026-10-17
+- **Context**: Students access the web portal from varying devices whose clocks may be desynchronized or intentionally altered. The competition requires standardized Indian Standard Time (IST) dates, enforced via a database default `today_ist()` and a 7-day backdating trigger.
+- **Options Considered**:
+  1. *Generating timestamps in the browser via JavaScript `new Date()`*: Unreliable, easily spoofed, and prone to local timezone mismatches.
+  2. *Fetching current server time via an extra HTTP roundtrip before every save*: Adds latency and fails offline.
+  3. *Omitting `entry_date` on today's inserts and all updates*: For current-day submissions, the browser omits `entry_date` so Postgres automatically assigns `DEFAULT today_ist()`. Only when an earlier date is explicitly chosen (Basics drills) is `entry_date` sent. Updates never send `entry_date`, preserving original entry dates.
+- **Choice**: Omitting `entry_date` on current inserts and updates; trusting database default.
+- **Reason**: Guarantees date accuracy regardless of client machine settings and simplifies payload construction.
+- **Trade-off**: The client cannot preview the exact assigned `entry_date` until re-fetching or querying after insert.
+- **Rejected Options**: Client-side date generation, pre-flight timestamp RPCs.
+
+---
+
+### ADR-008: Non-Upsert Diffing for Round Score Batch Saves
+- **Date**: 2026-10-17
+- **Context**: The `results` table enforces uniqueness via a partial index `(student_id, round_number, category_id) WHERE round_number IS NOT NULL`. Supabase PostgREST's `upsert` API with `onConflict` does not natively support partial unique index constraints and frequently errors with duplicate key violations.
+- **Options Considered**:
+  1. *PostgREST upsert with `onConflict: 'student_id,round_number,category_id'`*: Triggers Postgres error because the unique constraint only exists conditionally where `round_number IS NOT NULL`.
+  2. *Custom PostgreSQL stored procedure for bulk upsert*: Adds server-side PL/pgSQL maintenance overhead.
+  3. *Client-side diffing and direct ID update*: Client loads existing results on round selection. When saving, existing rows are updated by primary key `id`, while newly attempted categories are inserted without `entry_date`. Empty categories are skipped.
+- **Choice**: Client-side diffing with direct ID updates and targeted inserts.
+- **Reason**: 100% reliable, works across all PostgreSQL versions, avoids partial-index upsert bugs, and skips unattempted categories.
+- **Trade-off**: Requires two queries (one update loop, one insert batch) instead of a single bulk upsert call.
+- **Rejected Options**: PostgREST partial upsert, custom PL/pgSQL bulk RPC.
+
+---
+
+### ADR-009: Shared Accuracy Feedback Function with Dual Text Signal
+- **Date**: 2026-10-17
+- **Context**: Abacus students need instant feedback on errors while typing scores, but accessibility (WCAG AA) requires that color is never the only signal.
+- **Options Considered**:
+  1. *Percentage calculation badges*: In mental calculation championships, raw penalty count (wrong answers) is the decisive metric, not percentage.
+  2. *Color-only borders or status dots*: Inaccessible to color-blind children and ambiguous.
+  3. *Shared function `getScoreFeedback` with explicit text and 3 color states*: Green for 0 wrong (and total > 0), Orange for 1 to 10 wrong, Cyan for >10 wrong, and explicit textual labels (e.g. `"3 wrong"`, `"0 wrong"`).
+- **Choice**: Shared function `getScoreFeedback(correct, total)` in `js/scoreColors.js`.
+- **Reason**: Centralizes calculation logic for both Round scores and Basics speed drills while guaranteeing accessible dual signaling (color + text).
+- **Trade-off**: Slight CSS overhead for distinct color classes.
+- **Rejected Options**: Percentage-only badges, color-only borders.
+
+---
+
+### ADR-010: Hybrid Time Parsing (`mm:ss` or seconds) & Enter Key Workflow
+- **Date**: 2026-10-17
+- **Context**: Young students entering 24 categories in a practice session find splitting minutes and seconds into separate input fields cumbersome. Mobile touch keypads are also prone to input friction.
+- **Options Considered**:
+  1. *Separate Minutes and Seconds input fields*: Doubles the number of fields to 48, slowing down data entry.
+  2. *Strict regex requiring `:` separator*: Frustrates students who type `127` seconds from stopwatches.
+  3. *Hybrid parser (`timeUtils.js`)*: Accepts either `"2:07"` or `"127"` (seconds), formats to `mm:ss` on blur, sets `inputmode="numeric"`, and advances focus to the next input upon pressing `Enter`.
+- **Choice**: Hybrid parser with sequential Enter key advancement.
+- **Reason**: Dramatically accelerates score entry for students on both desktop keyboards and mobile number pads.
+- **Trade-off**: Must handle edge cases (e.g. seconds $\ge 60$ in `m:ss` strings).
+- **Rejected Options**: Dual minute/second inputs, strict time-picker popups.

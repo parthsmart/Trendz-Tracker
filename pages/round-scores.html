@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Round Scores - Trendz Tracker</title>
+    <meta name="description" content="Enter competition scores for Junior Mental Calculation World Championship rounds." />
+    
+    <!-- Design tokens & unified styles -->
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- Top Bar Contract: 3-Zone Navigation -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <!-- Zone 1: Wordmark & Brand -->
+          <a href="/pages/student.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <!-- Zone 2: Navigation Links -->
+          <nav class="nav-zone" aria-label="Student Navigation">
+            <a href="/pages/student.html" class="nav-link">Home</a>
+            <a href="/pages/round-scores.html" class="nav-link active">Round Scores</a>
+            <a href="/pages/basics.html" class="nav-link">Basics</a>
+          </nav>
+
+          <!-- Zone 3: User Details & Logout Action -->
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Student</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-code" class="num" style="color: var(--text-muted);">STU</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Page Content -->
+      <main class="main-content">
+        <div class="container">
+          <!-- Demo Mode Banner Placeholder -->
+          <div id="config-banner-placeholder"></div>
+
+          <!-- Page Heading & Round Picker Bar -->
+          <div class="section-header-row" style="align-items: flex-end; flex-wrap: wrap; gap: var(--space-4); margin-bottom: var(--space-4);">
+            <div>
+              <h1>Championship Round Scores</h1>
+              <p style="font-size: var(--text-sm);">Select your practice round and enter scores for the 24 championship categories.</p>
+            </div>
+
+            <!-- Round Selector Dropdown -->
+            <div style="display: flex; align-items: center; gap: var(--space-2); min-width: 260px;">
+              <label for="select-round" class="form-label" style="margin-bottom: 0; white-space: nowrap;">Round:</label>
+              <select id="select-round" class="form-select" style="font-weight: 600; min-height: 42px;" aria-label="Select round">
+                <option value="">Loading rounds...</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Progress Bar & Save Controls -->
+          <div class="progress-header-box">
+            <div style="display: flex; align-items: center; gap: var(--space-3);">
+              <span class="progress-text-count" id="progress-display">Loading categories...</span>
+            </div>
+            <div>
+              <button type="button" id="btn-save-round" class="btn btn-primary" style="min-width: 140px;">
+                <span id="save-btn-text">Save Changes</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Table Header (Desktop) -->
+          <div class="card" style="margin-bottom: var(--space-8);">
+            <div class="score-entry-row" style="background-color: var(--bg-surface-subtle); font-weight: 600; font-size: var(--text-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">
+              <div class="cell-category">Category</div>
+              <div>Correct</div>
+              <div>Total</div>
+              <div>Time (mm:ss)</div>
+              <div class="cell-feedback">Accuracy</div>
+              <div style="text-align: right;">Status</div>
+            </div>
+
+            <!-- Category Entry Rows Container -->
+            <div id="score-rows-container">
+              <!-- Loading Skeleton -->
+              <div style="padding: var(--space-4);">
+                <div class="skeleton-row"></div>
+                <div class="skeleton-row"></div>
+                <div class="skeleton-row"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bottom Sticky Save Bar for Mobile Accessibility -->
+          <div style="position: sticky; bottom: var(--space-4); display: flex; justify-content: flex-end; z-index: 20;">
+            <button type="button" id="btn-save-round-bottom" class="btn btn-primary" style="box-shadow: var(--shadow-lg); min-width: 160px;">
+              Save Changes
+            </button>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- Toast Notifications Container -->
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <!-- Round Scores Logic Script -->
+    <script type="module" src="/js/roundScores.js"></script>
+  </body>
+</html>

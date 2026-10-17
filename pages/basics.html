@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Basics Speed Drills - Trendz Tracker</title>
+    <meta name="description" content="Record daily abacus basics calculation drills (digits and rows) and track 7-day practice history." />
+    
+    <!-- Design tokens & unified styles -->
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- Top Bar Contract: 3-Zone Navigation -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <!-- Zone 1: Wordmark & Brand -->
+          <a href="/pages/student.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <!-- Zone 2: Navigation Links -->
+          <nav class="nav-zone" aria-label="Student Navigation">
+            <a href="/pages/student.html" class="nav-link">Home</a>
+            <a href="/pages/round-scores.html" class="nav-link">Round Scores</a>
+            <a href="/pages/basics.html" class="nav-link active">Basics</a>
+          </nav>
+
+          <!-- Zone 3: User Details & Logout Action -->
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Student</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-code" class="num" style="color: var(--text-muted);">STU</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Page Content -->
+      <main class="main-content">
+        <div class="container">
+          <!-- Demo Mode Banner Placeholder -->
+          <div id="config-banner-placeholder"></div>
+
+          <!-- Page Heading -->
+          <div class="section-header-row" style="margin-bottom: var(--space-6);">
+            <div>
+              <h1>Basics Speed Drills</h1>
+              <p style="font-size: var(--text-sm);">Log daily mental calculation speed drills (digits & rows). Multiple entries allowed per day.</p>
+            </div>
+          </div>
+
+          <!-- Drill Entry Card -->
+          <div class="card" style="margin-bottom: var(--space-8);">
+            <div class="card-header">
+              <h2 class="card-title" id="form-card-title">Record a Basics Drill</h2>
+            </div>
+            <form id="basics-form">
+              <input type="hidden" id="edit-drill-id" />
+              <div class="card-body">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-4);">
+                  <!-- Category Select -->
+                  <div class="form-group">
+                    <label for="basics-category-select" class="form-label">Drill Category *</label>
+                    <select id="basics-category-select" class="form-select" required>
+                      <option value="">Loading categories...</option>
+                    </select>
+                  </div>
+
+                  <!-- Date Selection (Default today; allow up to 7 days back) -->
+                  <div class="form-group" id="date-selection-group">
+                    <label class="form-label">Drill Date *</label>
+                    <div style="display: flex; gap: var(--space-2); align-items: center;">
+                      <select id="basics-date-preset" class="form-select">
+                        <option value="today" selected>Today (Database IST)</option>
+                        <option value="custom">Pick earlier date (up to 7 days back)</option>
+                      </select>
+                    </div>
+                    <div id="custom-date-container" style="display: none; margin-top: var(--space-2);">
+                      <input type="date" id="basics-custom-date" class="form-input" />
+                      <span class="form-hint">Permitted range: last 7 days only.</span>
+                    </div>
+                  </div>
+
+                  <!-- Correct Answers -->
+                  <div class="form-group">
+                    <label for="basics-correct" class="form-label">Correct Answers *</label>
+                    <input
+                      type="text"
+                      inputmode="numeric"
+                      id="basics-correct"
+                      class="form-input"
+                      placeholder="e.g. 18"
+                      required
+                    />
+                  </div>
+
+                  <!-- Total Attempted -->
+                  <div class="form-group">
+                    <label for="basics-total" class="form-label">Total Attempted *</label>
+                    <input
+                      type="text"
+                      inputmode="numeric"
+                      id="basics-total"
+                      class="form-input"
+                      placeholder="e.g. 20"
+                      required
+                    />
+                  </div>
+
+                  <!-- Time (mm:ss or seconds) -->
+                  <div class="form-group">
+                    <label for="basics-time" class="form-label">Time (mm:ss or seconds)</label>
+                    <input
+                      type="text"
+                      inputmode="numeric"
+                      id="basics-time"
+                      class="form-input"
+                      placeholder="e.g. 1:45 or 105"
+                    />
+                  </div>
+
+                  <!-- Live Accuracy Preview -->
+                  <div class="form-group" style="justify-content: flex-end;">
+                    <label class="form-label">Accuracy Preview</label>
+                    <div style="min-height: 42px; display: flex; align-items: center;">
+                      <span id="basics-live-feedback" class="score-tag score-tag-neutral">—</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div id="basics-form-error" class="banner banner-error" style="display: none; margin-top: var(--space-3); margin-bottom: 0;" role="alert"></div>
+              </div>
+              <div class="card-footer" style="justify-content: space-between;">
+                <button type="button" id="btn-cancel-edit" class="btn btn-outline" style="display: none;">
+                  Cancel Edit
+                </button>
+                <button type="submit" id="btn-submit-drill" class="btn btn-primary" style="margin-left: auto;">
+                  <span id="btn-submit-drill-text">Save Drill Entry</span>
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Section 1: Today's Drills -->
+          <div style="margin-bottom: var(--space-8);">
+            <div class="section-header-row">
+              <h2 class="section-badge-title">
+                <span>⚡</span>
+                <span>Today's Sessions</span>
+                <span class="num" id="today-count-badge" style="font-size: var(--text-xs); color: var(--text-dim); font-weight: normal;">(0)</span>
+              </h2>
+            </div>
+            <div id="today-drills-container">
+              <div class="skeleton-row"></div>
+            </div>
+          </div>
+
+          <!-- Section 2: Last 7 Days History Grouped by Date -->
+          <div>
+            <div class="section-header-row">
+              <h2 class="section-badge-title">
+                <span>📅</span>
+                <span>Past 7 Days History</span>
+              </h2>
+            </div>
+            <div id="past-drills-container">
+              <div class="skeleton-row"></div>
+              <div class="skeleton-row"></div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- Toast Notifications Container -->
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <!-- Basics Logic Script -->
+    <script type="module" src="/js/basics.js"></script>
+  </body>
+</html>

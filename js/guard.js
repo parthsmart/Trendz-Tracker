@@ -81,10 +81,9 @@ function renderConfigBanner() {
 
   if (!isSupabaseConfigured()) {
     container.innerHTML = `
-      <div class="banner banner-info" style="margin-bottom: var(--space-4);">
+      <div class="banner banner-warning" style="margin-bottom: var(--space-4); border: 2px dashed var(--color-warning);">
         <div>
-          <strong>⚡ Demo Mode Active:</strong> You are exploring Trendz Tracker with interactive sample data.
-          To connect your live database, add your Supabase URL & Key in <code>js/config.js</code>.
+          <strong>⚠️ DEMO MODE — data is fake:</strong> Running in local preview mode. Real Supabase keys are not set.
         </div>
         <button id="btn-show-sql-guide" class="btn btn-outline btn-sm" style="background:#fff;">
           Setup Guide & SQL

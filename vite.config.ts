@@ -13,8 +13,11 @@ export default defineConfig(() => {
         input: {
           main: path.resolve(__dirname, 'index.html'),
           student: path.resolve(__dirname, 'pages/student.html'),
+          roundScores: path.resolve(__dirname, 'pages/round-scores.html'),
+          basics: path.resolve(__dirname, 'pages/basics.html'),
           admin: path.resolve(__dirname, 'pages/admin.html'),
           categories: path.resolve(__dirname, 'pages/categories.html'),
+          rounds: path.resolve(__dirname, 'pages/rounds.html'),
         },
       },
     },

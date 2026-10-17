@@ -22,6 +22,14 @@
   --color-danger-subtle: #fff5f5;
   --color-danger-text: #c92a2a;
 
+  /* Score Feedback Colors (Shared across Round scores & Basics) */
+  --color-score-perfect: #12b886;   /* Green for all correct (0 wrong, total > 0) */
+  --color-score-perfect-subtle: #ebfbee;
+  --color-score-warning: #f76707;   /* Orange for 1 to 10 wrong */
+  --color-score-warning-subtle: #fff4e6;
+  --color-score-alert: #0c8599;     /* Cyan for more than 10 wrong */
+  --color-score-alert-subtle: #e3fafc;
+
   /* Neutrals (60% dominant canvas, 30% structural surfaces) */
   --bg-page: #f8f9fa;               /* Clean soft background */
   --bg-surface: #ffffff;            /* Card & panel surfaces */

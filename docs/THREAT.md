@@ -62,6 +62,20 @@ The serverless functions in `/api/create-student.js` and `/api/reset-password.js
    - *Mitigation in Place*: Endpoints require valid admin JWTs.
    - *Future Recommendation*: Add Upstash Redis rate-limiting middleware to `/api/*`.
 
-3. **No Database Row Audit Log**:
-   - *Risk*: If a teacher accidentally renames a category or changes a student's level, there is currently no history table recording who made the change.
-   - *Future Recommendation*: Implement an `audit_logs` table in Phase 2 to record all administrative modifications.
+3. **Backdating Practice Entries**:
+   - *Risk*: A student attempts to falsify historical consistency streaks or claim they practiced weeks ago by forging past dates in API payloads.
+   - *Mitigation in Place*: Strictly capped at the database level. The database trigger on `results` intercepts all inserts/updates and rejects any row with `entry_date < today_ist() - INTERVAL '7 days'` or `entry_date > today_ist()`, throwing an explicit PostgreSQL error. Browser clock manipulation is futile because `entry_date` defaults to `today_ist()`.
+   - *Known Gap*: Students can still backdate up to 7 days into the past for speed basics drills.
+
+4. **Inflated / Falsified Typed Scores**:
+   - *Risk*: Students type fraudulent scores (e.g. 50/50 correct in 10 seconds for Square Roots) to appear top-ranked.
+   - *Mitigation in Place*: The `verified` boolean flag. In Phase 2, student entered scores are saved with `verified = false`. Only an instructor can inspect and mark a round `verified = true`. Once verified, rows are locked read-only by RLS policies (`WITH CHECK (verified = false)` for students).
+   - *Known Gap*: Until photo verification, physical worksheet scanning, or teacher sign-off is implemented in future phases, raw practice metrics are unverified self-reported entries.
+
+5. **Deactivated Student Accounts**:
+   - *Risk*: A student who has left the institute or whose account has been suspended tries to log in or enter scores.
+   - *Mitigation in Place*:
+     - `auth.js` verifies `profile.active === true` on login and immediately terminates the session if false.
+     - `public.is_admin()` checks `active = true`, immediately revoking administrative privileges if an admin account is deactivated.
+     - RLS policies on `profiles` and `results` respect user active status.
+     - Deactivated students cannot submit or alter scores.
