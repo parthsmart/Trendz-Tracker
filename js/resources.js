@@ -61,8 +61,12 @@ function renderResourcesTable() {
   if (allResources.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="6" class="empty-state">
-          No learning resources published yet. Click <strong>+ Add Resource</strong> above to add curriculum guides or worksheets.
+        <td colspan="6" class="empty-state-cell">
+          <div class="empty-state">
+            <div class="empty-state-icon" aria-hidden="true">📚</div>
+            <h3 class="empty-state-title">No learning resources published yet</h3>
+            <p class="empty-state-desc">Click <strong>+ Add Resource</strong> above to add curriculum guides, competition rulebooks, or practice worksheets.</p>
+          </div>
         </td>
       </tr>
     `;

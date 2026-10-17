@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Admin Dashboard - Student Management | Trendz Tracker</title>
-    <meta name="description" content="Admin dashboard to manage Trendz Abacus students, account creation, and password resets." />
+    <title>Admin Overview - Trendz Tracker</title>
+    <meta name="description" content="Admin practice monitoring, active streaks, daily entries, and accuracy tracking." />
     
     <!-- Design tokens & unified styles -->
     <link rel="stylesheet" href="/css/style.css" />
@@ -22,7 +22,8 @@
 
           <!-- Zone 2: Navigation Links -->
           <nav class="nav-zone" aria-label="Admin Navigation">
-            <a href="/pages/admin.html" class="nav-link active">Students</a>
+            <a href="/pages/admin.html" class="nav-link active">Overview</a>
+            <a href="/pages/students.html" class="nav-link">Students</a>
             <a href="/pages/todos.html" class="nav-link">Daily To-Do</a>
             <a href="/pages/resources.html" class="nav-link">Resources</a>
             <a href="/pages/categories.html" class="nav-link">Categories</a>
@@ -49,30 +50,57 @@
           <!-- Demo Mode Banner Placeholder -->
           <div id="config-banner-placeholder"></div>
 
-          <!-- Page Heading & Primary Action Button -->
+          <!-- Page Heading -->
           <div class="section-header-row" style="margin-bottom: var(--space-6);">
             <div>
-              <h1>Student Management</h1>
-              <p style="font-size: var(--text-sm);">View student roster, create accounts, reset passwords, and toggle active status.</p>
+              <h1>Institute Practice Overview</h1>
+              <p style="font-size: var(--text-sm);">
+                Daily practice completion, active streaks, and 7-day performance tracking across all students.
+              </p>
             </div>
-            <button type="button" id="btn-open-create-modal" class="btn btn-primary">
-              <span>+ Add Student</span>
-            </button>
+            <div class="meta-row" style="font-size: var(--text-xs);">
+              <span>Date (IST): <strong id="overview-today-ist" class="num">—</strong></span>
+            </div>
           </div>
 
-          <!-- Quick Stats Row -->
-          <div class="stats-grid">
-            <div class="stat-card">
-              <span class="stat-label">Total Students</span>
-              <span class="stat-value" id="stat-total-students">0</span>
-            </div>
+          <!-- Summary Cards (5 Cards) -->
+          <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom: var(--space-6);">
             <div class="stat-card">
               <span class="stat-label">Active Students</span>
-              <span class="stat-value" id="stat-active-students" style="color: var(--color-accent-text);">0</span>
+              <span class="stat-value" id="stat-active-students">—</span>
             </div>
             <div class="stat-card">
-              <span class="stat-label">Inactive Students</span>
-              <span class="stat-value" id="stat-inactive-students" style="color: var(--text-dim);">0</span>
+              <span class="stat-label">Entered Today</span>
+              <span class="stat-value" id="stat-entered-today" style="color: var(--color-accent-text);">—</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Not Entered Today</span>
+              <span class="stat-value" id="stat-not-entered" style="color: var(--color-warning-text);">—</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Avg 7-Day Accuracy</span>
+              <span class="stat-value" id="stat-avg-accuracy">—</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Longest Streak</span>
+              <span class="stat-value" id="stat-longest-streak" style="font-size: var(--text-lg); display: flex; align-items: baseline; gap: 4px;">—</span>
+            </div>
+          </div>
+
+          <!-- Needs Attention Section (Students with no entry in 3+ days) -->
+          <div id="needs-attention-box" class="attention-card" style="display: none;">
+            <div class="attention-header">
+              <div class="attention-title">
+                <span aria-hidden="true">⚠️</span>
+                <span>Needs Attention: Inactive for 3+ Days</span>
+              </div>
+              <span id="attention-count" class="badge" style="background: rgba(217, 119, 6, 0.15); color: var(--color-warning-text); font-weight: 700;">0 students</span>
+            </div>
+            <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 0 0 var(--space-3) 0;">
+              These active students haven't recorded any practice sessions in the past 3 or more days:
+            </p>
+            <div id="attention-list" class="attention-grid">
+              <!-- Rendered dynamically -->
             </div>
           </div>
 
@@ -81,14 +109,14 @@
             <div class="search-input-wrapper">
               <input
                 type="text"
-                id="search-students"
+                id="search-overview"
                 class="form-input"
-                placeholder="Search by ID or name..."
-                aria-label="Search students"
+                placeholder="Search by student name or ID..."
+                aria-label="Search overview students"
               />
             </div>
             <div style="display: flex; gap: var(--space-3); flex-wrap: wrap;">
-              <select id="filter-level" class="form-select" style="width: auto; min-width: 140px;" aria-label="Filter by level">
+              <select id="filter-overview-level" class="form-select" style="width: auto; min-width: 140px;" aria-label="Filter by level">
                 <option value="">All Levels</option>
                 <option value="Level 1">Level 1</option>
                 <option value="Level 2">Level 2</option>
@@ -96,170 +124,84 @@
                 <option value="Level 4">Level 4</option>
                 <option value="Master">Master</option>
               </select>
-              <select id="filter-status" class="form-select" style="width: auto; min-width: 140px;" aria-label="Filter by status">
+              <select id="filter-overview-status" class="form-select" style="width: auto; min-width: 150px;" aria-label="Filter by today status">
                 <option value="">All Statuses</option>
-                <option value="active">Active Only</option>
-                <option value="inactive">Inactive Only</option>
+                <option value="done">Done Today</option>
+                <option value="pending">Not Yet Today</option>
+                <option value="inactive">Inactive</option>
               </select>
             </div>
           </div>
 
-          <!-- Students Data Table -->
-          <div class="card">
+          <!-- Overview Data Table Card -->
+          <div class="card" style="padding: 0; overflow: hidden; margin-bottom: var(--space-6);">
             <div class="table-wrapper">
-              <table class="table" id="students-table">
+              <table class="table data-table" id="overview-table" aria-label="Student practice overview">
                 <thead>
                   <tr>
-                    <th>Student ID</th>
-                    <th>Full Name</th>
-                    <th>Level</th>
-                    <th>Status</th>
-                    <th style="text-align: right;">Actions</th>
+                    <th style="cursor: pointer;" data-sort="full_name" title="Sort by Name">
+                      Student Name <span class="sort-icon" aria-hidden="true">↕</span>
+                    </th>
+                    <th style="cursor: pointer; width: 110px;" data-sort="student_code" title="Sort by ID">
+                      ID <span class="sort-icon" aria-hidden="true">↕</span>
+                    </th>
+                    <th style="cursor: pointer; width: 110px;" data-sort="level" title="Sort by Level">
+                      Level <span class="sort-icon" aria-hidden="true">↕</span>
+                    </th>
+                    <th style="cursor: pointer; width: 130px;" data-sort="current_streak" title="Sort by Streak">
+                      Streak <span class="sort-icon" aria-hidden="true">↕</span>
+                    </th>
+                    <th style="cursor: pointer; width: 130px;" data-sort="today_status" title="Sort by Today's Status">
+                      Today's Status <span class="sort-icon" aria-hidden="true">↕</span>
+                    </th>
+                    <th style="cursor: pointer; width: 140px;" data-sort="last_entry_date" title="Sort by Last Entry Date">
+                      Last Entry (IST) <span class="sort-icon" aria-hidden="true">↕</span>
+                    </th>
+                    <th style="cursor: pointer; width: 110px; text-align: right;" data-sort="entries_7d" title="Sort by 7-Day Entries">
+                      7d Entries <span class="sort-icon" aria-hidden="true">↕</span>
+                    </th>
+                    <th style="cursor: pointer; width: 120px; text-align: right;" data-sort="accuracy_7d" title="Sort by 7-Day Accuracy">
+                      7d Accuracy <span class="sort-icon" aria-hidden="true">↕</span>
+                    </th>
                   </tr>
                 </thead>
-                <tbody id="students-table-body">
-                  <!-- Skeleton loading placeholder rows -->
+                <tbody id="overview-table-body">
                   <tr>
-                    <td colspan="5"><div class="skeleton-row"></div></td>
+                    <td colspan="8"><div class="skeleton-row"></div></td>
                   </tr>
                   <tr>
-                    <td colspan="5"><div class="skeleton-row"></div></td>
+                    <td colspan="8"><div class="skeleton-row"></div></td>
+                  </tr>
+                  <tr>
+                    <td colspan="8"><div class="skeleton-row"></div></td>
                   </tr>
                 </tbody>
               </table>
             </div>
 
-            <!-- Empty State Container -->
-            <div id="students-empty-state" class="empty-state" style="display: none;">
-              <div class="empty-state-icon">👤</div>
-              <h3 class="empty-state-title">No students found</h3>
-              <p class="empty-state-desc">Try adjusting your search criteria or add a new student using the button above.</p>
+            <!-- Pagination Bar (25 rows per page) -->
+            <div class="pagination-bar" id="overview-pagination-bar">
+              <span id="overview-pagination-info">Showing 0 of 0 students</span>
+              <div style="display: flex; gap: var(--space-2); align-items: center;">
+                <button type="button" id="btn-page-prev" class="btn btn-outline btn-sm" disabled>
+                  &larr; Previous
+                </button>
+                <span id="overview-page-current" style="font-weight: 600; padding: 0 var(--space-2);">Page 1</span>
+                <button type="button" id="btn-page-next" class="btn btn-outline btn-sm" disabled>
+                  Next &rarr;
+                </button>
+              </div>
             </div>
           </div>
+
         </div>
       </main>
-    </div>
-
-    <!-- Modal 1: Create Student Modal -->
-    <div id="create-student-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-labelledby="create-modal-title">
-      <div class="modal-dialog">
-        <header class="modal-header">
-          <h2 id="create-modal-title" class="modal-title">Add New Student</h2>
-          <button type="button" class="modal-close" data-close-modal="create-student-modal" aria-label="Close modal">&times;</button>
-        </header>
-        <form id="create-student-form">
-          <div class="modal-body">
-            <div class="form-group">
-              <label for="new-student-code" class="form-label">Student ID *</label>
-              <input
-                type="text"
-                id="new-student-code"
-                class="form-input"
-                placeholder="e.g. STU-106"
-                required
-              />
-              <span class="form-hint">Used by the student to sign in (maps to @trendz.local).</span>
-            </div>
-
-            <div class="form-group">
-              <label for="new-full-name" class="form-label">Full Name *</label>
-              <input
-                type="text"
-                id="new-full-name"
-                class="form-input"
-                placeholder="e.g. Riya Sen"
-                required
-              />
-            </div>
-
-            <div class="form-group">
-              <label for="new-level" class="form-label">Abacus Level (Optional)</label>
-              <input
-                type="text"
-                id="new-level"
-                class="form-input"
-                placeholder="e.g. Level 2, Foundation, Master"
-              />
-            </div>
-
-            <div class="form-group">
-              <div style="display: flex; justify-content: space-between; align-items: center;">
-                <label for="new-temp-password" class="form-label">Temporary Password *</label>
-                <button type="button" id="btn-generate-password" class="btn btn-outline btn-sm" style="height: 24px; min-height: 24px; font-size: 11px; padding: 0 6px;">
-                  Generate Random
-                </button>
-              </div>
-              <input
-                type="text"
-                id="new-temp-password"
-                class="form-input"
-                placeholder="e.g. Trendz2026!"
-                required
-                minlength="6"
-              />
-              <span class="form-hint">Minimum 6 characters. Give this to the student.</span>
-            </div>
-
-            <div id="create-error" class="banner banner-error" style="display: none; margin-bottom: 0;" role="alert"></div>
-          </div>
-          <footer class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-close-modal="create-student-modal">Cancel</button>
-            <button type="submit" id="btn-submit-create" class="btn btn-primary">
-              <span id="btn-create-text">Create Student</span>
-            </button>
-          </footer>
-        </form>
-      </div>
-    </div>
-
-    <!-- Modal 2: Reset Password Modal -->
-    <div id="reset-password-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-labelledby="reset-modal-title">
-      <div class="modal-dialog">
-        <header class="modal-header">
-          <h2 id="reset-modal-title" class="modal-title">Reset Password</h2>
-          <button type="button" class="modal-close" data-close-modal="reset-password-modal" aria-label="Close modal">&times;</button>
-        </header>
-        <form id="reset-password-form">
-          <input type="hidden" id="reset-student-id" />
-          <div class="modal-body">
-            <p style="font-size: var(--text-sm); margin-bottom: var(--space-4);">
-              Resetting password for: <strong id="reset-student-display-name"></strong>
-              (<span id="reset-student-display-code" class="num"></span>)
-            </p>
-
-            <div class="form-group">
-              <div style="display: flex; justify-content: space-between; align-items: center;">
-                <label for="reset-new-password" class="form-label">New Password *</label>
-                <button type="button" id="btn-generate-reset-password" class="btn btn-outline btn-sm" style="height: 24px; min-height: 24px; font-size: 11px; padding: 0 6px;">
-                  Generate Random
-                </button>
-              </div>
-              <input
-                type="text"
-                id="reset-new-password"
-                class="form-input"
-                placeholder="Minimum 6 characters"
-                required
-                minlength="6"
-              />
-            </div>
-
-            <div id="reset-error" class="banner banner-error" style="display: none; margin-bottom: 0;" role="alert"></div>
-          </div>
-          <footer class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-close-modal="reset-password-modal">Cancel</button>
-            <button type="submit" id="btn-submit-reset" class="btn btn-primary">
-              <span id="btn-reset-text">Update Password</span>
-            </button>
-          </footer>
-        </form>
-      </div>
     </div>
 
     <!-- Toast Notifications Container -->
     <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-    <!-- Admin Logic Script -->
-    <script type="module" src="/js/admin.js"></script>
+    <!-- Overview Controller -->
+    <script type="module" src="/js/adminOverview.js"></script>
   </body>
 </html>

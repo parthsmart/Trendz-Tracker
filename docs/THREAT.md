@@ -114,5 +114,13 @@ The serverless functions in `/api/create-student.js` and `/api/reset-password.js
       - On any production hostname, `checkProductionConfigLock()` immediately replaces the entire document body with a full-page "Configuration error - Please contact the administrator" screen.
       - `loginWithStudentId()` and administrative API calls (`createStudent`, `resetStudentPassword`, `toggleStudentActive`) strictly throw configuration errors on production hostnames when unconfigured, preventing any mock success.
 
+11. **Admin Overview Cross-Student Aggregation Exposure (`public.admin_overview()`)**:
+    - *Risk*: A malicious student or unauthenticated visitor executes `supabase.rpc('admin_overview')` directly from browser console or Postman to scrape all students' codes, full names, active streaks, daily completion status, and 7-day accuracies.
+    - *Mitigation in Place*:
+      - **Database Enforcement**: The PostgreSQL stored procedure `admin_overview()` executes with strict security validation: `IF NOT public.is_admin() THEN RAISE EXCEPTION 'Access denied: Admins only'; END IF;`. Students and anonymous requests are rejected at the database level regardless of client code tampering.
+      - **Client Route Guard**: `pages/admin.html` enforces `requireAuth(['admin'])`, redirecting unauthorized roles immediately to `/pages/student.html` or `/index.html`.
+      - **Read-Only Scope**: The overview RPC returns summary monitoring metrics only; it does not expose passwords, session tokens, or sensitive administrative keys.
+
+
 
 

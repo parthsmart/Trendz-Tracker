@@ -145,8 +145,10 @@ function renderTable() {
       <td class="num" style="font-weight: 600; color: var(--color-primary-text);">
         ${escapeHtml(student.student_code)}
       </td>
-      <td style="font-weight: 500;">
-        ${escapeHtml(student.full_name)}
+      <td>
+        <a href="/pages/student-detail.html?id=${encodeURIComponent(student.id)}" class="student-link-pending" title="Coming next" aria-disabled="true" onclick="event.preventDefault()">
+          ${escapeHtml(student.full_name)}
+        </a>
       </td>
       <td style="color: var(--text-muted);">
         ${student.level ? escapeHtml(student.level) : '<span style="color: var(--text-dim);">—</span>'}

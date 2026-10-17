@@ -8,6 +8,28 @@
 
 ## Current Status Overview
 
+### Session: 2026-10-17 (Deterministic CI Lockfile Sync, Linux Binaries & Node 22 Engine Pin)
+
+#### 5-Line Session Summary
+- Verified `package.json` and `package-lock.json` sync: ran `rm -rf node_modules && npm ci` in a clean state, verifying exit code 0 and pristine dependency tree.
+- Confirmed `package-lock.json` is not listed in `.gitignore` and verified repo tracking status.
+- Added `"engines": { "node": "22.x" }` to `package.json` to lock Vercel build environment to Node 22 LTS matching Studio preview (`v22.23.3`).
+- Audited `package-lock.json` to confirm all required Linux optional packages for Vite's native toolchain (`@esbuild/linux-x64`, `@rolldown/binding-linux-x64-gnu/musl`, `lightningcss-linux-x64-gnu/musl`, `@typescript/typescript-linux-x64`) are locked and resolved.
+- Confirmed `npm run build` succeeds cleanly following clean `npm ci`. Added ADR-019 to `docs/DECISIONS.md`.
+
+---
+
+### Session: 2026-10-17 (Phase 3b-1 — Admin Overview Dashboard, Roster Move & Section Separation)
+
+#### 5-Line Session Summary
+- Transformed `/pages/admin.html` into the Admin Overview dashboard with 5 summary cards, "Needs Attention" alert box (inactive >= 3 days), and in-browser search/filter/sort with 25-row pagination.
+- Migrated student roster (create, reset password, activate/deactivate) to dedicated `/pages/students.html` and updated `vite.config.ts` multi-page input list.
+- Standardized admin navigation order across all 6 pages: `Overview`, `Students`, `Daily To-Do`, `Resources`, `Categories`, `Rounds`.
+- Enforced strict section isolation: tasks and categories are partitioned under explicit section headers (`Rounds`, `Basics`, `Elements`, `Flash`) and never mixed in a flat list.
+- Fixed empty-state table layouts across resources and todos with full-width `colspan` cells, wrapped student names with pending links to `/pages/student-detail.html?id=...`, and added static sample overview data in `js/demoDb.js`.
+
+---
+
 ### Session: 2026-10-17 (Build-Time VITE_ Config Injection, Strict Host Matching & Clean Vercel Output)
 
 #### 5-Line Session Summary

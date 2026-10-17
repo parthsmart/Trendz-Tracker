@@ -87,62 +87,84 @@ function renderTodosTable() {
   if (allTodos.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="7" class="empty-state">
-          No daily tasks configured yet. Click <strong>+ Add Task</strong> above to set the first daily requirement.
+        <td colspan="7" class="empty-state-cell">
+          <div class="empty-state">
+            <div class="empty-state-icon" aria-hidden="true">📋</div>
+            <h3 class="empty-state-title">No daily tasks configured yet</h3>
+            <p class="empty-state-desc">Click <strong>+ Add Task</strong> above to set the first daily requirement.</p>
+          </div>
         </td>
       </tr>
     `;
     return;
   }
 
-  tbody.innerHTML = allTodos.map((todo, idx) => {
-    const cat = allCategories.find(c => c.id === todo.category_id);
-    const catName = cat ? cat.name : (todo.category_id ? 'Unknown Category' : '<em>Any in section</em>');
-    const levelDisplay = todo.level ? todo.level : '<span style="color: var(--text-dim);">All Levels</span>';
-    const isFirst = idx === 0;
-    const isLast = idx === allTodos.length - 1;
+  const sectionDefs = [
+    { key: 'round', label: '🏆 Competition Rounds' },
+    { key: 'basics', label: '⚡ Basics Speed Drills' },
+    { key: 'elements', label: '🧩 Elements' },
+    { key: 'flash', label: '⚡ Flash Anzan' }
+  ];
 
-    const sectionLabel = {
-      round: 'Round',
-      basics: 'Basics',
-      elements: 'Elements',
-      flash: 'Flash Anzan'
-    }[todo.section] || todo.section;
+  let html = '';
 
-    return `
-      <tr data-todo-id="${todo.id}">
-        <td>
-          <div style="display: flex; gap: 4px; align-items: center;">
-            <button type="button" class="btn btn-outline btn-xs btn-reorder" data-dir="up" data-id="${todo.id}" ${isFirst ? 'disabled' : ''} title="Move up" aria-label="Move task up">▲</button>
-            <button type="button" class="btn btn-outline btn-xs btn-reorder" data-dir="down" data-id="${todo.id}" ${isLast ? 'disabled' : ''} title="Move down" aria-label="Move task down">▼</button>
-          </div>
-        </td>
-        <td>
-          <strong style="color: var(--text-main);">${escapeHtml(todo.title)}</strong>
-        </td>
-        <td>
-          <span style="font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; color: var(--color-primary);">${sectionLabel}</span>
-        </td>
-        <td>${catName}</td>
-        <td>${levelDisplay}</td>
-        <td>
-          <span class="badge ${todo.active ? 'badge-success' : 'badge-neutral'}">
-            ${todo.active ? 'Active' : 'Inactive'}
-          </span>
-        </td>
-        <td style="text-align: right;">
-          <div style="display: inline-flex; gap: 6px;">
-            <button type="button" class="btn btn-outline btn-sm btn-edit-todo" data-id="${todo.id}">
-              Edit
-            </button>
-            <button type="button" class="btn ${todo.active ? 'btn-outline' : 'btn-primary'} btn-sm btn-toggle-todo" data-id="${todo.id}" data-active="${todo.active}">
-              ${todo.active ? 'Deactivate' : 'Activate'}
-            </button>
-          </div>
-        </td>
+  sectionDefs.forEach(sec => {
+    const tasks = allTodos
+      .filter(t => t.section === sec.key)
+      .sort((a, b) => (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0));
+
+    if (tasks.length === 0) return;
+
+    html += `
+      <tr class="section-divider-row">
+        <th colspan="7">${escapeHtml(sec.label)} (${tasks.length} task${tasks.length === 1 ? '' : 's'})</th>
       </tr>
     `;
-  }).join('');
+
+    tasks.forEach((todo, idx) => {
+      const cat = allCategories.find(c => c.id === todo.category_id);
+      const catName = cat ? cat.name : (todo.category_id ? 'Unknown Category' : '<em>Any in section</em>');
+      const levelDisplay = todo.level ? escapeHtml(todo.level) : '<span style="color: var(--text-dim);">All Levels</span>';
+      const isFirst = idx === 0;
+      const isLast = idx === tasks.length - 1;
+
+      html += `
+        <tr data-todo-id="${todo.id}">
+          <td>
+            <div style="display: flex; gap: 4px; align-items: center;">
+              <button type="button" class="btn btn-outline btn-xs btn-reorder" data-dir="up" data-id="${todo.id}" ${isFirst ? 'disabled' : ''} title="Move up within ${sec.label}" aria-label="Move task up">▲</button>
+              <button type="button" class="btn btn-outline btn-xs btn-reorder" data-dir="down" data-id="${todo.id}" ${isLast ? 'disabled' : ''} title="Move down within ${sec.label}" aria-label="Move task down">▼</button>
+            </div>
+          </td>
+          <td>
+            <strong style="color: var(--text-main);">${escapeHtml(todo.title)}</strong>
+          </td>
+          <td>
+            <span style="font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; color: var(--color-primary);">${sec.key}</span>
+          </td>
+          <td>${catName}</td>
+          <td>${levelDisplay}</td>
+          <td>
+            <span class="badge ${todo.active ? 'badge-success' : 'badge-neutral'}">
+              ${todo.active ? 'Active' : 'Inactive'}
+            </span>
+          </td>
+          <td style="text-align: right;">
+            <div style="display: inline-flex; gap: 6px;">
+              <button type="button" class="btn btn-outline btn-sm btn-edit-todo" data-id="${todo.id}">
+                Edit
+              </button>
+              <button type="button" class="btn ${todo.active ? 'btn-outline' : 'btn-primary'} btn-sm btn-toggle-todo" data-id="${todo.id}" data-active="${todo.active}">
+                ${todo.active ? 'Deactivate' : 'Activate'}
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    });
+  });
+
+  tbody.innerHTML = html;
 
   attachTableEventListeners();
 }

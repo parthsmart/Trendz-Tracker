@@ -231,6 +231,44 @@ Every meaningful technical and architectural decision made for **Trendz Tracker*
 - **Trade-off**: Vercel production deployments require `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` defined in Vercel Environment Variables.
 - **Rejected Options**: Runtime `/api/config` fetch in production, hardcoded secrets in source files.
 
+---
 
+### ADR-017: Admin Navigation Architecture & Dedicated Student Roster
+- **Date**: 2026-10-17
+- **Context**: As the admin console expanded to encompass institute monitoring, practice to-dos, and learning resources, keeping the student CRUD roster on `/pages/admin.html` prevented teachers from seeing high-level practice health upon login.
+- **Options Considered**:
+  1. *Leave student roster on `admin.html` and add `overview.html`*: Requires updating all admin login redirects and confuses users expecting `admin.html` to be the primary command center.
+  2. *Tabbed single-page admin container*: Increases client script complexity and complicates deep-linking.
+  3. *Overview on `pages/admin.html` and Roster on `pages/students.html`*: Preserves the existing `/pages/admin.html` login redirect, establishes a clear 6-item navigation hierarchy (`Overview`, `Students`, `Daily To-Do`, `Resources`, `Categories`, `Rounds`), and maintains clean multi-page isolation.
+- **Choice**: Overview on `pages/admin.html`, Student Roster on `pages/students.html`.
+- **Reason**: Allows administrators to immediately inspect student activity, streaks, and attention warnings upon login, while preserving existing route security and keeping student CRUD isolated in `pages/students.html`.
+- **Trade-off**: Added `pages/students.html` to Vite's multi-page input bundle.
+- **Rejected Options**: Splitting admin into tabs, redirecting login away from `admin.html`.
 
+---
 
+### ADR-018: Strict Section Isolation Across Competition Categories and Daily Tasks
+- **Date**: 2026-10-17
+- **Context**: Junior Mental Calculation World Championship preparation involves multiple distinct disciplines: 24 Competition Rounds, Speed Basics (1d4r, 2d2r), Elements, and Flash Anzan. Combining these into a single sorted list caused confusion and misassigned tasks.
+- **Options Considered**:
+  1. *Flat list sorted alphabetically with section badges*: Overwhelms teachers and mixes distinct tracks.
+  2. *Separate pages for each section*: Fragmented experience requiring 4 extra pages.
+  3. *Grouped Section Partitioning with Localized Sorting*: Categories and daily tasks are strictly grouped under explicit section dividers (`Competition Rounds`, `Basics Speed Drills`, `Elements`, `Flash Anzan`), sorting items strictly within each section.
+- **Choice**: Grouped Section Partitioning with Localized Sorting.
+- **Reason**: Preserves clear domain boundaries between official championship rounds and supplementary mental drills while maintaining efficient single-table management.
+- **Trade-off**: Requires grouping logic in table rendering.
+- **Rejected Options**: Single flat combined sorting.
+
+---
+
+### ADR-019: Deterministic CI Builds via `npm ci` and Committed `package-lock.json`
+- **Date**: 2026-10-17
+- **Context**: Vercel production deployments use `installCommand: "npm ci"` to install dependencies from `package-lock.json` in a clean, non-mutating manner. When `package.json` and `package-lock.json` drift out of sync, or when optional native binaries needed by Vite's Linux build runner (such as `@esbuild/linux-x64`, `@rolldown/binding-linux-x64-gnu/musl`, or `lightningcss-linux-x64-gnu/musl`) are absent, `npm ci` fails fast to prevent deploying non-reproducible or broken bundles.
+- **Options Considered**:
+  1. *Loose `npm install` on CI*: Overwrites the lockfile at deploy time, allows version drift, installs unexpected transitive minor/patch updates, and risks silent breakage.
+  2. *Excluding `package-lock.json` from git*: Prevents reproducible builds across developer workstations, Studio preview, and Vercel.
+  3. *Committed `package-lock.json` with `npm ci` and Explicit Node Engine*: Keeps `package-lock.json` strictly tracked in version control, ensures bit-for-bit identical dependency trees across environments, verifies the lockfile contains required Linux native toolchain bindings, and enforces Node.js version parity via `"engines": { "node": "22.x" }`.
+- **Choice**: Committed `package-lock.json` with `npm ci` and `"engines": { "node": "22.x" }`.
+- **Reason**: Guarantees zero dependency drift between local/Studio preview and Vercel production, fails immediately if any dependency in `package.json` is modified without synchronizing the lockfile, guarantees presence of Linux-x64 native binaries for Vite and Esbuild, and locks the execution runtime to Node 22 LTS.
+- **Trade-off**: Any dependency update in `package.json` must be regenerated via `npm install` and committed alongside `package-lock.json` in the same commit.
+- **Rejected Options**: Using `npm install` on Vercel, ignoring `package-lock.json`.

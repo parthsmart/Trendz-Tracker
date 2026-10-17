@@ -515,5 +515,135 @@ export const DemoDB = {
   getResults() {
     initDemoStorage();
     return JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_RESULTS) || '[]');
+  },
+
+  /**
+   * Static sample data for the Admin Overview in Demo Mode.
+   * Matches the public.admin_overview() RPC return contract.
+   * Zero JavaScript streak calculation; strictly static pre-computed numbers.
+   */
+  getAdminOverview() {
+    return [
+      {
+        student_id: 'usr-101',
+        student_code: 'STU101',
+        full_name: 'Aarav Sharma',
+        level: 'Level 3',
+        active: true,
+        current_streak: 8,
+        entered_today: true,
+        last_entry_date: '2026-10-17',
+        entries_7d: 14,
+        accuracy_7d: 91.5
+      },
+      {
+        student_id: 'usr-102',
+        student_code: 'STU102',
+        full_name: 'Diya Patel',
+        level: 'Level 2',
+        active: true,
+        current_streak: 5,
+        entered_today: true,
+        last_entry_date: '2026-10-17',
+        entries_7d: 10,
+        accuracy_7d: 87.0
+      },
+      {
+        student_id: 'usr-103',
+        student_code: 'STU103',
+        full_name: 'Kabir Verma',
+        level: 'Level 4',
+        active: true,
+        current_streak: 12,
+        entered_today: false,
+        last_entry_date: '2026-10-16',
+        entries_7d: 8,
+        accuracy_7d: 94.2
+      },
+      {
+        student_id: 'usr-104',
+        student_code: 'STU104',
+        full_name: 'Ananya Iyer',
+        level: 'Level 1',
+        active: false,
+        current_streak: 0,
+        entered_today: false,
+        last_entry_date: '2026-09-28',
+        entries_7d: 0,
+        accuracy_7d: null
+      },
+      {
+        student_id: 'usr-105',
+        student_code: 'STU105',
+        full_name: 'Rohan Mehra',
+        level: 'Level 2',
+        active: true,
+        current_streak: 0,
+        entered_today: false,
+        last_entry_date: '2026-10-12', // 5 days ago -> Needs attention
+        entries_7d: 2,
+        accuracy_7d: 78.4
+      },
+      {
+        student_id: 'usr-106',
+        student_code: 'STU106',
+        full_name: 'Mira Joshi',
+        level: 'Level 3',
+        active: true,
+        current_streak: 0,
+        entered_today: false,
+        last_entry_date: '2026-10-13', // 4 days ago -> Needs attention
+        entries_7d: 3,
+        accuracy_7d: 82.1
+      },
+      {
+        student_id: 'usr-107',
+        student_code: 'STU107',
+        full_name: 'Arjun Nair',
+        level: 'Master',
+        active: true,
+        current_streak: 22,
+        entered_today: true,
+        last_entry_date: '2026-10-17',
+        entries_7d: 18,
+        accuracy_7d: 96.8
+      },
+      {
+        student_id: 'usr-108',
+        student_code: 'STU108',
+        full_name: 'Riya Sen',
+        level: 'Level 2',
+        active: true,
+        current_streak: 3,
+        entered_today: false,
+        last_entry_date: '2026-10-16',
+        entries_7d: 6,
+        accuracy_7d: 89.2
+      },
+      {
+        student_id: 'usr-109',
+        student_code: 'STU109',
+        full_name: 'Vivaan Gupta',
+        level: 'Level 1',
+        active: true,
+        current_streak: 1,
+        entered_today: true,
+        last_entry_date: '2026-10-17',
+        entries_7d: 5,
+        accuracy_7d: 85.0
+      },
+      {
+        student_id: 'usr-110',
+        student_code: 'STU110',
+        full_name: 'Meera Rao',
+        level: 'Level 4',
+        active: true,
+        current_streak: 15,
+        entered_today: true,
+        last_entry_date: '2026-10-17',
+        entries_7d: 12,
+        accuracy_7d: 93.4
+      }
+    ];
   }
 };

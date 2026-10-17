@@ -43,6 +43,7 @@ export default defineConfig(() => {
           roundScores: path.resolve(__dirname, 'pages/round-scores.html'),
           basics: path.resolve(__dirname, 'pages/basics.html'),
           admin: path.resolve(__dirname, 'pages/admin.html'),
+          students: path.resolve(__dirname, 'pages/students.html'),
           categories: path.resolve(__dirname, 'pages/categories.html'),
           rounds: path.resolve(__dirname, 'pages/rounds.html'),
           todos: path.resolve(__dirname, 'pages/todos.html'),

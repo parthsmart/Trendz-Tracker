@@ -446,6 +446,42 @@ This document contains step-by-step test scenarios to verify security boundaries
     - `GET /pages/rounds.html` -> Status 200
     - `GET /pages/todos.html` -> Status 200
     - `GET /pages/resources.html` -> Status 200
+    - `GET /pages/students.html` -> Status 200
   - Verify every internal anchor link, navigation redirect, and route guard targets the exact `.html` filename.
+
+---
+
+### Test Case 26: Admin Overview, Student Roster Move & Section Separation (Phase 3b-1)
+- **Objective**: Verify that `/pages/admin.html` functions as the Overview dashboard, `/pages/students.html` contains the student roster, all 6 navigation links are synchronized, tasks/categories strictly respect section separation, and empty states span all columns.
+- **Test 26.1: Admin 6-Item Navigation Order & Active Tab**:
+  - Open `/pages/admin.html`: Nav shows `Overview` (active), `Students`, `Daily To-Do`, `Resources`, `Categories`, `Rounds`.
+  - Click `Students`: Navigates to `/pages/students.html`, displaying Student Management roster with `Students` active.
+  - Click `Daily To-Do`: Navigates to `/pages/todos.html` with `Daily To-Do` active.
+- **Test 26.2: Admin Overview Summary Cards & Needs Attention**:
+  - On `/pages/admin.html`, verify 5 top metric cards calculate correctly from `admin_overview()`:
+    - Active Students count.
+    - Entered Today (`n of N` active students).
+    - Not Entered Today (`N - n`).
+    - Average 7-Day Accuracy percentage.
+    - Longest Current Streak with student name.
+  - Verify `#needs-attention-box` appears when active students have `last_entry_date` >= 3 days ago in IST.
+- **Test 26.3: In-Browser Table Search, Filter, Sort, and 25-Row Pagination**:
+  - Type a student name or ID into `#search-overview`: table instantly filters in-memory.
+  - Select a Level filter (e.g. `Level 3`): only Level 3 students display.
+  - Select Status filter (`Done Today`, `Not Yet Today`, `Inactive`): table matches expected subset.
+  - Click column headers (`Student Name`, `ID`, `Streak`, `Last Entry (IST)`): toggles ascending/descending sorting.
+  - Test pagination with >25 students: 25 rows per page, Previous/Next buttons enable/disable properly.
+- **Test 26.4: Pending Student Detail Link**:
+  - In both Overview table and Students roster table, hover student name:
+    - Tooltip displays `"Coming next"`.
+    - Cursor displays `not-allowed`.
+    - Link targets `/pages/student-detail.html?id=<student_id>`.
+- **Test 26.5: Strict Section Separation**:
+  - In `pages/todos.html`, verify tasks are visually partitioned under section divider headers (`🏆 Competition Rounds`, `⚡ Basics Speed Drills`, `🧩 Elements`, `⚡ Flash Anzan`).
+  - In `pages/categories.html`, verify categories are grouped by section and sorted only within their respective section.
+- **Test 26.6: Table Empty State Full-Width Colspan**:
+  - In Resources table and Daily To-Do table with 0 items or no search matches:
+    - Verify empty state spans all columns (`colspan="6"` or `colspan="7"`) centered in the table without squeezing into the first column.
+
 
 
