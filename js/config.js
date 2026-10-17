@@ -2,20 +2,29 @@
  * Trendz Tracker - Client Configuration
  * 
  * IMPORTANT FOR SUPABASE SETUP:
- * 1. Create a free project at https://supabase.com
- * 2. In Project Settings -> API, copy:
- *    - Project URL into 'url' below
- *    - anon / public key into 'anonKey' below
+ * 1. Project URL and anon / public key are configured below.
+ * 2. URL normalizer automatically strips any trailing `/rest/v1` or slashes.
  * 
  * KEEP SERVICE ROLE KEY SECRET:
  * Never put your service_role key here in the browser!
  * The service_role key belongs ONLY in your server environment variables (Vercel / .env).
  */
 
+const RAW_SUPABASE_URL = "https://ctwjujnqxkhononxykdc.supabase.co";
+const RAW_SUPABASE_ANON_KEY = "sb_publishable_jKPhD4j4mfiAlKu7ljyLbQ_iqJnvcyw";
+
+/**
+ * Normalizes Supabase Project URL to root domain without /rest/v1 or trailing slashes.
+ * E.g., "https://xyz.supabase.co/rest/v1/" -> "https://xyz.supabase.co"
+ */
+function normalizeSupabaseUrl(url) {
+  if (!url) return "";
+  return url.trim().replace(/\/rest\/v1\/?$/i, "").replace(/\/+$/, "");
+}
+
 export const SUPABASE_CONFIG = {
-  // Replace these placeholders with your actual Supabase project credentials:
-  url: "YOUR_SUPABASE_URL",         // e.g. "https://abcdefghijklmnopqrst.supabase.co"
-  anonKey: "YOUR_SUPABASE_ANON_KEY", // e.g. "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  url: normalizeSupabaseUrl(RAW_SUPABASE_URL),
+  anonKey: RAW_SUPABASE_ANON_KEY.trim(),
 };
 
 /**

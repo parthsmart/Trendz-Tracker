@@ -8,30 +8,11 @@
 -- 1. EXTENSIONS
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 2. CLEANUP (Safe to re-run in development)
-DROP POLICY IF EXISTS "profiles_select_policy" ON public.profiles;
-DROP POLICY IF EXISTS "profiles_admin_write_policy" ON public.profiles;
-DROP POLICY IF EXISTS "categories_read_policy" ON public.categories;
-DROP POLICY IF EXISTS "categories_admin_write_policy" ON public.categories;
-DROP POLICY IF EXISTS "rounds_read_policy" ON public.rounds;
-DROP POLICY IF EXISTS "rounds_admin_write_policy" ON public.rounds;
-DROP POLICY IF EXISTS "daily_tasks_read_policy" ON public.daily_tasks;
-DROP POLICY IF EXISTS "daily_tasks_admin_write_policy" ON public.daily_tasks;
-DROP POLICY IF EXISTS "results_select_policy" ON public.results;
-DROP POLICY IF EXISTS "results_insert_policy" ON public.results;
-DROP POLICY IF EXISTS "results_update_policy" ON public.results;
-DROP POLICY IF EXISTS "results_delete_policy" ON public.results;
-DROP POLICY IF EXISTS "activity_results_select_policy" ON public.activity_results;
-DROP POLICY IF EXISTS "activity_results_insert_policy" ON public.activity_results;
-DROP POLICY IF EXISTS "activity_results_update_policy" ON public.activity_results;
-DROP POLICY IF EXISTS "activity_results_delete_policy" ON public.activity_results;
-
 -- ------------------------------------------------------------------------------
--- 3. TABLES DEFINITION
+-- 2. TABLES DEFINITION (Created FIRST so all table references exist)
 -- ------------------------------------------------------------------------------
 
--- Table: profiles
--- id matches auth.users.id
+-- Table: profiles (id matches auth.users.id)
 CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   student_code TEXT UNIQUE NOT NULL,
@@ -101,29 +82,7 @@ CREATE TABLE IF NOT EXISTS public.daily_tasks (
 );
 
 -- ------------------------------------------------------------------------------
--- 4. INDEXES
--- ------------------------------------------------------------------------------
-
--- Partial unique index: A student can only have 1 entry per category per round
-CREATE UNIQUE INDEX IF NOT EXISTS idx_results_unique_round 
-ON public.results(student_id, round_number, category_id) 
-WHERE round_number IS NOT NULL;
-
--- Query performance indexes for score history & reports
-CREATE INDEX IF NOT EXISTS idx_results_student_entry_date 
-ON public.results(student_id, entry_date DESC);
-
-CREATE INDEX IF NOT EXISTS idx_results_student_category 
-ON public.results(student_id, category_id);
-
-CREATE INDEX IF NOT EXISTS idx_profiles_student_code 
-ON public.profiles(student_code);
-
-CREATE INDEX IF NOT EXISTS idx_categories_section_sort 
-ON public.categories(section, sort_order ASC);
-
--- ------------------------------------------------------------------------------
--- 5. HELPER FUNCTION: is_admin() (SECURITY DEFINER)
+-- 3. HELPER FUNCTION: is_admin() (SECURITY DEFINER)
 -- Prevents RLS recursion when policies inspect the profiles table.
 -- ------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.is_admin()
@@ -142,7 +101,8 @@ AS $$
 $$;
 
 -- ------------------------------------------------------------------------------
--- 6. ROW LEVEL SECURITY (RLS) POLICIES
+-- 4. ROW LEVEL SECURITY (RLS) POLICIES
+-- Enabled and updated after tables exist
 -- ------------------------------------------------------------------------------
 
 -- Enable RLS on all tables
@@ -152,6 +112,29 @@ ALTER TABLE public.rounds ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.results ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.activity_results ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.daily_tasks ENABLE ROW LEVEL SECURITY;
+
+-- Clean existing policies so script can be safely re-run at any time
+DROP POLICY IF EXISTS "profiles_select_policy" ON public.profiles;
+DROP POLICY IF EXISTS "profiles_admin_write_policy" ON public.profiles;
+
+DROP POLICY IF EXISTS "categories_read_policy" ON public.categories;
+DROP POLICY IF EXISTS "categories_admin_write_policy" ON public.categories;
+
+DROP POLICY IF EXISTS "rounds_read_policy" ON public.rounds;
+DROP POLICY IF EXISTS "rounds_admin_write_policy" ON public.rounds;
+
+DROP POLICY IF EXISTS "daily_tasks_read_policy" ON public.daily_tasks;
+DROP POLICY IF EXISTS "daily_tasks_admin_write_policy" ON public.daily_tasks;
+
+DROP POLICY IF EXISTS "results_select_policy" ON public.results;
+DROP POLICY IF EXISTS "results_insert_policy" ON public.results;
+DROP POLICY IF EXISTS "results_update_policy" ON public.results;
+DROP POLICY IF EXISTS "results_delete_policy" ON public.results;
+
+DROP POLICY IF EXISTS "activity_results_select_policy" ON public.activity_results;
+DROP POLICY IF EXISTS "activity_results_insert_policy" ON public.activity_results;
+DROP POLICY IF EXISTS "activity_results_update_policy" ON public.activity_results;
+DROP POLICY IF EXISTS "activity_results_delete_policy" ON public.activity_results;
 
 -- Profiles Policies:
 -- 1. A user can read their own profile, or an admin can read all profiles.
@@ -213,13 +196,11 @@ WITH CHECK (public.is_admin());
 -- Students can only read and manage their own scores. Students CANNOT alter the verified flag.
 -- Admins can read, edit, delete everything and set verified = true.
 
--- 1. SELECT
 CREATE POLICY "results_select_policy"
 ON public.results FOR SELECT
 TO authenticated
 USING (student_id = auth.uid() OR public.is_admin());
 
--- 2. INSERT: Students can insert only their own rows with verified = false; admins can insert anything.
 CREATE POLICY "results_insert_policy"
 ON public.results FOR INSERT
 TO authenticated
@@ -227,7 +208,6 @@ WITH CHECK (
   (student_id = auth.uid() AND verified = false) OR public.is_admin()
 );
 
--- 3. UPDATE: Students can update only unverified scores belonging to them; admins can update all.
 CREATE POLICY "results_update_policy"
 ON public.results FOR UPDATE
 TO authenticated
@@ -238,7 +218,6 @@ WITH CHECK (
   (student_id = auth.uid() AND verified = false) OR public.is_admin()
 );
 
--- 4. DELETE: Students can delete only unverified scores belonging to them; admins can delete all.
 CREATE POLICY "results_delete_policy"
 ON public.results FOR DELETE
 TO authenticated
@@ -269,7 +248,29 @@ TO authenticated
 USING (student_id = auth.uid() OR public.is_admin());
 
 -- ------------------------------------------------------------------------------
--- 7. SEED DATA: 24 ROUND CATEGORIES + 2 BASICS CATEGORIES
+-- 5. INDEXES
+-- ------------------------------------------------------------------------------
+
+-- Partial unique index: A student can only have 1 entry per category per round
+CREATE UNIQUE INDEX IF NOT EXISTS idx_results_unique_round 
+ON public.results(student_id, round_number, category_id) 
+WHERE round_number IS NOT NULL;
+
+-- Query performance indexes for score history & reports
+CREATE INDEX IF NOT EXISTS idx_results_student_entry_date 
+ON public.results(student_id, entry_date DESC);
+
+CREATE INDEX IF NOT EXISTS idx_results_student_category 
+ON public.results(student_id, category_id);
+
+CREATE INDEX IF NOT EXISTS idx_profiles_student_code 
+ON public.profiles(student_code);
+
+CREATE INDEX IF NOT EXISTS idx_categories_section_sort 
+ON public.categories(section, sort_order ASC);
+
+-- ------------------------------------------------------------------------------
+-- 6. SEED DATA: 24 ROUND CATEGORIES + 2 BASICS CATEGORIES
 -- ------------------------------------------------------------------------------
 
 -- Seed the 24 championship categories in exact competition sequence:
@@ -309,7 +310,7 @@ VALUES
 ON CONFLICT DO NOTHING;
 
 -- ------------------------------------------------------------------------------
--- 8. OPTIONAL AUTOMATIC PROFILE SYNC TRIGGER
+-- 7. AUTOMATIC PROFILE SYNC TRIGGER
 -- Automatically creates a profile row when a new user is created in Supabase Auth.
 -- ------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.handle_new_auth_user()
