@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Student Portal - Trendz Tracker</title>
+    <meta name="description" content="Student dashboard for Junior Mental Calculation World Championship practice tracking." />
+    
+    <!-- Design tokens & unified styles -->
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- Top Bar Contract: 3-Zone Navigation -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <!-- Zone 1: Wordmark & Brand -->
+          <a href="/pages/student.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <!-- Zone 2: Navigation Links -->
+          <nav class="nav-zone" aria-label="Student Navigation">
+            <a href="/pages/student.html" class="nav-link active">Home</a>
+          </nav>
+
+          <!-- Zone 3: User Details & Logout Action -->
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Student</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-code" class="num" style="color: var(--text-muted);">STU</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Page Content -->
+      <main class="main-content">
+        <div class="container">
+          <!-- Demo Mode Banner Placeholder -->
+          <div id="config-banner-placeholder"></div>
+
+          <!-- Student Welcome Hero -->
+          <section class="student-welcome-hero" aria-labelledby="welcome-heading">
+            <h1 id="welcome-heading">Welcome, <span id="student-display-name">Student</span>!</h1>
+            <p>
+              Trendz Abacus Practice Portal for the <strong>Junior Mental Calculation World Championship</strong>.
+              Your student profile is active and ready.
+            </p>
+
+            <div class="student-info-strip">
+              <div class="student-info-col">
+                <span>Student Code</span>
+                <span id="student-display-code" class="num">—</span>
+              </div>
+              <div class="student-info-col">
+                <span>Current Level</span>
+                <span id="student-display-level">—</span>
+              </div>
+              <div class="student-info-col">
+                <span>Account Status</span>
+                <span id="student-display-status">Active</span>
+              </div>
+              <div class="student-info-col">
+                <span>Championship Track</span>
+                <span>Junior World Championship</span>
+              </div>
+            </div>
+          </section>
+
+          <!-- Phase 1 Foundation Notice & Phase 2 Upcoming Modules -->
+          <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
+            <article class="card">
+              <div class="card-header">
+                <h2 class="card-title">Phase 1 Foundation Ready</h2>
+              </div>
+              <div class="card-body">
+                <p style="font-size: var(--text-sm); line-height: 1.6; margin-bottom: var(--space-3);">
+                  Your account has been authenticated using your custom Student ID.
+                  The database tables and Row Level Security policies have been constructed to safeguard your personal practice scores.
+                </p>
+                <div class="status-indicator active">
+                  <span>Authentication & Database Active</span>
+                </div>
+              </div>
+            </article>
+
+            <article class="card">
+              <div class="card-header">
+                <h2 class="card-title">Upcoming in Phase 2</h2>
+              </div>
+              <div class="card-body">
+                <ul style="padding-left: var(--space-4); font-size: var(--text-sm); color: var(--text-muted); display: flex; flex-direction: column; gap: var(--space-2);">
+                  <li><strong>Round Score Entry:</strong> 24 Championship Categories (Addition, Multiplication, Roots, Time Elapsed, etc.).</li>
+                  <li><strong>Basics Drills:</strong> Digits and rows speed logging (1d4r, 2d2r).</li>
+                  <li><strong>Flash Anzan & Elements:</strong> Live digital calculation logs.</li>
+                  <li><strong>Teacher Verification:</strong> Certified round approvals and personal practice progress.</li>
+                </ul>
+              </div>
+            </article>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- Toast Notifications Container -->
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <!-- Student Logic Script -->
+    <script type="module" src="/js/student.js"></script>
+  </body>
+</html>

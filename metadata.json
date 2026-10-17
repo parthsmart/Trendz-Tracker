@@ -1,0 +1,6 @@
+{
+  "name": "Trendz Tracker - Abacus Score Portal",
+  "description": "Phase 1 foundation for Trendz Abacus students and admins to track Junior Mental Calculation World Championship practice scores.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Trendz Tracker - Student & Admin Login</title>
+    <meta name="description" content="Phase 1 foundation for Trendz Abacus students and admins to track Junior Mental Calculation World Championship practice scores." />
+    <meta property="og:title" content="Trendz Tracker - Student & Admin Login" />
+    <meta property="og:description" content="Phase 1 foundation for Trendz Abacus students and admins." />
+    <meta property="og:type" content="website" />
+    
+    <!-- Design tokens & unified styles -->
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="login-page-wrapper">
+      <!-- Demo Mode / Setup status banner -->
+      <div id="config-banner-placeholder" style="width: 100%; max-width: 440px;"></div>
+
+      <main class="login-card">
+        <header class="login-header">
+          <div class="login-logo" aria-hidden="true">🧮</div>
+          <h1 class="login-title">Trendz Tracker</h1>
+          <p class="login-subtitle">Junior Mental Calculation World Championship Practice</p>
+        </header>
+
+        <form id="login-form" novalidate>
+          <div class="form-group">
+            <label for="student-id" class="form-label">Student ID or Admin ID</label>
+            <input
+              type="text"
+              id="student-id"
+              name="studentId"
+              class="form-input"
+              placeholder="e.g. STU101 or ADMIN01"
+              autocomplete="username"
+              required
+            />
+            <span class="form-hint">Enter your assigned ID. No email required.</span>
+          </div>
+
+          <div class="form-group">
+            <label for="password" class="form-label">Password</label>
+            <input
+              type="password"
+              id="password"
+              name="password"
+              class="form-input"
+              placeholder="••••••••"
+              autocomplete="current-password"
+              required
+            />
+          </div>
+
+          <div id="login-error-container" class="banner banner-error" style="display: none; margin-bottom: var(--space-4);" role="alert">
+            <span id="login-error-text"></span>
+          </div>
+
+          <button type="submit" id="btn-submit-login" class="btn btn-primary btn-full">
+            <span id="login-btn-text">Sign In</span>
+          </button>
+        </form>
+
+        <!-- Quick Demo Credentials Helper for instant evaluation -->
+        <section class="login-demo-helper" aria-label="Quick test credentials">
+          <span>Quick test accounts (Click to fill):</span>
+          <div class="demo-credentials-grid">
+            <button type="button" class="demo-chip" id="demo-fill-student">
+              <strong>Student Account</strong>
+              <span>ID: STU101</span>
+            </button>
+            <button type="button" class="demo-chip" id="demo-fill-admin">
+              <strong>Admin Account</strong>
+              <span>ID: ADMIN01</span>
+            </button>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- Setup Guide & SQL Modal Dialog -->
+    <div id="guide-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-labelledby="guide-title">
+      <div class="modal-dialog" style="max-width: 680px;">
+        <header class="modal-header">
+          <h2 id="guide-title" class="modal-title">Supabase Setup Guide & Schema</h2>
+          <button type="button" class="modal-close" data-close-modal="guide-modal" aria-label="Close modal">&times;</button>
+        </header>
+        <div class="modal-body" style="font-size: var(--text-sm); line-height: 1.6;">
+          <p style="margin-bottom: var(--space-3);">
+            Follow these 3 simple steps to connect your own Supabase project:
+          </p>
+          <ol style="padding-left: var(--space-5); margin-bottom: var(--space-4); display: flex; flex-direction: column; gap: var(--space-2);">
+            <li>Create a new project at <a href="https://supabase.com" target="_blank" rel="noopener">supabase.com</a>.</li>
+            <li>Go to the <strong>SQL Editor</strong>, paste the complete script from <code>supabase/schema.sql</code>, and click <strong>Run</strong>.</li>
+            <li>In <strong>Project Settings &rarr; API</strong>, copy your <strong>Project URL</strong> and <strong>anon public key</strong> into <code>js/config.js</code>.</li>
+            <li>In Vercel or your <code>.env</code>, add your <strong>SUPABASE_SERVICE_ROLE_KEY</strong> for admin user creation.</li>
+          </ol>
+          <div class="form-group">
+            <label class="form-label">Full SQL Script Location</label>
+            <input type="text" class="form-input" readonly value="/supabase/schema.sql" />
+          </div>
+        </div>
+        <footer class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-close-modal="guide-modal">Close</button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Toast Notifications Container -->
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <!-- Login Logic Script (Vanilla JS ES Module) -->
+    <script type="module">
+      import { loginWithStudentId, redirectByRole } from '/js/auth.js';
+      import { requireNoAuth } from '/js/guard.js';
+      import { setupModalListeners } from '/js/modal.js';
+      import { showToast } from '/js/toast.js';
+
+      // Check if already authenticated
+      await requireNoAuth();
+      setupModalListeners();
+
+      const form = document.getElementById('login-form');
+      const studentIdInput = document.getElementById('student-id');
+      const passwordInput = document.getElementById('password');
+      const submitBtn = document.getElementById('btn-submit-login');
+      const btnText = document.getElementById('login-btn-text');
+      const errorContainer = document.getElementById('login-error-container');
+      const errorText = document.getElementById('login-error-text');
+
+      // Demo quick fill handlers
+      document.getElementById('demo-fill-student')?.addEventListener('click', () => {
+        studentIdInput.value = 'STU101';
+        passwordInput.value = 'student123';
+        clearError();
+      });
+
+      document.getElementById('demo-fill-admin')?.addEventListener('click', () => {
+        studentIdInput.value = 'ADMIN01';
+        passwordInput.value = 'admin123';
+        clearError();
+      });
+
+      function showError(msg) {
+        errorText.textContent = msg;
+        errorContainer.style.display = 'flex';
+      }
+
+      function clearError() {
+        errorContainer.style.display = 'none';
+        errorText.textContent = '';
+      }
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        clearError();
+
+        const studentId = studentIdInput.value.trim();
+        const password = passwordInput.value;
+
+        if (!studentId) {
+          showError('Please enter your Student ID or Admin ID.');
+          studentIdInput.focus();
+          return;
+        }
+
+        if (!password) {
+          showError('Please enter your password.');
+          passwordInput.focus();
+          return;
+        }
+
+        // Show loading state
+        submitBtn.disabled = true;
+        btnText.innerHTML = '<span class="spinner" style="margin-right: 6px;"></span> Signing In...';
+
+        try {
+          const { profile } = await loginWithStudentId(studentId, password);
+          showToast('success', `Welcome back, ${profile.full_name}!`);
+          setTimeout(() => {
+            redirectByRole(profile);
+          }, 400);
+        } catch (err) {
+          showError(err.message || 'Login failed. Please check your credentials.');
+          submitBtn.disabled = false;
+          btnText.textContent = 'Sign In';
+        }
+      });
+    </script>
+  </body>
+</html>

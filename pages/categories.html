@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Categories Management - Trendz Tracker</title>
+    <meta name="description" content="Admin category management for championship rounds, basics drills, flash anzan, and elements." />
+    
+    <!-- Design tokens & unified styles -->
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- Top Bar Contract: 3-Zone Navigation -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <!-- Zone 1: Wordmark & Brand -->
+          <a href="/pages/admin.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <!-- Zone 2: Navigation Links -->
+          <nav class="nav-zone" aria-label="Admin Navigation">
+            <a href="/pages/admin.html" class="nav-link">Students</a>
+            <a href="/pages/categories.html" class="nav-link active">Categories</a>
+          </nav>
+
+          <!-- Zone 3: User Details & Logout Action -->
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Admin</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-role" style="color: var(--text-muted);">Teacher</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Page Content -->
+      <main class="main-content">
+        <div class="container">
+          <!-- Demo Mode Banner Placeholder -->
+          <div id="config-banner-placeholder"></div>
+
+          <!-- Page Heading & Primary Action Button -->
+          <div class="section-header-row" style="margin-bottom: var(--space-6);">
+            <div>
+              <h1>Categories & Competition Tracks</h1>
+              <p style="font-size: var(--text-sm);">
+                Manage Junior Mental Calculation World Championship rounds, speed basics, elements, and flash anzan.
+              </p>
+            </div>
+            <button type="button" id="btn-open-add-cat-modal" class="btn btn-primary">
+              <span>+ Add Category</span>
+            </button>
+          </div>
+
+          <!-- Data Integrity Notice -->
+          <div class="banner banner-info" style="margin-bottom: var(--space-6);">
+            <div>
+              <strong>🔒 Historical Data Integrity:</strong> Categories are never permanently deleted once created.
+              If a category is no longer used, click <em>Deactivate</em> so past competition records and practice scores remain preserved.
+            </div>
+          </div>
+
+          <!-- Section Filter Tabs -->
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-4); flex-wrap: wrap; gap: var(--space-3);">
+            <div class="segmented-control" role="tablist" aria-label="Filter category sections">
+              <button type="button" class="segmented-btn active" data-section="all">All Sections</button>
+              <button type="button" class="segmented-btn" data-section="round">Rounds (24)</button>
+              <button type="button" class="segmented-btn" data-section="basics">Basics Drills</button>
+              <button type="button" class="segmented-btn" data-section="elements">Elements</button>
+              <button type="button" class="segmented-btn" data-section="flash">Flash Anzan</button>
+            </div>
+
+            <div class="meta-row">
+              <span id="cat-count-display">Loading categories...</span>
+            </div>
+          </div>
+
+          <!-- Grouped Categories Container -->
+          <div id="categories-container">
+            <!-- Loading skeleton -->
+            <div class="skeleton-row"></div>
+            <div class="skeleton-row"></div>
+            <div class="skeleton-row"></div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- Modal 1: Add Category Modal -->
+    <div id="add-category-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-labelledby="add-cat-title">
+      <div class="modal-dialog">
+        <header class="modal-header">
+          <h2 id="add-cat-title" class="modal-title">Add Category</h2>
+          <button type="button" class="modal-close" data-close-modal="add-category-modal" aria-label="Close modal">&times;</button>
+        </header>
+        <form id="add-category-form">
+          <div class="modal-body">
+            <div class="form-group">
+              <label for="new-cat-section" class="form-label">Section *</label>
+              <select id="new-cat-section" class="form-select" required>
+                <option value="round">Championship Round</option>
+                <option value="basics">Basics (Digits & Rows)</option>
+                <option value="elements">Elements</option>
+                <option value="flash">Flash Anzan</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="new-cat-name" class="form-label">Category Name *</label>
+              <input
+                type="text"
+                id="new-cat-name"
+                class="form-input"
+                placeholder="e.g. Percentage, 3d4r, or Division Speed"
+                required
+              />
+            </div>
+
+            <div id="add-cat-error" class="banner banner-error" style="display: none; margin-bottom: 0;" role="alert"></div>
+          </div>
+          <footer class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-close-modal="add-category-modal">Cancel</button>
+            <button type="submit" id="btn-submit-add-cat" class="btn btn-primary">
+              <span id="btn-add-cat-text">Add Category</span>
+            </button>
+          </footer>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal 2: Rename Category Modal -->
+    <div id="rename-category-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-labelledby="rename-cat-title">
+      <div class="modal-dialog">
+        <header class="modal-header">
+          <h2 id="rename-cat-title" class="modal-title">Rename Category</h2>
+          <button type="button" class="modal-close" data-close-modal="rename-category-modal" aria-label="Close modal">&times;</button>
+        </header>
+        <form id="rename-category-form">
+          <input type="hidden" id="rename-cat-id" />
+          <div class="modal-body">
+            <div class="form-group">
+              <label for="rename-cat-name" class="form-label">New Category Name *</label>
+              <input
+                type="text"
+                id="rename-cat-name"
+                class="form-input"
+                required
+              />
+            </div>
+            <div id="rename-cat-error" class="banner banner-error" style="display: none; margin-bottom: 0;" role="alert"></div>
+          </div>
+          <footer class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-close-modal="rename-category-modal">Cancel</button>
+            <button type="submit" id="btn-submit-rename-cat" class="btn btn-primary">
+              <span id="btn-rename-cat-text">Save Changes</span>
+            </button>
+          </footer>
+        </form>
+      </div>
+    </div>
+
+    <!-- Toast Notifications Container -->
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <!-- Categories Logic Script -->
+    <script type="module" src="/js/categories.js"></script>
+  </body>
+</html>

@@ -1,0 +1,251 @@
+/**
+ * Trendz Tracker - Main Stylesheet
+ * Imports design tokens, base rules, and reusable components.
+ */
+
+@import "./variables.css";
+@import "./base.css";
+@import "./components.css";
+
+/* ==============================================================================
+   PAGE SPECIFIC LAYOUTS
+   ============================================================================== */
+
+/* 1. Login Page Layout */
+.login-page-wrapper {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: var(--space-6) var(--space-4);
+  background: radial-gradient(circle at 50% 10%, #edf2ff 0%, var(--bg-page) 60%);
+}
+
+.login-card {
+  width: 100%;
+  max-width: 440px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: var(--space-8);
+}
+
+.login-header {
+  text-align: center;
+  margin-bottom: var(--space-6);
+}
+
+.login-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  background: linear-gradient(135deg, var(--color-primary) 0%, #4c6ef5 100%);
+  color: #fff;
+  border-radius: var(--radius-md);
+  font-size: 1.5rem;
+  font-weight: 800;
+  margin-bottom: var(--space-3);
+}
+
+.login-title {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.login-subtitle {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  margin-top: var(--space-1);
+}
+
+.login-demo-helper {
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px dashed var(--border-subtle);
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+}
+
+.demo-credentials-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.demo-chip {
+  padding: var(--space-2);
+  background-color: var(--bg-surface-subtle);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--transition-fast);
+}
+
+.demo-chip:hover {
+  background-color: #e9ecef;
+  border-color: var(--border-subtle);
+}
+
+.demo-chip strong {
+  display: block;
+  color: var(--text-main);
+  font-size: var(--text-xs);
+}
+
+.demo-chip span {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+/* 2. Admin & Student Dashboard Grids */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.table-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+@media (min-width: 640px) {
+  .table-toolbar {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+.search-input-wrapper {
+  position: relative;
+  flex: 1;
+  max-width: 320px;
+}
+
+/* 3. Categories Management Section */
+.categories-section-group {
+  margin-bottom: var(--space-8);
+}
+
+.section-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 2px solid var(--border-hairline);
+}
+
+.section-badge-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.category-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-2);
+  transition: background-color var(--transition-fast);
+}
+
+.category-item:hover {
+  background-color: #fafbfc;
+}
+
+.category-item.category-inactive {
+  opacity: 0.6;
+  background-color: #f8f9fa;
+}
+
+.category-main-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.category-order-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+  width: 24px;
+}
+
+.category-name-text {
+  font-weight: 600;
+  font-size: var(--text-sm);
+  color: var(--text-main);
+}
+
+.category-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* 4. Student Welcome Hero Placeholder */
+.student-welcome-hero {
+  background: linear-gradient(135deg, #2b3a67 0%, #1e2640 100%);
+  color: #fff;
+  border-radius: var(--radius-lg);
+  padding: var(--space-8);
+  margin-bottom: var(--space-6);
+  position: relative;
+  overflow: hidden;
+}
+
+.student-welcome-hero h1 {
+  color: #fff;
+  font-size: var(--text-2xl);
+  margin-bottom: var(--space-2);
+}
+
+.student-welcome-hero p {
+  color: #cbd5e1;
+  font-size: var(--text-sm);
+  max-width: 600px;
+}
+
+.student-info-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.student-info-col span:first-child {
+  display: block;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #94a3b8;
+}
+
+.student-info-col span:last-child {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: #fff;
+}
