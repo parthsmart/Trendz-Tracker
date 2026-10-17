@@ -272,3 +272,17 @@ Every meaningful technical and architectural decision made for **Trendz Tracker*
 - **Reason**: Guarantees zero dependency drift between local/Studio preview and Vercel production, fails immediately if any dependency in `package.json` is modified without synchronizing the lockfile, guarantees presence of Linux-x64 native binaries for Vite and Esbuild, and locks the execution runtime to Node 22 LTS.
 - **Trade-off**: Any dependency update in `package.json` must be regenerated via `npm install` and committed alongside `package-lock.json` in the same commit.
 - **Rejected Options**: Using `npm install` on Vercel, ignoring `package-lock.json`.
+
+---
+
+### ADR-020: Shared Student Dashboard Architecture & Read-Only Teacher Inspection (Phase 3b-2)
+- **Date**: 2026-10-17
+- **Context**: Teachers require deep visibility into student practice records (streaks, today's tasks, 5-round score sheets, and multi-week progress charts) without granting editing permissions or duplicating complex frontend rendering logic across student and teacher views.
+- **Options Considered**:
+  1. *Allow `student.html?id=...` parameter for admins*: Violates least-privilege boundary and risks leaking data if URL parameters are manipulated by students.
+  2. *Duplicate dashboard markup and rendering in an admin detail page*: Violates DRY, creates maintenance bottlenecks, and leads to divergence between student and teacher visual representations.
+  3. *Shared Dashboard Modules with Strict Role Partitioning*: Extract authoritative data loaders (`js/dashboardData.js`) and visual renderers (`js/dashboardComponents.js`). Keep `/pages/student.html` strictly bound to the authenticated student's session (never reading URL params). Create `/pages/student-detail.html?id=...` with an admin-only guard, read-only banners, zero editing controls, and friendly missing-student fallbacks.
+- **Choice**: Shared Dashboard Modules with Strict Role Partitioning.
+- **Reason**: Guarantees bit-for-bit consistency between student self-monitoring and teacher oversight, prevents student account inspection tampering, encapsulates inline SVG charts (7-day dual line and 4-week bar charts with week-over-week comparisons), and guarantees sticky table 5-round pagination without duplicate code.
+- **Trade-off**: Added `pages/student-detail.html` to Vite's multi-page input bundle.
+- **Rejected Options**: Parameterized `student.html`, duplicated dashboard codebases.

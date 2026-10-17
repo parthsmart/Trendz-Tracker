@@ -505,3 +505,243 @@ export function buildRoundScoreMatrix(results = [], categories = [], roundNumber
     }
   };
 }
+
+/**
+ * Computes 7-day dual trend (accuracy and speed on each of the last 7 calendar days in IST).
+ * 
+ * @param {Array<object>} results - Results records
+ * @param {string} todayIST - Current IST date (YYYY-MM-DD)
+ * @returns {Array<{ date: string, displayDate: string, accuracy: number|null, speed: number|null, correct: number, total: number, timeSeconds: number, count: number }>}
+ */
+export function calculate7DayDualTrend(results = [], todayIST = '') {
+  const dates = getRecentISTDateRange(todayIST, 7);
+  const map = new Map();
+
+  dates.forEach(d => {
+    map.set(d, { correct: 0, total: 0, seconds: 0, count: 0 });
+  });
+
+  results.forEach(res => {
+    const total = Number(res.total) || 0;
+    const correct = Number(res.correct) || 0;
+    const sec = Number(res.time_seconds) || 0;
+    if (total <= 0) return;
+
+    const dateKey = getISTDateString(res.entry_date || res.created_at);
+    if (map.has(dateKey)) {
+      const bucket = map.get(dateKey);
+      bucket.correct += Math.min(correct, total);
+      bucket.total += total;
+      bucket.seconds += sec;
+      bucket.count += 1;
+    }
+  });
+
+  return dates.map(date => {
+    const item = map.get(date);
+    const accuracy = item.total > 0 ? Math.round((item.correct / item.total) * 1000) / 10 : null;
+    let speed = null;
+    if (item.total > 0 && item.seconds > 0) {
+      speed = Math.round((item.total / (item.seconds / 60)) * 10) / 10;
+    }
+    return {
+      date,
+      displayDate: formatDisplayDateIST(date),
+      accuracy,
+      speed,
+      correct: item.correct,
+      total: item.total,
+      timeSeconds: item.seconds,
+      count: item.count
+    };
+  });
+}
+
+/**
+ * Computes 4-week metrics bucketed Monday to Sunday in Indian Standard Time (Asia/Kolkata).
+ * 
+ * Returns:
+ * - weeks: 4 weeks in chronological order [Week -3, Week -2, Week -1, Week 0 (current)]
+ * - comparison: This week vs last week difference and direction (arrows + label)
+ * - summaries: Text summary under accuracy and speed charts
+ * 
+ * @param {Array<object>} results - All results
+ * @param {string} todayIST - Today's IST date (YYYY-MM-DD)
+ */
+export function calculate4WeekSummary(results = [], todayIST = '') {
+  if (!todayIST || !/^\d{4}-\d{2}-\d{2}$/.test(todayIST)) {
+    todayIST = getISTDateString(new Date());
+  }
+
+  const [y, m, d] = todayIST.split('-').map(Number);
+  const todayUtc = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+
+  // In IST, Monday is day 1, Sunday is day 7
+  // getUTCDay: Sunday=0, Monday=1, ..., Saturday=6
+  const dayFromMonday = (todayUtc.getUTCDay() + 6) % 7;
+  const currentMondayUtc = new Date(todayUtc.getTime() - dayFromMonday * 86400000);
+
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  // Build 4 week buckets: weekOffset 3, 2, 1, 0 (0 is current week)
+  const weekBuckets = [];
+  for (let offset = 3; offset >= 0; offset--) {
+    const mon = new Date(currentMondayUtc.getTime() - offset * 7 * 86400000);
+    const sun = new Date(mon.getTime() + 6 * 86400000);
+
+    const fmtDate = (dt) => {
+      const yr = dt.getUTCFullYear();
+      const mo = String(dt.getUTCMonth() + 1).padStart(2, '0');
+      const da = String(dt.getUTCDate()).padStart(2, '0');
+      return `${yr}-${mo}-${da}`;
+    };
+
+    const startDateStr = fmtDate(mon);
+    const endDateStr = fmtDate(sun);
+    const monDay = mon.getUTCDate();
+    const monMonth = monthNames[mon.getUTCMonth()];
+    const label = `Week of ${monDay} ${monMonth}`;
+    const isCurrentWeek = offset === 0;
+
+    weekBuckets.push({
+      index: 3 - offset, // 0, 1, 2, 3
+      offset,
+      startDate: startDateStr,
+      endDate: endDateStr,
+      label,
+      isCurrentWeek,
+      correct: 0,
+      total: 0,
+      seconds: 0,
+      count: 0
+    });
+  }
+
+  // Tally results into the 4 buckets
+  results.forEach(res => {
+    const total = Number(res.total) || 0;
+    const correct = Number(res.correct) || 0;
+    const sec = Number(res.time_seconds) || 0;
+    if (total <= 0) return;
+
+    const resDate = getISTDateString(res.entry_date || res.created_at);
+    if (!resDate) return;
+
+    for (const b of weekBuckets) {
+      if (resDate >= b.startDate && resDate <= b.endDate) {
+        b.correct += Math.min(correct, total);
+        b.total += total;
+        b.seconds += sec;
+        b.count += 1;
+        break;
+      }
+    }
+  });
+
+  // Calculate averages for each week
+  const weeks = weekBuckets.map(b => {
+    const hasEntries = b.total > 0 && b.count > 0;
+    const accuracy = hasEntries ? Math.round((b.correct / b.total) * 1000) / 10 : null;
+    let speed = null;
+    if (hasEntries && b.seconds > 0) {
+      speed = Math.round((b.total / (b.seconds / 60)) * 10) / 10;
+    }
+
+    return {
+      label: b.label,
+      startDate: b.startDate,
+      endDate: b.endDate,
+      isCurrentWeek: b.isCurrentWeek,
+      hasEntries,
+      accuracy,
+      speed,
+      correct: b.correct,
+      total: b.total,
+      seconds: b.seconds,
+      count: b.count
+    };
+  });
+
+  // Comparison: This week (index 3) vs last week (index 2)
+  const currentWk = weeks[3];
+  const lastWk = weeks[2];
+
+  let accComparison = { diff: null, text: 'No comparison data', direction: 'none' };
+  if (currentWk.hasEntries && lastWk.hasEntries && currentWk.accuracy !== null && lastWk.accuracy !== null) {
+    const diff = Math.round((currentWk.accuracy - lastWk.accuracy) * 10) / 10;
+    if (diff > 0) {
+      accComparison = { diff, text: `↑ +${diff}%`, direction: 'up' };
+    } else if (diff < 0) {
+      accComparison = { diff, text: `↓ ${diff}%`, direction: 'down' };
+    } else {
+      accComparison = { diff: 0, text: `→ 0.0% (steady)`, direction: 'steady' };
+    }
+  } else if (currentWk.hasEntries && !lastWk.hasEntries) {
+    accComparison = { diff: null, text: `${currentWk.accuracy}% (no entries last week)`, direction: 'none' };
+  } else if (!currentWk.hasEntries && lastWk.hasEntries) {
+    accComparison = { diff: null, text: `Last week was ${lastWk.accuracy}%`, direction: 'none' };
+  }
+
+  let spdComparison = { diff: null, text: 'No comparison data', direction: 'none' };
+  if (currentWk.hasEntries && lastWk.hasEntries && currentWk.speed !== null && lastWk.speed !== null) {
+    const diff = Math.round((currentWk.speed - lastWk.speed) * 10) / 10;
+    if (diff > 0) {
+      spdComparison = { diff, text: `↑ +${diff} qpm`, direction: 'up' };
+    } else if (diff < 0) {
+      spdComparison = { diff, text: `↓ ${diff} qpm`, direction: 'down' };
+    } else {
+      spdComparison = { diff: 0, text: `→ 0.0 qpm (steady)`, direction: 'steady' };
+    }
+  } else if (currentWk.hasEntries && !lastWk.hasEntries) {
+    spdComparison = { diff: null, text: `${currentWk.speed} qpm (no entries last week)`, direction: 'none' };
+  } else if (!currentWk.hasEntries && lastWk.hasEntries) {
+    spdComparison = { diff: null, text: `Last week was ${lastWk.speed} qpm`, direction: 'none' };
+  }
+
+  // Generate short text summaries
+  let accuracySummary = '';
+  if (currentWk.hasEntries && lastWk.hasEntries) {
+    if (currentWk.accuracy > lastWk.accuracy) {
+      accuracySummary = `Accuracy rose from ${lastWk.accuracy}% last week to ${currentWk.accuracy}% this week.`;
+    } else if (currentWk.accuracy < lastWk.accuracy) {
+      accuracySummary = `Accuracy dipped from ${lastWk.accuracy}% last week to ${currentWk.accuracy}% this week.`;
+    } else {
+      accuracySummary = `Accuracy is steady at ${currentWk.accuracy}% week-over-week.`;
+    }
+  } else if (currentWk.hasEntries) {
+    accuracySummary = `Current week accuracy is ${currentWk.accuracy}% based on ${currentWk.count} entries so far.`;
+  } else if (lastWk.hasEntries) {
+    accuracySummary = `Last week finished at ${lastWk.accuracy}% accuracy across ${lastWk.count} entries.`;
+  } else {
+    accuracySummary = 'No practice entries logged in the last 2 weeks.';
+  }
+
+  let speedSummary = '';
+  if (currentWk.hasEntries && lastWk.hasEntries && currentWk.speed !== null && lastWk.speed !== null) {
+    if (currentWk.speed > lastWk.speed) {
+      speedSummary = `Speed rose from ${lastWk.speed} to ${currentWk.speed} questions per minute.`;
+    } else if (currentWk.speed < lastWk.speed) {
+      speedSummary = `Speed dipped from ${lastWk.speed} to ${currentWk.speed} questions per minute.`;
+    } else {
+      speedSummary = `Speed is steady at ${currentWk.speed} questions per minute.`;
+    }
+  } else if (currentWk.hasEntries && currentWk.speed !== null) {
+    speedSummary = `Current week speed is ${currentWk.speed} questions per minute so far.`;
+  } else if (lastWk.hasEntries && lastWk.speed !== null) {
+    speedSummary = `Last week average speed was ${lastWk.speed} questions per minute.`;
+  } else {
+    speedSummary = 'Speed data will appear after completing timed calculation rounds.';
+  }
+
+  return {
+    weeks,
+    comparison: {
+      accuracy: accComparison,
+      speed: spdComparison
+    },
+    summaries: {
+      accuracy: accuracySummary,
+      speed: speedSummary
+    }
+  };
+}

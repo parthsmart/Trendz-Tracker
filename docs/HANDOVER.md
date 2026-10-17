@@ -8,6 +8,17 @@
 
 ## Current Status Overview
 
+### Session: 2026-10-17 (Phase 3b-2 — Read-Only Student Detail, 7-Day & 4-Week Progress Charts, Score Table Pagination)
+
+#### 5-Line Session Summary
+- Architected shared dashboard modules (`js/dashboardData.js`, `js/dashboardComponents.js`) used identically by both `student.html` and `student-detail.html`, eliminating duplicated code.
+- Created `/pages/student-detail.html?id=<student id>` with admin-only guard, read-only teacher banner, "Back to Overview" link, friendly "Student not found" card, and zero mutate/edit controls.
+- Enforced strict session security: `/pages/student.html` never reads student ID from URL and strictly displays the authenticated student's own data.
+- Built 5-round score sheet pagination with dynamic Older/Newer controls, label formatting ("Rounds 240-244"), sticky category column, and round-only category filtering.
+- Implemented dual-range progress analytics with 7-day dual line chart and 4-week Monday–Sunday bar charts in Indian time (Asia/Kolkata), "This week vs last week" comparison line with directional arrows, and per-chart text summaries. Added ADR-020.
+
+---
+
 ### Session: 2026-10-17 (Deterministic CI Lockfile Sync, Linux Binaries & Node 22 Engine Pin)
 
 #### 5-Line Session Summary

@@ -48,6 +48,7 @@ export default defineConfig(() => {
           rounds: path.resolve(__dirname, 'pages/rounds.html'),
           todos: path.resolve(__dirname, 'pages/todos.html'),
           resources: path.resolve(__dirname, 'pages/resources.html'),
+          studentDetail: path.resolve(__dirname, 'pages/student-detail.html'),
         },
       },
     },

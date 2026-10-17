@@ -146,7 +146,7 @@ function renderTable() {
         ${escapeHtml(student.student_code)}
       </td>
       <td>
-        <a href="/pages/student-detail.html?id=${encodeURIComponent(student.id)}" class="student-link-pending" title="Coming next" aria-disabled="true" onclick="event.preventDefault()">
+        <a href="/pages/student-detail.html?id=${encodeURIComponent(student.id)}" class="student-name-link" style="color: var(--color-primary); font-weight: 600; text-decoration: none;">
           ${escapeHtml(student.full_name)}
         </a>
       </td>

@@ -691,3 +691,62 @@
   }
 }
 
+/* Chart Segmented Range Toggle */
+.chart-toggle-group {
+  display: inline-flex;
+  background-color: var(--bg-surface-subtle);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  padding: 2px;
+  gap: 2px;
+}
+
+.btn-chart-toggle {
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 4px 12px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+}
+
+.btn-chart-toggle:hover {
+  color: var(--text-main);
+  background-color: rgba(0, 0, 0, 0.04);
+}
+
+.btn-chart-toggle.active {
+  background-color: var(--bg-surface);
+  color: var(--color-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* Week-over-Week Comparison Banner */
+.week-comparison-banner {
+  background-color: var(--bg-surface-subtle);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+}
+
+/* Teacher Read-Only Banner */
+.teacher-readonly-banner {
+  background-color: var(--bg-surface-subtle);
+  border: 1px solid var(--border-hairline);
+  border-left: 4px solid var(--color-primary);
+}
+
+/* Student Name Links */
+.student-name-link {
+  color: var(--color-primary);
+  font-weight: 600;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.student-name-link:hover {
+  color: var(--color-primary-hover);
+  text-decoration: underline;
+}

@@ -242,7 +242,7 @@ function renderNeedsAttention(activeStudents) {
       <div class="attention-item">
         <div style="min-width: 0;">
           <div>
-            <a href="/pages/student-detail.html?id=${encodeURIComponent(s.student_id)}" class="student-link-pending" title="Coming next" aria-disabled="true" onclick="event.preventDefault()">
+            <a href="/pages/student-detail.html?id=${encodeURIComponent(s.student_id)}" class="student-name-link" style="color: var(--color-primary); font-weight: 600; text-decoration: none;">
               ${escapeHtml(s.full_name)}
             </a>
           </div>
@@ -396,7 +396,7 @@ function renderTable() {
     return `
       <tr class="${student.active ? '' : 'row-inactive'}">
         <td style="font-weight: 600;">
-          <a href="/pages/student-detail.html?id=${encodeURIComponent(student.student_id)}" class="student-link-pending" title="Coming next" aria-disabled="true" onclick="event.preventDefault()">
+          <a href="/pages/student-detail.html?id=${encodeURIComponent(student.student_id)}" class="student-name-link" style="color: var(--color-primary); font-weight: 600; text-decoration: none;">
             ${escapeHtml(student.full_name)}
           </a>
         </td>

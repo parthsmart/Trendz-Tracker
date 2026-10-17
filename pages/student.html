@@ -199,25 +199,25 @@
               </div>
             </section>
 
+            <!-- Card 5: Learning Resources (spans inside top 2-column grid on desktop) -->
+            <section class="card" style="grid-column: 1 / -1;" aria-labelledby="resources-heading">
+              <div class="card-header">
+                <h2 id="resources-heading" class="card-title" style="display: flex; align-items: center; gap: 6px;">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                  </svg>
+                  <span>Learning Resources & Guidelines</span>
+                </h2>
+              </div>
+              <div class="card-body" id="resources-container">
+                <div class="loading-state">Loading study materials...</div>
+              </div>
+            </section>
+
           </div> <!-- /dashboard-top-grid -->
 
-          <!-- LEARNING RESOURCES (TOPIC GROUPED) -->
-          <section class="card" style="margin-bottom: var(--space-6);" aria-labelledby="resources-heading">
-            <div class="card-header">
-              <h2 id="resources-heading" class="card-title" style="display: flex; align-items: center; gap: 6px;">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
-                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-                </svg>
-                <span>Learning Resources & Guidelines</span>
-              </h2>
-            </div>
-            <div class="card-body" id="resources-container">
-              <div class="loading-state">Loading study materials...</div>
-            </div>
-          </section>
-
-          <!-- FULL-WIDTH SCORE SHEET TABLE (OLD PAPER SHEET STYLE) -->
+          <!-- FULL-WIDTH SCORE SHEET TABLE (5-ROUND PAGINATION) -->
           <section class="card" style="margin-bottom: var(--space-6); padding: 0; overflow: hidden;" aria-labelledby="sheet-heading">
             <div style="padding: var(--space-4) var(--space-5); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3); border-bottom: 1px solid var(--border-hairline);">
               <div>
@@ -247,66 +247,7 @@
           </section>
 
           <!-- FULL-WIDTH PROGRESS CHARTS SECTION -->
-          <section aria-labelledby="charts-heading" style="margin-bottom: var(--space-8);">
-            <div class="section-header-row" style="margin-bottom: var(--space-4);">
-              <div>
-                <h2 id="charts-heading" class="card-title" style="font-size: 1.15rem;">Progress Analytics (Last 30 Days)</h2>
-                <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 0;">
-                  Tap or hover any data point to inspect exact scores and calculation speeds.
-                </p>
-              </div>
-            </div>
-
-            <!-- 2 Charts Side-by-Side on Desktop -->
-            <div class="chart-card-row">
-              <!-- Chart 1: Accuracy Trend -->
-              <div class="card">
-                <div class="card-header">
-                  <h3 class="card-title" style="font-size: var(--text-sm);">Daily Accuracy Trend (%)</h3>
-                </div>
-                <div class="card-body">
-                  <div class="svg-chart-container" id="chart-accuracy-container">
-                    <div class="loading-state">Generating accuracy chart...</div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Chart 2: Speed Trend -->
-              <div class="card">
-                <div class="card-header">
-                  <h3 class="card-title" style="font-size: var(--text-sm);">Daily Speed (Questions / Minute)</h3>
-                </div>
-                <div class="card-body">
-                  <div class="svg-chart-container" id="chart-speed-container">
-                    <div class="loading-state">Generating speed chart...</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Category Detail Drilldown Chart -->
-            <div class="card" style="margin-top: var(--space-4);">
-              <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3);">
-                <div>
-                  <h3 class="card-title" style="font-size: var(--text-sm);">Category History Drilldown (Last 10 Entries)</h3>
-                  <span style="font-size: 11px; color: var(--text-muted);">Inspect individual competition category progression.</span>
-                </div>
-                <div style="min-width: 220px;">
-                  <label for="category-drilldown-select" class="sr-only">Select Category</label>
-                  <select id="category-drilldown-select" class="form-select">
-                    <option value="">Loading categories...</option>
-                  </select>
-                </div>
-              </div>
-
-              <div class="card-body">
-                <div class="svg-chart-container" id="chart-category-container">
-                  <div class="loading-state">Select a category to view history drilldown.</div>
-                </div>
-              </div>
-            </div>
-
-          </section>
+          <div id="charts-wrapper-container"></div>
 
         </div> <!-- /container -->
       </main>
