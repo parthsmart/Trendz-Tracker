@@ -8,7 +8,7 @@
  * This entire file can be safely deleted prior to production launch.
  */
 
-import { isSupabaseConfigured } from './config.js';
+import { isSupabaseConfigured, isDemoAllowedHost } from './config.js';
 
 // Static keys for demo state persistence
 const DEMO_STORAGE_KEY_STUDENTS = 'trendz_demo_students_v2';
@@ -29,11 +29,11 @@ export const DEFAULT_BASICS_CATEGORIES = ['1d4r', '2d2r'];
 
 /**
  * Returns whether Demo Mode is currently active.
- * STRICT SECURITY RULE: Demo mode turns on ONLY when Supabase keys are placeholders.
- * When real keys are configured, this always returns false.
+ * STRICT SECURITY RULE: Demo mode turns on ONLY when Supabase keys are placeholders
+ * AND only on localhost or run.app hosts. On production hostnames, it always returns false.
  */
 export function isDemoMode() {
-  return !isSupabaseConfigured();
+  return !isSupabaseConfigured() && isDemoAllowedHost();
 }
 
 /**

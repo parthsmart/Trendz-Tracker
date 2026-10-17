@@ -1,23 +1,31 @@
 /**
  * Trendz Tracker - Supabase Client Initialization
- * Loads @supabase/supabase-js pinned to v2.49.1 from CDN (ES module).
+ * Initializes pinned @supabase/supabase-js (v2.49.1).
  * Also provides an interactive demo fallback when placeholders are unconfigured.
  */
 
-import { SUPABASE_CONFIG, isSupabaseConfigured } from './config.js';
+import { createClient } from '@supabase/supabase-js';
+import { SUPABASE_CONFIG, isSupabaseConfigured, ensurePreviewConfigLoaded } from './config.js';
 
-// Load Supabase ES module from pinned CDN
 let supabase = null;
 
 export { DemoDB, DEFAULT_ROUND_CATEGORIES, DEFAULT_BASICS_CATEGORIES } from './demoDb.js';
 
-// Auto-detect environments where cross-origin requests to third-party domains are restricted
-// (e.g. AI Studio preview iframes, Cloud Run, sandboxes)
-const isRestrictedEnv = typeof window !== 'undefined' && (
-  window.self !== window.top ||
-  window.location.hostname.includes('run.app') ||
+// Auto-detect production environment (Vercel deployment or custom domain)
+// Production NEVER uses the reverse proxy.
+const isProduction = typeof window !== 'undefined' && !(
   window.location.hostname === 'localhost' ||
-  window.location.hostname === '127.0.0.1'
+  window.location.hostname === '127.0.0.1' ||
+  window.location.hostname.endsWith('.run.app')
+);
+
+// Restricted sandbox environments (AI Studio preview iframe or Cloud Run sandbox)
+// Never active in production
+const isRestrictedEnv = !isProduction && typeof window !== 'undefined' && (
+  window.self !== window.top ||
+  window.location.hostname === 'localhost' ||
+  window.location.hostname === '127.0.0.1' ||
+  window.location.hostname.endsWith('.run.app')
 );
 
 let useProxy = isRestrictedEnv;
@@ -46,15 +54,13 @@ export function clearStaleSupabaseSession() {
 if (typeof window !== 'undefined') {
   window.addEventListener('unhandledrejection', (event) => {
     const msg = event?.reason?.message || (typeof event?.reason === 'string' ? event.reason : '');
-    const name = event?.reason?.name || '';
-    if (
+    const isInvalidRefreshToken =
       msg.includes('Invalid Refresh Token') ||
       msg.includes('Refresh Token Not Found') ||
-      msg.includes('refresh_token_not_found') ||
-      msg.includes('Failed to fetch') ||
-      name === 'AuthApiError'
-    ) {
-      console.warn('Caught unhandled auth/network rejection. Clearing invalid token from storage if needed.', msg);
+      msg.includes('refresh_token_not_found');
+
+    if (isInvalidRefreshToken) {
+      console.warn('Caught unhandled invalid refresh token rejection. Purging stale session.', msg);
       event.preventDefault();
       clearStaleSupabaseSession();
     }
@@ -211,6 +217,11 @@ async function proxyFetch(input, init = {}) {
  * In restricted environments (iframe sandbox), always proxies without attempting raw direct fetch.
  */
 async function smartFetch(input, init = {}) {
+  // In production, ALWAYS talk directly to Supabase. Never use the proxy.
+  if (isProduction) {
+    return fetch(input, init);
+  }
+
   if (isRestrictedEnv) {
     return proxyFetch(input, init);
   }
@@ -230,21 +241,13 @@ async function smartFetch(input, init = {}) {
 export async function getSupabase() {
   if (supabase) return supabase;
 
+  await ensurePreviewConfigLoaded();
+
   if (!isSupabaseConfigured()) {
     return null;
   }
 
   try {
-    let createClient;
-    try {
-      const mod = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/+esm');
-      createClient = mod.createClient;
-    } catch (cdnErr) {
-      console.warn('CDN import failed, attempting local module import...', cdnErr);
-      const mod = await import('@supabase/supabase-js');
-      createClient = mod.createClient;
-    }
-
     supabase = createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey, {
       auth: {
         persistSession: true,

@@ -74,17 +74,15 @@ Every meaningful technical and architectural decision made for **Trendz Tracker*
 
 ---
 
-### ADR-006: Interactive Local Demo Mode Fallback
-- **Date**: 2026-10-17
-- **Context**: Before a user configures their personal Supabase project, they need to preview, evaluate, and test the entire UI (admin roster, modal dialogs, category reordering) inside development and review environments without encountering broken screens or blocking crashes.
-- **Options Considered**:
-  1. *Blocking Error Screen*: Displaying a red screen saying "Configuration Missing" until keys are provided.
-  2. *Silent Failure*: Leaving forms unresponsive.
-  3. *Interactive Demo Mode Fallback*: If placeholder credentials are detected in `js/config.js`, an in-browser storage layer (`DemoDB`) provides realistic sample students, the 24 championship categories, and quick login helpers with an informative banner. As soon as real keys are supplied, it automatically connects to live Supabase.
-- **Choice**: Interactive Demo Mode Fallback.
-- **Reason**: Provides an immediate, functional preview while making it obvious how and where to configure live production credentials.
-- **Trade-off**: Requires maintaining a small mock data store in `js/supabaseClient.js`.
-- **Rejected Options**: Blocking error screens, silent failures.
+### ADR-006: Interactive Local Demo Mode Fallback Restricted to Development Hosts
+- **Date**: 2026-10-17 (Updated)
+- **Context**: Before a user configures their personal Supabase project, they need to preview, evaluate, and test the UI in development and preview environments without encountering broken screens or blocking crashes. However, demo data and mock accounts must never be exposed or accessible on a live production deployment.
+- **Rules & Invariants**:
+  1. *Host Restriction*: Demo Mode is strictly permitted only on `localhost`, `127.0.0.1`, or `run.app` (Studio preview).
+  2. *Production Configuration Lock*: On any production hostname, if Supabase credentials are missing or placeholders, the application immediately blocks execution and displays a full-page "Configuration error - contact the administrator" screen. No demo data is loaded, demo logins are rejected, and admin mutations cannot fake success.
+  3. *Visible Indicator*: Where demo mode is permitted, a prominent yellow banner `"DEMO MODE — data is fake"` is persistently rendered.
+- **Choice**: Host-restricted Interactive Demo Mode Fallback.
+- **Reason**: Allows seamless local evaluation while guaranteeing zero fake data or mock credential exposure in production.
 
 ---
 
@@ -144,17 +142,20 @@ Every meaningful technical and architectural decision made for **Trendz Tracker*
 
 ---
 
-### ADR-011: Supabase Server Proxy with SmartFetch Client Resiliency
-- **Date**: 2026-10-17
-- **Context**: In restrictive browser client environments (e.g., sandboxed iframes in preview environments, adblockers, strict privacy extensions, or school WiFi networks), direct cross-origin fetches to external third-party domains (`*.supabase.co`) can fail with `TypeError: Failed to fetch`.
-- **Options Considered**:
-  1. *Rely strictly on direct client fetches and instruct users to disable extensions*: Causes user friction and breaks preview in sandboxed environments.
-  2. *Route 100% of traffic through backend proxy*: Adds unnecessary server latency when direct connections work fine in production.
-  3. *SmartFetch with Transparent Server Proxy Fallback*: Clients attempt direct connection first; upon detecting any network or cross-origin block, the client transparently switches to the same-origin `/api/supabase-proxy` endpoint (hosted on Express and Vercel serverless), strictly restricted to the institute's Supabase project domain.
-- **Choice**: SmartFetch with Transparent Server Proxy Fallback (`/api/supabase-proxy.js` and `js/supabaseClient.js`).
-- **Reason**: Guarantees 100% uptime across adblockers, corporate/school firewalls, and sandboxed preview environments with zero configuration required from students or teachers.
-- **Trade-off**: Requires maintaining the server proxy endpoint in `/api/supabase-proxy.js` and `server.ts`.
-- **Rejected Options**: Forcing users to disable adblockers, proxying all traffic unconditionally.
+### ADR-011: Hardened Preview-Only Supabase Reverse Proxy with Strict Destination Invariants
+- **Date**: 2026-10-17 (Updated)
+- **Context**: In restrictive browser preview environments (such as sandboxed iframes in AI Studio / Cloud Run), direct cross-origin fetches to external third-party domains (`*.supabase.co`) can fail with `TypeError: Failed to fetch`. However, an unrestricted backend proxy poses serious SSRF (Server-Side Request Forgery) and open-proxy risks if not strictly constrained.
+- **Rules & Invariants**:
+  1. *Preview Only*: The proxy is strictly for preview environments. When `VERCEL_ENV === 'production'`, `/api/supabase-proxy` immediately returns HTTP 404. Client-side code in `js/supabaseClient.js` detects production environments and never attempts to use the proxy, communicating directly with Supabase via standard `fetch()`.
+  2. *Strict Origin Validation*: The target is parsed using `new URL()`. The protocol must be `https:`, and `targetUrl.origin` must strictly and exactly match the origin of the configured `SUPABASE_URL`. Subdomain tricks (e.g. `.evil.example`) and embedded credentials (`user@evil.example`) are explicitly rejected with real HTTP 403.
+  3. *Path Restriction*: Only paths starting with `/rest/v1/`, `/auth/v1/`, and `/storage/v1/` are allowed. All other paths are rejected with HTTP 403.
+  4. *Method Whitelist*: Only `GET`, `POST`, `PATCH`, `PUT`, and `DELETE` are permitted.
+  5. *Header Filtering*: Only explicitly allowed headers are forwarded: `apikey`, `authorization`, `content-type`, `accept`, `prefer`, `x-client-info`. All other headers (including cookies, hop-by-hop headers, and host headers) are stripped.
+  6. *Centralized Environment Resolution*: All server endpoints read Supabase configuration through `api/_configHelper.js`. If variables are missing or placeholders, a 500 error is returned with zero hardcoded fallbacks.
+- **Choice**: Hardened preview-only reverse proxy with strict origin parsing and zero production presence.
+- **Reason**: Eliminates SSRF risks, prevents open-proxy abuse, and ensures production deployments connect 100% directly to Supabase.
+- **Trade-off**: Requires maintaining strict validation logic in `/api/supabase-proxy.js`.
+- **Rejected Options**: Unrestricted forwarding, prefix-only string matching (`startsWith`), proxying in production.
 
 ---
 
@@ -210,10 +211,26 @@ Every meaningful technical and architectural decision made for **Trendz Tracker*
 - **Options Considered**:
   1. *Inline mock branches throughout student.js, admin.js, and supabaseClient.js*: Hard to audit and risks leaving demo remnants in production code.
   2. *Separate Demo build / branch*: Disconnected and difficult to maintain.
-  3. *Single Isolated File (`js/demoDb.js`)*: All static fake data, mock RPCs, and local demo storage are gathered strictly in `js/demoDb.js`. Enabled ONLY when Supabase credentials are placeholder strings; completely unreachable once live credentials are entered.
+  3. *Single Isolated File (`js/demoDb.js`)*: All static fake data, mock RPCs, and local demo storage are gathered strictly in `js/demoDb.js`. Enabled ONLY when Supabase credentials are placeholder strings AND on permitted preview hosts (`localhost`, `run.app`); completely unreachable once live credentials are entered or when deployed on production hostnames.
 - **Choice**: Single Isolated File (`js/demoDb.js`).
-- **Reason**: Safe, clean, and easily deletable prior to production launch. Accompanied by a bold, unmissable red banner `"DEMO MODE — data is fake"` on every page.
+- **Reason**: Safe, clean, and easily deletable prior to production launch. Accompanied by a bold banner `"DEMO MODE — data is fake"` on allowed development pages.
 - **Trade-off**: Must maintain matching mock data structures during development.
 - **Rejected Options**: Scattering mock branches across production modules.
+
+---
+
+### ADR-016: Build-Time `VITE_` Configuration over Runtime Config Fetching
+- **Date**: 2026-10-17
+- **Context**: In production on Vercel, Trendz Tracker serves static pages from `dist` alongside administrative serverless functions. Fetching public Supabase credentials via a runtime network request to `/api/config` introduced top-level await latency, triggered unnecessary serverless function executions on every client visit, and created potential race conditions before `getSupabase()` or route guards executed.
+- **Options Considered**:
+  1. *Runtime `/api/config` fetch with top-level await*: Slows client module evaluation, causes serverless cold starts on static page visits, and introduces unnecessary network round-trips.
+  2. *Hardcoded public project credentials in `js/config.js`*: Violates clean environment separation and risks committing credentials to source control.
+  3. *Build-Time `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` Injection*: Standard Vite environment variables (`import.meta.env.VITE_*`) replaced at compile time during `npm run build`. The browser makes zero network requests to `/api/config` in production. Studio preview (`localhost`, `127.0.0.1`, `*.run.app`) retains a single cached fallback via `sessionStorage` if build variables are unset.
+- **Choice**: Build-Time `VITE_` Configuration Injection with Vercel Build-Failure Guard.
+- **Reason**: Eliminates top-level await from client bundles, enables instantaneous client initialization without network latency, ensures zero runtime calls to `/api/config` in production, and provides fail-fast build validation in `vite.config.ts` when deploying on Vercel. `SUPABASE_SERVICE_ROLE_KEY` strictly retains its non-VITE name and remains purely server-side.
+- **Trade-off**: Vercel production deployments require `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` defined in Vercel Environment Variables.
+- **Rejected Options**: Runtime `/api/config` fetch in production, hardcoded secrets in source files.
+
+
 
 

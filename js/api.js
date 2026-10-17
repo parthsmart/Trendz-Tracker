@@ -4,7 +4,7 @@
  * which use the Supabase Service Role Key after verifying the caller is an admin.
  */
 
-import { isSupabaseConfigured } from './config.js';
+import { isSupabaseConfigured, isDemoAllowedHost } from './config.js';
 import { getSupabase, DemoDB } from './supabaseClient.js';
 
 /**
@@ -13,7 +13,10 @@ import { getSupabase, DemoDB } from './supabaseClient.js';
  */
 export async function createStudent(data) {
   if (!isSupabaseConfigured()) {
-    // Demo Mode simulation
+    if (!isDemoAllowedHost()) {
+      throw new Error('Configuration error - contact the administrator.');
+    }
+    // Demo Mode simulation (only on localhost or run.app)
     return DemoDB.addStudent(data);
   }
 
@@ -48,7 +51,10 @@ export async function createStudent(data) {
  */
 export async function resetStudentPassword(studentId, newPassword) {
   if (!isSupabaseConfigured()) {
-    // Demo Mode simulation
+    if (!isDemoAllowedHost()) {
+      throw new Error('Configuration error - contact the administrator.');
+    }
+    // Demo Mode simulation (only on localhost or run.app)
     return DemoDB.resetStudentPassword(studentId);
   }
 
@@ -87,6 +93,9 @@ export async function resetStudentPassword(studentId, newPassword) {
  */
 export async function toggleStudentActive(studentId, currentActive) {
   if (!isSupabaseConfigured()) {
+    if (!isDemoAllowedHost()) {
+      throw new Error('Configuration error - contact the administrator.');
+    }
     return DemoDB.toggleStudentActive(studentId);
   }
 

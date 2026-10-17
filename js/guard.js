@@ -4,14 +4,40 @@
  */
 
 import { getCurrentProfile, logoutUser, redirectByRole } from './auth.js';
-import { isSupabaseConfigured } from './config.js';
+import { isSupabaseConfigured, isDemoAllowedHost } from './config.js';
+import { isDemoMode } from './demoDb.js';
 import { showToast } from './toast.js';
+
+/**
+ * Enforces production configuration lock:
+ * If Supabase is unconfigured on a production hostname, renders a full-page
+ * configuration error and stops all execution.
+ */
+export function checkProductionConfigLock() {
+  if (!isSupabaseConfigured() && !isDemoAllowedHost()) {
+    document.body.innerHTML = `
+      <main style="min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #f8fafc; font-family: system-ui, -apple-system, sans-serif; padding: 24px;">
+        <div style="max-width: 480px; width: 100%; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 32px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); text-align: center;">
+          <div style="font-size: 48px; margin-bottom: 16px;">⚠️</div>
+          <h1 style="font-size: 20px; font-weight: 700; color: #0f172a; margin-bottom: 8px;">Configuration error</h1>
+          <p style="font-size: 15px; color: #475569; line-height: 1.5; margin: 0;">Please contact the administrator.</p>
+        </div>
+      </main>
+    `;
+    return true;
+  }
+  return false;
+}
 
 /**
  * Route guard for protected pages (Student & Admin).
  * @param {Array<'student' | 'admin'>} allowedRoles
  */
 export async function requireAuth(allowedRoles = ['student', 'admin']) {
+  if (checkProductionConfigLock()) {
+    return null;
+  }
+
   const profile = await getCurrentProfile();
 
   if (!profile) {
@@ -42,6 +68,10 @@ export async function requireAuth(allowedRoles = ['student', 'admin']) {
  * If user is already authenticated, redirects them straight to their dashboard.
  */
 export async function requireNoAuth() {
+  if (checkProductionConfigLock()) {
+    return;
+  }
+
   const profile = await getCurrentProfile();
   if (profile) {
     redirectByRole(profile);
@@ -74,12 +104,13 @@ function setupHeaderUserUI(profile) {
 
 /**
  * Renders an informative, friendly status banner if Supabase is in Demo Mode.
+ * Only renders where demo mode is permitted (localhost or run.app).
  */
 function renderConfigBanner() {
   const container = document.getElementById('config-banner-placeholder');
   if (!container) return;
 
-  if (!isSupabaseConfigured()) {
+  if (isDemoMode()) {
     container.innerHTML = `
       <div class="banner banner-warning" style="margin-bottom: var(--space-4); border: 2px dashed var(--color-warning);">
         <div>

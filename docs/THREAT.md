@@ -97,3 +97,22 @@ The serverless functions in `/api/create-student.js` and `/api/reset-password.js
      - All external links render with `target="_blank"` and `rel="noopener noreferrer"` to prevent window opener hijacking and protect student referrer privacy.
    - *Known Gap*: Teachers must manually verify that external resource domains remain active and safe.
 
+9. **Server-Side Request Forgery (SSRF) & Reverse Proxy Abuse**:
+   - *Risk*: An attacker attempts to exploit `/api/supabase-proxy` as an open proxy or SSRF vector to scan internal institute networks, exfiltrate cloud metadata (e.g. `http://169.254.169.254`), or target phishing servers using spoofed domains (e.g., `https://<your-project-ref>.supabase.co.evil.example/` or userinfo credentials `https://<your-project-ref>.supabase.co@evil.example/`).
+   - *Mitigation in Place*:
+     - **Exact Origin Match**: Target URL is parsed strictly using `new URL()`. The protocol must be `https:`, and `url.origin` must strictly and identically match the origin of the configured `SUPABASE_URL`.
+     - **No Credentials / Userinfo**: URLs with embedded usernames or passwords (`url.username`, `url.password`) are rejected with HTTP 403.
+     - **Path Whitelist**: Only paths starting with `/rest/v1/`, `/auth/v1/`, and `/storage/v1/` are allowed.
+     - **Method Whitelist**: Only `GET`, `POST`, `PATCH`, `PUT`, `DELETE` are permitted.
+     - **Header Filter**: Only `apikey`, `authorization`, `content-type`, `accept`, `prefer`, and `x-client-info` are forwarded.
+     - **Disabled in Production**: When `VERCEL_ENV === 'production'`, the proxy returns HTTP 404 immediately. Production clients communicate directly with Supabase via browser `fetch()`.
+
+10. **Demo Mode Bleed into Production Deployments**:
+    - *Risk*: If an application is deployed to production with unconfigured or placeholder credentials, mock data and demo credentials (`STU101`, `ADMIN01` / `admin123`) might be mistakenly used by end users, or give the illusion of successful account creation or password updates.
+    - *Mitigation in Place*:
+      - `isDemoAllowedHost()` strictly restricts Demo Mode to `localhost`, `127.0.0.1`, and `run.app`.
+      - On any production hostname, `checkProductionConfigLock()` immediately replaces the entire document body with a full-page "Configuration error - Please contact the administrator" screen.
+      - `loginWithStudentId()` and administrative API calls (`createStudent`, `resetStudentPassword`, `toggleStudentActive`) strictly throw configuration errors on production hostnames when unconfigured, preventing any mock success.
+
+
+

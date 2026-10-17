@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url';
 import createStudentHandler from './api/create-student.js';
 import resetPasswordHandler from './api/reset-password.js';
 import supabaseProxyHandler from './api/supabase-proxy.js';
+import { getSupabaseServerConfig } from './api/_configHelper.js';
 
 dotenv.config();
 
@@ -21,15 +22,17 @@ const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
 
-// Public config endpoint (never exposes secret keys)
+// Public config endpoint (never exposes secret keys, returns 500 if missing)
 app.get('/api/config', (req, res) => {
-  const rawUrl = process.env.SUPABASE_URL || 'https://ctwjujnqxkhononxykdc.supabase.co';
-  const cleanUrl = rawUrl.trim().replace(/\/rest\/v1\/?$/i, '').replace(/\/+$/, '');
-  const anonKey = (process.env.SUPABASE_ANON_KEY || 'sb_publishable_jKPhD4j4mfiAlKu7ljyLbQ_iqJnvcyw').trim();
-  res.json({
-    supabaseUrl: cleanUrl,
-    supabaseAnonKey: anonKey,
-  });
+  try {
+    const { url, anonKey } = getSupabaseServerConfig();
+    res.json({
+      supabaseUrl: url,
+      supabaseAnonKey: anonKey,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Mount the serverless API routes locally
@@ -47,19 +50,23 @@ app.all('/api/supabase-proxy', (req, res) => {
 
 async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';
+  const distPath = path.join(__dirname, 'dist');
 
   if (!isProduction) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, host: '0.0.0.0', port: PORT },
       appType: 'spa',
     });
     app.use(vite.middlewares);
   } else {
-    // Serve static files in production
-    app.use(express.static(path.join(__dirname, 'dist')));
+    // Serve static files in production strictly rooted inside dist
+    app.use(express.static(distPath));
     app.get('*', (req, res) => {
-      res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+      if (req.path.endsWith('.html')) {
+        return res.sendFile(req.path, { root: distPath });
+      }
+      res.sendFile('index.html', { root: distPath });
     });
   }
 

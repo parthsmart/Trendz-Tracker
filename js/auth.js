@@ -3,8 +3,9 @@
  * Handles login, session management, ID-to-email mapping, and role checking.
  */
 
-import { AUTH_EMAIL_DOMAIN, isSupabaseConfigured } from './config.js';
+import { AUTH_EMAIL_DOMAIN, isSupabaseConfigured, isDemoAllowedHost } from './config.js';
 import { getSupabase, DemoDB, clearStaleSupabaseSession } from './supabaseClient.js';
+import { isDemoMode } from './demoDb.js';
 
 /**
  * Normalizes a student or admin identifier into a Supabase auth email.
@@ -73,7 +74,11 @@ export async function loginWithStudentId(studentId, password) {
     return { user: authData.user, profile };
   }
 
-  // 2. Demo Mode simulation when Supabase credentials are placeholder
+  // 2. Demo Mode simulation (Allowed ONLY on localhost or run.app hosts)
+  if (!isDemoAllowedHost()) {
+    throw new Error('Configuration error - contact the administrator.');
+  }
+
   const cleanId = studentId.trim().toUpperCase();
 
   // Admin login check in Demo Mode
@@ -164,6 +169,10 @@ export async function getCurrentProfile() {
       }
       return null;
     }
+  }
+
+  if (!isDemoAllowedHost()) {
+    return null;
   }
 
   return DemoDB.getDemoAuth();

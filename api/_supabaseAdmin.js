@@ -5,21 +5,12 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-
-function getCleanUrl() {
-  const rawUrl = process.env.SUPABASE_URL || '';
-  return rawUrl.trim().replace(/\/rest\/v1\/?$/i, '').replace(/\/+$/, '');
-}
+import { getSupabaseAdminConfig } from './_configHelper.js';
 
 export function getAdminClient() {
-  const supabaseUrl = getCleanUrl();
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ? process.env.SUPABASE_SERVICE_ROLE_KEY.trim() : '';
+  const { url, serviceRoleKey } = getSupabaseAdminConfig();
 
-  if (!supabaseUrl || !supabaseServiceKey) {
-    throw new Error('Server configuration error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in environment variables.');
-  }
-
-  return createClient(supabaseUrl, supabaseServiceKey, {
+  return createClient(url, serviceRoleKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false

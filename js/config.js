@@ -1,31 +1,98 @@
 /**
  * Trendz Tracker - Client Configuration
  * 
- * IMPORTANT FOR SUPABASE SETUP:
- * 1. Project URL and anon / public key are configured below.
- * 2. URL normalizer automatically strips any trailing `/rest/v1` or slashes.
+ * In production (Vercel):
+ * Supabase URL and anon key are read at build time from:
+ * - import.meta.env.VITE_SUPABASE_URL
+ * - import.meta.env.VITE_SUPABASE_ANON_KEY
+ * The browser makes zero runtime requests to /api/config in production.
  * 
- * KEEP SERVICE ROLE KEY SECRET:
- * Never put your service_role key here in the browser!
- * The service_role key belongs ONLY in your server environment variables (Vercel / .env).
+ * In Studio preview only (localhost and *.run.app):
+ * If VITE_* variables are empty, /api/config is fetched once and cached in sessionStorage.
+ * 
+ * NEVER use a VITE_ prefix for the service role key!
  */
 
-const RAW_SUPABASE_URL = "https://ctwjujnqxkhononxykdc.supabase.co";
-const RAW_SUPABASE_ANON_KEY = "sb_publishable_jKPhD4j4mfiAlKu7ljyLbQ_iqJnvcyw";
+function normalizeSupabaseUrl(url) {
+  if (!url) return '';
+  return url.trim().replace(/\/rest\/v1\/?$/i, '').replace(/\/+$/, '');
+}
+
+// 1. Read build-time environment variables injected by Vite
+const buildUrl = typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_SUPABASE_URL ? import.meta.env.VITE_SUPABASE_URL : '';
+const buildAnonKey = typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_SUPABASE_ANON_KEY ? import.meta.env.VITE_SUPABASE_ANON_KEY : '';
+
+let resolvedUrl = normalizeSupabaseUrl(buildUrl);
+let resolvedAnonKey = (buildAnonKey || '').trim();
 
 /**
- * Normalizes Supabase Project URL to root domain without /rest/v1 or trailing slashes.
- * E.g., "https://xyz.supabase.co/rest/v1/" -> "https://xyz.supabase.co"
+ * Checks if current host is allowed to run Demo Mode or use preview fallbacks.
+ * Allowed strictly on localhost, 127.0.0.1, or *.run.app hosts.
  */
-function normalizeSupabaseUrl(url) {
-  if (!url) return "";
-  return url.trim().replace(/\/rest\/v1\/?$/i, "").replace(/\/+$/, "");
+export function isDemoAllowedHost() {
+  if (typeof window === 'undefined') return false;
+  const hostname = window.location.hostname;
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname.endsWith('.run.app');
+}
+
+// 2. For Studio preview only (localhost and *.run.app): check sessionStorage cache if build variables are empty
+if (!resolvedUrl && typeof window !== 'undefined' && isDemoAllowedHost()) {
+  try {
+    const cachedUrl = sessionStorage.getItem('trendz_supabase_url');
+    const cachedKey = sessionStorage.getItem('trendz_supabase_anon_key');
+    if (cachedUrl && cachedKey) {
+      resolvedUrl = normalizeSupabaseUrl(cachedUrl);
+      resolvedAnonKey = cachedKey.trim();
+    }
+  } catch {
+    // sessionStorage not available
+  }
 }
 
 export const SUPABASE_CONFIG = {
-  url: normalizeSupabaseUrl(RAW_SUPABASE_URL),
-  anonKey: RAW_SUPABASE_ANON_KEY.trim(),
+  url: resolvedUrl,
+  anonKey: resolvedAnonKey,
 };
+
+// 3. For Studio preview only: if credentials are still empty, fetch /api/config once and cache in sessionStorage.
+// This is never executed in production (isDemoAllowedHost is false on production hostnames).
+let previewConfigPromise = null;
+
+if (!resolvedUrl && typeof window !== 'undefined' && isDemoAllowedHost()) {
+  previewConfigPromise = (async () => {
+    try {
+      const res = await fetch('/api/config');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.supabaseUrl && data.supabaseAnonKey) {
+          resolvedUrl = normalizeSupabaseUrl(data.supabaseUrl);
+          resolvedAnonKey = String(data.supabaseAnonKey).trim();
+          SUPABASE_CONFIG.url = resolvedUrl;
+          SUPABASE_CONFIG.anonKey = resolvedAnonKey;
+          try {
+            sessionStorage.setItem('trendz_supabase_url', resolvedUrl);
+            sessionStorage.setItem('trendz_supabase_anon_key', resolvedAnonKey);
+          } catch {
+            // sessionStorage not available
+          }
+        }
+      }
+    } catch {
+      // preview server unreachable
+    }
+  })();
+}
+
+/**
+ * Ensures preview configuration fetch has completed before client initialization.
+ * Resolves synchronously in production or when credentials are already present.
+ */
+export async function ensurePreviewConfigLoaded() {
+  if (previewConfigPromise) {
+    await previewConfigPromise;
+  }
+  return SUPABASE_CONFIG;
+}
 
 /**
  * Checks if real Supabase credentials have been configured.
@@ -36,9 +103,11 @@ export function isSupabaseConfigured() {
   return Boolean(
     url && 
     key && 
-    url !== "YOUR_SUPABASE_URL" && 
-    key !== "YOUR_SUPABASE_ANON_KEY" &&
-    url.startsWith("https://")
+    url !== 'YOUR_SUPABASE_URL' && 
+    key !== 'YOUR_SUPABASE_ANON_KEY' &&
+    !url.includes('your-project-ref') &&
+    !key.includes('YOUR_') &&
+    url.startsWith('https://')
   );
 }
 
@@ -46,4 +115,4 @@ export function isSupabaseConfigured() {
  * Email domain used for student accounts.
  * Student ID "STU-101" is mapped to "stu-101@trendz.local"
  */
-export const AUTH_EMAIL_DOMAIN = "trendz.local";
+export const AUTH_EMAIL_DOMAIN = 'trendz.local';

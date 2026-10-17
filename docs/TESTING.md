@@ -372,3 +372,80 @@ This document contains step-by-step test scenarios to verify security boundaries
   - The newly created resource appears under the `Rules & Scoring` topic on the student portal.
   - Clicking the link opens in a new tab with `rel="noopener noreferrer"`.
 
+---
+
+### Test Case 23: Supabase Proxy Destination Verification & SSRF Refusal Tests
+- **Objective**: Verify that `/api/supabase-proxy` strictly enforces exact-origin validation, rejects spoofed domains or embedded credentials with HTTP 403, and returns HTTP 404 on production.
+- **Test 23.1: Subdomain spoofing attempt**:
+  - Request:
+    ```bash
+    curl -X POST http://localhost:3000/api/supabase-proxy \
+      -H "Content-Type: application/json" \
+      -d '{"url":"https://<your-project-ref>.supabase.co.evil.example/rest/v1/x","method":"GET"}'
+    ```
+  - Expected Status: `403 Forbidden`
+  - Expected Body: `{"error":"Forbidden: Target origin does not match configured Supabase project"}`
+- **Test 23.2: Userinfo credential smuggling attempt**:
+  - Request:
+    ```bash
+    curl -X POST http://localhost:3000/api/supabase-proxy \
+      -H "Content-Type: application/json" \
+      -d '{"url":"https://<your-project-ref>.supabase.co@evil.example/rest/v1/x","method":"GET"}'
+    ```
+  - Expected Status: `403 Forbidden`
+  - Expected Body: `{"error":"Forbidden: Credentials in target URL are prohibited"}`
+- **Test 23.3: Disallowed path attempt**:
+  - Request: Target path starting with `/internal/` or `/pg/`
+  - Expected Status: `403 Forbidden`
+- **Test 23.4: Production environment lock**:
+  - When `VERCEL_ENV === "production"`, any request to `/api/supabase-proxy` returns HTTP `404 Not Found`.
+
+---
+
+### Test Case 24: Production Configuration Lock & Demo Mode Host Restriction
+- **Objective**: Verify that Demo Mode is restricted strictly to development hosts (`localhost`, `127.0.0.1`, `run.app`), and that unconfigured production environments display a full-page configuration error without leaking demo data or allowing fake mutations.
+- **Test 24.1: Production Host with Missing / Placeholder Credentials**:
+  - Emulate production hostname (e.g. `trendz.example.com` or `trendz.vercel.app`) with placeholder/empty Supabase credentials.
+  - Expected Result:
+    - Entire document body is replaced with: `Configuration error - Please contact the administrator.`
+    - Zero demo data rendered.
+    - `loginWithStudentId()` throws: `Configuration error - contact the administrator.`
+    - Admin actions (`createStudent`, `resetStudentPassword`) throw configuration error.
+- **Test 24.2: Development Host with Missing / Placeholder Credentials**:
+  - On `localhost` or `*.run.app` with placeholder Supabase credentials.
+  - Expected Result:
+    - `isDemoMode()` evaluates to `true`.
+    - Prominent `"DEMO MODE — data is fake"` banner is rendered.
+    - Quick test credentials (`STU101`, `ADMIN01`) are available for local evaluation.
+
+---
+
+### Test Case 25: Build-Time `VITE_` Configuration & Static HTML Route Verification
+- **Objective**: Verify that production builds fail on Vercel without valid environment variables, that production clients make zero requests to `/api/config`, and that every page opens directly at its `.html` address.
+- **Test 25.1: Vercel Build Failure Without Variables**:
+  - Run build simulating Vercel environment without variables:
+    ```bash
+    VERCEL=1 npm run build
+    ```
+  - Expected Result: Build aborts with non-zero exit code and error message:
+    `[Vercel Build Error] Missing or invalid Supabase build environment variables. Both VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY must be provided in Vercel project settings.`
+- **Test 25.2: Zero `/api/config` Network Requests in Production**:
+  - In a production build (`isDemoAllowedHost()` is false), inspect browser DevTools Network tab upon initial page load.
+  - Expected Result:
+    - No HTTP requests are made to `/api/config`.
+    - Public Supabase client is immediately and synchronously initialized from build-time embedded literals (`VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`).
+- **Test 25.3: Pure Static `.html` Route Verification**:
+  - Run `npm run build` and serve `dist` as static assets.
+  - Request every page listed in `vite.config.ts`:
+    - `GET /index.html` -> Status 200
+    - `GET /pages/student.html` -> Status 200
+    - `GET /pages/round-scores.html` -> Status 200
+    - `GET /pages/basics.html` -> Status 200
+    - `GET /pages/admin.html` -> Status 200
+    - `GET /pages/categories.html` -> Status 200
+    - `GET /pages/rounds.html` -> Status 200
+    - `GET /pages/todos.html` -> Status 200
+    - `GET /pages/resources.html` -> Status 200
+  - Verify every internal anchor link, navigation redirect, and route guard targets the exact `.html` filename.
+
+

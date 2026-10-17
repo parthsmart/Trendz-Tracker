@@ -8,6 +8,40 @@
 
 ## Current Status Overview
 
+### Session: 2026-10-17 (Build-Time VITE_ Config Injection, Strict Host Matching & Clean Vercel Output)
+
+#### 5-Line Session Summary
+- Eliminated top-level await and runtime `/api/config` fetches in production; `js/config.js` reads public Supabase credentials at build time via `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+- Gated Studio preview fallback to `sessionStorage` caching; strictly zero calls to `/api/config` in production.
+- Configured hard Vercel build guard in `vite.config.ts`: `VERCEL=1 npm run build` fails immediately if `VITE_` variables are missing or placeholders.
+- Replaced loose `.includes('run.app')` checks across `js/config.js` and `js/supabaseClient.js` with exact `hostname === 'localhost' || hostname === '127.0.0.1' || hostname.endsWith('.run.app')`.
+- Streamlined `vercel.json` to minimal `{ "buildCommand": "npm run build", "installCommand": "npm ci", "outputDirectory": "dist" }`; confirmed 100% of internal links, redirects, and guards use explicit `.html` routes.
+
+---
+
+### Session: 2026-10-17 (Dependency Purge, Production Demo Lock & Secret Removal)
+
+#### 5-Line Session Summary
+- Purged all unused dependencies (`react`, `react-dom`, `lucide-react`, `motion`, `@google/genai`, `@tailwindcss/vite`, `@vitejs/plugin-react`, `tailwindcss`, `autoprefixer`), renamed package to `trendz-tracker`, and relocated preview tooling to `devDependencies`.
+- Pinned `@supabase/supabase-js` to exact version `2.49.1` and updated `package-lock.json` cleanly with 0 peer conflicts.
+- Constrained `unhandledrejection` in `js/supabaseClient.js` to purge tokens strictly on invalid/missing refresh token errors; network errors never clear sessions or call `preventDefault()`.
+- Gated Demo Mode strictly to `localhost` and `run.app` hosts; unconfigured production hostnames immediately render a full-page "Configuration error - contact the administrator" screen with zero demo data, zero demo logins, and zero fake admin mutations.
+- Purged all hardcoded Supabase project URLs and anon keys from code, docs, and tests, replacing them with `<your-project-ref>`.
+- **Note on Roadmap**: Phase 3b is **NOT** yet in this repository.
+
+---
+
+### Session: 2026-10-17 (Hardened Supabase Proxy & Zero-Fallback Environment Discipline)
+
+#### 5-Line Session Summary
+- Centralized server configuration in `api/_configHelper.js` with zero hardcoded URLs or keys, throwing a clear 500 error if environment variables are missing or placeholders.
+- Hardened `api/supabase-proxy.js`: exact `new URL().origin` matching, userinfo/credential rejection, path whitelist (`/rest/v1/`, `/auth/v1/`, `/storage/v1/`), method whitelist, header whitelist, real 403 on refusal, and 404 in production (`VERCEL_ENV === 'production'`).
+- Enforced production architecture: `js/supabaseClient.js` strictly talks directly to Supabase on production and never uses the proxy; `server.ts` uses `res.sendFile(req.path, { root: distPath })`.
+- Removed administrative local-state fallbacks in `js/api.js`; backend errors surface cleanly to administrators without pretending to succeed.
+- Pinned `@supabase/supabase-js` to exact version `2.49.1` and committed `package-lock.json`. Clean build and lint passed with 0 errors.
+
+---
+
 ### Session: 2026-10-17 (Phase 3 — Student Dashboard & Admin Daily To-Do & Resources)
 
 #### 5-Line Session Summary

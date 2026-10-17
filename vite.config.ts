@@ -1,7 +1,34 @@
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { defineConfig } from 'vite';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 export default defineConfig(() => {
+  // Enforce required build variables when deploying on Vercel
+  if (process.env.VERCEL) {
+    const url = process.env.VITE_SUPABASE_URL || '';
+    const anonKey = process.env.VITE_SUPABASE_ANON_KEY || '';
+
+    const isInvalidUrl = !url ||
+      url.includes('YOUR_') ||
+      url.includes('your-project-ref') ||
+      !url.startsWith('https://');
+
+    const isInvalidKey = !anonKey ||
+      anonKey.includes('YOUR_') ||
+      anonKey.length < 20;
+
+    if (isInvalidUrl || isInvalidKey) {
+      throw new Error(
+        `\n[Vercel Build Error] Missing or invalid Supabase build environment variables.\n` +
+        `Both VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY must be provided in Vercel project settings.\n` +
+        `Received: VITE_SUPABASE_URL=${url ? '[PROVIDED]' : '[EMPTY]'}, VITE_SUPABASE_ANON_KEY=${anonKey ? '[PROVIDED]' : '[EMPTY]'}\n`
+      );
+    }
+  }
+
   return {
     resolve: {
       alias: {
@@ -24,6 +51,9 @@ export default defineConfig(() => {
       },
     },
     server: {
+      host: '0.0.0.0',
+      port: 3000,
+      allowedHosts: true as const,
       hmr: process.env.DISABLE_HMR !== 'true',
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
     },
