@@ -5,7 +5,7 @@
 import { requireAuth } from './guard.js';
 import { isSupabaseConfigured } from './config.js';
 import { getSupabase, DemoDB } from './supabaseClient.js';
-import { openModal, closeModal, setupModalListeners } from './modal.js';
+import { openModal, closeModal, setupModalListeners, setupAdminNav } from './modal.js';
 import { showToast } from './toast.js';
 
 let allResources = [];
@@ -320,6 +320,7 @@ async function initResourcesPage() {
   if (pillContainer) pillContainer.style.display = 'flex';
 
   setupModalListeners();
+  setupAdminNav();
 
   document.getElementById('btn-open-add-resource')?.addEventListener('click', openAddModal);
   document.getElementById('form-resource')?.addEventListener('submit', handleFormSubmit);

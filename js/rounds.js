@@ -5,7 +5,7 @@
 
 import { isSupabaseConfigured } from './config.js';
 import { requireAuth } from './guard.js';
-import { closeModal, openModal, setupModalListeners } from './modal.js';
+import { closeModal, openModal, setupModalListeners, setupAdminNav } from './modal.js';
 import { getSupabase } from './supabaseClient.js';
 import { showToast } from './toast.js';
 
@@ -269,6 +269,7 @@ async function initRounds() {
   if (pillContainer) pillContainer.style.display = 'flex';
 
   setupModalListeners();
+  setupAdminNav();
 
   // "Quick Next Round" button
   document.getElementById('btn-quick-next-round')?.addEventListener('click', () => {

@@ -6,6 +6,7 @@
 import { getCurrentProfile, logoutUser, redirectByRole } from './auth.js';
 import { isSupabaseConfigured, isDemoAllowedHost } from './config.js';
 import { isDemoMode } from './demoDb.js';
+import { openModal } from './modal.js';
 import { showToast } from './toast.js';
 
 /**
@@ -125,8 +126,7 @@ function renderConfigBanner() {
     const guideBtn = document.getElementById('btn-show-sql-guide');
     if (guideBtn) {
       guideBtn.addEventListener('click', () => {
-        const modal = document.getElementById('guide-modal');
-        if (modal) modal.classList.add('open');
+        openModal('guide-modal');
       });
     }
   } else {

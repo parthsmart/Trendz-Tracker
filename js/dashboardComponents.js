@@ -366,6 +366,122 @@ export function renderAttendanceCard(summary, containerId = 'attendance-card-con
 
 /**
  * --------------------------------------------------------------------------
+ * 4.6 Weekly Tests Card (Phase 4b)
+ * Shows the student's last 3 weekly tests with date, title, category scores,
+ * accuracy, time, and overall accuracy across those 3 tests.
+ * --------------------------------------------------------------------------
+ */
+export function renderWeeklyTestsCard(weeklyTests, categories = [], containerId = 'weekly-tests-card-container') {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const tests = Array.isArray(weeklyTests?.tests) ? weeklyTests.tests : [];
+  const scores = Array.isArray(weeklyTests?.scores) ? weeklyTests.scores : [];
+
+  const categoryMap = new Map();
+  (categories || []).forEach(c => {
+    categoryMap.set(c.id, c);
+  });
+
+  // Group scores by test_id
+  const scoresByTest = new Map();
+  scores.forEach(s => {
+    const total = Number(s.total) || 0;
+    if (total <= 0) return;
+    if (!scoresByTest.has(s.test_id)) {
+      scoresByTest.set(s.test_id, []);
+    }
+    scoresByTest.get(s.test_id).push(s);
+  });
+
+  // Sort tests newest first and pick the last 3 tests where the student has scores
+  const sortedTests = [...tests]
+    .filter(t => scoresByTest.has(t.id))
+    .sort((a, b) => String(b.test_date || '').localeCompare(String(a.test_date || '')))
+    .slice(0, 3);
+
+  if (sortedTests.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state" style="padding: var(--space-4);">
+        <p style="font-size: var(--text-sm); color: var(--text-muted); margin: 0;">
+          No weekly test scores recorded yet.
+        </p>
+      </div>
+    `;
+    return;
+  }
+
+  // Calculate overall accuracy across these last 3 tests
+  let overallCorrect = 0;
+  let overallTotal = 0;
+  sortedTests.forEach(t => {
+    const testScores = scoresByTest.get(t.id) || [];
+    testScores.forEach(s => {
+      overallCorrect += Number(s.correct) || 0;
+      overallTotal += Number(s.total) || 0;
+    });
+  });
+
+  const overallAcc = overallTotal > 0 ? Math.round((overallCorrect / overallTotal) * 100) : null;
+
+  const testBlocksHtml = sortedTests.map(test => {
+    const testScores = [...(scoresByTest.get(test.id) || [])].sort((a, b) => {
+      const catA = categoryMap.get(a.category_id);
+      const catB = categoryMap.get(b.category_id);
+      return (catA?.sort_order ?? 999) - (catB?.sort_order ?? 999);
+    });
+
+    const rowsHtml = testScores.map(s => {
+      const cat = categoryMap.get(s.category_id);
+      const catName = cat ? cat.name : 'Category';
+      const correct = Number(s.correct) || 0;
+      const total = Number(s.total) || 0;
+      const acc = total > 0 ? Math.round((correct / total) * 100) : 0;
+      const timeStr = s.time_seconds !== null && s.time_seconds !== undefined && s.time_seconds !== ''
+        ? formatSecondsToMMSS(Number(s.time_seconds))
+        : '—';
+
+      return `
+        <div style="display: flex; justify-content: space-between; align-items: center; font-size: var(--text-xs); padding: 4px 0; border-top: 1px dashed var(--border-hairline);">
+          <span style="color: var(--text-main); font-weight: 500;">${escapeHtml(catName)}</span>
+          <div class="num" style="display: flex; align-items: center; gap: var(--space-3); color: var(--text-muted);">
+            <span><strong style="color: var(--text-main);">${correct}/${total}</strong> (${acc}%)</span>
+            <span style="min-width: 44px; text-align: right;">⏱ ${escapeHtml(timeStr)}</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div style="background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: var(--space-3);">
+        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-2); margin-bottom: 6px;">
+          <strong style="font-size: var(--text-xs); color: var(--text-main);">${escapeHtml(test.title || 'Weekly Test')}</strong>
+          <span class="num" style="font-size: 11px; color: var(--text-muted); white-space: nowrap;">${formatDisplayDateIST(test.test_date)}</span>
+        </div>
+        <div>
+          ${rowsHtml}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  container.innerHTML = `
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: var(--space-2) var(--space-3); background: var(--color-primary-subtle); border-radius: var(--radius-sm); margin-bottom: var(--space-3);">
+      <span style="font-size: var(--text-xs); font-weight: 600; color: var(--color-primary-text);">
+        Overall Accuracy (Last ${sortedTests.length} Test${sortedTests.length === 1 ? '' : 's'})
+      </span>
+      <strong class="num" style="font-size: var(--text-sm); font-weight: 800; color: var(--color-primary);">
+        ${overallAcc !== null ? `${overallAcc}%` : '—'} (${overallCorrect}/${overallTotal})
+      </strong>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: var(--space-2);">
+      ${testBlocksHtml}
+    </div>
+  `;
+}
+
+/**
+ * --------------------------------------------------------------------------
  * 5. Competition Round Score Sheet Matrix with 5-Round Pagination
  * --------------------------------------------------------------------------
  */

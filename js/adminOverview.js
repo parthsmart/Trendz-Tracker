@@ -18,6 +18,7 @@ import { requireAuth } from './guard.js';
 import { isSupabaseConfigured } from './config.js';
 import { getSupabase, DemoDB } from './supabaseClient.js';
 import { isDemoMode } from './demoDb.js';
+import { setupAdminNav } from './modal.js';
 import { getISTDateString, formatDisplayDateIST } from './stats.js';
 
 const PAGE_SIZE = 25;
@@ -64,6 +65,7 @@ async function initAdminOverview() {
   const profile = await requireAuth(['admin']);
   if (!profile) return;
 
+  setupAdminNav();
   renderDemoBanner();
 
   await loadOverviewData();

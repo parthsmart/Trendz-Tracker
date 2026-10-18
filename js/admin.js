@@ -6,7 +6,7 @@
 import { createStudent, resetStudentPassword, toggleStudentActive } from './api.js';
 import { isSupabaseConfigured } from './config.js';
 import { requireAuth } from './guard.js';
-import { closeModal, openModal, setupModalListeners } from './modal.js';
+import { closeModal, openModal, setupModalListeners, setupAdminNav } from './modal.js';
 import { DemoDB, getSupabase, clearStaleSupabaseSession } from './supabaseClient.js';
 import { showToast } from './toast.js';
 
@@ -249,6 +249,7 @@ async function initAdmin() {
   if (pillContainer) pillContainer.style.display = 'flex';
 
   setupModalListeners();
+  setupAdminNav();
 
   // "Add Student" modal trigger
   document.getElementById('btn-open-create-modal')?.addEventListener('click', () => {

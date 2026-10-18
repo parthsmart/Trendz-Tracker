@@ -77,7 +77,14 @@ One-page overview of the modules, data flows, and trust boundaries governing **T
 | **Auth Service** | `/js/auth.js` | Normalizes `STU101` $\rightarrow$ `stu101@trendz.local`; restores session; handles logout. |
 | **Route Guard** | `/js/guard.js` | Enforces client-side access control; redirects students attempting to open admin routes. |
 | **Supabase Client**| `/js/supabaseClient.js` | Loads `@supabase/supabase-js@2.49.1` via CDN; falls back to `DemoDB` if keys are unset. |
-| **Admin Student UI**| `/js/admin.js` | Renders student table; coordinates modal creation, password resets, and active toggles. |
-| **Admin Categories**| `/js/categories.js` | Displays 24 championship categories; handles section filtering, reordering, and deactivation. |
+| **Admin Student UI**| `/js/admin.js` | Renders student table (`/pages/students.html`); coordinates modal creation, password resets, and active toggles. |
+| **Admin Overview** | `/js/adminOverview.js` | Renders institute-wide metrics, "Needs Attention" alerts, and 25-row sortable roster via `admin_overview()` RPC. |
+| **Admin Review** | `/js/review.js` | Teacher verification queue, bulk verify, score correction modal, flagging, and audit history drawer. |
+| **Admin Attendance**| `/js/attendance.js` | Session attendance tracking (`present`, `absent`, `excused`) with bulk status actions and create/edit modal. |
+| **Admin Targets** | `/js/targets.js` | Basics speed & accuracy target rules (`basics_thresholds`) with default and level-specific overrides. |
+| **Admin Weekly Tests**| `/js/weeklyTests.js` | Weekly test creation, editing, and multi-student multi-category batch score grid (`weekly_tests`, `weekly_test_scores`). |
+| **Admin Categories**| `/js/categories.js` | Displays 24 championship categories grouped strictly by section; handles reordering and deactivation. |
+| **Dashboard Modules**| `/js/dashboardData.js`, `/js/dashboardComponents.js` | Shared data loaders (`results_with_target`, `streak_for`, `todo_for`, `attendance_summary`, `weekly_tests`) and cards for `/pages/student.html` and `/pages/student-detail.html`. |
+| **Shared Modal & Nav**| `/js/modal.js` | Universal accessible modal manager (`openModal`, `closeModal`, Escape key, focus management) and Admin `Setup ▾` dropdown / mobile hamburger (`setupAdminNav`). |
 | **Server Admin API**| `/api/*.js` | Serverless Node.js endpoints executing user creation and password resets with service key. |
-| **Database DDL** | `/supabase/schema.sql`| PostgreSQL tables, indexes, RLS policies, seeds, and auth synchronization trigger. |
+| **Database DDL** | `/supabase/schema.sql`| PostgreSQL tables, views (`results_with_target`), RPCs, indexes, RLS policies, and triggers. |

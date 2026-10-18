@@ -10,6 +10,7 @@
 
 import { requireAuth } from './guard.js';
 import { isDemoMode } from './demoDb.js';
+import { setupAdminNav } from './modal.js';
 import { formatDisplayDateIST } from './stats.js';
 import { fetchStudentDashboardData, resolveStudentProfile } from './dashboardData.js';
 import {
@@ -19,6 +20,7 @@ import {
   renderBasicsThisWeek,
   renderResources,
   renderAttendanceCard,
+  renderWeeklyTestsCard,
   setupScoreSheetController,
   setupProgressChartsController
 } from './dashboardComponents.js';
@@ -29,8 +31,9 @@ async function initStudentDetail() {
   const loggedInProfile = await requireAuth(['admin']);
   if (!loggedInProfile) return;
 
-  // Render header details
+  // Render header details & admin nav dropdown/hamburger
   renderHeaderUser(loggedInProfile);
+  setupAdminNav();
 
   // Render demo banner if running on demo host
   if (isDemoMode()) {
@@ -79,6 +82,9 @@ async function initStudentDetail() {
 
     // Attendance Card (Phase 4a)
     renderAttendanceCard(data.attendance, 'attendance-card-container');
+
+    // Weekly Tests Card (Phase 4b)
+    renderWeeklyTestsCard(data.weeklyTests, data.categories, 'weekly-tests-card-container');
 
     // Resources
     renderResources(data.resources);

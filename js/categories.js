@@ -5,7 +5,7 @@
 
 import { isSupabaseConfigured } from './config.js';
 import { requireAuth } from './guard.js';
-import { closeModal, openModal, setupModalListeners } from './modal.js';
+import { closeModal, openModal, setupModalListeners, setupAdminNav } from './modal.js';
 import { DemoDB, getSupabase } from './supabaseClient.js';
 import { showToast } from './toast.js';
 
@@ -352,6 +352,7 @@ async function initCategories() {
   if (pillContainer) pillContainer.style.display = 'flex';
 
   setupModalListeners();
+  setupAdminNav();
 
   // Add Category modal trigger
   document.getElementById('btn-open-add-cat-modal')?.addEventListener('click', () => {

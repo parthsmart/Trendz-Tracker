@@ -20,16 +20,36 @@
             <span>Trendz Tracker</span>
           </a>
 
+          <!-- Mobile Menu Toggle -->
+          <button type="button" class="mobile-menu-btn" id="btn-mobile-menu" aria-label="Toggle Navigation" aria-expanded="false">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+
           <!-- Zone 2: Navigation Links -->
-          <nav class="nav-zone" aria-label="Admin Navigation">
+          <nav class="nav-zone" id="admin-nav-zone" aria-label="Admin Navigation">
             <a href="/pages/admin.html" class="nav-link">Overview</a>
             <a href="/pages/review.html" class="nav-link">Review</a>
-            <a href="/pages/students.html" class="nav-link active">Students</a>
+            <a href="/pages/students.html" class="nav-link active" aria-current="page">Students</a>
             <a href="/pages/attendance.html" class="nav-link">Attendance</a>
-            <a href="/pages/todos.html" class="nav-link">Daily To-Do</a>
-            <a href="/pages/resources.html" class="nav-link">Resources</a>
-            <a href="/pages/categories.html" class="nav-link">Categories</a>
-            <a href="/pages/rounds.html" class="nav-link">Rounds</a>
+            <a href="/pages/weekly-tests.html" class="nav-link">Weekly Tests</a>
+            
+            <!-- Setup Dropdown -->
+            <div class="nav-dropdown">
+              <button type="button" class="nav-link nav-dropdown-toggle" id="btn-setup-dropdown" aria-expanded="false" aria-haspopup="true">
+                Setup <span style="font-size: 10px; margin-left: 2px;">▾</span>
+              </button>
+              <div class="nav-dropdown-menu" id="setup-dropdown-menu" role="menu">
+                <a href="/pages/todos.html" class="dropdown-item" role="menuitem">Daily To-Do</a>
+                <a href="/pages/resources.html" class="dropdown-item" role="menuitem">Resources</a>
+                <a href="/pages/categories.html" class="dropdown-item" role="menuitem">Categories</a>
+                <a href="/pages/rounds.html" class="dropdown-item" role="menuitem">Rounds</a>
+                <a href="/pages/targets.html" class="dropdown-item" role="menuitem">Targets</a>
+              </div>
+            </div>
           </nav>
 
           <!-- Zone 3: User Details & Logout Action -->

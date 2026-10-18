@@ -8,6 +8,37 @@
 
 ## Current Status Overview
 
+### Session: 2026-10-18 (Phase 4b — Universal Modal Audit & Fix, Basics Targets, Weekly Tests & Setup Navigation)
+
+#### 5-Line Session Summary
+- Diagnosed and resolved the `/pages/attendance.html` modal layout bug (`.modal-overlay`/`.modal-card` vs `.modal-backdrop`/`.modal-dialog` class mismatch) and audited all 14 modals across every page to use the shared `js/modal.js` component and CSS rules (centered, max-width 560px, light blur backdrop, Escape close, focus restore).
+- Built Admin Basics Targets (`/pages/targets.html`, `js/targets.js`) managing `basics_thresholds` strictly for `section = 'basics'` categories with default and level-specific rules (`min_accuracy`, optional `max_time_seconds`, active toggle).
+- Integrated `results_with_target` view across `/pages/basics.html`, `/pages/student.html`, `/pages/student-detail.html`, and `/pages/review.html` so target chips (`On target` / `Practice needed`) render directly from `meets_target` without calculating target status in JavaScript.
+- Built Admin Weekly Tests (`/pages/weekly-tests.html`, `js/weeklyTests.js`) with test CRUD (`weekly_tests`), section-grouped category filter, batch student × category score entry grid (`weekly_test_scores`), and the Student/Admin Detail Weekly Tests card showing the last 3 tests and overall accuracy.
+- Updated Admin navigation across all 10 admin pages (`Overview`, `Review`, `Students`, `Attendance`, `Weekly Tests`, and `Setup ▾` dropdown containing `Daily To-Do`, `Resources`, `Categories`, `Rounds`, `Targets`, plus mobile hamburger menu) and updated all 6 `/docs` files.
+
+#### Phase 4b Modal Audit Ledger
+| Page | Modal ID | Purpose | Changes Made |
+| :--- | :--- | :--- | :--- |
+| `/index.html` | `#guide-modal` | SQL & Setup Guide | Standardized markup and wired `guard.js` trigger to `openModal('guide-modal')` for Escape/focus handling. |
+| `/pages/attendance.html` | `#session-modal` | Create / Edit Attendance Session | Fixed root cause: unified `.modal-overlay` + `.modal-card` with `.modal-backdrop` + `.modal-dialog`, stripped inline `display: none`, wired `openModal`/`closeModal`. |
+| `/pages/attendance.html` | `#unmarked-warning-modal` | Unmarked Students Confirmation | Unified with shared modal classes, stripped inline `display: none`, added Escape/focus return via `js/modal.js`. |
+| `/pages/review.html` | `#correct-modal` | Correct Student Entry | Unified with shared modal classes, stripped inline `display: none`, wired `openModal`/`closeModal`. |
+| `/pages/review.html` | `#flag-modal` | Flag Entry for Student | Unified with shared modal classes, stripped inline `display: none`, wired `openModal`/`closeModal`. |
+| `/pages/review.html` | `#unflag-modal` | Clear Flag Confirmation | Unified with shared modal classes, stripped inline `display: none`, wired `openModal`/`closeModal`. |
+| `/pages/review.html` | `#bulk-verify-modal` | Bulk Verify Confirmation | Unified with shared modal classes, stripped inline `display: none`, wired `openModal`/`closeModal`. |
+| `/pages/students.html` | `#create-student-modal` | Create Student Account | Audited: uses `.modal-backdrop` + `.modal-dialog`, `data-modal-close`, and `js/modal.js` focus management. |
+| `/pages/students.html` | `#reset-password-modal` | Reset Student Password | Audited: uses `.modal-backdrop` + `.modal-dialog`, `data-modal-close`, and `js/modal.js` focus management. |
+| `/pages/todos.html` | `#todo-modal` | Add / Edit Daily To-Do Task | Audited: uses `.modal-backdrop` + `.modal-dialog`, `data-modal-close`, and `js/modal.js` focus management. |
+| `/pages/resources.html` | `#resource-modal` | Add / Edit Learning Resource | Audited: uses `.modal-backdrop` + `.modal-dialog`, `data-modal-close`, and `js/modal.js` focus management. |
+| `/pages/categories.html` | `#add-category-modal` | Add Practice Category | Audited: uses `.modal-backdrop` + `.modal-dialog`, `data-modal-close`, and `js/modal.js` focus management. |
+| `/pages/rounds.html` | `#create-round-modal` | Create Practice Round | Audited: uses `.modal-backdrop` + `.modal-dialog`, `data-modal-close`, and `js/modal.js` focus management. |
+| `/pages/rounds.html` | `#edit-round-modal` | Edit Practice Round | Audited: uses `.modal-backdrop` + `.modal-dialog`, `data-modal-close`, and `js/modal.js` focus management. |
+| `/pages/targets.html` | `#target-modal` | Add / Edit Basics Target Rule | Built using shared `.modal-backdrop` + `.modal-dialog` and `js/modal.js`. |
+| `/pages/weekly-tests.html` | `#test-modal` | Create / Edit Weekly Test | Built using shared `.modal-backdrop` + `.modal-dialog` and `js/modal.js`. |
+
+---
+
 ### Session: 2026-10-18 (Phase 4a — Admin Entry Review & Audit, Attendance Tracking, Student Notices & Verification Locks)
 
 #### 5-Line Session Summary
