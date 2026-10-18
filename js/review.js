@@ -21,6 +21,7 @@ import { isDemoMode } from './demoDb.js';
 import { showToast } from './toast.js';
 import { getScoreFeedback } from './scoreColors.js';
 import { formatSecondsToTime, getISTDateString, formatDisplayDateIST } from './stats.js';
+import { openModal, closeModal, setupModalListeners, setupAdminNav } from './modal.js';
 
 let currentProfile = null;
 let allCategories = [];
@@ -45,6 +46,8 @@ async function initReviewPage() {
   if (!currentProfile) return;
 
   renderHeaderUser(currentProfile);
+  setupAdminNav();
+  setupModalListeners();
 
   if (isDemoMode()) {
     renderDemoBanner();
@@ -837,68 +840,35 @@ async function executeCorrectResult(id, correct, total, timeSeconds, note, reaso
 let confirmCallback = null;
 
 function setupModalHandlers() {
-  // Confirm Modal
-  const confirmModal = document.getElementById('confirm-verify-modal');
-  const btnCloseConfirm = document.getElementById('btn-close-confirm-modal');
-  const btnCancelConfirm = document.getElementById('btn-cancel-confirm');
+  // Confirm Modal Proceed
   const btnProceedConfirm = document.getElementById('btn-proceed-confirm');
-
-  function closeConfirmModal() {
-    if (confirmModal) confirmModal.style.display = 'none';
-    confirmCallback = null;
-  }
-
-  if (btnCloseConfirm) btnCloseConfirm.onclick = closeConfirmModal;
-  if (btnCancelConfirm) btnCancelConfirm.onclick = closeConfirmModal;
-
   if (btnProceedConfirm) {
     btnProceedConfirm.onclick = async () => {
       const reasonInput = document.getElementById('confirm-reason-input');
       const reason = reasonInput ? reasonInput.value.trim() : '';
       if (confirmCallback) {
         const cb = confirmCallback;
-        closeConfirmModal();
+        closeModal('confirm-verify-modal');
+        confirmCallback = null;
         await cb(reason);
       }
     };
   }
 
-  // Flag Modal
-  const flagModal = document.getElementById('flag-modal');
+  // Flag Modal Form
   const flagForm = document.getElementById('flag-form');
-  const btnCloseFlag = document.getElementById('btn-close-flag-modal');
-  const btnCancelFlag = document.getElementById('btn-cancel-flag');
-
-  function closeFlagModal() {
-    if (flagModal) flagModal.style.display = 'none';
-  }
-
-  if (btnCloseFlag) btnCloseFlag.onclick = closeFlagModal;
-  if (btnCancelFlag) btnCancelFlag.onclick = closeFlagModal;
-
   if (flagForm) {
     flagForm.onsubmit = async (e) => {
       e.preventDefault();
       const id = document.getElementById('flag-entry-id').value;
       const note = document.getElementById('flag-note-input').value.trim();
-      closeFlagModal();
+      closeModal('flag-modal');
       await executeSetFlag(id, true, note);
     };
   }
 
-  // Correct Modal
-  const correctModal = document.getElementById('correct-modal');
+  // Correct Modal Form
   const correctForm = document.getElementById('correct-form');
-  const btnCloseCorrect = document.getElementById('btn-close-correct-modal');
-  const btnCancelCorrect = document.getElementById('btn-cancel-correct');
-
-  function closeCorrectModal() {
-    if (correctModal) correctModal.style.display = 'none';
-  }
-
-  if (btnCloseCorrect) btnCloseCorrect.onclick = closeCorrectModal;
-  if (btnCancelCorrect) btnCancelCorrect.onclick = closeCorrectModal;
-
   if (correctForm) {
     correctForm.onsubmit = async (e) => {
       e.preventDefault();
@@ -921,7 +891,7 @@ function setupModalHandlers() {
 
       const timeSeconds = parseTimeStringToSeconds(timeStr);
 
-      closeCorrectModal();
+      closeModal('correct-modal');
       await executeCorrectResult(id, correct, total, timeSeconds, note, reason);
     };
   }
@@ -938,7 +908,6 @@ function setupModalHandlers() {
 }
 
 function openConfirmModal({ title, body, defaultReason, onProceed }) {
-  const modal = document.getElementById('confirm-verify-modal');
   const titleEl = document.getElementById('confirm-modal-title');
   const bodyEl = document.getElementById('confirm-modal-body');
   const reasonInput = document.getElementById('confirm-reason-input');
@@ -948,19 +917,16 @@ function openConfirmModal({ title, body, defaultReason, onProceed }) {
   if (reasonInput) reasonInput.value = defaultReason || '';
   confirmCallback = onProceed;
 
-  if (modal) modal.style.display = 'flex';
+  openModal('confirm-verify-modal');
 }
 
 function openFlagModal(id, existingNote) {
-  const modal = document.getElementById('flag-modal');
   document.getElementById('flag-entry-id').value = id;
   document.getElementById('flag-note-input').value = existingNote || '';
-  if (modal) modal.style.display = 'flex';
-  document.getElementById('flag-note-input')?.focus();
+  openModal('flag-modal');
 }
 
 function openCorrectModal(id, correct, total, timeSeconds, note, meta) {
-  const modal = document.getElementById('correct-modal');
   document.getElementById('correct-entry-id').value = id;
   document.getElementById('correct-entry-meta').textContent = meta;
   document.getElementById('correct-input-correct').value = correct;
@@ -969,8 +935,7 @@ function openCorrectModal(id, correct, total, timeSeconds, note, meta) {
   document.getElementById('correct-input-note').value = note || '';
   document.getElementById('correct-input-reason').value = '';
 
-  if (modal) modal.style.display = 'flex';
-  document.getElementById('correct-input-correct')?.focus();
+  openModal('correct-modal');
 }
 
 /**

@@ -111,70 +111,72 @@
 
     <!-- Add/Edit Task Modal -->
     <div id="modal-todo" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="modal-todo-title">
-      <div class="modal-card">
-        <div class="modal-header">
+      <div class="modal-dialog">
+        <header class="modal-header">
           <h2 id="modal-todo-title" class="modal-title">Add Daily Task</h2>
-          <button type="button" class="modal-close-btn" data-close-modal="modal-todo" aria-label="Close modal">&times;</button>
-        </div>
+          <button type="button" class="modal-close" data-close-modal="modal-todo" aria-label="Close modal">&times;</button>
+        </header>
 
         <form id="form-todo">
           <input type="hidden" id="todo-id" value="" />
 
-          <div class="form-group">
-            <label for="todo-title" class="form-label required">Task Title</label>
-            <input
-              type="text"
-              id="todo-title"
-              class="form-control"
-              placeholder="e.g. Competition Addition Drill"
-              required
-              maxlength="100"
-            />
-            <span class="form-hint">Displayed on the student dashboard checklist.</span>
-          </div>
-
-          <div class="form-row-2">
+          <div class="modal-body">
             <div class="form-group">
-              <label for="todo-section" class="form-label required">Section Track</label>
-              <select id="todo-section" class="form-control" required>
-                <option value="round">Round (Competition Sheet)</option>
-                <option value="basics">Basics (Speed Drills)</option>
-                <option value="elements">Elements</option>
-                <option value="flash">Flash Anzan</option>
-              </select>
+              <label for="todo-title" class="form-label required">Task Title</label>
+              <input
+                type="text"
+                id="todo-title"
+                class="form-control"
+                placeholder="e.g. Competition Addition Drill"
+                required
+                maxlength="100"
+              />
+              <span class="form-hint">Displayed on the student dashboard checklist.</span>
+            </div>
+
+            <div class="form-row-2">
+              <div class="form-group">
+                <label for="todo-section" class="form-label required">Section Track</label>
+                <select id="todo-section" class="form-control" required>
+                  <option value="round">Round (Competition Sheet)</option>
+                  <option value="basics">Basics (Speed Drills)</option>
+                  <option value="elements">Elements</option>
+                  <option value="flash">Flash Anzan</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="todo-category" class="form-label">Category Filter (Optional)</label>
+                <select id="todo-category" class="form-control">
+                  <option value="">Any category in this section</option>
+                </select>
+                <span class="form-hint">Dropdown shows categories matching the chosen section.</span>
+              </div>
             </div>
 
             <div class="form-group">
-              <label for="todo-category" class="form-label">Category Filter (Optional)</label>
-              <select id="todo-category" class="form-control">
-                <option value="">Any category in this section</option>
-              </select>
-              <span class="form-hint">Dropdown shows categories matching the chosen section.</span>
+              <label for="todo-level" class="form-label">Target Level (Optional)</label>
+              <input
+                type="text"
+                id="todo-level"
+                class="form-control"
+                placeholder="e.g. Level 3 or leave blank for all students"
+                maxlength="40"
+              />
+            </div>
+
+            <div class="form-group" style="margin-top: var(--space-3); margin-bottom: 0;">
+              <label class="custom-checkbox">
+                <input type="checkbox" id="todo-active" checked />
+                <span>Active (Visible on student dashboards)</span>
+              </label>
             </div>
           </div>
 
-          <div class="form-group">
-            <label for="todo-level" class="form-label">Target Level (Optional)</label>
-            <input
-              type="text"
-              id="todo-level"
-              class="form-control"
-              placeholder="e.g. Level 3 or leave blank for all students"
-              maxlength="40"
-            />
-          </div>
-
-          <div class="form-group" style="margin-top: var(--space-3);">
-            <label class="custom-checkbox">
-              <input type="checkbox" id="todo-active" checked />
-              <span>Active (Visible on student dashboards)</span>
-            </label>
-          </div>
-
-          <div class="modal-actions">
+          <footer class="modal-footer">
             <button type="button" class="btn btn-outline" data-close-modal="modal-todo">Cancel</button>
             <button type="submit" id="btn-save-todo" class="btn btn-primary">Save Task</button>
-          </div>
+          </footer>
         </form>
       </div>
     </div>

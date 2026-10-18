@@ -20,6 +20,9 @@ const DEMO_STORAGE_KEY_RESULTS = 'trendz_demo_results_v2';
 const DEMO_STORAGE_KEY_AUDIT = 'trendz_demo_audit_v2';
 const DEMO_STORAGE_KEY_SESSIONS = 'trendz_demo_sessions_v2';
 const DEMO_STORAGE_KEY_ATTENDANCE = 'trendz_demo_attendance_v2';
+const DEMO_STORAGE_KEY_TARGETS = 'trendz_demo_targets_v2';
+const DEMO_STORAGE_KEY_WEEKLY_TESTS = 'trendz_demo_weekly_tests_v2';
+const DEMO_STORAGE_KEY_WEEKLY_SCORES = 'trendz_demo_weekly_scores_v2';
 
 export const DEFAULT_ROUND_CATEGORIES = [
   'ADD', 'SUB', 'MIX', 'MULT', 'DIV', 'BRAC',
@@ -368,6 +371,125 @@ function initDemoStorage() {
       { id: 'att-102-7', session_id: 'ses-102', student_id: 'usr-107', status: 'present', note: '', marked_by: 'usr-admin-1', marked_at: '2026-10-16T11:30:00.000Z' }
     ];
     localStorage.setItem(DEMO_STORAGE_KEY_ATTENDANCE, JSON.stringify(initialAttendance));
+  }
+
+  // 9. Initial Basics Targets (Phase 4b)
+  if (!localStorage.getItem(DEMO_STORAGE_KEY_TARGETS)) {
+    const initialTargets = [
+      {
+        id: 'tgt-1',
+        category_id: 'cat-bas-1', // 1d4r
+        level: null, // default rule
+        min_accuracy: 90,
+        max_time_seconds: 120, // 2:00
+        active: true,
+        created_at: '2026-10-01T00:00:00.000Z'
+      },
+      {
+        id: 'tgt-2',
+        category_id: 'cat-bas-1', // 1d4r
+        level: 'Level 1',
+        min_accuracy: 85,
+        max_time_seconds: 150, // 2:30
+        active: true,
+        created_at: '2026-10-01T00:00:00.000Z'
+      },
+      {
+        id: 'tgt-3',
+        category_id: 'cat-bas-1', // 1d4r
+        level: 'Level 2',
+        min_accuracy: 95,
+        max_time_seconds: 90, // 1:30
+        active: true,
+        created_at: '2026-10-01T00:00:00.000Z'
+      },
+      {
+        id: 'tgt-4',
+        category_id: 'cat-bas-2', // 2d2r
+        level: null, // default rule
+        min_accuracy: 80,
+        max_time_seconds: 180, // 3:00
+        active: true,
+        created_at: '2026-10-01T00:00:00.000Z'
+      },
+      {
+        id: 'tgt-5',
+        category_id: 'cat-bas-2', // 2d2r
+        level: 'Level 3',
+        min_accuracy: 90,
+        max_time_seconds: 120, // 2:00
+        active: true,
+        created_at: '2026-10-01T00:00:00.000Z'
+      }
+    ];
+    localStorage.setItem(DEMO_STORAGE_KEY_TARGETS, JSON.stringify(initialTargets));
+  }
+
+  // 10. Initial Weekly Tests (Phase 4b)
+  if (!localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_TESTS)) {
+    const initialWeeklyTests = [
+      {
+        id: 'wkt-1',
+        test_date: '2026-10-18',
+        title: 'Weekly Speed & Accuracy Sprint #42',
+        notes: 'Covers 1d4r basics and 2d2r mental calculation speed check.',
+        created_at: '2026-10-18T04:00:00.000Z'
+      },
+      {
+        id: 'wkt-2',
+        test_date: '2026-10-11',
+        title: 'Sunday Competition Mock Test #41',
+        notes: 'Preparation for National Abacus Qualifier.',
+        created_at: '2026-10-11T04:00:00.000Z'
+      },
+      {
+        id: 'wkt-3',
+        test_date: '2026-10-04',
+        title: 'Flash & Mental Assessment #40',
+        notes: 'Focus on times under 2:00.',
+        created_at: '2026-10-04T04:00:00.000Z'
+      },
+      {
+        id: 'wkt-4',
+        test_date: '2026-09-27',
+        title: 'Monthly Evaluation Mock #39',
+        notes: 'Diagnostic drill check across all sections.',
+        created_at: '2026-09-27T04:00:00.000Z'
+      },
+      {
+        id: 'wkt-5',
+        test_date: '2026-09-20',
+        title: 'Speed Assessment Sprint #38',
+        notes: 'Basics baseline benchmarks.',
+        created_at: '2026-09-20T04:00:00.000Z'
+      }
+    ];
+    localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_TESTS, JSON.stringify(initialWeeklyTests));
+  }
+
+  // 11. Initial Weekly Test Scores (Phase 4b)
+  if (!localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_SCORES)) {
+    const initialWeeklyScores = [
+      // Test 1: wkt-1
+      { id: 'sc-1-1', test_id: 'wkt-1', student_id: 'usr-102', category_id: 'cat-bas-1', correct: 19, total: 20, time_seconds: 95, created_at: '2026-10-18T05:00:00.000Z' },
+      { id: 'sc-1-2', test_id: 'wkt-1', student_id: 'usr-102', category_id: 'cat-bas-2', correct: 18, total: 20, time_seconds: 110, created_at: '2026-10-18T05:00:00.000Z' },
+      { id: 'sc-1-3', test_id: 'wkt-1', student_id: 'usr-101', category_id: 'cat-bas-1', correct: 20, total: 20, time_seconds: 85, created_at: '2026-10-18T05:00:00.000Z' },
+      { id: 'sc-1-4', test_id: 'wkt-1', student_id: 'usr-103', category_id: 'cat-bas-1', correct: 17, total: 20, time_seconds: 135, created_at: '2026-10-18T05:00:00.000Z' },
+      { id: 'sc-1-5', test_id: 'wkt-1', student_id: 'usr-105', category_id: 'cat-bas-1', correct: 15, total: 20, time_seconds: 155, created_at: '2026-10-18T05:00:00.000Z' },
+      { id: 'sc-1-6', test_id: 'wkt-1', student_id: 'usr-106', category_id: 'cat-bas-1', correct: 18, total: 20, time_seconds: 115, created_at: '2026-10-18T05:00:00.000Z' },
+      { id: 'sc-1-7', test_id: 'wkt-1', student_id: 'usr-107', category_id: 'cat-bas-1', correct: 20, total: 20, time_seconds: 78, created_at: '2026-10-18T05:00:00.000Z' },
+      // Test 2: wkt-2
+      { id: 'sc-2-1', test_id: 'wkt-2', student_id: 'usr-102', category_id: 'cat-bas-1', correct: 20, total: 20, time_seconds: 88, created_at: '2026-10-11T05:00:00.000Z' },
+      { id: 'sc-2-2', test_id: 'wkt-2', student_id: 'usr-102', category_id: 'cat-bas-2', correct: 19, total: 20, time_seconds: 105, created_at: '2026-10-11T05:00:00.000Z' },
+      { id: 'sc-2-3', test_id: 'wkt-2', student_id: 'usr-101', category_id: 'cat-bas-1', correct: 19, total: 20, time_seconds: 90, created_at: '2026-10-11T05:00:00.000Z' },
+      // Test 3: wkt-3
+      { id: 'sc-3-1', test_id: 'wkt-3', student_id: 'usr-102', category_id: 'cat-bas-1', correct: 18, total: 20, time_seconds: 102, created_at: '2026-10-04T05:00:00.000Z' },
+      // Test 4: wkt-4
+      { id: 'sc-4-1', test_id: 'wkt-4', student_id: 'usr-102', category_id: 'cat-bas-1', correct: 19, total: 20, time_seconds: 94, created_at: '2026-09-27T05:00:00.000Z' },
+      // Test 5: wkt-5
+      { id: 'sc-5-1', test_id: 'wkt-5', student_id: 'usr-102', category_id: 'cat-bas-1', correct: 17, total: 20, time_seconds: 115, created_at: '2026-09-20T05:00:00.000Z' }
+    ];
+    localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_SCORES, JSON.stringify(initialWeeklyScores));
   }
 }
 
@@ -1166,5 +1288,261 @@ export const DemoDB = {
       excused_count: 1,
       attendance_pct: 87.5
     };
+  },
+
+  // ==================== PHASE 4b: TARGETS & WEEKLY TESTS ====================
+
+  getBasicsThresholds() {
+    initDemoStorage();
+    const targets = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_TARGETS) || '[]');
+    const cats = this.getCategories();
+    return targets.map(t => {
+      const cat = cats.find(c => c.id === t.category_id);
+      return {
+        ...t,
+        category: cat ? { id: cat.id, name: cat.name, section: cat.section, sort_order: cat.sort_order } : null
+      };
+    }).sort((a, b) => {
+      const ordA = a.category?.sort_order ?? 999;
+      const ordB = b.category?.sort_order ?? 999;
+      if (ordA !== ordB) return ordA - ordB;
+      // Default rule first
+      if (!a.level && b.level) return -1;
+      if (a.level && !b.level) return 1;
+      return String(a.level || '').localeCompare(String(b.level || ''));
+    });
+  },
+
+  createBasicsThreshold(data) {
+    initDemoStorage();
+    const targets = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_TARGETS) || '[]');
+    const normLevel = data.level && data.level.trim() ? data.level.trim() : null;
+
+    // Check duplicate rule for same category and level
+    const duplicate = targets.find(t => {
+      if (t.category_id !== data.category_id) return false;
+      const tNorm = t.level && t.level.trim() ? t.level.trim().toLowerCase() : null;
+      const dNorm = normLevel ? normLevel.toLowerCase() : null;
+      return tNorm === dNorm;
+    });
+
+    if (duplicate) {
+      throw new Error(`A target rule for this category and level already exists. Please edit the existing rule instead.`);
+    }
+
+    const newTarget = {
+      id: `tgt-${Date.now()}`,
+      category_id: data.category_id,
+      level: normLevel,
+      min_accuracy: Math.max(0, Math.min(100, Math.round(Number(data.min_accuracy) || 0))),
+      max_time_seconds: data.max_time_seconds ? Number(data.max_time_seconds) : null,
+      active: data.active !== false,
+      created_at: new Date().toISOString()
+    };
+
+    targets.push(newTarget);
+    localStorage.setItem(DEMO_STORAGE_KEY_TARGETS, JSON.stringify(targets));
+    return newTarget;
+  },
+
+  updateBasicsThreshold(id, updates) {
+    initDemoStorage();
+    const targets = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_TARGETS) || '[]');
+    const idx = targets.findIndex(t => t.id === id);
+    if (idx === -1) throw new Error('Target rule not found.');
+
+    const current = targets[idx];
+    const catId = updates.category_id !== undefined ? updates.category_id : current.category_id;
+    const normLevel = updates.level !== undefined ? (updates.level && updates.level.trim() ? updates.level.trim() : null) : current.level;
+
+    // Check duplicate rule on other entries
+    const duplicate = targets.find(t => {
+      if (t.id === id) return false;
+      if (t.category_id !== catId) return false;
+      const tNorm = t.level && t.level.trim() ? t.level.trim().toLowerCase() : null;
+      const dNorm = normLevel ? normLevel.toLowerCase() : null;
+      return tNorm === dNorm;
+    });
+
+    if (duplicate) {
+      throw new Error(`A target rule for this category and level already exists. Please edit the existing rule instead.`);
+    }
+
+    targets[idx] = {
+      ...current,
+      category_id: catId,
+      level: normLevel,
+      min_accuracy: updates.min_accuracy !== undefined ? Math.max(0, Math.min(100, Math.round(Number(updates.min_accuracy) || 0))) : current.min_accuracy,
+      max_time_seconds: updates.max_time_seconds !== undefined ? (updates.max_time_seconds ? Number(updates.max_time_seconds) : null) : current.max_time_seconds,
+      active: updates.active !== undefined ? Boolean(updates.active) : current.active
+    };
+
+    localStorage.setItem(DEMO_STORAGE_KEY_TARGETS, JSON.stringify(targets));
+    return targets[idx];
+  },
+
+  toggleBasicsThresholdActive(id) {
+    initDemoStorage();
+    const targets = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_TARGETS) || '[]');
+    const target = targets.find(t => t.id === id);
+    if (!target) throw new Error('Target rule not found.');
+    target.active = !target.active;
+    localStorage.setItem(DEMO_STORAGE_KEY_TARGETS, JSON.stringify(targets));
+    return target.active;
+  },
+
+  getWeeklyTests() {
+    initDemoStorage();
+    const tests = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_TESTS) || '[]');
+    const scores = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_SCORES) || '[]');
+
+    return tests.map(t => {
+      const enteredCount = scores.filter(s => s.test_id === t.id).length;
+      return {
+        ...t,
+        scores_count: enteredCount
+      };
+    }).sort((a, b) => String(b.test_date).localeCompare(String(a.test_date)));
+  },
+
+  createWeeklyTest(data) {
+    initDemoStorage();
+    const tests = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_TESTS) || '[]');
+    const newTest = {
+      id: `wkt-${Date.now()}`,
+      test_date: data.test_date,
+      title: data.title.trim(),
+      notes: data.notes ? data.notes.trim() : null,
+      created_at: new Date().toISOString()
+    };
+    tests.unshift(newTest);
+    localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_TESTS, JSON.stringify(tests));
+    return newTest;
+  },
+
+  updateWeeklyTest(id, data) {
+    initDemoStorage();
+    const tests = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_TESTS) || '[]');
+    const idx = tests.findIndex(t => t.id === id);
+    if (idx === -1) throw new Error('Weekly test not found.');
+    tests[idx] = {
+      ...tests[idx],
+      test_date: data.test_date !== undefined ? data.test_date : tests[idx].test_date,
+      title: data.title !== undefined ? data.title.trim() : tests[idx].title,
+      notes: data.notes !== undefined ? (data.notes ? data.notes.trim() : null) : tests[idx].notes
+    };
+    localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_TESTS, JSON.stringify(tests));
+    return tests[idx];
+  },
+
+  getWeeklyTestScores(testId, categoryId) {
+    initDemoStorage();
+    const scores = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_SCORES) || '[]');
+    return scores.filter(s => s.test_id === testId && s.category_id === categoryId);
+  },
+
+  saveWeeklyTestScores(testId, categoryId, scoresList) {
+    initDemoStorage();
+    let scores = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_SCORES) || '[]');
+
+    scoresList.forEach(item => {
+      const idx = scores.findIndex(s => s.test_id === testId && s.category_id === categoryId && s.student_id === item.student_id);
+
+      if (item.correct === null || item.correct === '' || item.total === null || item.total === '') {
+        // Clear if previously entered and now blank
+        if (idx !== -1) {
+          scores.splice(idx, 1);
+        }
+      } else {
+        const correctNum = Number(item.correct);
+        const totalNum = Number(item.total);
+        const timeSec = item.time_seconds !== null && item.time_seconds !== '' ? Number(item.time_seconds) : null;
+
+        if (idx !== -1) {
+          scores[idx] = {
+            ...scores[idx],
+            correct: correctNum,
+            total: totalNum,
+            time_seconds: timeSec
+          };
+        } else {
+          scores.push({
+            id: `sc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            test_id: testId,
+            student_id: item.student_id,
+            category_id: categoryId,
+            correct: correctNum,
+            total: totalNum,
+            time_seconds: timeSec,
+            created_at: new Date().toISOString()
+          });
+        }
+      }
+    });
+
+    localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_SCORES, JSON.stringify(scores));
+    return true;
+  },
+
+  getStudentWeeklyTestScores(studentId, testIds) {
+    initDemoStorage();
+    const scores = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_SCORES) || '[]');
+    const cats = this.getCategories();
+    return scores
+      .filter(s => s.student_id === studentId && testIds.includes(s.test_id))
+      .map(s => {
+        const cat = cats.find(c => c.id === s.category_id);
+        return {
+          ...s,
+          categories: cat ? { name: cat.name, section: cat.section } : null
+        };
+      });
+  },
+
+  getResultsWithTarget(studentId, section = 'basics') {
+    initDemoStorage();
+    const allResults = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_RESULTS) || '[]');
+    const cats = this.getCategories();
+    const targets = this.getBasicsThresholds().filter(t => t.active);
+    const students = this.getStudents();
+    const student = students.find(s => s.id === studentId);
+    const studentLevel = (student?.level || '').trim().toLowerCase();
+
+    return allResults
+      .filter(r => r.student_id === studentId)
+      .map(r => {
+        const cat = cats.find(c => c.id === r.category_id);
+        // Find effective rule for this category and student level
+        const levelRule = targets.find(t => t.category_id === r.category_id && t.level && t.level.trim().toLowerCase() === studentLevel);
+        const defaultRule = targets.find(t => t.category_id === r.category_id && !t.level);
+        const effective = levelRule || defaultRule;
+
+        let meets = null;
+        let minAcc = null;
+        let maxTime = null;
+
+        if (effective) {
+          minAcc = effective.min_accuracy;
+          maxTime = effective.max_time_seconds;
+
+          if (maxTime !== null && (r.time_seconds === null || r.time_seconds > maxTime)) {
+            meets = false;
+          } else if (r.total && r.total > 0) {
+            const acc = (r.correct / r.total) * 100;
+            meets = acc >= minAcc;
+          } else {
+            meets = false;
+          }
+        }
+
+        return {
+          ...r,
+          categories: cat ? { id: cat.id, name: cat.name, section: cat.section } : null,
+          min_accuracy: minAcc,
+          max_time_seconds: maxTime,
+          meets_target: meets
+        };
+      })
+      .filter(r => !section || (r.categories && r.categories.section === section));
   }
 };

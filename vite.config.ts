@@ -51,6 +51,8 @@ export default defineConfig(() => {
           studentDetail: path.resolve(__dirname, 'pages/student-detail.html'),
           review: path.resolve(__dirname, 'pages/review.html'),
           attendance: path.resolve(__dirname, 'pages/attendance.html'),
+          targets: path.resolve(__dirname, 'pages/targets.html'),
+          weeklyTests: path.resolve(__dirname, 'pages/weekly-tests.html'),
         },
       },
     },

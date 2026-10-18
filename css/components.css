@@ -367,85 +367,111 @@
 }
 
 /* ==============================================================================
-   7. MODALS
+   7. MODALS (Universal Shared Modal Standard)
    ============================================================================== */
-.modal-backdrop {
+.modal-backdrop,
+.modal-overlay {
   position: fixed;
   inset: 0;
-  background-color: rgba(15, 23, 42, 0.45);
-  backdrop-filter: blur(2px);
-  z-index: 100;
+  background-color: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(3px);
+  z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: var(--space-4);
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
-  transition: opacity var(--transition-normal);
+  transition: opacity var(--transition-normal), visibility var(--transition-normal);
 }
 
-.modal-backdrop.open {
+.modal-backdrop.open,
+.modal-overlay.open {
   opacity: 1;
+  visibility: visible;
   pointer-events: auto;
 }
 
-.modal-dialog, .modal-card {
+.modal-dialog,
+.modal-card,
+.modal-content {
   background-color: var(--bg-surface);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   width: 100%;
   max-width: 560px;
-  max-height: 85vh;
+  max-height: calc(100vh - 2rem);
   overflow-y: auto;
   border: 1px solid var(--border-hairline);
   transform: translateY(10px) scale(0.98);
   transition: transform var(--transition-normal);
+  display: flex;
+  flex-direction: column;
 }
 
 .modal-backdrop.open .modal-dialog,
-.modal-backdrop.open .modal-card {
+.modal-backdrop.open .modal-card,
+.modal-backdrop.open .modal-content,
+.modal-overlay.open .modal-dialog,
+.modal-overlay.open .modal-card,
+.modal-overlay.open .modal-content {
   transform: translateY(0) scale(1);
 }
 
 .modal-header {
-  padding: var(--space-5) var(--space-6);
+  padding: var(--space-4) var(--space-6);
   border-bottom: 1px solid var(--border-hairline);
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-3);
+  background-color: var(--bg-surface);
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .modal-title {
   font-size: var(--text-lg);
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-main);
+  margin: 0;
 }
 
-.modal-close, .modal-close-btn {
+.modal-close,
+.modal-close-btn,
+.btn-modal-close {
   background: transparent;
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 1.5rem;
+  font-size: 1.75rem;
+  width: 36px;
+  height: 36px;
   line-height: 1;
-  padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-sm);
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   transition: color var(--transition-fast), background-color var(--transition-fast);
+  padding: 0;
 }
 
-.modal-close:hover, .modal-close-btn:hover {
+.modal-close:hover,
+.modal-close-btn:hover,
+.btn-modal-close:hover {
   color: var(--text-main);
   background-color: var(--bg-surface-subtle);
 }
 
 .modal-body {
   padding: var(--space-6);
+  flex: 1 1 auto;
 }
 
-.modal-footer {
+.modal-footer,
+.modal-actions {
   padding: var(--space-4) var(--space-6);
   border-top: 1px solid var(--border-hairline);
   background-color: #fafbfc;
@@ -453,6 +479,161 @@
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-3);
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+}
+
+/* ==============================================================================
+   7.5 NAVIGATION DROPDOWN & MOBILE HAMBURGER
+   ============================================================================== */
+.nav-dropdown {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.nav-dropdown-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  padding: var(--space-2) 0;
+  border-bottom: 2px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.nav-dropdown-btn:hover {
+  color: var(--text-main);
+}
+
+.nav-dropdown-btn.active,
+.nav-dropdown.active .nav-dropdown-btn {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+  font-weight: 600;
+}
+
+.nav-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 190px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 100;
+  display: none;
+  flex-direction: column;
+  padding: var(--space-2) 0;
+}
+
+.nav-dropdown.open .nav-dropdown-menu {
+  display: flex;
+}
+
+.nav-dropdown-item {
+  padding: var(--space-2) var(--space-4);
+  color: var(--text-main);
+  font-size: var(--text-sm);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  text-decoration: none;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.nav-dropdown-item:hover {
+  background-color: var(--bg-surface-subtle);
+  color: var(--color-primary);
+}
+
+.nav-dropdown-item.active {
+  font-weight: 600;
+  color: var(--color-primary);
+  background-color: var(--bg-surface-subtle);
+}
+
+.nav-hamburger-btn {
+  display: none;
+  background: transparent;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  color: var(--text-main);
+  font-size: 1.25rem;
+  padding: 4px 8px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+@media (max-width: 768px) {
+  .nav-hamburger-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .nav-zone {
+    display: none;
+    position: fixed;
+    top: 56px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--bg-surface);
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: var(--space-4);
+    overflow-y: auto;
+    z-index: 999;
+    border-top: 1px solid var(--border-hairline);
+  }
+
+  .nav-zone.mobile-open {
+    display: flex;
+  }
+
+  .nav-zone .nav-link {
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--border-hairline);
+    font-size: var(--text-base);
+  }
+
+  .nav-zone .nav-dropdown {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    border-bottom: 1px solid var(--border-hairline);
+  }
+
+  .nav-zone .nav-dropdown-btn {
+    width: 100%;
+    justify-content: space-between;
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--text-base);
+  }
+
+  .nav-zone .nav-dropdown-menu {
+    position: static;
+    box-shadow: none;
+    border: none;
+    background-color: var(--bg-surface-subtle);
+    border-radius: var(--radius-sm);
+    margin: var(--space-2) 0;
+    display: none;
+  }
+
+  .nav-zone .nav-dropdown.open .nav-dropdown-menu {
+    display: flex;
+  }
 }
 
 /* ==============================================================================

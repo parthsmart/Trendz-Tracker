@@ -93,83 +93,85 @@
 
     <!-- Add/Edit Resource Modal -->
     <div id="modal-resource" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="modal-resource-title">
-      <div class="modal-card">
-        <div class="modal-header">
+      <div class="modal-dialog">
+        <header class="modal-header">
           <h2 id="modal-resource-title" class="modal-title">Add Learning Resource</h2>
-          <button type="button" class="modal-close-btn" data-close-modal="modal-resource" aria-label="Close modal">&times;</button>
-        </div>
+          <button type="button" class="modal-close" data-close-modal="modal-resource" aria-label="Close modal">&times;</button>
+        </header>
 
         <form id="form-resource">
           <input type="hidden" id="resource-id" value="" />
 
-          <div class="form-group">
-            <label for="resource-title" class="form-label required">Resource Title</label>
-            <input
-              type="text"
-              id="resource-title"
-              class="form-control"
-              placeholder="e.g. Junior Championship Competition Rules 2026"
-              required
-              maxlength="120"
-            />
+          <div class="modal-body">
+            <div class="form-group">
+              <label for="resource-title" class="form-label required">Resource Title</label>
+              <input
+                type="text"
+                id="resource-title"
+                class="form-control"
+                placeholder="e.g. Junior Championship Competition Rules 2026"
+                required
+                maxlength="120"
+              />
+            </div>
+
+            <div class="form-group">
+              <label for="resource-url" class="form-label required">Destination URL (http:// or https://)</label>
+              <input
+                type="url"
+                id="resource-url"
+                class="form-control"
+                placeholder="https://example.com/guide.pdf"
+                required
+                pattern="^https?://.+"
+                title="URL must start with http:// or https://"
+              />
+              <span class="form-hint">Security restriction: only valid http:// or https:// web addresses are accepted.</span>
+            </div>
+
+            <div class="form-group">
+              <label for="resource-topic" class="form-label required">Topic / Grouping</label>
+              <input
+                type="text"
+                id="resource-topic"
+                class="form-control"
+                list="topic-datalist"
+                placeholder="e.g. Championship Guidelines, Calculation Guides, Drills"
+                required
+                maxlength="60"
+              />
+              <datalist id="topic-datalist">
+                <option value="Championship Guidelines"></option>
+                <option value="Calculation Techniques"></option>
+                <option value="Practice Materials"></option>
+                <option value="Rules & Scoring"></option>
+              </datalist>
+              <span class="form-hint">Resources are grouped under this topic on the student dashboard.</span>
+            </div>
+
+            <div class="form-group">
+              <label for="resource-desc" class="form-label">Summary / Description (Optional)</label>
+              <textarea
+                id="resource-desc"
+                class="form-control"
+                rows="3"
+                placeholder="Brief guidance for students on how to use this study material..."
+                maxlength="300"
+              ></textarea>
+            </div>
+
+            <div class="form-group" style="margin-top: var(--space-3); margin-bottom: 0;">
+              <label class="custom-checkbox">
+                <input type="checkbox" id="resource-active" checked />
+                <span>Active (Visible on student dashboards)</span>
+              </label>
+            </div>
           </div>
 
-          <div class="form-group">
-            <label for="resource-url" class="form-label required">Destination URL (http:// or https://)</label>
-            <input
-              type="url"
-              id="resource-url"
-              class="form-control"
-              placeholder="https://example.com/guide.pdf"
-              required
-              pattern="^https?://.+"
-              title="URL must start with http:// or https://"
-            />
-            <span class="form-hint">Security restriction: only valid http:// or https:// web addresses are accepted.</span>
-          </div>
-
-          <div class="form-group">
-            <label for="resource-topic" class="form-label required">Topic / Grouping</label>
-            <input
-              type="text"
-              id="resource-topic"
-              class="form-control"
-              list="topic-datalist"
-              placeholder="e.g. Championship Guidelines, Calculation Guides, Drills"
-              required
-              maxlength="60"
-            />
-            <datalist id="topic-datalist">
-              <option value="Championship Guidelines"></option>
-              <option value="Calculation Techniques"></option>
-              <option value="Practice Materials"></option>
-              <option value="Rules & Scoring"></option>
-            </datalist>
-            <span class="form-hint">Resources are grouped under this topic on the student dashboard.</span>
-          </div>
-
-          <div class="form-group">
-            <label for="resource-desc" class="form-label">Summary / Description (Optional)</label>
-            <textarea
-              id="resource-desc"
-              class="form-control"
-              rows="3"
-              placeholder="Brief guidance for students on how to use this study material..."
-              maxlength="300"
-            ></textarea>
-          </div>
-
-          <div class="form-group" style="margin-top: var(--space-3);">
-            <label class="custom-checkbox">
-              <input type="checkbox" id="resource-active" checked />
-              <span>Active (Visible on student dashboards)</span>
-            </label>
-          </div>
-
-          <div class="modal-actions">
+          <footer class="modal-footer">
             <button type="button" class="btn btn-outline" data-close-modal="modal-resource">Cancel</button>
             <button type="submit" id="btn-save-resource" class="btn btn-primary">Save Resource</button>
-          </div>
+          </footer>
         </form>
       </div>
     </div>

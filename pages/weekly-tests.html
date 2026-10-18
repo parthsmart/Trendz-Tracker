@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Weekly Tests &mdash; Trendz Tracker</title>
+    <meta name="description" content="Manage weekly tests and enter official teacher test scores for students across categories." />
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="app-layout">
+      <!-- App Header -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <!-- Zone 1: Wordmark & Brand -->
+          <a href="/pages/admin.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <!-- Zone 2: Navigation Links (Phase 4b Standard Order) -->
+          <nav class="nav-zone" aria-label="Admin Navigation">
+            <a href="/pages/admin.html" class="nav-link">Overview</a>
+            <a href="/pages/review.html" class="nav-link">Review</a>
+            <a href="/pages/students.html" class="nav-link">Students</a>
+            <a href="/pages/attendance.html" class="nav-link">Attendance</a>
+            <a href="/pages/weekly-tests.html" class="nav-link active">Weekly Tests</a>
+            <div class="nav-dropdown" id="nav-setup-dropdown">
+              <button type="button" class="nav-dropdown-btn" id="btn-nav-setup" aria-haspopup="true">
+                <span>Setup</span>
+                <span aria-hidden="true">▾</span>
+              </button>
+              <div class="nav-dropdown-menu" role="menu">
+                <a href="/pages/todos.html" class="nav-dropdown-item" role="menuitem">Daily To-Do</a>
+                <a href="/pages/resources.html" class="nav-dropdown-item" role="menuitem">Resources</a>
+                <a href="/pages/categories.html" class="nav-dropdown-item" role="menuitem">Categories</a>
+                <a href="/pages/rounds.html" class="nav-dropdown-item" role="menuitem">Rounds</a>
+                <a href="/pages/targets.html" class="nav-dropdown-item" role="menuitem">Targets</a>
+              </div>
+            </div>
+          </nav>
+
+          <!-- Zone 3: User Details & Logout Action -->
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Admin</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-role" class="num" style="color: var(--text-muted);">Admin</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign Out
+            </button>
+            <button type="button" class="nav-hamburger-btn" id="btn-nav-hamburger" aria-label="Toggle navigation menu" aria-expanded="false">
+              ☰
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Content -->
+      <main class="main-content">
+        <div class="container">
+          <!-- Demo Mode Banner Placeholder -->
+          <div id="config-banner-placeholder"></div>
+
+          <!-- Page Heading -->
+          <div class="section-header-row" style="margin-bottom: var(--space-6);">
+            <div>
+              <div class="meta-row" style="margin-bottom: var(--space-1); font-size: var(--text-xs);">
+                <a href="/pages/admin.html" style="color: var(--color-primary); text-decoration: none;">&larr; Back to Overview</a>
+                <span class="meta-separator">·</span>
+                <span style="color: var(--text-dim);">Evaluations & Testing</span>
+              </div>
+              <h1>Weekly Tests</h1>
+              <p style="font-size: var(--text-sm);">
+                Schedule weekly assessments and enter official teacher scores for active students. Scores are labeled "Entered by teacher".
+              </p>
+            </div>
+            <button type="button" id="btn-create-test" class="btn btn-primary">
+              + New Weekly Test
+            </button>
+          </div>
+
+          <!-- Two-column Layout: Tests List on Left, Test Scoring Detail on Right -->
+          <div style="display: grid; grid-template-columns: 320px 1fr; gap: var(--space-6); align-items: start;" id="weekly-tests-grid-layout">
+            
+            <!-- LEFT COLUMN: Tests List (Newest first) -->
+            <section class="card" style="padding: 0; overflow: hidden;">
+              <div class="card-header" style="padding: var(--space-4) var(--space-5); display: flex; justify-content: space-between; align-items: center;">
+                <h2 class="card-title" style="font-size: var(--text-base);">Test Sessions</h2>
+                <span id="tests-count-badge" class="status-chip chip-unverified" style="font-size: 11px;">0 tests</span>
+              </div>
+
+              <div id="tests-list-container" style="max-height: 600px; overflow-y: auto;">
+                <div class="loading-state" style="text-align: center; padding: var(--space-6);">
+                  Loading tests...
+                </div>
+              </div>
+            </section>
+
+            <!-- RIGHT COLUMN: Test Detail & Score Entry Grid -->
+            <section class="card" id="test-detail-section" style="padding: 0; overflow: hidden;">
+              <!-- Detail Header -->
+              <div class="card-header" style="padding: var(--space-4) var(--space-6); display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: var(--space-3);">
+                <div>
+                  <div style="display: flex; align-items: center; gap: var(--space-2);">
+                    <h2 id="active-test-title" class="card-title" style="font-size: var(--text-lg); margin: 0;">Select a Test</h2>
+                    <button type="button" id="btn-edit-active-test" class="btn btn-outline btn-sm" style="padding: 2px 8px; font-size: 11px;">
+                      Edit Details
+                    </button>
+                  </div>
+                  <div style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 4px;" id="active-test-meta">
+                    Select a weekly test from the list on the left to enter scores.
+                  </div>
+                </div>
+
+                <div style="display: inline-flex; align-items: center; gap: var(--space-2);">
+                  <span id="completion-summary-badge" class="status-chip" style="background-color: var(--color-primary-subtle); color: var(--color-primary); font-weight: 700; font-size: 11px;">
+                    0 of 0 entered
+                  </span>
+                </div>
+              </div>
+
+              <!-- Controls Toolbar: Category Selector grouped by section + Student Filter -->
+              <div style="padding: var(--space-4) var(--space-6); background: var(--bg-surface-subtle); border-bottom: 1px solid var(--border-hairline); display: grid; grid-template-columns: minmax(220px, 300px) 1fr 140px; gap: var(--space-3); align-items: center;">
+                <!-- Grouped Category Selector -->
+                <div>
+                  <label for="score-category-select" class="form-label" style="font-size: 11px; margin-bottom: 2px;">Select Category *</label>
+                  <select id="score-category-select" class="form-select" style="min-height: 38px; font-weight: 600;">
+                    <option value="">Loading categories...</option>
+                  </select>
+                </div>
+
+                <!-- Student Search -->
+                <div>
+                  <label for="student-search-input" class="form-label" style="font-size: 11px; margin-bottom: 2px;">Search Students</label>
+                  <input
+                    type="text"
+                    id="student-search-input"
+                    class="form-input"
+                    placeholder="Search by student name or ID..."
+                    style="min-height: 38px;"
+                  />
+                </div>
+
+                <!-- Level Filter -->
+                <div>
+                  <label for="student-level-filter" class="form-label" style="font-size: 11px; margin-bottom: 2px;">Level Filter</label>
+                  <select id="student-level-filter" class="form-select" style="min-height: 38px;">
+                    <option value="">All Levels</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Active Students Scoring Table -->
+              <div style="overflow-x: auto; max-height: 520px; overflow-y: auto;">
+                <table class="table" style="margin: 0;" id="weekly-scores-table">
+                  <thead>
+                    <tr>
+                      <th style="min-width: 170px;">Student</th>
+                      <th style="width: 80px;">Level</th>
+                      <th style="width: 100px;">Correct</th>
+                      <th style="width: 100px;">Total</th>
+                      <th style="width: 110px;">Time (mm:ss)</th>
+                      <th style="width: 120px; text-align: center;">Wrong / Status</th>
+                      <th style="width: 130px; text-align: center;">Entry State</th>
+                    </tr>
+                  </thead>
+                  <tbody id="scores-roster-tbody">
+                    <tr>
+                      <td colspan="7" class="loading-state" style="text-align: center; padding: var(--space-8);">
+                        Select a test to enter scores.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Bottom Save & Feedback Bar -->
+              <div style="padding: var(--space-3) var(--space-6); background: var(--bg-surface-subtle); border-top: 1px solid var(--border-hairline); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2);">
+                <div style="font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: var(--space-2);">
+                  <span>💡 <em>Press <strong>Enter</strong> to move between Correct, Total, Time and next student.</em></span>
+                  <span id="unsaved-warning-indicator" style="display: none; color: #DC2626; font-weight: 700;">● Unsaved changes</span>
+                </div>
+                <div style="display: inline-flex; gap: var(--space-3);">
+                  <button type="button" id="btn-save-scores" class="btn btn-primary btn-sm">
+                    💾 Save Scores (Entered by teacher)
+                  </button>
+                </div>
+              </div>
+            </section>
+
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- MODAL: Create / Edit Weekly Test -->
+    <div id="test-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="test-modal-title">
+      <div class="modal-dialog">
+        <header class="modal-header">
+          <h2 class="modal-title" id="test-modal-title">Create Weekly Test</h2>
+          <button type="button" class="modal-close" data-close-modal="test-modal" aria-label="Close modal">&times;</button>
+        </header>
+
+        <form id="test-form">
+          <input type="hidden" id="test-id-input" />
+
+          <div class="modal-body">
+            <div class="form-group">
+              <label for="test-date-input" class="form-label">Test Date (IST) *</label>
+              <input type="date" id="test-date-input" class="form-input" required />
+            </div>
+
+            <div class="form-group">
+              <label for="test-title-input" class="form-label">Test Title *</label>
+              <input
+                type="text"
+                id="test-title-input"
+                class="form-input"
+                required
+                placeholder="e.g. Weekly Speed & Accuracy Sprint #43"
+              />
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="test-notes-input" class="form-label">Notes (Optional)</label>
+              <textarea
+                id="test-notes-input"
+                class="form-input"
+                rows="3"
+                placeholder="Details about topics covered, preparation requirements, or difficulty..."
+              ></textarea>
+            </div>
+
+            <div id="test-error-banner" class="banner banner-error" style="display: none; margin-top: var(--space-4); margin-bottom: 0;" role="alert"></div>
+          </div>
+
+          <footer class="modal-footer">
+            <button type="button" class="btn btn-outline" data-close-modal="test-modal">Cancel</button>
+            <button type="submit" id="btn-submit-test" class="btn btn-primary">Save Test</button>
+          </footer>
+        </form>
+      </div>
+    </div>
+
+    <!-- Toast Notifications Container -->
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <script type="module" src="/js/weeklyTests.js"></script>
+  </body>
+</html>

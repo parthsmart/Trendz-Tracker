@@ -18,6 +18,7 @@ import { isSupabaseConfigured } from './config.js';
 import { isDemoMode } from './demoDb.js';
 import { showToast } from './toast.js';
 import { getISTDateString, formatDisplayDateIST } from './stats.js';
+import { openModal, closeModal, setupModalListeners, setupAdminNav } from './modal.js';
 
 let currentProfile = null;
 let allSessions = [];
@@ -31,6 +32,8 @@ async function initAttendancePage() {
   if (!currentProfile) return;
 
   renderHeaderUser(currentProfile);
+  setupAdminNav();
+  setupModalListeners();
 
   if (isDemoMode()) {
     renderDemoBanner();
@@ -617,20 +620,10 @@ async function executeSaveAttendance() {
  * Modal: Create / Edit Session
  */
 function setupSessionModalHandlers() {
-  const modal = document.getElementById('session-modal');
   const form = document.getElementById('session-form');
   const btnOpenCreate = document.getElementById('btn-create-session');
   const btnOpenEdit = document.getElementById('btn-edit-session');
-  const btnClose = document.getElementById('btn-close-session-modal');
-  const btnCancel = document.getElementById('btn-cancel-session-modal');
   const modalTitle = document.getElementById('session-modal-title');
-
-  function closeModal() {
-    if (modal) modal.style.display = 'none';
-  }
-
-  if (btnClose) btnClose.onclick = closeModal;
-  if (btnCancel) btnCancel.onclick = closeModal;
 
   // Open Create
   if (btnOpenCreate) {
@@ -642,8 +635,7 @@ function setupSessionModalHandlers() {
       document.getElementById('session-type-input').value = 'class';
       document.getElementById('session-notes-input').value = '';
 
-      if (modal) modal.style.display = 'flex';
-      document.getElementById('session-title-input')?.focus();
+      openModal('session-modal');
     };
   }
 
@@ -660,8 +652,7 @@ function setupSessionModalHandlers() {
       document.getElementById('session-type-input').value = session.session_type || 'class';
       document.getElementById('session-notes-input').value = session.notes || '';
 
-      if (modal) modal.style.display = 'flex';
-      document.getElementById('session-title-input')?.focus();
+      openModal('session-modal');
     };
   }
 
@@ -703,7 +694,7 @@ function setupSessionModalHandlers() {
             });
           }
           showToast('success', 'Session updated.');
-          closeModal();
+          closeModal('session-modal');
           await loadSessions(sessionId);
         } else {
           // CREATE
@@ -734,7 +725,7 @@ function setupSessionModalHandlers() {
             newId = created.id;
           }
           showToast('success', 'New attendance session created.');
-          closeModal();
+          closeModal('session-modal');
           await loadSessions(newId);
         }
       } catch (err) {
@@ -753,35 +744,25 @@ function setupSessionModalHandlers() {
 let warningProceedCallback = null;
 
 function openUnmarkedWarningModal(unmarkedCount, onProceed) {
-  const modal = document.getElementById('unmarked-warning-modal');
   const bodyEl = document.getElementById('unmarked-warning-body');
-  const btnBack = document.getElementById('btn-warning-back');
-  const btnClose = document.getElementById('btn-close-warning-modal');
   const btnProceed = document.getElementById('btn-warning-proceed');
 
   if (bodyEl) {
     bodyEl.textContent = `There ${unmarkedCount === 1 ? 'is 1 active student' : `are ${unmarkedCount} active students`} without an attendance mark.`;
   }
 
-  function closeWarning() {
-    if (modal) modal.style.display = 'none';
-    warningProceedCallback = null;
-  }
-
-  if (btnBack) btnBack.onclick = closeWarning;
-  if (btnClose) btnClose.onclick = closeWarning;
-
   warningProceedCallback = onProceed;
 
   if (btnProceed) {
     btnProceed.onclick = async () => {
       const cb = warningProceedCallback;
-      closeWarning();
+      closeModal('unmarked-warning-modal');
+      warningProceedCallback = null;
       if (cb) await cb();
     };
   }
 
-  if (modal) modal.style.display = 'flex';
+  openModal('unmarked-warning-modal');
 }
 
 function renderHeaderUser(profile) {

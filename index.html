@@ -79,8 +79,8 @@
     </div>
 
     <!-- Setup Guide & SQL Modal Dialog -->
-    <div id="guide-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-labelledby="guide-title">
-      <div class="modal-dialog" style="max-width: 680px;">
+    <div id="guide-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="guide-title">
+      <div class="modal-dialog">
         <header class="modal-header">
           <h2 id="guide-title" class="modal-title">Supabase Setup Guide & Schema</h2>
           <button type="button" class="modal-close" data-close-modal="guide-modal" aria-label="Close modal">&times;</button>
@@ -95,13 +95,13 @@
             <li>In <strong>Project Settings &rarr; API</strong>, copy your <strong>Project URL</strong> and <strong>anon public key</strong> into <code>js/config.js</code>.</li>
             <li>In Vercel or your <code>.env</code>, add your <strong>SUPABASE_SERVICE_ROLE_KEY</strong> for admin user creation.</li>
           </ol>
-          <div class="form-group">
+          <div class="form-group" style="margin-bottom: 0;">
             <label class="form-label">Full SQL Script Location</label>
             <input type="text" class="form-input" readonly value="/supabase/schema.sql" />
           </div>
         </div>
         <footer class="modal-footer">
-          <button type="button" class="btn btn-secondary btn-sm" data-close-modal="guide-modal">Close</button>
+          <button type="button" class="btn btn-outline" data-close-modal="guide-modal">Close</button>
         </footer>
       </div>
     </div>

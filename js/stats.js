@@ -93,6 +93,44 @@ export function formatSecondsToTime(totalSeconds) {
 }
 
 /**
+ * Parses a time string (e.g. "2:00", "01:30", "90", "1:05") into total seconds.
+ * Returns null if invalid or empty.
+ * @param {string|number|null|undefined} timeVal
+ * @returns {number|null}
+ */
+export function parseTimeToSeconds(timeVal) {
+  if (timeVal === null || timeVal === undefined || timeVal === '') return null;
+  if (typeof timeVal === 'number') {
+    return isNaN(timeVal) || timeVal < 0 ? null : Math.round(timeVal);
+  }
+  const str = String(timeVal).trim();
+  if (!str) return null;
+  if (str.includes(':')) {
+    const parts = str.split(':');
+    if (parts.length === 2) {
+      const mins = Number(parts[0]);
+      const secs = Number(parts[1]);
+      if (!isNaN(mins) && !isNaN(secs) && mins >= 0 && secs >= 0 && secs < 60) {
+        return Math.round(mins * 60 + secs);
+      }
+    } else if (parts.length === 3) {
+      const hrs = Number(parts[0]);
+      const mins = Number(parts[1]);
+      const secs = Number(parts[2]);
+      if (!isNaN(hrs) && !isNaN(mins) && !isNaN(secs) && hrs >= 0 && mins >= 0 && secs >= 0) {
+        return Math.round(hrs * 3600 + mins * 60 + secs);
+      }
+    }
+    return null;
+  }
+  const pureNum = Number(str);
+  if (!isNaN(pureNum) && pureNum >= 0) {
+    return Math.round(pureNum);
+  }
+  return null;
+}
+
+/**
  * Generates an array of the last N calendar dates in IST ending on baseDateStr (YYYY-MM-DD).
  * 
  * @param {string} baseDateStr - Today's IST date (YYYY-MM-DD)

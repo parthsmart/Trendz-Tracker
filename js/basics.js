@@ -9,11 +9,13 @@ import { requireAuth } from './guard.js';
 import { getScoreFeedback } from './scoreColors.js';
 import { DemoDB, getSupabase } from './supabaseClient.js';
 import { formatSecondsToMMSS, parseTimeToSeconds } from './timeUtils.js';
+import { formatSecondsToTime } from './stats.js';
 import { showToast } from './toast.js';
 
 let currentProfile = null;
 let basicsCategories = [];
 let allBasicsResults = [];
+let activeThresholds = [];
 let editingDrillId = null;
 
 /**
@@ -91,6 +93,8 @@ async function loadBasicsCategories() {
     if (catParam && selectEl.querySelector(`option[value="${catParam}"]`)) {
       selectEl.value = catParam;
     }
+
+    updateCategoryTargetDisplay(selectEl.value);
   } catch (err) {
     console.warn('Error in loadBasicsCategories, falling back to local categories:', err);
     basicsCategories = DemoDB.getCategories().filter(c => c.section === 'basics' && c.active);
@@ -104,9 +108,74 @@ async function loadBasicsCategories() {
       if (catParam && selectEl.querySelector(`option[value="${catParam}"]`)) {
         selectEl.value = catParam;
       }
+      updateCategoryTargetDisplay(selectEl.value);
     } else {
       showToast('error', 'Failed to load categories: ' + (err.message || 'Network error'));
     }
+  }
+
+  // Update target badge when student changes chosen category
+  selectEl.addEventListener('change', () => {
+    updateCategoryTargetDisplay(selectEl.value);
+  });
+}
+
+/**
+ * Loads active target thresholds from database or demoDb
+ */
+async function loadActiveThresholds() {
+  try {
+    if (isSupabaseConfigured()) {
+      const supabase = await getSupabase();
+      const { data, error } = await supabase
+        .from('basics_thresholds')
+        .select('*')
+        .eq('active', true);
+
+      if (!error && data) {
+        activeThresholds = data;
+      }
+    } else {
+      activeThresholds = DemoDB.getBasicsThresholds().filter(t => t.active !== false);
+    }
+  } catch (err) {
+    console.warn('Could not load basics thresholds:', err);
+  }
+}
+
+/**
+ * Shows the student's target (level rule if one exists, else the default)
+ * e.g. "Target: 90% accuracy in 2:00 or less"
+ */
+function updateCategoryTargetDisplay(categoryId) {
+  const container = document.getElementById('category-target-display');
+  const textEl = document.getElementById('category-target-text');
+  if (!container || !textEl) return;
+
+  if (!categoryId) {
+    container.style.display = 'none';
+    return;
+  }
+
+  const studentLevel = (currentProfile?.level || '').trim().toLowerCase();
+
+  // 1. Level-specific rule beats default rule
+  let rule = null;
+  if (studentLevel) {
+    rule = activeThresholds.find(t => t.category_id === categoryId && t.level && t.level.trim().toLowerCase() === studentLevel);
+  }
+  // 2. Fall back to default rule
+  if (!rule) {
+    rule = activeThresholds.find(t => t.category_id === categoryId && (!t.level || !t.level.trim()));
+  }
+
+  if (rule) {
+    const acc = `${rule.min_accuracy}% accuracy`;
+    const time = rule.max_time_seconds ? ` in ${formatSecondsToTime(rule.max_time_seconds)} or less` : '';
+    textEl.textContent = `Target: ${acc}${time}`;
+    container.style.display = 'block';
+  } else {
+    container.style.display = 'none';
   }
 }
 
@@ -133,8 +202,9 @@ async function loadBasicsHistory() {
       }
 
       if (supabase) {
+        // Read entries from results_with_target view for authoritative meets_target calculation
         const { data, error } = await supabase
-          .from('results')
+          .from('results_with_target')
           .select(`
             id,
             student_id,
@@ -152,6 +222,9 @@ async function loadBasicsHistory() {
             flagged,
             flag_note,
             created_at,
+            min_accuracy,
+            max_time_seconds,
+            meets_target,
             categories (
               name,
               sort_order
@@ -163,27 +236,27 @@ async function loadBasicsHistory() {
           .order('created_at', { ascending: false });
 
         if (error) {
-          console.warn('Could not fetch basics results from Supabase, checking local cache:', error.message);
-          const demoKey = `trendz_demo_basics_${currentProfile.id}`;
-          allBasicsResults = JSON.parse(localStorage.getItem(demoKey) || '[]');
+          console.warn('Could not fetch basics results_with_target from Supabase, checking local cache:', error.message);
+          allBasicsResults = DemoDB.getResultsWithTarget(currentProfile.id, 'basics');
         } else {
           allBasicsResults = data || [];
         }
       } else {
-        const demoKey = `trendz_demo_basics_${currentProfile.id}`;
-        allBasicsResults = JSON.parse(localStorage.getItem(demoKey) || '[]');
+        allBasicsResults = DemoDB.getResultsWithTarget(currentProfile.id, 'basics');
       }
     } else {
-      // Demo Mode retrieval
+      // Demo Mode retrieval with pre-computed meets_target
+      const demoDbResults = DemoDB.getResultsWithTarget(currentProfile.id, 'basics');
       const demoKey = `trendz_demo_basics_${currentProfile.id}`;
-      allBasicsResults = JSON.parse(localStorage.getItem(demoKey) || '[]');
+      const localAdded = JSON.parse(localStorage.getItem(demoKey) || '[]');
+      // Merge local additions with targets
+      allBasicsResults = [...localAdded, ...demoDbResults.filter(d => !localAdded.some(l => l.id === d.id))];
     }
 
     renderHistory();
   } catch (err) {
     console.warn('Error loading basics history, using local fallback:', err);
-    const demoKey = `trendz_demo_basics_${currentProfile?.id || 'default'}`;
-    allBasicsResults = JSON.parse(localStorage.getItem(demoKey) || '[]');
+    allBasicsResults = DemoDB.getResultsWithTarget(currentProfile?.id || 'default', 'basics');
     renderHistory();
   }
 }
@@ -298,6 +371,15 @@ function renderDrillRow(drill) {
         ${timeFormatted ? `
           <span class="num" style="font-size: var(--text-xs); color: var(--text-muted);">
             ⏱️ ${timeFormatted}
+          </span>
+        ` : ''}
+        ${drill.meets_target === true ? `
+          <span class="status-chip chip-verified" title="Meets target benchmark">
+            🎯 Target met
+          </span>
+        ` : drill.meets_target === false ? `
+          <span class="status-chip" style="background-color: rgba(239, 68, 68, 0.12); color: #B91C1C; border: 1px solid rgba(239, 68, 68, 0.3);" title="Below target benchmark">
+            ⚠️ Below target
           </span>
         ` : ''}
         ${isVerified ? `
@@ -629,6 +711,8 @@ async function initBasics() {
 
   // Initial load
   await loadBasicsCategories();
+  await loadActiveThresholds();
+  updateCategoryTargetDisplay(document.getElementById('basics-category-select')?.value);
   await loadBasicsHistory();
 }
 
