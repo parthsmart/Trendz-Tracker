@@ -154,18 +154,36 @@ async function proxyFetch(input, init = {}) {
     });
   }
 
-  let proxyData;
+  let proxyData = null;
   try {
-    proxyData = await proxyRes.json();
+    const rawEnvelope = await proxyRes.text();
+    if (rawEnvelope && rawEnvelope.trim()) {
+      proxyData = JSON.parse(rawEnvelope);
+    }
   } catch (jsonErr) {
     console.warn('Failed to parse /api/supabase-proxy JSON:', jsonErr);
-    return new Response(JSON.stringify({
+    return makeSafeResponse(new Response(JSON.stringify({
       message: 'Invalid proxy response envelope',
       code: 502
     }), {
       status: 502,
       headers: { 'Content-Type': 'application/json' }
-    });
+    }));
+  }
+
+  // Handle case where proxy endpoint returned an error or non-envelope payload
+  if (!proxyRes.ok || !proxyData || proxyData.error) {
+    const errorStatus = proxyRes.status >= 400 ? proxyRes.status : 502;
+    const errorMessage = proxyData?.error || proxyData?.message || `Proxy request failed with status ${proxyRes.status}`;
+    return makeSafeResponse(new Response(JSON.stringify({
+      message: errorMessage,
+      code: errorStatus,
+      error_code: 'proxy_error'
+    }), {
+      status: errorStatus,
+      statusText: proxyRes.statusText || 'Error',
+      headers: { 'Content-Type': 'application/json' }
+    }));
   }
 
   const status = typeof proxyData.status === 'number' && proxyData.status >= 200 && proxyData.status <= 599
@@ -189,27 +207,58 @@ async function proxyFetch(input, init = {}) {
     }
   }
 
+  const isJsonHeader = String(safeHeaders['content-type'] || '').toLowerCase().includes('application/json');
+
   // If status is 204 (No Content), 205 (Reset Content), or 304 (Not Modified),
   // WHATWG Response spec requires body to be null, otherwise Response constructor throws TypeError.
-  const responseBody = [204, 205, 304].includes(status) ? null : (proxyData.body ?? '');
+  let responseBody;
+  if ([204, 205, 304].includes(status)) {
+    responseBody = null;
+  } else if (proxyData.body === null || proxyData.body === undefined || (typeof proxyData.body === 'string' && proxyData.body.trim() === '')) {
+    // If upstream returned empty body on a non-204 response (e.g. 200/201),
+    // supply 'null' for JSON so calling .json() doesn't throw "Unexpected end of JSON input"
+    responseBody = isJsonHeader ? 'null' : '';
+  } else {
+    responseBody = proxyData.body;
+  }
 
   try {
-    return new Response(responseBody, {
+    return makeSafeResponse(new Response(responseBody, {
       status,
       statusText: (proxyData.statusText && /^[a-zA-Z0-9\s]+$/.test(proxyData.statusText)) ? proxyData.statusText : undefined,
       headers: safeHeaders
-    });
+    }));
   } catch (resErr) {
     console.warn('Constructing full Response failed, using clean minimal Response:', resErr);
     try {
-      return new Response(responseBody, {
+      return makeSafeResponse(new Response(responseBody, {
         status,
         headers: { 'Content-Type': safeHeaders['content-type'] || 'application/json' }
-      });
+      }));
     } catch {
-      return new Response(responseBody, { status: 200 });
+      return makeSafeResponse(new Response(responseBody, { status: 200 }));
     }
   }
+}
+
+/**
+ * Wraps Response.prototype.json so that unexpected empty responses return null
+ * instead of throwing "Unexpected end of JSON input".
+ */
+function makeSafeResponse(res) {
+  if (!res || typeof res.json !== 'function') return res;
+  const origJson = res.json.bind(res);
+  res.json = async function safeJson() {
+    try {
+      return await origJson();
+    } catch (e) {
+      if (e && (e.name === 'SyntaxError' || String(e.message).includes('JSON') || String(e.message).includes('end of'))) {
+        return null;
+      }
+      throw e;
+    }
+  };
+  return res;
 }
 
 /**
@@ -219,7 +268,8 @@ async function proxyFetch(input, init = {}) {
 async function smartFetch(input, init = {}) {
   // In production, ALWAYS talk directly to Supabase. Never use the proxy.
   if (isProduction) {
-    return fetch(input, init);
+    const directRes = await fetch(input, init);
+    return makeSafeResponse(directRes);
   }
 
   if (isRestrictedEnv) {
@@ -227,7 +277,8 @@ async function smartFetch(input, init = {}) {
   }
 
   try {
-    return await fetch(input, init);
+    const directRes = await fetch(input, init);
+    return makeSafeResponse(directRes);
   } catch (err) {
     console.warn('Direct fetch to Supabase failed in browser. Seamlessly switching to /api/supabase-proxy...', err);
     return proxyFetch(input, init);

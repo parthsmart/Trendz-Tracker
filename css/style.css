@@ -750,3 +750,196 @@
   color: var(--color-primary-hover);
   text-decoration: underline;
 }
+
+/* ==========================================================================
+   Phase 4a - Admin Review & Attendance Styles
+   ========================================================================== */
+
+/* Review Filter Grid */
+.review-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3);
+  align-items: flex-end;
+}
+
+/* Status Chips */
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.chip-verified {
+  background-color: rgba(16, 185, 129, 0.12);
+  color: #065F46;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.chip-corrected {
+  background-color: rgba(59, 130, 246, 0.12);
+  color: #1E40AF;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.chip-flagged {
+  background-color: rgba(245, 158, 11, 0.15);
+  color: #92400E;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.chip-unverified {
+  background-color: var(--bg-surface-subtle);
+  color: var(--text-muted);
+  border: 1px solid var(--border-hairline);
+}
+
+/* Bulk Verify Sticky Action Bar */
+.bulk-verify-bar {
+  position: sticky;
+  bottom: var(--space-4);
+  background: var(--bg-surface);
+  border: 2px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-5);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  z-index: 40;
+  margin-top: var(--space-4);
+  animation: slideUp 0.2s ease-out;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(12px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* History Audit Drawer */
+.audit-drawer-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 60;
+  display: flex;
+  justify-content: flex-end;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.audit-drawer {
+  background: var(--bg-surface);
+  width: 100%;
+  max-width: 540px;
+  height: 100%;
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: slideInRight 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.audit-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  overflow-y: auto;
+}
+
+.audit-item {
+  position: relative;
+  padding-left: var(--space-6);
+  border-left: 2px solid var(--border-hairline);
+}
+
+.audit-item::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: 4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: var(--color-primary);
+}
+
+.audit-diff-table {
+  width: 100%;
+  font-size: var(--text-xs);
+  border-collapse: collapse;
+  margin-top: var(--space-2);
+}
+
+.audit-diff-table th, .audit-diff-table td {
+  padding: 4px 8px;
+  border: 1px solid var(--border-hairline);
+  text-align: left;
+}
+
+/* Attendance Segmented Toggle Controls */
+.attendance-toggle-group {
+  display: inline-flex;
+  background: var(--bg-surface-subtle);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  gap: 2px;
+}
+
+.btn-status-toggle {
+  border: none;
+  background: transparent;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all 0.12s ease;
+}
+
+.btn-status-toggle:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+  color: var(--text-main);
+}
+
+.btn-status-toggle.active-present {
+  background-color: #10B981;
+  color: #FFFFFF;
+}
+
+.btn-status-toggle.active-absent {
+  background-color: #EF4444;
+  color: #FFFFFF;
+}
+
+.btn-status-toggle.active-excused {
+  background-color: #6B7280;
+  color: #FFFFFF;
+}
+
+.status-unmarked-pill {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #DC2626;
+  background: #FEE2E2;
+  padding: 2px 6px;
+  border-radius: 3px;
+}

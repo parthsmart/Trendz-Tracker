@@ -145,6 +145,12 @@ async function loadBasicsHistory() {
             note,
             entry_date,
             verified,
+            verified_at,
+            verified_by,
+            corrected_at,
+            corrected_by,
+            flagged,
+            flag_note,
             created_at,
             categories (
               name,
@@ -271,10 +277,14 @@ function renderDrillRow(drill) {
   const catName = drill.categories?.name || basicsCategories.find(c => c.id === drill.category_id)?.name || 'Basics';
   const feedback = getScoreFeedback(drill.correct, drill.total);
   const timeFormatted = formatSecondsToMMSS(drill.time_seconds);
-  const isVerified = drill.verified === true;
+  const isVerified = drill.verified === true || !!drill.verified_at || !!drill.verified_by;
+  const isCorrected = !!drill.corrected_at || !!drill.corrected_by;
+  const isFlagged = drill.flagged === true;
+  const flagNote = drill.flag_note || '';
+  const isLocked = isVerified || isCorrected;
 
   return `
-    <div class="category-item" style="margin-bottom: 0; border-radius: 0; border-bottom: 1px solid var(--border-hairline);" data-drill-id="${drill.id}">
+    <div class="category-item ${isLocked ? 'row-verified' : ''}" style="margin-bottom: 0; border-radius: 0; border-bottom: 1px solid var(--border-hairline);" data-drill-id="${drill.id}">
       <div style="display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;">
         <span style="font-weight: 700; font-size: var(--text-sm); min-width: 70px;">
           ${escapeHtml(catName)}
@@ -291,14 +301,25 @@ function renderDrillRow(drill) {
           </span>
         ` : ''}
         ${isVerified ? `
-          <span class="verified-lock-indicator" title="Verified by teacher">
+          <span class="verified-lock-indicator" title="Verified by teacher (locked)">
             🔒 Verified
           </span>
+        ` : ''}
+        ${isCorrected ? `
+          <span class="status-chip chip-corrected" title="Corrected by teacher (locked)">
+            ✏️ Corrected by teacher
+          </span>
+        ` : ''}
+        ${isFlagged ? `
+          <div class="status-chip chip-flagged" style="display: inline-flex; flex-direction: column; align-items: flex-start; text-align: left; font-size: 11px; max-width: 260px; white-space: normal; line-height: 1.25; padding: 4px 6px;">
+            <span style="font-weight: 600;">⚠️ Your teacher asked you to check this entry</span>
+            ${flagNote ? `<span style="font-size: 10px; color: #78350F; margin-top: 2px;">Note: ${escapeHtml(flagNote)}</span>` : ''}
+          </div>
         ` : ''}
       </div>
 
       <div class="category-actions">
-        ${!isVerified ? `
+        ${!isLocked ? `
           <button
             type="button"
             class="btn btn-outline btn-sm btn-edit-drill"
@@ -335,6 +356,11 @@ function attachDrillActionListeners() {
       const drill = allBasicsResults.find(r => r.id === drillId);
       if (!drill) return;
 
+      if (drill.verified === true || !!drill.verified_at || !!drill.corrected_at) {
+        showToast('error', 'This drill is locked and cannot be edited.');
+        return;
+      }
+
       editingDrillId = drill.id;
       document.getElementById('edit-drill-id').value = drill.id;
       document.getElementById('basics-category-select').value = drill.category_id;
@@ -357,6 +383,12 @@ function attachDrillActionListeners() {
   document.querySelectorAll('.btn-delete-drill').forEach(btn => {
     btn.addEventListener('click', async () => {
       const drillId = btn.getAttribute('data-id');
+      const drill = allBasicsResults.find(r => r.id === drillId);
+      if (drill && (drill.verified === true || !!drill.verified_at || !!drill.corrected_at)) {
+        showToast('error', 'This drill is locked and cannot be deleted.');
+        return;
+      }
+
       if (!confirm('Are you sure you want to delete this drill entry?')) return;
 
       btn.disabled = true;

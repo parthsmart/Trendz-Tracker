@@ -200,7 +200,11 @@ function renderCategoryRows() {
 
   roundCategories.forEach(cat => {
     const existing = existingResultsMap.get(cat.id);
-    const isVerified = existing && existing.verified === true;
+    const isVerified = existing && (existing.verified === true || !!existing.verified_at || !!existing.verified_by);
+    const isCorrected = existing && (!!existing.corrected_at || !!existing.corrected_by);
+    const isFlagged = existing && existing.flagged === true;
+    const flagNote = existing && existing.flag_note ? existing.flag_note : '';
+    const isLocked = isVerified || isCorrected;
     const isSurpriseTask = cat.name.toLowerCase().includes('surprise');
 
     const correctVal = existing && existing.correct !== null ? existing.correct : '';
@@ -215,7 +219,9 @@ function renderCategoryRows() {
       time: timeVal,
       note: noteVal,
       existingId: existing ? existing.id : null,
-      isVerified
+      isVerified,
+      isCorrected,
+      isLocked
     }));
 
     // Feedback
@@ -224,8 +230,43 @@ function renderCategoryRows() {
       feedback = getScoreFeedback(correctVal, totalVal);
     }
 
+    // Status column
+    let statusBadgeHtml = '';
+    if (isVerified) {
+      statusBadgeHtml = `
+        <span class="verified-lock-indicator" title="Verified by teacher (locked)">
+          🔒 Verified
+        </span>
+      `;
+    } else if (isCorrected) {
+      statusBadgeHtml = `
+        <span class="status-chip chip-corrected" title="Corrected by teacher (locked)">
+          ✏️ Corrected by teacher
+        </span>
+      `;
+    } else if (isFlagged) {
+      statusBadgeHtml = `
+        <div class="status-chip chip-flagged" style="display: inline-flex; flex-direction: column; align-items: flex-start; text-align: left; font-size: 11px; max-width: 220px; white-space: normal; line-height: 1.25; padding: 4px 6px;">
+          <span style="font-weight: 600;">⚠️ Your teacher asked you to check this entry</span>
+          ${flagNote ? `<span style="font-size: 10px; color: #78350F; margin-top: 2px;">Note: ${escapeHtml(flagNote)}</span>` : ''}
+        </div>
+      `;
+    } else if (existing) {
+      statusBadgeHtml = `
+        <span class="status-indicator active" style="font-size: 11px;" title="Saved in database">
+          Saved
+        </span>
+      `;
+    } else {
+      statusBadgeHtml = `
+        <span class="status-indicator inactive" style="font-size: 11px;">
+          Unsaved
+        </span>
+      `;
+    }
+
     html += `
-      <div class="score-entry-row ${isVerified ? 'row-verified' : ''}" data-category-id="${cat.id}">
+      <div class="score-entry-row ${isLocked ? 'row-verified' : ''}" data-category-id="${cat.id}">
         <!-- Category Name -->
         <div class="cell-category">
           <div style="font-weight: 700; color: var(--text-main); font-size: var(--text-sm);">
@@ -242,7 +283,7 @@ function renderCategoryRows() {
             class="form-input score-input input-correct"
             placeholder="0"
             value="${correctVal}"
-            ${isVerified ? 'readonly disabled' : ''}
+            ${isLocked ? 'readonly disabled' : ''}
             data-cat-id="${cat.id}"
             aria-label="${escapeHtml(cat.name)} correct answers"
           />
@@ -256,7 +297,7 @@ function renderCategoryRows() {
             class="form-input score-input input-total"
             placeholder="0"
             value="${totalVal}"
-            ${isVerified ? 'readonly disabled' : ''}
+            ${isLocked ? 'readonly disabled' : ''}
             data-cat-id="${cat.id}"
             aria-label="${escapeHtml(cat.name)} total attempted"
           />
@@ -270,7 +311,7 @@ function renderCategoryRows() {
             class="form-input score-input input-time"
             placeholder="0:00"
             value="${timeVal}"
-            ${isVerified ? 'readonly disabled' : ''}
+            ${isLocked ? 'readonly disabled' : ''}
             data-cat-id="${cat.id}"
             aria-label="${escapeHtml(cat.name)} time elapsed"
           />
@@ -283,22 +324,17 @@ function renderCategoryRows() {
           </span>
         </div>
 
-        <!-- Status Column (Saved / Verified by teacher) -->
+        <!-- Status Column (Saved / Verified / Corrected / Flagged) -->
         <div style="text-align: right;">
-          ${isVerified ? `
-            <span class="verified-lock-indicator" title="Verified by teacher (locked)">
-              🔒 Verified
-            </span>
-          ` : existing ? `
-            <span class="status-indicator active" style="font-size: 11px;" title="Saved in database">
-              Saved
-            </span>
-          ` : `
-            <span class="status-indicator inactive" style="font-size: 11px;">
-              Unsaved
-            </span>
-          `}
+          ${statusBadgeHtml}
         </div>
+
+        ${isFlagged ? `
+          <div style="grid-column: 1 / -1; margin-top: 6px; padding: 6px 12px; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: var(--radius-sm); font-size: 12px; color: #92400E; display: flex; align-items: center; gap: 6px;">
+            <span aria-hidden="true">⚠️</span>
+            <span>Your teacher asked you to check this entry: <strong>${escapeHtml(flagNote || 'Please review your scores')}</strong></span>
+          </div>
+        ` : ''}
 
         ${isSurpriseTask ? `
           <div style="grid-column: 1 / -1; margin-top: 4px;">
@@ -307,7 +343,7 @@ function renderCategoryRows() {
               class="form-input input-note"
               placeholder="Surprise Task notes or topic description..."
               value="${escapeHtml(noteVal)}"
-              ${isVerified ? 'readonly disabled' : ''}
+              ${isLocked ? 'readonly disabled' : ''}
               data-cat-id="${cat.id}"
               style="min-height: 36px; font-size: var(--text-xs);"
             />
@@ -415,8 +451,8 @@ async function saveRoundScores() {
       const catId = row.getAttribute('data-category-id');
       const initial = JSON.parse(initialRowValues.get(catId) || '{}');
 
-      // Skip verified rows
-      if (initial.isVerified) continue;
+      // Skip locked rows (verified or corrected by teacher)
+      if (initial.isLocked || initial.isVerified || initial.isCorrected) continue;
 
       const correctRaw = row.querySelector('.input-correct')?.value.trim() || '';
       const totalRaw = row.querySelector('.input-total')?.value.trim() || '';

@@ -63,22 +63,25 @@ if (!resolvedUrl && typeof window !== 'undefined' && isDemoAllowedHost()) {
     try {
       const res = await fetch('/api/config');
       if (res.ok) {
-        const data = await res.json();
-        if (data.supabaseUrl && data.supabaseAnonKey) {
-          resolvedUrl = normalizeSupabaseUrl(data.supabaseUrl);
-          resolvedAnonKey = String(data.supabaseAnonKey).trim();
-          SUPABASE_CONFIG.url = resolvedUrl;
-          SUPABASE_CONFIG.anonKey = resolvedAnonKey;
-          try {
-            sessionStorage.setItem('trendz_supabase_url', resolvedUrl);
-            sessionStorage.setItem('trendz_supabase_anon_key', resolvedAnonKey);
-          } catch {
-            // sessionStorage not available
+        const text = await res.text();
+        if (text && text.trim()) {
+          const data = JSON.parse(text);
+          if (data && data.supabaseUrl && data.supabaseAnonKey) {
+            resolvedUrl = normalizeSupabaseUrl(data.supabaseUrl);
+            resolvedAnonKey = String(data.supabaseAnonKey).trim();
+            SUPABASE_CONFIG.url = resolvedUrl;
+            SUPABASE_CONFIG.anonKey = resolvedAnonKey;
+            try {
+              sessionStorage.setItem('trendz_supabase_url', resolvedUrl);
+              sessionStorage.setItem('trendz_supabase_anon_key', resolvedAnonKey);
+            } catch {
+              // sessionStorage not available
+            }
           }
         }
       }
     } catch {
-      // preview server unreachable
+      // preview server unreachable or empty response
     }
   })();
 }

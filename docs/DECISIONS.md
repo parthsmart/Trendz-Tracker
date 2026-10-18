@@ -286,3 +286,24 @@ Every meaningful technical and architectural decision made for **Trendz Tracker*
 - **Reason**: Guarantees bit-for-bit consistency between student self-monitoring and teacher oversight, prevents student account inspection tampering, encapsulates inline SVG charts (7-day dual line and 4-week bar charts with week-over-week comparisons), and guarantees sticky table 5-round pagination without duplicate code.
 - **Trade-off**: Added `pages/student-detail.html` to Vite's multi-page input bundle.
 - **Rejected Options**: Parameterized `student.html`, duplicated dashboard codebases.
+
+---
+
+### ADR-021: Admin Result Changes via PostgreSQL RPCs and Student Lock on Corrected Rows (Phase 4a)
+- **Date**: 2026-10-18
+- **Context**: In Phase 4a, instructors review, verify, flag, and correct student practice results. We needed to ensure every admin action is reliably audited with mandatory reasons, and determine the mutation boundary for students when a score has been corrected or verified by a teacher.
+- **Options Considered**:
+  1. *Direct Client `supabase.from('results').update(...)` with Client Audit Inserts*: The client browser writes the update to `results` and makes a second insert into `result_audit`. This is fragile: any network error, browser crash, or modified client could execute the update without creating an audit entry or bypass required reasons.
+  2. *Database Triggers on Direct Updates*: Admins update `results` directly and a PostgreSQL trigger creates `result_audit` rows. However, PostgreSQL triggers cannot require a dynamic custom reason text from a standard REST `UPDATE` statement without awkward session variables or dummy column hacks.
+  3. *Dedicated PostgreSQL RPCs (`admin_set_verified`, `admin_set_flag`, `admin_correct_result`) with Strict Lock on Corrected/Verified Rows*:
+     - Admins MUST invoke these dedicated RPCs. The RPC transactionally stamps the target row (`verified_at`/`verified_by` or `corrected_at`/`corrected_by`) and writes the audit event to `result_audit` with `(action, old_values, new_values, reason, changed_by, changed_at)`.
+     - Direct admin `UPDATE` statements on `results` are disallowed by design.
+     - A database trigger and client-side guards strictly prevent students from modifying or deleting any row where `verified_at IS NOT NULL` OR `corrected_at IS NOT NULL`.
+- **Choice**: Dedicated PostgreSQL RPCs with Student Lock on Corrected and Verified Rows.
+- **Reason**:
+  - **Audit Integrity**: Guaranteeing that every status change or score alteration is backed by an unforgeable, transactionally committed audit record with an explicit rationale (at least 3 characters for corrections).
+  - **No Tampering with Teacher Corrections**: When a teacher reviews a paper sheet or competition drill and inputs an authoritative score correction, permitting a student to subsequently overwrite or re-submit that row would destroy the instructor's assessment. Once corrected, the row belongs to the academic record and cannot be mutated by the student.
+  - **Editable Flagged Entries**: Flagging (`flagged = true`, `flag_note`) is intentionally non-locking; it serves as a coaching prompt ("Your teacher asked you to check this entry"), keeping the row editable so the student can re-check their worksheet, correct any typo, and re-save.
+- **Trade-off**: Requires dedicated RPC definitions in SQL rather than relying purely on generic PostgREST table endpoints.
+- **Rejected Options**: Direct client updates, optional audit logging, allowing students to overwrite teacher corrections.
+

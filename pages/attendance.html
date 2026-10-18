@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Attendance Management &mdash; Trendz Tracker</title>
+    <meta name="description" content="Manage class and workshop attendance sessions and student attendance records." />
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="app-layout">
+      <!-- App Header -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <!-- Zone 1: Wordmark & Brand -->
+          <a href="/pages/admin.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <!-- Zone 2: Navigation Links (Exact Required Order) -->
+          <nav class="nav-zone" aria-label="Admin Navigation">
+            <a href="/pages/admin.html" class="nav-link">Overview</a>
+            <a href="/pages/review.html" class="nav-link">Review</a>
+            <a href="/pages/students.html" class="nav-link">Students</a>
+            <a href="/pages/attendance.html" class="nav-link active">Attendance</a>
+            <a href="/pages/todos.html" class="nav-link">Daily To-Do</a>
+            <a href="/pages/resources.html" class="nav-link">Resources</a>
+            <a href="/pages/categories.html" class="nav-link">Categories</a>
+            <a href="/pages/rounds.html" class="nav-link">Rounds</a>
+          </nav>
+
+          <!-- Zone 3: User Details & Logout Action -->
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Admin</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-role" style="color: var(--text-muted);">Teacher</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Page Content -->
+      <main class="main-content">
+        <div class="container">
+          <!-- Demo Mode Alert Placeholder -->
+          <div id="demo-banner-placeholder"></div>
+
+          <!-- Page Heading -->
+          <div class="section-header-row" style="margin-bottom: var(--space-5);">
+            <div>
+              <h1>Attendance Sessions</h1>
+              <p style="font-size: var(--text-sm);">
+                Track attendance for workshops, regular training classes, and competition mock sessions.
+              </p>
+            </div>
+            <button type="button" id="btn-create-session" class="btn btn-primary">
+              + New Session
+            </button>
+          </div>
+
+          <!-- Two-column Layout on Desktop: Sessions List (Left) and Session Marking Grid (Right) -->
+          <div style="display: grid; grid-template-columns: minmax(320px, 380px) 1fr; gap: var(--space-6); align-items: start;" id="attendance-main-layout">
+            
+            <!-- LEFT COLUMN: Sessions List -->
+            <section class="card" style="padding: 0; overflow: hidden;" aria-label="Session List">
+              <div style="padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-hairline); display: flex; justify-content: space-between; align-items: center;">
+                <h2 style="font-size: var(--text-sm); font-weight: 700; margin: 0;">Sessions (Newest First)</h2>
+                <span id="session-count-label" style="font-size: 11px; color: var(--text-muted);">0 sessions</span>
+              </div>
+
+              <div id="sessions-list-container" style="max-height: 640px; overflow-y: auto;">
+                <div class="loading-state" style="padding: var(--space-6); text-align: center;">Loading sessions...</div>
+              </div>
+            </section>
+
+            <!-- RIGHT COLUMN: Session Detail & Student Marking Grid -->
+            <section class="card" id="session-detail-card" style="padding: 0; overflow: hidden;" aria-label="Session Marking">
+              <!-- Empty State when no session is selected -->
+              <div id="session-empty-state" style="padding: var(--space-12); text-align: center;">
+                <div style="font-size: 2.5rem; margin-bottom: var(--space-3);" aria-hidden="true">📅</div>
+                <h3 style="font-size: var(--text-base); font-weight: 700; margin-bottom: var(--space-2);">No Session Selected</h3>
+                <p style="font-size: var(--text-sm); color: var(--text-muted); max-width: 360px; margin: 0 auto;">
+                  Select a session from the list on the left to mark attendance, or create a new session.
+                </p>
+              </div>
+
+              <!-- Active Session Marking UI -->
+              <div id="session-active-state" style="display: none;">
+                <!-- Session Header Box -->
+                <div style="padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border-hairline); background: var(--bg-surface-subtle);">
+                  <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); flex-wrap: wrap;">
+                    <div>
+                      <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: 4px;">
+                        <span id="active-session-type-chip" class="status-chip chip-unverified">class</span>
+                        <span id="active-session-date-display" style="font-size: var(--text-xs); color: var(--text-muted); font-weight: 600;">Date</span>
+                      </div>
+                      <h2 id="active-session-title" style="font-size: 1.15rem; font-weight: 700; margin: 0; color: var(--text-main);">
+                        Session Title
+                      </h2>
+                      <p id="active-session-notes" style="font-size: var(--text-xs); color: var(--text-muted); margin: 4px 0 0; line-height: 1.4;">
+                        Session notes...
+                      </p>
+                    </div>
+                    <div style="display: flex; gap: var(--space-2);">
+                      <button type="button" id="btn-edit-session" class="btn btn-outline btn-sm">
+                        ✏️ Edit Details
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Quick Stats Bar -->
+                  <div style="display: flex; gap: var(--space-4); margin-top: var(--space-3); font-size: var(--text-xs); flex-wrap: wrap;">
+                    <div>Present: <strong id="active-count-present" style="color: #10B981;">0</strong></div>
+                    <div>Absent: <strong id="active-count-absent" style="color: #EF4444;">0</strong></div>
+                    <div>Excused: <strong id="active-count-excused" style="color: #6B7280;">0</strong></div>
+                    <div>Unmarked: <strong id="active-count-unmarked" style="color: #DC2626;">0</strong></div>
+                  </div>
+                </div>
+
+                <!-- Roster Search & Quick Actions -->
+                <div style="padding: var(--space-3) var(--space-5); border-bottom: 1px solid var(--border-hairline); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3);">
+                  <div style="display: flex; gap: var(--space-2); flex: 1; min-width: 200px; max-width: 380px;">
+                    <input
+                      type="text"
+                      id="roster-search-input"
+                      class="form-input"
+                      placeholder="Search students by name, ID or level..."
+                      style="font-size: var(--text-xs); padding: 6px 10px;"
+                    />
+                  </div>
+                  <div style="display: flex; gap: var(--space-2);">
+                    <button type="button" id="btn-mark-all-present" class="btn btn-outline btn-sm" style="font-weight: 600;">
+                      ✓ Mark All Present
+                    </button>
+                    <button type="button" id="btn-save-attendance" class="btn btn-primary btn-sm">
+                      💾 Save Attendance
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Active Students Roster Grid -->
+                <div style="padding: 0; max-height: 540px; overflow-y: auto;">
+                  <table class="table" style="margin: 0;">
+                    <thead>
+                      <tr>
+                        <th style="min-width: 140px;">Student</th>
+                        <th style="width: 80px;">Level</th>
+                        <th style="min-width: 220px; text-align: center;">Status</th>
+                        <th style="min-width: 160px;">Note (Optional)</th>
+                      </tr>
+                    </thead>
+                    <tbody id="attendance-roster-tbody">
+                      <tr>
+                        <td colspan="4" class="loading-state" style="text-align: center; padding: var(--space-6);">
+                          Loading student roster...
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <!-- Bottom Save Bar -->
+                <div style="padding: var(--space-3) var(--space-5); border-top: 1px solid var(--border-hairline); display: flex; justify-content: space-between; align-items: center; background: var(--bg-surface-subtle);">
+                  <div style="font-size: 11px; color: var(--text-muted);" id="save-status-indicator">
+                    Changes will be saved to Supabase with your teacher ID.
+                  </div>
+                  <button type="button" id="btn-save-attendance-bottom" class="btn btn-primary btn-sm">
+                    💾 Save Attendance
+                  </button>
+                </div>
+              </div>
+            </section>
+
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- MODAL: Create / Edit Session -->
+    <div id="session-modal" class="modal-overlay" style="display: none;">
+      <div class="modal-content" style="max-width: 480px;">
+        <div class="modal-header">
+          <h2 class="modal-title" id="session-modal-title">Create Attendance Session</h2>
+          <button type="button" class="btn-modal-close" id="btn-close-session-modal">&times;</button>
+        </div>
+        <form id="session-form">
+          <input type="hidden" id="session-id-input" />
+          
+          <div class="form-group">
+            <label for="session-date-input" class="form-label">Session Date (IST) *</label>
+            <input type="date" id="session-date-input" class="form-input" required />
+          </div>
+
+          <div class="form-group">
+            <label for="session-title-input" class="form-label">Session Title *</label>
+            <input
+              type="text"
+              id="session-title-input"
+              class="form-input"
+              required
+              placeholder="e.g. Sunday Competition Prep Workshop #14"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="session-type-input" class="form-label">Session Type *</label>
+            <select id="session-type-input" class="form-input" required>
+              <option value="class">Class (Regular Training)</option>
+              <option value="workshop">Workshop (Special Topics)</option>
+              <option value="other">Other (Mock Exam / Event)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="session-notes-input" class="form-label">Session Notes (Optional)</label>
+            <textarea
+              id="session-notes-input"
+              class="form-input"
+              rows="3"
+              placeholder="Summary of topics covered, materials used, homework assigned..."
+            ></textarea>
+          </div>
+
+          <div class="modal-footer" style="padding-top: var(--space-3); border-top: 1px solid var(--border-hairline); display: flex; justify-content: flex-end; gap: var(--space-2);">
+            <button type="button" class="btn btn-outline" id="btn-cancel-session-modal">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="btn-submit-session">Save Session</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- MODAL: Unmarked Warning Confirmation -->
+    <div id="unmarked-warning-modal" class="modal-overlay" style="display: none;">
+      <div class="modal-content" style="max-width: 440px;">
+        <div class="modal-header">
+          <h2 class="modal-title" style="color: #DC2626;">⚠️ Unmarked Students Warning</h2>
+          <button type="button" class="btn-modal-close" id="btn-close-warning-modal">&times;</button>
+        </div>
+        <div style="padding: var(--space-3) 0;">
+          <p id="unmarked-warning-body" style="font-size: var(--text-sm); line-height: 1.5; color: var(--text-main);">
+            There are active students without an attendance mark.
+          </p>
+          <p style="font-size: var(--text-xs); color: var(--text-muted); margin-top: var(--space-2);">
+            Unmarked students will not be counted as present, absent, or excused until marked.
+          </p>
+        </div>
+        <div class="modal-footer" style="padding-top: var(--space-3); border-top: 1px solid var(--border-hairline); display: flex; justify-content: flex-end; gap: var(--space-2);">
+          <button type="button" class="btn btn-outline" id="btn-warning-back">Go Back & Mark</button>
+          <button type="button" class="btn btn-primary" id="btn-warning-proceed" style="background-color: #DC2626;">
+            Save Anyway
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/js/attendance.js"></script>
+  </body>
+</html>

@@ -144,6 +144,25 @@ export async function fetchStudentDashboardData(studentId) {
       const demoResults = DemoDB.getResults();
       const matched = demoResults.filter(r => r.student_id === studentId);
       return matched.length > 0 ? matched : demoResults.filter(r => r.student_id === 'usr-101');
+    })(),
+
+    // 7. Authoritative Attendance summary via RPC attendance_summary(p_student, p_from, p_to)
+    (async () => {
+      if (supabase) {
+        try {
+          const { data, error } = await supabase.rpc('attendance_summary', {
+            p_student: studentId,
+            p_from: ninetyDaysAgo,
+            p_to: getISTDateString(new Date())
+          });
+          if (!error && data) {
+            return Array.isArray(data) ? data[0] : data;
+          }
+        } catch {
+          // fall through
+        }
+      }
+      return DemoDB.mockAttendanceSummary(studentId);
     })()
   ]);
 
@@ -154,7 +173,8 @@ export async function fetchStudentDashboardData(studentId) {
     todos: todoRes || [],
     categories: categoriesRes || [],
     resources: resourcesRes || [],
-    results: resultsRes || []
+    results: resultsRes || [],
+    attendance: attendanceRes || { present_count: 0, absent_count: 0, excused_count: 0, attendance_pct: null }
   };
 }
 

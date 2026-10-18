@@ -121,6 +121,24 @@ The serverless functions in `/api/create-student.js` and `/api/reset-password.js
       - **Client Route Guard**: `pages/admin.html` enforces `requireAuth(['admin'])`, redirecting unauthorized roles immediately to `/pages/student.html` or `/index.html`.
       - **Read-Only Scope**: The overview RPC returns summary monitoring metrics only; it does not expose passwords, session tokens, or sensitive administrative keys.
 
+12. **Student Edits Are Not Logged in `result_audit` (Phase 4a Gap)**:
+    - *Risk*: While students can only edit their own unverified, uncorrected rows, multiple student edits or iterative re-saves of unverified scores do not generate immutable change history snapshots in `result_audit`.
+    - *Why this gap exists*: The `result_audit` table is reserved specifically for administrative actions (`verify`, `unverify`, `flag`, `unflag`, `correct`, `delete`, `admin_insert`) to ensure accountability and audit trails for instructor changes. Logging high-frequency keystroke/row mutations by students during daily practice drills would balloon storage unnecessarily.
+    - *Mitigation in Place*: Once an admin verifies or corrects an entry, the row is permanently stamped and locked, preventing any subsequent student mutations.
+
+13. **Administrators Are Trusted (Phase 4a Gap)**:
+    - *Risk*: Authenticated teachers and institute admins have authority to mark sessions, verify entries, flag scores, and execute corrections. A rogue or negligent administrator could mark inaccurate attendance or incorrectly modify a student's score.
+    - *Why this gap exists*: Abacus mental arithmetic coaching requires teachers to hold authoritative grading discretion over student competition papers and drill sheets.
+    - *Mitigation in Place*: Every administrative mutation is logged to `result_audit` with `changed_by`, `changed_at`, `action`, `old_values`, `new_values`, and mandatory `reason` text (>= 3 chars for corrections). Audit history cannot be altered or deleted by admins from the application.
+
+14. **Unmarked Students Are Invisible to Attendance Percentage (Phase 4a Gap)**:
+    - *Risk*: If a teacher creates an attendance session and leaves some active students unmarked (neither Present, Absent, nor Excused), those students are not factored into the `attendance_summary` calculation.
+    - *Why this gap exists*: The mathematical contract defined in `attendance_summary(p_student, p_from, p_to)` calculates `attendance_pct = (present_count / (present_count + absent_count)) * 100.0`. A student with no record in `attendance` for a session has neither a present nor an absent count incremented, so the unrecorded session does not lower their percentage.
+    - *Mitigation in Place*:
+      - The admin attendance dashboard actively calculates and displays an `Unmarked` counter on each session card.
+      - When saving an attendance session with unmarked active students, a prominent confirmation warning modal alerts the teacher: *"There are N active students without an attendance mark. Unmarked students will not be recorded."*
+
+
 
 
 

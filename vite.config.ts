@@ -49,6 +49,8 @@ export default defineConfig(() => {
           todos: path.resolve(__dirname, 'pages/todos.html'),
           resources: path.resolve(__dirname, 'pages/resources.html'),
           studentDetail: path.resolve(__dirname, 'pages/student-detail.html'),
+          review: path.resolve(__dirname, 'pages/review.html'),
+          attendance: path.resolve(__dirname, 'pages/attendance.html'),
         },
       },
     },

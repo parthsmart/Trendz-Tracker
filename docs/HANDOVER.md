@@ -8,6 +8,28 @@
 
 ## Current Status Overview
 
+### Session: 2026-10-18 (Phase 4a — Admin Entry Review & Audit, Attendance Tracking, Student Notices & Verification Locks)
+
+#### 5-Line Session Summary
+- Built Admin Review view (`/pages/review.html`, `js/review.js`) with 50/page pagination, filters, status chips, audit drawer, bulk verify up to 200 rows, and strict PostgreSQL RPCs (`admin_set_verified`, `admin_set_flag`, `admin_correct_result`).
+- Implemented Admin Attendance system (`/pages/attendance.html`, `js/attendance.js`) with session CRUD, active student grid, Present/Absent/Excused toggles, "Mark all present", unmarked warning confirmation, and atomic upserts.
+- Enforced student-side locks and notices: verified entries show lock icon and are read-only; corrected rows show "Corrected by teacher" and are read-only; flagged entries show "Your teacher asked you to check this entry" with teacher note and remain editable.
+- Added verified (`🔒`) and corrected (`✏️`) visual markers on the dashboard competition score table and integrated the authoritative Attendance card from `attendance_summary` across student and admin views.
+- Synchronized admin navigation order across all 8 pages, confirmed zero new runtime dependencies, updated ADR-021 in `docs/DECISIONS.md`, expanded `docs/DATA.md`, `docs/THREAT.md`, and `docs/TESTING.md`.
+
+---
+
+### Session: 2026-10-18 (Fix: "Failed to execute 'json' on 'Response': Unexpected end of JSON input")
+
+#### 5-Line Session Summary
+- Diagnosed root cause: `proxyFetch` in `js/supabaseClient.js` attempted raw `.json()` parsing on proxy responses without checking for empty body or error status envelopes, returning an empty 200 Response to Supabase client when proxy errored.
+- Implemented safe JSON response envelope unwrapping using `response.text()` with fallback error status codes and JSON error bodies.
+- Handled empty upstream bodies on non-204 responses by supplying `'null'` for `application/json` content-types instead of empty strings, preventing SyntaxError in `@supabase/supabase-js`.
+- Wrapped `Response.prototype.json` inside `smartFetch` via `makeSafeResponse` to gracefully return `null` on empty or unexpected EOF responses across both direct and proxy transport.
+- Hardened `js/config.js` and `js/api.js` to safely inspect text before JSON parsing, eliminating unhandled JSON parse exceptions.
+
+---
+
 ### Session: 2026-10-17 (Phase 3b-2 — Read-Only Student Detail, 7-Day & 4-Week Progress Charts, Score Table Pagination)
 
 #### 5-Line Session Summary

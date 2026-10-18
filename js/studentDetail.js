@@ -18,6 +18,7 @@ import {
   renderTodoList,
   renderBasicsThisWeek,
   renderResources,
+  renderAttendanceCard,
   setupScoreSheetController,
   setupProgressChartsController
 } from './dashboardComponents.js';
@@ -75,6 +76,9 @@ async function initStudentDetail() {
 
     // Basics this week
     renderBasicsThisWeek(data.results, data.categories, data.todayIST);
+
+    // Attendance Card (Phase 4a)
+    renderAttendanceCard(data.attendance, 'attendance-card-container');
 
     // Resources
     renderResources(data.resources);
@@ -134,6 +138,11 @@ function renderStudentDetails(profile) {
       statusEl.className = 'badge badge-inactive';
       statusEl.textContent = 'Deactivated';
     }
+  }
+
+  const reviewBtn = document.getElementById('btn-review-entries');
+  if (reviewBtn) {
+    reviewBtn.href = `/pages/review.html?studentId=${encodeURIComponent(profile.id)}`;
   }
 }
 

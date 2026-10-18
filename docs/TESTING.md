@@ -483,5 +483,142 @@ This document contains step-by-step test scenarios to verify security boundaries
   - In Resources table and Daily To-Do table with 0 items or no search matches:
     - Verify empty state spans all columns (`colspan="6"` or `colspan="7"`) centered in the table without squeezing into the first column.
 
+---
+
+### Test Case 27: Admin Review, Verification, Flagging, Correction & Audit History (Phase 4a)
+- **Objective**: Verify that `/pages/review.html` correctly displays paginated student practice entries, enforces default unverified filtering, executes atomic verification/flagging/corrections through PostgreSQL RPCs, renders change history in the audit drawer, supports bulk verification up to 200 rows, and allows deep linking from the student detail page.
+- **Test 27.1: Navigation & Admin Route Guard**:
+  - Log in as Student `STU101`. Navigate to `/pages/review.html`.
+  - Expected Result: Guard intercepts the attempt and immediately redirects to `/pages/student.html`.
+  - Log in as Admin `ADMIN01`. Click **Review** in the top navigation bar.
+  - Expected Result: Nav bar shows exact required order (`Overview`, `Review` [active], `Students`, `Attendance`, `Daily To-Do`, `Resources`, `Categories`, `Rounds`). Page loads with default filter `Unverified`.
+- **Test 27.2: Server-Side Paginated Entry List & Filtering**:
+  - Verify table displays 50 entries per page, newest first.
+  - Check that each row displays: Student name & code, Category name & section, Round number / drill label, Score (correct/total) with wrong count badge colored by `js/scoreColors.js`, Time (mm:ss), Entry date in IST, Saved timestamp in IST, and Status chips (`🔒 Verified`, `✏️ Corrected`, `⚠️ Flagged`, or `Unverified`).
+  - Search by student name (e.g. "Aarav") or ID ("STU101"): table updates immediately.
+  - Filter by Section (e.g. "Basics Speed Drills"): category dropdown repopulates with matching categories only.
+  - Filter by Status: switch between `Unverified`, `Verified`, `Flagged`, and `Corrected`.
+- **Test 27.3: Single Verification and Unverification**:
+  - On an unverified row, click **✓ Verify**.
+  - Modal opens: "Verify Practice Entry" with default reason "Verified by teacher".
+  - Click **Confirm**: invokes `admin_set_verified(p_ids, true, reason)`. Green toast appears: "1 entry verified."
+  - Switch filter to `Verified`: row now displays `🔒 Verified` status chip and action button toggles to **Unverify**.
+  - Click **Unverify**: confirms reason "Verification revoked by teacher". Invokes `admin_set_verified(p_ids, false, reason)`.
+- **Test 27.4: Flagging with Teacher Note and Unflagging**:
+  - Click **⚑ Flag** on a row.
+  - Modal opens with textarea for note. Type: `"Please re-check your subtraction carrying on problem 7"`.
+  - Submit: invokes `admin_set_flag(p_id, true, note)`. Toast confirms: "Entry flagged for student review."
+  - Row displays `⚠️ Flagged` badge with note tooltip.
+  - Click **Unflag**: confirms removal of flag. Invokes `admin_set_flag(p_id, false, null)`.
+- **Test 27.5: Score Correction with Reason Validation**:
+  - Click **✏️ Correct** on a row.
+  - Modal opens pre-populated with correct answers, total, time, and student/category info.
+  - Test validation 1: Enter correct = 25, total = 20. Submit.
+    - Expected Result: Error toast: `"Correct answers cannot exceed total attempted."` Submission blocked.
+  - Test validation 2: Enter correct = 18, total = 20, time = `01:45`, note = `"Teacher re-graded worksheet"`, leave reason empty. Submit.
+    - Expected Result: Error toast: `"Audit reason must be at least 3 characters."` Submission blocked.
+  - Enter reason: `"Verified with physical competition paper"`. Submit.
+  - Expected Result: Invokes `admin_correct_result(p_id, 18, 20, 105, note, reason)`. Toast confirms correction. Row displays `✏️ Corrected` chip.
+- **Test 27.6: Audit Trail Drawer (`result_audit`)**:
+  - Click **📜** (History icon) on the corrected entry.
+  - Audit drawer slides in from the right.
+  - Verify it renders the list of changes in reverse chronological order:
+    - Action badge (`Correct`, `Verify`, `Flag`).
+    - Admin name who made the change.
+    - Date and time in IST.
+    - Rationale callout: `"Reason: Verified with physical competition paper"`.
+    - Diff table displaying previous vs new values for `correct`, `total`, `time_seconds`, `note`, `corrected_at`.
+- **Test 27.7: Bulk Verify (Up to 200 Entries)**:
+  - Check the header checkbox or click **Select All Page**: all 50 checkboxes on the page check.
+  - Bottom floating bulk bar appears: `"50 entries selected"`.
+  - Click **✓ Bulk Verify (50)**.
+  - Confirmation modal opens: `"Bulk Verify 50 Entries - Are you sure you want to verify all 50 selected practice entries?"`.
+  - Click Confirm: invokes `admin_set_verified(p_ids, true, reason)` in one call. Toast confirms 50 entries verified.
+  - Selection clears and bulk action bar hides.
+- **Test 27.8: Deep Link from Student Detail Page**:
+  - Navigate to `/pages/student-detail.html?id=usr-101`.
+  - In the teacher banner at the top, click **🔍 Review entries**.
+  - Expected Result: Opens `/pages/review.html?studentId=usr-101` with student search pre-filled to `usr-101`.
+
+---
+
+### Test Case 28: Student-Side Locks & Notices, Dashboard Markers & Attendance Card (Phase 4a)
+- **Objective**: Verify that students see lock icons on verified entries, "Corrected by teacher" on corrected entries, active coach notes on flagged entries, cell markers on the dashboard matrix, and the attendance summary card.
+- **Test 28.1: Round Scores Screen (`/pages/round-scores.html`)**:
+  - Log in as Student `STU101`. Navigate to `/pages/round-scores.html`. Select Round 244.
+  - For a verified category:
+    - Input fields for correct, total, time, and note are `disabled` / `readonly`.
+    - Status badge shows `🔒 Verified`.
+    - Background has subtle locked tint. Row cannot be edited or submitted.
+  - For a corrected category:
+    - Input fields are `disabled` / `readonly`.
+    - Status badge shows `✏️ Corrected by teacher`. Row cannot be overwritten by student.
+  - For a flagged category:
+    - Input fields remain fully enabled and editable.
+    - Status column prominently displays: `⚠️ Your teacher asked you to check this entry` along with the teacher's note.
+    - Student edits numbers, clicks **Save Round Scores**: save succeeds, allowing student to fix their typo.
+- **Test 28.2: Basics Screen (`/pages/basics.html`)**:
+  - Navigate to `/pages/basics.html`.
+  - In the drills list:
+    - Verified drill shows `🔒 Verified` lock indicator; Edit and Delete buttons are absent.
+    - Corrected drill shows `✏️ Corrected by teacher`; Edit and Delete buttons are absent.
+    - Flagged drill shows `⚠️ Your teacher asked you to check this entry: <note>`; Edit and Delete buttons remain available.
+- **Test 28.3: Dashboard Score Table Cell Markers**:
+  - Navigate to Student Home (`/pages/student.html`). Scroll to **Competition Round Score Sheet**.
+  - Inspect matrix cells:
+    - Verified cells show score with small lock marker `🔒`.
+    - Corrected cells show score with small pencil marker `✏️`.
+- **Test 28.4: Attendance Summary Card**:
+  - On Student Home (`/pages/student.html`), locate the **Attendance** card.
+  - Verify card displays:
+    - Overall attendance percentage (e.g. `88%`).
+    - Present count, Absent count, Excused count.
+    - Footnote: *"Excused sessions are not counted."*
+  - Navigate to Admin Student Detail (`/pages/student-detail.html?id=usr-101`).
+  - Verify the exact same Attendance card renders with student `usr-101`'s authoritative data from `attendance_summary`.
+
+---
+
+### Test Case 29: Admin Attendance Management (`/pages/attendance.html`)
+- **Objective**: Verify session creation, editing, active student roster grid, attendance status toggles, "Mark all present", unmarked warnings, and search/filtering.
+- **Test 29.1: Admin Navigation & Route Guard**:
+  - Access `/pages/attendance.html` as Student: blocked and redirected.
+  - Access as Admin: Nav bar highlights `Attendance` in 4th position.
+- **Test 29.2: Sessions List & Metrics**:
+  - Left panel lists sessions in reverse chronological order.
+  - Each item displays: Date (IST), Title, Session Type chip, and badge counts: `Present`, `Absent`, `Excused`, and `Unmarked`.
+- **Test 29.3: Create and Edit Session Modal**:
+  - Click **+ New Session**.
+  - Modal opens: Date (pre-filled with today in IST), Title, Session Type (`Class`, `Workshop`, `Other`), Notes.
+  - Enter: Title = `"Championship Mock Exam #4"`, Type = `"Workshop"`, Notes = `"Paper 1 and Paper 2"`.
+  - Submit: Session created. Selected in left panel and details load in right panel.
+  - Click **✏️ Edit**: change title to `"Championship Mock Exam #4 (Revised)"`. Save: session details update.
+  - Verify no Delete button exists in Phase 4a.
+- **Test 29.4: Active Students Roster Grid & Toggles**:
+  - Right panel displays a row for every active student in the institute.
+  - Each student row displays Name, Code, Level, Present/Absent/Excused toggle buttons, and an optional note input.
+  - If no status is selected, row shows `Not marked`.
+  - Click **✓ Present**: button highlights green, `Not marked` disappears, top Present counter increments.
+  - Click **✗ Absent**: button highlights red, Absent counter increments.
+  - Click **Ex Excused**: button highlights gray, Excused counter increments.
+  - Type note: `"Arrived 15 minutes late due to traffic"`.
+- **Test 29.5: "Mark All Present" Bulk Action**:
+  - Click **✓ Mark All Present**.
+  - Expected Result: Every active student in the roster is toggled to `Present`. Top Present count equals active students count. Unmarked count drops to 0. Toast confirms action.
+- **Test 29.6: Unmarked Students Warning Before Save**:
+  - Deselect marks for 2 students so they show `Not marked`.
+  - Click **Save Attendance**.
+  - Modal opens: `"Unmarked Students Warning - There are 2 active students without an attendance mark."`
+  - Click **Go Back & Review**: modal closes without saving.
+  - Click **Save Attendance** again, then click **Proceed & Save**:
+    - Invokes upsert on `attendance` with `(session_id, student_id)`.
+    - `marked_by` is stamped with the authenticated admin ID.
+    - Toast confirms: `"Attendance saved successfully for N students."`
+- **Test 29.7: Roster Search & Filter**:
+  - Type `"Level 3"` in search box: grid instantly filters to students in Level 3.
+  - Type a student ID (e.g. `"STU102"`): grid shows only Diya Patel.
+  - Clear search: full active student roster restored.
+
+
 
 

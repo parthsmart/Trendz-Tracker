@@ -36,9 +36,16 @@ export async function createStudent(data) {
     body: JSON.stringify(data)
   });
 
-  const result = await response.json();
-  if (!response.ok || !result.success) {
-    throw new Error(result.error || 'Failed to create student account');
+  let result = null;
+  const rawText = await response.text();
+  try {
+    result = rawText && rawText.trim() ? JSON.parse(rawText) : null;
+  } catch {
+    result = null;
+  }
+
+  if (!response.ok || !result || !result.success) {
+    throw new Error(result?.error || `Failed to create student account (Status ${response.status})`);
   }
 
   return result.student;
@@ -77,9 +84,16 @@ export async function resetStudentPassword(studentId, newPassword) {
     })
   });
 
-  const result = await response.json();
-  if (!response.ok || !result.success) {
-    throw new Error(result.error || 'Failed to reset password');
+  let result = null;
+  const rawText = await response.text();
+  try {
+    result = rawText && rawText.trim() ? JSON.parse(rawText) : null;
+  } catch {
+    result = null;
+  }
+
+  if (!response.ok || !result || !result.success) {
+    throw new Error(result?.error || `Failed to reset password (Status ${response.status})`);
   }
 
   return true;

@@ -315,6 +315,57 @@ export function renderResources(resourcesList = [], containerId = 'resources-con
 
 /**
  * --------------------------------------------------------------------------
+ * 4.5 Attendance Summary Card
+ * Displays attendance percentage, present, absent, excused counts from RPC attendance_summary
+ * "Excused sessions are not counted"
+ * --------------------------------------------------------------------------
+ */
+export function renderAttendanceCard(summary, containerId = 'attendance-card-container') {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const pct = summary && summary.attendance_pct !== null && summary.attendance_pct !== undefined
+    ? Number(summary.attendance_pct)
+    : null;
+  const pctDisplay = pct !== null ? `${Math.round(pct)}%` : '—';
+  const present = summary?.present_count ?? 0;
+  const absent = summary?.absent_count ?? 0;
+  const excused = summary?.excused_count ?? 0;
+
+  let colorVar = 'var(--text-main)';
+  if (pct !== null) {
+    if (pct >= 85) colorVar = 'var(--color-score-perfect)';
+    else if (pct >= 70) colorVar = 'var(--color-primary)';
+    else colorVar = 'var(--color-score-warning)';
+  }
+
+  container.innerHTML = `
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-2); margin-bottom: var(--space-3); text-align: center;">
+      <div style="padding: var(--space-2); background: var(--bg-surface-subtle); border-radius: var(--radius-sm); border: 1px solid var(--border-hairline);">
+        <div style="font-size: 1.25rem; font-weight: 700; color: ${colorVar};">${pctDisplay}</div>
+        <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; font-weight: 600; margin-top: 2px;">Attendance</div>
+      </div>
+      <div style="padding: var(--space-2); background: var(--bg-surface-subtle); border-radius: var(--radius-sm); border: 1px solid var(--border-hairline);">
+        <div style="font-size: 1.25rem; font-weight: 700; color: #10B981;">${present}</div>
+        <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; font-weight: 600; margin-top: 2px;">Present</div>
+      </div>
+      <div style="padding: var(--space-2); background: var(--bg-surface-subtle); border-radius: var(--radius-sm); border: 1px solid var(--border-hairline);">
+        <div style="font-size: 1.25rem; font-weight: 700; color: #EF4444;">${absent}</div>
+        <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; font-weight: 600; margin-top: 2px;">Absent</div>
+      </div>
+      <div style="padding: var(--space-2); background: var(--bg-surface-subtle); border-radius: var(--radius-sm); border: 1px solid var(--border-hairline);">
+        <div style="font-size: 1.25rem; font-weight: 700; color: #6B7280;">${excused}</div>
+        <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; font-weight: 600; margin-top: 2px;">Excused</div>
+      </div>
+    </div>
+    <p style="font-size: 11px; color: var(--text-muted); margin: 0; line-height: 1.4;">
+      <em>Excused sessions are not counted.</em>
+    </p>
+  `;
+}
+
+/**
+ * --------------------------------------------------------------------------
  * 5. Competition Round Score Sheet Matrix with 5-Round Pagination
  * --------------------------------------------------------------------------
  */
@@ -408,9 +459,20 @@ export function setupScoreSheetController({
               return `<td style="color: var(--text-dim);">—</td>`;
             }
             const feedback = getScoreFeedback(cell.correct, cell.total);
+            const verifiedMarker = cell.isVerified
+              ? `<span title="Verified by teacher" style="font-size: 10px; margin-left: 2px;">🔒</span>`
+              : '';
+            const correctedMarker = cell.isCorrected
+              ? `<span title="Corrected by teacher" style="font-size: 10px; margin-left: 2px; color: var(--color-primary);">✏️</span>`
+              : '';
+
             return `
               <td style="color: ${feedback.colorVar}; background-color: ${feedback.bgVar};">
-                <div style="font-weight: 700;">${cell.correct}/${cell.total}</div>
+                <div style="font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 2px;">
+                  <span>${cell.correct}/${cell.total}</span>
+                  ${verifiedMarker}
+                  ${correctedMarker}
+                </div>
                 <div style="font-size: 10px; color: var(--text-dim);">${cell.formattedTime}</div>
               </td>
             `;

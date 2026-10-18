@@ -439,6 +439,10 @@ export function buildRoundScoreMatrix(results = [], categories = [], roundNumber
           total,
           timeSeconds,
           formattedTime: timeSeconds !== null ? formatSecondsToTime(timeSeconds) : '—',
+          isVerified: !!entry.verified_at || !!entry.verified_by || entry.verified === true,
+          isCorrected: !!entry.corrected_at || !!entry.corrected_by,
+          isFlagged: entry.flagged === true,
+          flagNote: entry.flag_note || '',
           hasData: true
         };
       }

@@ -19,6 +19,7 @@ import {
   renderTodoList,
   renderBasicsThisWeek,
   renderResources,
+  renderAttendanceCard,
   setupScoreSheetController,
   setupProgressChartsController
 } from './dashboardComponents.js';
@@ -57,6 +58,9 @@ async function initStudentDashboard() {
 
     // Basics This Week
     renderBasicsThisWeek(data.results, data.categories, data.todayIST);
+
+    // Attendance Card (Phase 4a)
+    renderAttendanceCard(data.attendance, 'attendance-card-container');
 
     // Learning Resources
     renderResources(data.resources);
