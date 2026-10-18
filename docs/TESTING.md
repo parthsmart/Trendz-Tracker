@@ -619,6 +619,102 @@ This document contains step-by-step test scenarios to verify security boundaries
   - Type a student ID (e.g. `"STU102"`): grid shows only Diya Patel.
   - Clear search: full active student roster restored.
 
+---
+
+### Test Case 30: Unified Modal Component Audit & Attendance Modal Fix (Phase 4b)
+- **Objective**: Verify that all modals on `/pages/attendance.html` and across all admin and student pages render centered with a backdrop overlay, max-width 560px, close button, Escape key handling, and focus management.
+- **Steps**:
+  1. Log in as Admin and open `/pages/attendance.html`.
+  2. Inspect the page before clicking any button: verify the "Create Attendance Session" form is completely hidden (`display: none`).
+  3. Click **+ New Session**:
+     - Verify the modal opens centered in the viewport with a dimmed backdrop overlay (`max-width: 560px`), styled inputs, large `✕` close button, and right-aligned `Cancel` / `Save Session` buttons.
+  4. Press `Escape`: verify the modal closes and returns focus to the **+ New Session** trigger button.
+  5. Repeat modal open/close checks on `/pages/targets.html`, `/pages/weekly-tests.html`, `/pages/review.html`, `/pages/students.html`, `/pages/todos.html`, `/pages/resources.html`, `/pages/categories.html`, `/pages/rounds.html`, and `/index.html`.
+
+---
+
+### Test Case 31: Admin Basics Targets (`/pages/targets.html`) & `results_with_target` Badges (Phase 4b)
+- **Objective**: Verify creating, editing, and deactivating default and per-level basics target rules, and displaying `meets_target` chips from `results_with_target`.
+- **Steps**:
+  1. Log in as Admin and navigate to **Setup ▾ → Targets** (`/pages/targets.html`).
+  2. Verify only `basics` section categories (`1d4r`, `2d2r`) are listed in `sort_order`.
+  3. Click **+ Add Target Rule**:
+     - Select category `1d4r`, leave Level empty (default rule), enter Min Accuracy `90`, Max Time `2:00`, and save.
+     - Verify rule displays as `"Accuracy at least 90% and time at most 2:00"`.
+  4. Add a level-specific rule for `1d4r` with Level `Level 2`, Min Accuracy `95`, Max Time `1:30`.
+  5. Log in as Student and open `/pages/basics.html`:
+     - Select `1d4r`: verify the student's applicable target benchmark is displayed above the form (`"Target: 90% accuracy in 2:00 or less"` or their level-specific rule).
+     - Inspect saved drill rows: verify each row with an active target shows `🎯 Target met` or `⚠️ Below target` directly from `results_with_target.meets_target`.
+  6. Open `/pages/student.html` and `/pages/review.html`:
+     - Verify **Basics This Week** shows `🎯 X of Y met target` and Review rows display target badges.
+
+---
+
+### Test Case 32: Admin Weekly Tests (`/pages/weekly-tests.html`) & Student Weekly Tests Card (Phase 4b)
+- **Objective**: Verify creating weekly tests, recording official teacher test scores by section-grouped category, keyboard navigation, and rendering the last 3 weekly tests on student dashboards.
+- **Steps**:
+  1. Log in as Admin and click **Weekly Tests** in the top navigation bar (`/pages/weekly-tests.html`).
+  2. Click **+ New Weekly Test**:
+     - Verify Date defaults to `today_ist()`. Enter Title `"Weekly Speed & Accuracy Sprint #43"`, Notes `"Basics & mental check"`, and click **Save Test**.
+  3. In the right panel, inspect the **Category** dropdown:
+     - Verify categories are grouped by `<optgroup>` with `⚡ Basics Track` first, never mixing sections in a flat list.
+  4. Enter scores for active students:
+     - Type `Correct: 19`, press `Enter` -> focus moves to `Total`. Type `20`, press `Enter` -> focus moves to `Time`. Type `1:35`, press `Enter` -> focus moves to the next student's `Correct` input.
+     - Verify live wrong badge (`1 wrong`) and summary counter (`"N of M students entered"`).
+     - Test validation: enter `Correct: 22`, `Total: 20` and click **Save Scores** -> verify error toast blocks saving.
+  5. Save valid scores: verify rows show `"Entered by teacher"` and empty rows remain `"Not entered"`.
+  6. Open `/pages/student.html` (as student) and `/pages/student-detail.html?id=usr-102` (as admin):
+     - Verify the **Weekly Tests** card displays the student's last 3 tests with date, title, category scores, accuracy %, time, and overall accuracy across those 3 tests.
+
+---
+
+### Test Case 33: Admin CSV Score Sheet Import Preview & Parser Unit Tests (Phase 4c-1)
+- **Objective**: Verify the pure hand-written CSV parser via `node:test` and test the read-only Admin Import Preview page (`/pages/import.html`).
+- **Part A — Automated Node Test Suite**:
+  1. Run `node --test tests/importParser.test.js` in the terminal.
+  2. **Expected Result**: All 8 unit test suites pass (`0 fail`), verifying:
+     - `colLabel(0) = 'A'`, `colLabel(25) = 'Z'`, `colLabel(26) = 'AA'`, `colLabel(153) = 'EX'`, and `cellRef(9, 14) = 'O10'`.
+     - RFC-4180 CSV parsing with UTF-8 BOM, quoted fields, escaped quotes (`""`), newlines inside quotes, CRLF, and ragged rows.
+     - Synthetic 2-block fixture: Block 1 (2 rounds + ignored `Round0` info at `C2`), Block 2 (3 rounds), `"NEW SIMULATOR"` hint at `H1` (not auto-assigned), built-in aliases (`"Calender"` -> `"Calendar"`, `"Time Elapse"` -> `"Time Elapsed"`), unmatched `"Currency"`, dots-only `D9` skipped as empty, plain number time `"75"` at `E5` flagged unreadable, Surprise Task ratio `379/384` included in round sum, Surprise Task text note stored as `note`, stray `"94/231"` at `O10` flagged and excluded from totals, `Time Taken` `"1:08:37"` = `4117s` and `"Without Time"` = `null`, and Block 2 Round 1 `Final Score` mismatch (`Sheet: 250, Computed: 255, Diff: +5`).
+     - Edge cases: `"95/90"` unreadable score -> `INCOMPLETE` cross-checks, missing round headers error, out-of-order round dates warning, duplicate dates info, and mixed date formats (`21/8/26` + `8/21/26`) error under Auto.
+- **Part B — Browser Preview UI (`/pages/import.html`)**:
+  1. Log in as Admin (`ADMIN01` / `admin123`) and click **Setup ▾ → Import** (`/pages/import.html`).
+  2. Verify the privacy notice reads: `"The file is read in your browser and is not uploaded."`
+  3. Search for a student by name or ID (`STU101`) in Step 1 and select them.
+  4. Select a `.csv` file (or click **Load Sample 2-Block CSV** in Demo Mode).
+  5. Verify Step 2 displays:
+     - **Needs Attention** panel at the top listing the Block 2 Round 1 `Final Score` mismatch (`Sheet: 250, Sum of correct: 255, Diff: +5`), the stray value `"94/231"` at `O10`, the unreadable time `"75"` at `E5`, the unmatched category `"Currency"` at `B7`, and the ignored `Round0` at `C2`.
+     - **Summary Cards**: `2 Blocks · 5 Rounds`, date ranges per block, cell status counts (`22 OK · 2 Empty · 1 Unreadable · 1 Stray · 1 Note`), and student name comparison.
+     - **Per-Block Inspector**: editable Series Name (`Block 1 (left)`, `Block 2`), clickable `"NEW SIMULATOR" (H1)` hint, Category Mapping dropdown for `"Currency"`, Absent DB Categories info box, Round-by-Round table with interactive Cross-Check chips, and expandable **Cells (5) ▾** drawer showing cell coordinates (`D5`, `E5`, `D9`, `O10`).
+     - **Bottom Bar**: active **Start over** button and disabled **Import** button (`"Import is added in the next step"`).
+
+---
+
+### Test Case 34: Admin CSV Import Part 2A — Simulator per Block, Category Resolution & Existing Data Comparison (Phase 4c-2a)
+- **Objective**: Verify simulator series suggestions and confirmation per block, duplicate series blocking, 3-tier category resolution (`category_aliases` -> built-in aliases -> exact match), series membership checks (`category_series`), and read-only comparison against `student_rounds` and `results`.
+- **Part A — Automated Node Test Suite**:
+  1. Run `node --test tests/importParser.test.js tests/importResolver.test.js` in the terminal.
+  2. **Expected Result**: All unit tests in both files pass (`0 fail`).
+- **Part B — Browser Preview UI (`/pages/import.html`)**:
+  1. Log in as Admin (`ADMIN01` / `admin123`) and navigate to **Setup ▾ → Import** (`/pages/import.html`).
+  2. Select student **Aarav Sharma (`STU101`)** in Step 1 and click **Load Sample 2-Block CSV** (or select a 2-block `.csv` file).
+  3. **Simulator per Block**:
+     - Verify Block 1 pre-selects **Old simulator (Suggested)** (because it contains `Currency`), shows `Round Range: Rounds 1–2 (2 rounds)` and `Date Range: 17 Aug 2026 – 21 Aug 2026`, and displays `Suggestion (Unconfirmed): Old simulator`.
+     - Verify Block 2 pre-selects **New simulator (Suggested)** (because it contains `HCF and LCM` and `Approximation`), shows `File Label Hint: "NEW SIMULATOR" (H1)`, `Round Range: Rounds 1–3 (3 rounds)`, and `Date Range: 18 Aug 2026 – 20 Aug 2026`.
+     - Click **Confirm Series** on Block 1 and Block 2 -> verify the unconfirmed series blocking errors clear and badges turn green (`✓ Confirmed`).
+     - Change Block 2's dropdown to **Old simulator** -> verify a blocking error appears (`"Blocking error: Block 1 and Block 2 cannot use the same simulator series"`). Change Block 2 back to **New simulator** and confirm.
+  4. **Category Resolution per Block**:
+     - Verify `ADD`, `SUB`, `Currency`, `HCF and LCM`, `Approximation`, and `Surprise Task` show `3. Exact Match` and `✓ In Old simulator (#...)` / `✓ In New simulator (#...)`.
+     - Verify `Calender` (Block 1) and `Time Elapse` (Block 2) show `2. Built-in Alias` (`→ Calendar`, `→ Time Elapsed`).
+     - Verify the informational box below each block lists the categories from that block's selected simulator series that are absent from the block (ordered by `category_series.sort_order`).
+  5. **Comparison with Existing Data**:
+     - Inspect the **Comparison with Existing Database Records** summary panel and the **DB Comparison** column in each block's round table.
+     - Expand **Cells (5) ▾** on rounds in Block 1 and Block 2: verify side-by-side `In CSV Sheet` vs `Existing in Database` values, including `Identical in DB`, `New Score`, `Conflict (score, time)`, `Protected (🔒 Verified — Keep DB)`, `Protected (✏️ Corrected — Keep DB)`, and `In DB Only (Kept)`.
+     - Switch student in Step 1 to **Ananya Iyer (`STU104`)** -> verify all 5 rounds across both blocks update immediately to `NEW ROUND`.
+     - Confirm the **Import** button remains `disabled` throughout (`"Import is added in the next step"`).
+
+
+
 
 
 

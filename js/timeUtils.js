@@ -25,7 +25,7 @@ export function parseTimeToSeconds(input) {
   const str = String(input).trim();
   if (!str) return null;
 
-  // Pattern 1: mm:ss or m:ss (e.g. "2:07" or "0:45" or "12:30")
+  // Pattern 1: mm:ss, m:ss, or h:mm:ss (e.g. "2:07", "0:45", "1:08:37")
   if (str.includes(':')) {
     const parts = str.split(':');
     if (parts.length === 2) {
@@ -34,12 +34,25 @@ export function parseTimeToSeconds(input) {
       if (!isNaN(minutes) && !isNaN(seconds) && minutes >= 0 && seconds >= 0 && seconds < 60) {
         return minutes * 60 + seconds;
       }
+      return null;
+    } else if (parts.length === 3) {
+      const hours = parseInt(parts[0], 10);
+      const minutes = parseInt(parts[1], 10);
+      const seconds = parseInt(parts[2], 10);
+      if (
+        !isNaN(hours) && !isNaN(minutes) && !isNaN(seconds) &&
+        hours >= 0 && minutes >= 0 && minutes < 60 && seconds >= 0 && seconds < 60
+      ) {
+        return hours * 3600 + minutes * 60 + seconds;
+      }
+      return null;
     }
+    return null;
   }
 
   // Pattern 2: Raw seconds (e.g. "127")
   const rawNum = parseInt(str, 10);
-  if (!isNaN(rawNum) && rawNum >= 0) {
+  if (!isNaN(rawNum) && rawNum >= 0 && /^\d+$/.test(str)) {
     return rawNum;
   }
 
@@ -47,8 +60,8 @@ export function parseTimeToSeconds(input) {
 }
 
 /**
- * Formats integer seconds into mm:ss display string.
- * E.g. 127 -> "2:07", 65 -> "1:05", 9 -> "0:09", 0 -> "0:00"
+ * Formats integer seconds into mm:ss (or h:mm:ss if >= 3600) display string.
+ * E.g. 127 -> "2:07", 65 -> "1:05", 4117 -> "1:08:37", 9 -> "0:09", 0 -> "0:00"
  * @param {number|null|undefined} seconds
  * @returns {string}
  */
@@ -58,9 +71,15 @@ export function formatSecondsToMMSS(seconds) {
   }
 
   const totalSec = Math.round(Number(seconds));
-  const mins = Math.floor(totalSec / 60);
+  const hrs = Math.floor(totalSec / 3600);
+  const mins = Math.floor((totalSec % 3600) / 60);
   const secs = totalSec % 60;
   const paddedSecs = secs < 10 ? `0${secs}` : `${secs}`;
+
+  if (hrs > 0) {
+    const paddedMins = mins < 10 ? `0${mins}` : `${mins}`;
+    return `${hrs}:${paddedMins}:${paddedSecs}`;
+  }
 
   return `${mins}:${paddedSecs}`;
 }

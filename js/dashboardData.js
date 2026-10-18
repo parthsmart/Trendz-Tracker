@@ -45,8 +45,13 @@ export async function fetchStudentDashboardData(studentId) {
     streakRes,
     todoRes,
     categoriesRes,
+    roundSeriesRes,
+    categorySeriesRes,
+    studentRoundsRes,
     resourcesRes,
-    resultsRes
+    resultsRes,
+    attendanceRes,
+    weeklyTestsRes
   ] = await Promise.all([
     // 1. Authoritative today in IST via RPC
     (async () => {
@@ -91,21 +96,70 @@ export async function fetchStudentDashboardData(studentId) {
       return await DemoDB.mockTodoFor(studentId);
     })(),
 
-    // 4. Categories table
+    // 4. Categories table (all categories including inactive historical ones so Old simulator rounds display properly)
     (async () => {
       if (supabase) {
         try {
           const { data, error } = await supabase
             .from('categories')
             .select('*')
-            .eq('active', true)
             .order('sort_order', { ascending: true });
           if (!error && data) return data;
         } catch {
           // fall through
         }
       }
-      return DemoDB.getCategories().filter(c => c.active !== false);
+      return DemoDB.getCategories();
+    })(),
+
+    // 4b. Round Series table
+    (async () => {
+      if (supabase) {
+        try {
+          const { data, error } = await supabase
+            .from('round_series')
+            .select('*')
+            .order('sort_order', { ascending: true });
+          if (!error && data) return data;
+        } catch {
+          // fall through
+        }
+      }
+      return DemoDB.getRoundSeries();
+    })(),
+
+    // 4c. Category Series mapping table
+    (async () => {
+      if (supabase) {
+        try {
+          const { data, error } = await supabase
+            .from('category_series')
+            .select('*')
+            .order('sort_order', { ascending: true });
+          if (!error && data) return data;
+        } catch {
+          // fall through
+        }
+      }
+      return DemoDB.getCategorySeries();
+    })(),
+
+    // 4d. Student Rounds table for this student
+    (async () => {
+      if (supabase) {
+        try {
+          const { data, error } = await supabase
+            .from('student_rounds')
+            .select('*')
+            .eq('student_id', studentId)
+            .order('round_number', { ascending: false });
+          if (!error && data) return data;
+        } catch {
+          // fall through
+        }
+      }
+      const matchedRounds = DemoDB.getStudentRounds(studentId);
+      return matchedRounds.length > 0 ? matchedRounds : DemoDB.getStudentRounds('usr-101');
     })(),
 
     // 5. Resources table (active, ordered by sort_order)
@@ -125,25 +179,30 @@ export async function fetchStudentDashboardData(studentId) {
       return DemoDB.getResources().filter(r => r.active !== false);
     })(),
 
-    // 6. Results table (last 90 days for this student)
+    // 6. Results (from results_with_target view for this student)
     (async () => {
       if (supabase) {
         try {
           const { data, error } = await supabase
+            .from('results_with_target')
+            .select('*')
+            .eq('student_id', studentId)
+            .order('created_at', { ascending: false });
+          if (!error && data) return data;
+
+          const { data: fallbackData, error: fallbackErr } = await supabase
             .from('results')
             .select('*')
             .eq('student_id', studentId)
-            .gte('entry_date', ninetyDaysAgo)
             .order('created_at', { ascending: false });
-          if (!error && data) return data;
+          if (!fallbackErr && fallbackData) return fallbackData;
         } catch {
           // fall through
         }
       }
-      // DemoDB results: match studentId or fallback to sample usr-101 results if testing other IDs
-      const demoResults = DemoDB.getResults();
-      const matched = demoResults.filter(r => r.student_id === studentId);
-      return matched.length > 0 ? matched : demoResults.filter(r => r.student_id === 'usr-101');
+      // DemoDB results with target status: match studentId or fallback to sample usr-101 results
+      const matched = DemoDB.getResultsWithTarget(studentId, null);
+      return matched.length > 0 ? matched : DemoDB.getResultsWithTarget('usr-101', null);
     })(),
 
     // 7. Authoritative Attendance summary via RPC attendance_summary(p_student, p_from, p_to)
@@ -163,6 +222,42 @@ export async function fetchStudentDashboardData(studentId) {
         }
       }
       return DemoDB.mockAttendanceSummary(studentId);
+    })(),
+
+    // 8. Weekly Tests & Student's Weekly Test Scores (Phase 4b)
+    (async () => {
+      if (supabase) {
+        try {
+          const [testsQuery, scoresQuery] = await Promise.all([
+            supabase
+              .from('weekly_tests')
+              .select('*')
+              .order('test_date', { ascending: false }),
+            supabase
+              .from('weekly_test_scores')
+              .select('*')
+              .eq('student_id', studentId)
+          ]);
+          if (!testsQuery.error && !scoresQuery.error) {
+            return {
+              tests: testsQuery.data || [],
+              scores: scoresQuery.data || []
+            };
+          }
+        } catch {
+          // fall through
+        }
+      }
+      const demoTests = DemoDB.getWeeklyTests();
+      const testIds = demoTests.map(t => t.id);
+      let demoScores = DemoDB.getStudentWeeklyTestScores(studentId, testIds);
+      if (demoScores.length === 0 && studentId !== 'usr-104') {
+        demoScores = DemoDB.getStudentWeeklyTestScores('usr-102', testIds);
+      }
+      return {
+        tests: demoTests,
+        scores: demoScores
+      };
     })()
   ]);
 
@@ -172,9 +267,13 @@ export async function fetchStudentDashboardData(studentId) {
     streak: streakRes || { current_streak: 0, best_streak: 0, shields: 0, active_today: false },
     todos: todoRes || [],
     categories: categoriesRes || [],
+    roundSeries: roundSeriesRes || [],
+    categorySeries: categorySeriesRes || [],
+    studentRounds: studentRoundsRes || [],
     resources: resourcesRes || [],
     results: resultsRes || [],
-    attendance: attendanceRes || { present_count: 0, absent_count: 0, excused_count: 0, attendance_pct: null }
+    attendance: attendanceRes || { present_count: 0, absent_count: 0, excused_count: 0, attendance_pct: null },
+    weeklyTests: weeklyTestsRes || { tests: [], scores: [] }
   };
 }
 

@@ -290,7 +290,7 @@ export function calculateCategoryHistory(results = [], categoryId = '', limit = 
 
     return {
       id: entry.id,
-      roundNumber: entry.round_number || null,
+      studentRoundId: entry.student_round_id || null,
       date: dateKey,
       displayDate: formatDisplayDateIST(dateKey),
       correct,
@@ -330,7 +330,9 @@ export function calculateBasicsWeeklySummary(results = [], categories = [], toda
         entryCount: 0,
         totalCorrect: 0,
         totalQuestions: 0,
-        totalSeconds: 0
+        totalSeconds: 0,
+        targetMetCount: 0,
+        targetEvaluatedCount: 0
       });
     });
 
@@ -349,6 +351,13 @@ export function calculateBasicsWeeklySummary(results = [], categories = [], toda
       bucket.totalCorrect += correct;
       bucket.totalQuestions += total;
       bucket.totalSeconds += sec;
+
+      if (res.meets_target === true) {
+        bucket.targetMetCount += 1;
+        bucket.targetEvaluatedCount += 1;
+      } else if (res.meets_target === false) {
+        bucket.targetEvaluatedCount += 1;
+      }
     }
   });
 
@@ -372,7 +381,9 @@ export function calculateBasicsWeeklySummary(results = [], categories = [], toda
         avgSpeed,
         totalCorrect: item.totalCorrect,
         totalQuestions: item.totalQuestions,
-        totalSeconds: item.totalSeconds
+        totalSeconds: item.totalSeconds,
+        targetMetCount: item.targetMetCount,
+        targetEvaluatedCount: item.targetEvaluatedCount
       });
     }
   });
@@ -381,78 +392,52 @@ export function calculateBasicsWeeklySummary(results = [], categories = [], toda
 }
 
 /**
- * Builds the 2D sheet score table matrix for a given list of rounds.
- * 
- * Rows: Active round categories in sort_order.
- * Columns: Target round numbers (newest first).
- * 
- * Each cell contains:
- * - correct, total, time_seconds, formattedTime
- * - scoreText (e.g. "18/20")
- * 
+ * Builds the 2D sheet score table matrix for a given list of student_rounds in a series.
+ *
+ * Rows: Categories belonging to that series via category_series, ordered strictly by category_series.sort_order.
+ * Columns: Target student_rounds objects (up to 5 per page, newest first).
+ *
  * Summary rows computed per round column:
- * 1. Time taken (sum of times formatted as mm:ss)
- * 2. Final score (sum of correct)
- * 3. Total attempt (sum of totals)
- * 4. Marks to be corrected (total attempt minus final score)
- * 
- * Also flags isPartial: true if the round has fewer categories entered than total active round categories.
- * 
- * @param {Array<object>} results - All results
- * @param {Array<object>} categories - All categories
- * @param {number[]} roundNumbers - Array of 5 round numbers to display (e.g. [244, 243, 242, 241, 240])
- * @returns {{
- *   roundHeaders: Array<{ roundNumber: number, dateStr: string, displayDate: string, isPartial: boolean, entryCount: number }>,
- *   rows: Array<{
- *     category: object,
- *     cells: Array<{ roundNumber: number, correct: number|null, total: number|null, timeSeconds: number|null, formattedTime: string, hasData: boolean }>
- *   }>,
- *   summary: {
- *     timeTaken: Array<{ roundNumber: number, seconds: number, formatted: string }>,
- *     finalScore: Array<{ roundNumber: number, value: number }>,
- *     totalAttempt: Array<{ roundNumber: number, value: number }>,
- *     marksToCorrect: Array<{ roundNumber: number, value: number }>
- *   }
- * }}
+ * 1. Round Type (`student_rounds.round_type`)
+ * 2. Time taken (`student_rounds.time_taken_seconds` if set, otherwise sum of category `time_seconds`)
+ * 3. Final score (sum of correct)
+ * 4. Total attempt (sum of totals)
+ * 5. Marks to be corrected (total attempt minus final score)
+ *
+ * @param {Array<object>} results - All results for the student
+ * @param {Array<object>} seriesCategories - Categories for the selected series ordered by category_series.sort_order
+ * @param {Array<object>} targetRounds - Array of student_round objects to display as columns
  */
-export function buildRoundScoreMatrix(results = [], categories = [], roundNumbers = []) {
-  // 1. Filter and sort active round categories
-  const roundCategories = categories
-    .filter(c => c.section === 'round' && c.active !== false)
-    .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+export function buildRoundScoreMatrix(results = [], seriesCategories = [], targetRounds = []) {
+  const totalCatCount = seriesCategories.length;
 
-  const totalCatCount = roundCategories.length;
-
-  // 2. Index results by round_number and category_id
-  const roundResultMap = new Map(); // key: `${roundNum}_${catId}`
-  const roundDateMap = new Map(); // key: roundNum -> latest entry date
-  const roundCountMap = new Map(); // key: roundNum -> count of entered categories
+  // Index results by `${student_round_id}_${category_id}`
+  const roundResultMap = new Map();
+  const roundCountMap = new Map(); // student_round_id -> count of entered categories
 
   results.forEach(res => {
-    if (res.round_number) {
-      const rNum = Number(res.round_number);
-      const key = `${rNum}_${res.category_id}`;
+    if (res.student_round_id) {
+      const srId = String(res.student_round_id);
+      const key = `${srId}_${res.category_id}`;
       roundResultMap.set(key, res);
 
-      const curCount = roundCountMap.get(rNum) || 0;
-      roundCountMap.set(rNum, curCount + 1);
-
-      const d = res.entry_date || res.created_at;
-      if (d && (!roundDateMap.has(rNum) || new Date(d) > new Date(roundDateMap.get(rNum)))) {
-        roundDateMap.set(rNum, d);
-      }
+      const curCount = roundCountMap.get(srId) || 0;
+      roundCountMap.set(srId, curCount + 1);
     }
   });
 
-  // 3. Build round header metadata
-  const roundHeaders = roundNumbers.map(rNum => {
-    const rawDate = roundDateMap.get(rNum) || '';
-    const dateKey = getISTDateString(rawDate);
-    const count = roundCountMap.get(rNum) || 0;
+  // Build round header metadata
+  const roundHeaders = targetRounds.map(sr => {
+    const srId = String(sr.id);
+    const dateKey = getISTDateString(sr.round_date || sr.created_at || '');
+    const count = roundCountMap.get(srId) || 0;
     const isPartial = count > 0 && count < totalCatCount;
 
     return {
-      roundNumber: rNum,
+      studentRoundId: srId,
+      roundNumber: sr.round_number,
+      roundType: sr.round_type || 'Category wise',
+      timeTakenSeconds: sr.time_taken_seconds !== undefined && sr.time_taken_seconds !== null ? Number(sr.time_taken_seconds) : null,
       dateStr: dateKey,
       displayDate: formatDisplayDateIST(dateKey),
       isPartial,
@@ -460,36 +445,42 @@ export function buildRoundScoreMatrix(results = [], categories = [], roundNumber
     };
   });
 
-  // 4. Build category rows
-  const rows = roundCategories.map(cat => {
-    const cells = roundNumbers.map(rNum => {
-      const key = `${rNum}_${cat.id}`;
+  // Build category rows
+  const rows = seriesCategories.map(cat => {
+    const cells = targetRounds.map(sr => {
+      const srId = String(sr.id);
+      const key = `${srId}_${cat.id}`;
       const entry = roundResultMap.get(key);
 
       if (entry) {
         const correct = entry.correct !== null && entry.correct !== undefined ? Number(entry.correct) : null;
         const total = entry.total !== null && entry.total !== undefined ? Number(entry.total) : null;
         const timeSeconds = entry.time_seconds !== null && entry.time_seconds !== undefined ? Number(entry.time_seconds) : null;
+        const note = entry.note || null;
 
         return {
-          roundNumber: rNum,
+          studentRoundId: srId,
+          roundNumber: sr.round_number,
           correct,
           total,
           timeSeconds,
+          note,
           formattedTime: timeSeconds !== null ? formatSecondsToTime(timeSeconds) : '—',
           isVerified: !!entry.verified_at || !!entry.verified_by || entry.verified === true,
           isCorrected: !!entry.corrected_at || !!entry.corrected_by,
           isFlagged: entry.flagged === true,
           flagNote: entry.flag_note || '',
-          hasData: true
+          hasData: correct !== null || total !== null || Boolean(note)
         };
       }
 
       return {
-        roundNumber: rNum,
+        studentRoundId: srId,
+        roundNumber: sr.round_number,
         correct: null,
         total: null,
         timeSeconds: null,
+        note: null,
         formattedTime: '—',
         hasData: false
       };
@@ -501,13 +492,14 @@ export function buildRoundScoreMatrix(results = [], categories = [], roundNumber
     };
   });
 
-  // 5. Compute summary rows across each round column
+  // Compute summary rows across each round column
+  const roundTypeRow = [];
   const timeTaken = [];
   const finalScore = [];
   const totalAttempt = [];
   const marksToCorrect = [];
 
-  roundNumbers.forEach((rNum, colIdx) => {
+  targetRounds.forEach((sr, colIdx) => {
     let sumSeconds = 0;
     let sumCorrect = 0;
     let sumTotal = 0;
@@ -523,16 +515,44 @@ export function buildRoundScoreMatrix(results = [], categories = [], roundNumber
       }
     });
 
-    if (hasAnyData) {
-      timeTaken.push({ roundNumber: rNum, seconds: sumSeconds, formatted: formatSecondsToTime(sumSeconds) });
-      finalScore.push({ roundNumber: rNum, value: sumCorrect });
-      totalAttempt.push({ roundNumber: rNum, value: sumTotal });
-      marksToCorrect.push({ roundNumber: rNum, value: Math.max(0, sumTotal - sumCorrect) });
+    roundTypeRow.push({
+      roundNumber: sr.round_number,
+      value: sr.round_type || 'Category wise'
+    });
+
+    // Time Taken: use student_rounds.time_taken_seconds if set, otherwise sum of category times
+    const explicitTime = sr.time_taken_seconds !== null && sr.time_taken_seconds !== undefined
+      ? Number(sr.time_taken_seconds)
+      : null;
+
+    if (explicitTime !== null && !isNaN(explicitTime) && explicitTime >= 0) {
+      timeTaken.push({
+        roundNumber: sr.round_number,
+        seconds: explicitTime,
+        formatted: formatSecondsToTime(explicitTime)
+      });
+    } else if (hasAnyData && sumSeconds > 0) {
+      timeTaken.push({
+        roundNumber: sr.round_number,
+        seconds: sumSeconds,
+        formatted: formatSecondsToTime(sumSeconds)
+      });
     } else {
-      timeTaken.push({ roundNumber: rNum, seconds: 0, formatted: '—' });
-      finalScore.push({ roundNumber: rNum, value: 0 });
-      totalAttempt.push({ roundNumber: rNum, value: 0 });
-      marksToCorrect.push({ roundNumber: rNum, value: 0 });
+      timeTaken.push({
+        roundNumber: sr.round_number,
+        seconds: 0,
+        formatted: '—'
+      });
+    }
+
+    if (hasAnyData) {
+      finalScore.push({ roundNumber: sr.round_number, value: sumCorrect });
+      totalAttempt.push({ roundNumber: sr.round_number, value: sumTotal });
+      marksToCorrect.push({ roundNumber: sr.round_number, value: Math.max(0, sumTotal - sumCorrect) });
+    } else {
+      finalScore.push({ roundNumber: sr.round_number, value: 0 });
+      totalAttempt.push({ roundNumber: sr.round_number, value: 0 });
+      marksToCorrect.push({ roundNumber: sr.round_number, value: 0 });
     }
   });
 
@@ -540,6 +560,7 @@ export function buildRoundScoreMatrix(results = [], categories = [], roundNumber
     roundHeaders,
     rows,
     summary: {
+      roundType: roundTypeRow,
       timeTaken,
       finalScore,
       totalAttempt,

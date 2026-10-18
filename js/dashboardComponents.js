@@ -236,6 +236,9 @@ export function renderBasicsThisWeek(results, categories, todayIST, containerId 
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: var(--space-2);">
       ${summary.map(item => {
         const feedback = getScoreFeedback(item.totalCorrect, item.totalQuestions);
+        const targetHtml = item.targetEvaluatedCount > 0
+          ? `<div style="margin-top: 4px;"><span class="badge ${item.targetMetCount === item.targetEvaluatedCount ? 'badge-success' : 'badge-warning'}" style="font-size: 10px;">🎯 ${item.targetMetCount} of ${item.targetEvaluatedCount} met target</span></div>`
+          : '';
         return `
           <div style="background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: var(--space-3); text-align: center;">
             <div style="font-size: var(--text-xs); font-weight: 700; color: var(--color-primary); text-transform: uppercase;">
@@ -250,6 +253,7 @@ export function renderBasicsThisWeek(results, categories, todayIST, containerId 
             <div style="font-size: 10px; color: var(--text-dim); margin-top: 2px;">
               ${item.entryCount} drill${item.entryCount === 1 ? '' : 's'} (${item.totalCorrect}/${item.totalQuestions})
             </div>
+            ${targetHtml}
           </div>
         `;
       }).join('')}
@@ -482,39 +486,103 @@ export function renderWeeklyTestsCard(weeklyTests, categories = [], containerId 
 
 /**
  * --------------------------------------------------------------------------
- * 5. Competition Round Score Sheet Matrix with 5-Round Pagination
+ * 5. Competition Round Score Sheet Matrix with Series Selector & 5-Round Pagination
  * --------------------------------------------------------------------------
  */
 export function setupScoreSheetController({
   results = [],
   categories = [],
+  roundSeries = [],
+  categorySeries = [],
+  studentRounds = [],
   tableWrapperId = 'sheet-table-wrapper',
   rangeLabelId = 'sheet-range-label',
   olderBtnId = 'btn-sheet-older',
   newerBtnId = 'btn-sheet-newer'
 }) {
   const ROUNDS_PER_PAGE = 5;
-  let pageOffset = 0; // 0 = newest 5 rounds
+  let pageOffset = 0; // 0 = newest 5 rounds in selected series
 
-  // Extract distinct round numbers from results
-  const roundSet = new Set();
-  results.forEach(r => {
-    if (r.round_number) {
-      roundSet.add(Number(r.round_number));
+  // Default to the current series (is_current = true), or the last series by sort_order
+  const sortedSeries = [...roundSeries].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  const defaultSeries = sortedSeries.find(s => s.is_current) || sortedSeries[sortedSeries.length - 1] || null;
+  let selectedSeriesId = defaultSeries ? defaultSeries.id : null;
+
+  // Inject or update Series Selector in the score sheet card header
+  const olderBtnEl = document.getElementById(olderBtnId);
+  const controlsContainer = olderBtnEl ? olderBtnEl.parentElement : null;
+  if (controlsContainer && sortedSeries.length > 0 && !document.getElementById('select-sheet-series')) {
+    const seriesWrap = document.createElement('div');
+    seriesWrap.style.display = 'inline-flex';
+    seriesWrap.style.alignItems = 'center';
+    seriesWrap.style.gap = '6px';
+    seriesWrap.style.marginRight = '8px';
+
+    const lbl = document.createElement('label');
+    lbl.htmlFor = 'select-sheet-series';
+    lbl.textContent = 'Series:';
+    lbl.style.fontSize = 'var(--text-xs)';
+    lbl.style.fontWeight = '600';
+    lbl.style.color = 'var(--text-muted)';
+
+    const sel = document.createElement('select');
+    sel.id = 'select-sheet-series';
+    sel.className = 'form-select';
+    sel.style.minHeight = '32px';
+    sel.style.padding = '2px 28px 2px 10px';
+    sel.style.fontSize = 'var(--text-xs)';
+    sel.style.fontWeight = '600';
+
+    sortedSeries.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.is_current ? `${s.name} (Current)` : s.name;
+      sel.appendChild(opt);
+    });
+
+    if (selectedSeriesId) sel.value = selectedSeriesId;
+
+    sel.addEventListener('change', () => {
+      selectedSeriesId = sel.value;
+      pageOffset = 0;
+      renderPage();
+    });
+
+    seriesWrap.appendChild(lbl);
+    seriesWrap.appendChild(sel);
+    controlsContainer.insertBefore(seriesWrap, olderBtnEl);
+  }
+
+  function getSeriesCategories(seriesId) {
+    const catMap = new Map(categories.map(c => [c.id, c]));
+    const mappings = categorySeries
+      .filter(cs => cs.series_id === seriesId)
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+
+    if (mappings.length > 0) {
+      return mappings
+        .map(cs => {
+          const cat = catMap.get(cs.category_id);
+          if (!cat || cat.section !== 'round') return null;
+          return {
+            ...cat,
+            series_sort_order: cs.sort_order
+          };
+        })
+        .filter(Boolean);
     }
-  });
 
-  // Sort descending: newest round first
-  let roundNumbersList = Array.from(roundSet).sort((a, b) => b - a);
+    // Fallback if category_series is empty
+    return categories
+      .filter(c => c.section === 'round' && c.active !== false)
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  }
 
-  // If student has fewer than 5 rounds, pad with realistic descending numbers
-  if (roundNumbersList.length === 0) {
-    roundNumbersList = [244, 243, 242, 241, 240];
-  } else if (roundNumbersList.length < 5) {
-    const min = roundNumbersList[roundNumbersList.length - 1];
-    for (let pad = 1; roundNumbersList.length < 5 && min - pad > 0; pad++) {
-      roundNumbersList.push(min - pad);
-    }
+  function getRoundsForSelectedSeries() {
+    if (!selectedSeriesId) return [];
+    return studentRounds
+      .filter(sr => sr.series_id === selectedSeriesId)
+      .sort((a, b) => (b.round_number || 0) - (a.round_number || 0));
   }
 
   function renderPage() {
@@ -524,27 +592,37 @@ export function setupScoreSheetController({
     const newerBtn = document.getElementById(newerBtnId);
     if (!wrapper) return;
 
-    const currentRounds = roundNumbersList.slice(pageOffset, pageOffset + ROUNDS_PER_PAGE);
+    const seriesRounds = getRoundsForSelectedSeries();
+    const seriesCategories = getSeriesCategories(selectedSeriesId);
+    const currentSeriesObj = sortedSeries.find(s => s.id === selectedSeriesId);
+    const seriesName = currentSeriesObj ? currentSeriesObj.name : 'Simulator';
 
-    if (currentRounds.length === 0) {
-      wrapper.innerHTML = '<div class="empty-state">No round scores available.</div>';
+    if (seriesRounds.length === 0) {
+      if (newerBtn) newerBtn.disabled = true;
+      if (olderBtn) olderBtn.disabled = true;
+      if (rangeLabel) {
+        rangeLabel.textContent = `${seriesName} · No rounds recorded yet`;
+      }
+      wrapper.innerHTML = `<div class="empty-state" style="padding: var(--space-6);">No rounds recorded in ${escapeHtml(seriesName)} yet.</div>`;
       return;
     }
 
+    const currentRounds = seriesRounds.slice(pageOffset, pageOffset + ROUNDS_PER_PAGE);
+
     // Button states
     if (newerBtn) newerBtn.disabled = pageOffset === 0;
-    if (olderBtn) olderBtn.disabled = pageOffset + ROUNDS_PER_PAGE >= roundNumbersList.length;
+    if (olderBtn) olderBtn.disabled = pageOffset + ROUNDS_PER_PAGE >= seriesRounds.length;
 
-    // Build matrix
-    const matrix = buildRoundScoreMatrix(results, categories, currentRounds);
+    // Build matrix using seriesCategories (ordered by category_series.sort_order) and currentRounds
+    const matrix = buildRoundScoreMatrix(results, seriesCategories, currentRounds);
 
-    // Range label e.g. "Rounds 240–244 (12 Oct – 17 Oct)"
+    // Range label e.g. "New simulator · Rounds 1–5 (10 Oct – 18 Oct)"
     if (rangeLabel) {
-      const firstRound = currentRounds[currentRounds.length - 1];
-      const lastRound = currentRounds[0];
+      const firstRound = currentRounds[currentRounds.length - 1].round_number;
+      const lastRound = currentRounds[0].round_number;
       const dateFirst = matrix.roundHeaders[matrix.roundHeaders.length - 1]?.displayDate || '';
       const dateLast = matrix.roundHeaders[0]?.displayDate || '';
-      rangeLabel.textContent = `Rounds ${firstRound}–${lastRound} (${dateFirst} – ${dateLast})`;
+      rangeLabel.textContent = `${seriesName} · Rounds ${firstRound}–${lastRound} (${dateFirst} – ${dateLast})`;
     }
 
     // Render table
@@ -565,7 +643,7 @@ export function setupScoreSheetController({
         <tbody>
     `;
 
-    // Rows: Round Categories strictly
+    // Rows: Series Round Categories strictly in category_series.sort_order
     matrix.rows.forEach(row => {
       html += `
         <tr>
@@ -574,13 +652,24 @@ export function setupScoreSheetController({
             if (!cell.hasData) {
               return `<td style="color: var(--text-dim);">—</td>`;
             }
-            const feedback = getScoreFeedback(cell.correct, cell.total);
             const verifiedMarker = cell.isVerified
               ? `<span title="Verified by teacher" style="font-size: 10px; margin-left: 2px;">🔒</span>`
               : '';
             const correctedMarker = cell.isCorrected
               ? `<span title="Corrected by teacher" style="font-size: 10px; margin-left: 2px; color: var(--color-primary);">✏️</span>`
               : '';
+
+            // Handle text-only Surprise Task note cell
+            if (cell.correct === null && cell.total === null && cell.note) {
+              return `
+                <td>
+                  <div style="font-size: 11px; font-weight: 600; color: var(--text-main);">${escapeHtml(cell.note)}</div>
+                  <div style="font-size: 10px; color: var(--text-dim);">${cell.formattedTime}</div>
+                </td>
+              `;
+            }
+
+            const feedback = getScoreFeedback(cell.correct, cell.total);
 
             return `
               <td style="color: ${feedback.colorVar}; background-color: ${feedback.bgVar};">
@@ -597,8 +686,12 @@ export function setupScoreSheetController({
       `;
     });
 
-    // Summary Rows
+    // Summary Rows: Round Type, Time Taken, Final Score, Total Attempt, Marks to Correct
     html += `
+      <tr class="sheet-summary-row">
+        <td>Round Type</td>
+        ${matrix.summary.roundType.map(s => `<td style="font-size: 11px;">${escapeHtml(s.value)}</td>`).join('')}
+      </tr>
       <tr class="sheet-summary-row">
         <td>Time Taken</td>
         ${matrix.summary.timeTaken.map(s => `<td>${s.formatted}</td>`).join('')}
@@ -634,7 +727,8 @@ export function setupScoreSheetController({
   const newerBtn = document.getElementById(newerBtnId);
 
   olderBtn?.addEventListener('click', () => {
-    if (pageOffset + ROUNDS_PER_PAGE < roundNumbersList.length) {
+    const seriesRounds = getRoundsForSelectedSeries();
+    if (pageOffset + ROUNDS_PER_PAGE < seriesRounds.length) {
       pageOffset += ROUNDS_PER_PAGE;
       renderPage();
     }

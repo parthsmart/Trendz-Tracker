@@ -2146,3 +2146,61 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   padding: 2px 6px;
   border-radius: 3px;
 }
+
+/* ==========================================================================
+   Phase 4c-1 - Admin CSV Score Sheet Import Preview Styles
+   ========================================================================== */
+.import-step1-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.import-attention-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.import-attention-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-hairline);
+  background-color: var(--bg-surface-subtle);
+}
+
+@media (min-width: 768px) {
+  .import-attention-item {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+  }
+}
+
+.import-attention-error {
+  background-color: var(--color-danger-subtle);
+  border-color: var(--border-subtle);
+}
+
+.import-attention-warning {
+  background-color: var(--color-warning-subtle);
+  border-color: var(--border-subtle);
+}
+
+.import-cell-ref {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-surface-subtle);
+  color: var(--color-primary-text);
+  border: 1px solid var(--border-subtle);
+}
+

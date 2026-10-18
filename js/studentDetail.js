@@ -89,10 +89,13 @@ async function initStudentDetail() {
     // Resources
     renderResources(data.resources);
 
-    // Score Sheet (5-round pagination, sticky category column)
+    // Score Sheet (Series selector, 5-round pagination, sticky category column)
     setupScoreSheetController({
       results: data.results,
-      categories: data.categories
+      categories: data.categories,
+      roundSeries: data.roundSeries,
+      categorySeries: data.categorySeries,
+      studentRounds: data.studentRounds
     });
 
     // Progress charts (7 days vs 4 weeks toggle, week-over-week comparison, dual bar charts, text summaries)

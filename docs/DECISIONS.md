@@ -307,3 +307,65 @@ Every meaningful technical and architectural decision made for **Trendz Tracker*
 - **Trade-off**: Requires dedicated RPC definitions in SQL rather than relying purely on generic PostgREST table endpoints.
 - **Rejected Options**: Direct client updates, optional audit logging, allowing students to overwrite teacher corrections.
 
+---
+
+### ADR-022: Database-Evaluated Basics Targets (`results_with_target`), Official Weekly Tests, and Unified Modal & Setup Navigation (Phase 4b)
+- **Date**: 2026-10-18
+- **Context**: In Phase 4b, teachers define per-category and per-level speed/accuracy targets for Basics drills and record official weekly test scores across all active students. Additionally, as the admin navigation grew to 10 pages, a flat navigation bar risked wrapping on smaller desktop viewports, and inconsistent modal classes caused unstyled inline forms on `/pages/attendance.html`.
+- **Options Considered**:
+  1. *Client-side target evaluation*: Computing `meets_target` in JavaScript by comparing `correct/total` and `time_seconds` against fetched `basics_thresholds`. Rejected because business logic for target evaluation must live exclusively in SQL (`results_with_target` view) so all views remain 100% consistent.
+  2. *Flat 10-item admin navigation bar*: Causes horizontal overflow and visual clutter on laptop screens.
+  3. *Database View (`results_with_target`), Teacher-Authored Weekly Tests, Shared Modal System (`js/modal.js`), and Grouped Setup Dropdown*:
+     - Read `min_accuracy`, `max_time_seconds`, and `meets_target` directly from `results_with_target` wherever target badges are shown, while keeping writes pointed to `results`.
+     - Store official weekly assessments in `weekly_tests` and `weekly_test_scores` (admin write, student read-only for own scores).
+     - Standardize all 15 application modals on `.modal-overlay` + `.modal-dialog` (`max-width: 560px`) managed by `js/modal.js` with Escape key and focus return.
+     - Group `Targets`, `Daily To-Do`, `Resources`, `Categories`, and `Rounds` under a `Setup ▾` dropdown while keeping `Overview`, `Review`, `Students`, `Attendance`, and `Weekly Tests` as primary top-level links.
+- **Choice**: Option 3 (`results_with_target` view consumption, teacher-only weekly test scoring, unified `.modal-overlay`/`.modal-dialog`, and 5-link + `Setup ▾` admin navigation).
+- **Reason**: Preserves single-source-of-truth SQL evaluation for target benchmarks, prevents students from mutating official weekly test scores, guarantees accessible modal behavior across all pages, and keeps the admin header clean on all screen sizes.
+- **Trade-off**: Requires `results_with_target` view in Supabase.
+- **Rejected Options**: Client-side target calculation, flat 10-link navigation bar, page-specific modal markup.
+
+---
+
+### ADR-023: Read-Only Multi-Block CSV Score Sheet Parser, Dynamic Layout Discovery, and Block-Scoped Round Identity (Phase 4c-1)
+- **Date**: 2026-10-18
+- **Context**: Historical student practice records exist in spreadsheets where multiple simulator eras ("blocks") sit side-by-side in the same sheet, each with its own `INDEX` and `Category` columns, its own list of categories (e.g. older blocks containing `Currency` and `Missing Figures`, newer blocks containing `HCF and LCM` and `Approximation`), and round counters that restart at `Round 1` in each block. Spreadsheets also contain real-world data-entry quirks: category typos (`"Calender"`, `"Time Elapse"`), stray values below category rows (`"94/231"` at `O10`), dots-only cells (`"......"`), plain-number times (`"75"`), and arithmetic mistakes in `Final Score`.
+- **Decisions & Rationale**:
+  1. *Separating Read-Only Preview (Phase 4c-1) from Database Saving (Phase 4c-2)*:
+     - **Why**: Building and verifying the client-side parser, coordinate reporting (`A1`–`EX99`), cross-check math (`Final Score`, `Total Attempt`, `Marks TO BE CORRECTED`), and category mapping UI as a strictly read-only preview first allows teachers to spot spreadsheet typos, mixed dates, and arithmetic mismatches with zero risk of corrupting production tables.
+  2. *Dynamic Header & Block Detection Instead of Fixed Row/Column Numbers*:
+     - **Why**: Real student tracking sheets vary in where blocks start, how many blank columns separate blocks, whether placeholder headers like `Round0` exist, and whether summary labels (`Round Type`, `Time Taken`, `Final Score`, `Total Attempt`, `Marks TO BE CORRECTED`) sit in the `Category` column or the `INDEX` column to its left. Scanning dynamically for `"Category"` cells and `/^round\s*(\d+)$/i` column pairs (`timeCol = scoreCol + 1`) makes the parser resilient without requiring teachers to reformat sheets.
+  3. *Identifying Rounds by `(block, roundNumber)` Instead of `roundNumber` Alone*:
+     - **Why**: Because round numbers restart in each side-by-side block and represent only that student's own counter within that block, identifying a round by number alone would cause `Round 1` in Block 2 to collide with `Round 1` in Block 1.
+- **Pure Module Isolation (`js/importParser.js`)**:
+  - Written with zero DOM calls and zero `import.meta.env` references so the exact same ES module is executed in the browser (`js/import.js`) and in Node's native test runner (`node --test tests/importParser.test.js`).
+- **Rejected Options**: Third-party CSV libraries (violates zero-new-dependency constraint), hard-coded row/column indices, auto-assigning top-row text hints like `"NEW SIMULATOR"` as block names, or guessing units on plain-number times like `"75"`.
+
+---
+
+### ADR-024: Per-Student Rounds (`student_rounds`), Simulator Series (`round_series`, `category_series`), and `start_round` RPC (Phase 4c-0)
+- **Date**: 2026-10-18
+- **Context**: Real student score sheets demonstrate that round numbers are each student's individual practice counter rather than an institute-wide shared counter, and that students transition across simulator generations (`"Old simulator"` with `Currency` and `Missing Figures` vs `"New simulator"` with `HCF and LCM` and `Approximation`).
+- **Decisions & Rationale**:
+  1. *Replacing Shared `rounds` with Per-Student `student_rounds` and `round_series`*:
+     - **Why**: Identifying a round by `(student_id, series_id, round_number)` allows each student to progress at their own pace in the current simulator while preserving their complete historical rounds in older simulator series without number collisions.
+  2. *Series-Specific Category Membership & Ordering (`category_series`)*:
+     - **Why**: Different simulator series contain different 24-category rosters. Querying `category_series` ordered by `category_series.sort_order` ensures that viewing `"Old simulator"` displays `Currency` and `Missing Figures` in their exact sheet positions, while `"New simulator"` displays `HCF and LCM` and `Approximation`.
+  3. *Student Round Creation via `start_round` RPC*:
+     - **Why**: Students cannot insert directly into `student_rounds`. Calling `start_round(p_student, p_round_type)` atomically assigns the student's next round number in the current series, stamps `today_ist()`, and reuses today's empty round if one already exists, preventing accidental duplicate empty rounds.
+- **Rejected Options**: Keeping shared `rounds` table, using `categories.sort_order` for round matrices, or allowing direct client `INSERT` into `student_rounds` by students.
+
+---
+
+### ADR-025: CSV Import Part 2A — Simulator Suggestion & Confirmation per Block, Category Resolution Priority, and Read-Only Existing Data Comparison (Phase 4c-2a)
+- **Date**: 2026-10-18
+- **Context**: With per-student rounds (`student_rounds`) and simulator series (`round_series`, `category_series`) established in Phase 4c-0, the admin CSV import preview must map each side-by-side spreadsheet block to a simulator series, resolve category names against database aliases and series rosters, and compare every round and cell against the selected student's existing database records before any write logic is enabled.
+- **Decisions & Rationale**:
+  1. *Suggestion-Only Simulator Series Selection with Explicit Admin Confirmation & Duplicate Blocking*:
+     - **Why**: A block containing `"currency"` or `"missingfigures"` strongly indicates `"Old simulator"`, whereas `"approximation"` or `"hcfandlcm"` indicates `"New simulator"`. Pre-selecting this as a suggestion saves time, while requiring explicit admin confirmation on every block and blocking two blocks from sharing the same series prevents accidental cross-series overwrites.
+  2. *Three-Tier Category Resolution Priority (`category_aliases` -> Built-in Aliases -> Exact Match)*:
+     - **Why**: Matching on lowercase whitespace-stripped keys checks database `category_aliases` first, then built-in aliases (`"calender"` -> `Calendar`, `"timeelapse"` -> `Time Elapsed`), and finally `categories.name`, while validating membership against `category_series` and blocking duplicate target category mappings within a block.
+  3. *Read-Only Existing Data Comparison & Protected Row Preservation (`js/importResolver.js`)*:
+     - **Why**: Comparing CSV rounds by `(student_id, series_id, round_number)` against `student_rounds` and `results` classifies every round (`new`, `identical`, `adds_cells`, `conflict`) and every cell (`new`, `identical`, `conflict`, `protected_conflict`, `db_only`), ensuring teacher-verified (`verified`) and teacher-corrected (`corrected_at`) scores are flagged as protected and never silently overwritten.
+- **Rejected Options**: Modifying `js/importParser.js` for database comparison logic (kept isolated in `js/importResolver.js` and tested via `node:test`), auto-confirming suggested series without admin review, or allowing two blocks in the same sheet to target the same simulator series.
+

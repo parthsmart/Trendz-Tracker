@@ -53,6 +53,7 @@ export default defineConfig(() => {
           attendance: path.resolve(__dirname, 'pages/attendance.html'),
           targets: path.resolve(__dirname, 'pages/targets.html'),
           weeklyTests: path.resolve(__dirname, 'pages/weekly-tests.html'),
+          import: path.resolve(__dirname, 'pages/import.html'),
         },
       },
     },

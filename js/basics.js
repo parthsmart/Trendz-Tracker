@@ -655,7 +655,6 @@ async function initBasics() {
         const insertPayload = {
           student_id: currentProfile.id,
           category_id,
-          round_number: null, // basics are not assigned to a round
           correct,
           total,
           time_seconds,

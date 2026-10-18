@@ -8,6 +8,39 @@
 
 ## Current Status Overview
 
+### Session: 2026-10-18 (Phase 4c-2a — Admin CSV Import Part 2A: Simulator per Block, Category Resolution & Existing Data Comparison)
+
+#### 5-Line Session Summary
+- Created the pure, zero-dependency Phase 4c-2a resolution and comparison module `js/importResolver.js` (leaving `js/importParser.js` untouched) to handle simulator series suggestions, 3-tier category resolution, and database comparison.
+- Added per-block Simulator Series dropdowns on `/pages/import.html` (`js/import.js`) pre-selecting suggestions (`currency`/`missingfigures` → `Old simulator`, `approximation`/`hcfandlcm` → `New simulator`), displaying file label hints (`"NEW SIMULATOR"` at `H1`), round ranges, and date ranges, requiring explicit admin confirmation per block, and blocking duplicate series across blocks.
+- Implemented per-block Category Resolution with strict matching-key priority (`category_aliases` → built-in aliases `calender`/`timeelapse` → exact match on `categories.name`), `category_series` membership & sort-order checks, absent series category reporting, and duplicate target category blocking.
+- Built read-only existing data comparison against `student_rounds` and `results` identified by `(student, series, round_number)`, classifying rounds (`new`, `identical`, `adds_cells`, `conflict`, `db_only`) and cells (`new`, `identical`, `conflict`, `protected_conflict` for `verified`/`corrected_at` rows, `db_only`) with zero database writes and the Import button kept disabled.
+- Added and passed `node:test` unit tests in `tests/importResolver.test.js` alongside `tests/importParser.test.js`, and updated `docs/DATA.md`, `docs/DECISIONS.md` (ADR-025), `docs/TESTING.md` (Test Case 34), and `docs/HANDOVER.md`.
+
+---
+
+### Session: 2026-10-18 (Phase 4c-0 — Per-Student Rounds, Simulator Series & `student_round_id` Migration)
+
+#### 5-Line Session Summary
+- Migrated all competition round workflows from the deprecated shared `rounds` table and `results.round_number` column to per-student `student_rounds` (`id`, `student_id`, `series_id`, `round_number`, `round_date`, `round_type`, `time_taken_seconds`), `round_series`, `category_series`, and `results.student_round_id`.
+- Updated Student Round Scores (`/pages/round-scores.html`, `js/roundScores.js`) to list only the student's own rounds in the current series, start/reuse today's round via `start_round` RPC, edit `round_type` and `time_taken_seconds` (`mm:ss`, `h:mm:ss`, or seconds) on rounds from the last 7 days, order active categories by `category_series.sort_order`, and save results with `student_round_id`.
+- Updated the Score Sheet on `/pages/student.html` and `/pages/student-detail.html` (`js/dashboardData.js`, `js/dashboardComponents.js`, `js/stats.js`) with a Simulator Series selector (defaulting to current series, hiding non-current series if the student has 0 rounds in it), series-specific `category_series.sort_order` rows, `time_taken_seconds` fallback to sum of category times, and 5-round pagination.
+- Rewrote Admin Rounds (`/pages/rounds.html`, `js/rounds.js`) to filter by Student (required) and Series (defaults to current), propose `max + 1` per `(student, series)`, edit `round_date`/`round_type`/`time_taken_seconds`, and guard deletion when results exist.
+- Updated Admin Categories (`js/categories.js`) so round categories display series badges (`Old simulator`, `New simulator`), reorder `category_series.sort_order` within the selected series, and automatically link new round categories to the current series at `max(sort_order) + 1`.
+
+---
+
+### Session: 2026-10-18 (Phase 4c-1 — Admin CSV Score Sheet Import Preview & Multi-Block Parser)
+
+#### 5-Line Session Summary
+- Built the pure, zero-dependency CSV and multi-block score sheet parser in `js/importParser.js` (no DOM, no `import.meta.env`) supporting quoted fields, escaped quotes, BOM, ragged rows, dynamic `Category`/`Round <N>` block detection, `colLabel`/`cellRef` coordinates, and built-in aliases (`calender`, `timeelapse`).
+- Implemented automatic date format detection (`Auto`, `DD/MM`, `MM/DD` override, mixed-date error detection) and per-block chronological date checks against `today_ist()` (missing/unreadable/future blocked, `<2020` and out-of-order warnings, same-date info).
+- Implemented category cell and summary row parsing (`Round Type`, `Time Taken` including `Without Time`, `Final Score`, `Total Attempt`, `Marks TO BE CORRECTED`), Surprise Task ratio-vs-note handling, stray cell detection (e.g. `O10`), and the 3 per-round cross-checks (`OK`, `MISMATCH`, `NOT PRESENT`, `INCOMPLETE`).
+- Created the admin-only read-only preview page `/pages/import.html` (`js/import.js`), added `"Import"` to the `Setup ▾` dropdown across all 12 admin pages and `vite.config.ts`, enforced `.csv` / 2 MB limits and strict `textContent` rendering, and performed zero database writes.
+- Created and passed the `node:test` unit suite (`tests/importParser.test.js`) covering the synthetic 2-block fixture and all edge cases, and updated `docs/ARCHITECTURE.md`, `docs/DECISIONS.md` (ADR-023), `docs/THREAT.md`, `docs/TESTING.md`, and `docs/HANDOVER.md`.
+
+---
+
 ### Session: 2026-10-18 (Phase 4b — Universal Modal Audit & Fix, Basics Targets, Weekly Tests & Setup Navigation)
 
 #### 5-Line Session Summary
@@ -147,6 +180,17 @@
 - Hardened `proxyFetch` URL extraction to properly parse `URL` and `Request` objects, and return synthetic `Response` objects on gateway errors instead of throwing.
 - Added automatic stale refresh token clearing in `proxyFetch` whenever Supabase returns HTTP 400 for token refresh requests.
 - Verified compilation, linting, and PostgREST + Auth proxy flow with zero errors.
+
+---
+
+### Session: 2026-10-18 (Phase 4b — Modal Audit Fix, Basics Targets, Weekly Tests & Dashboard Fix)
+
+#### 5-Line Session Summary
+- Fixed `/pages/attendance.html` unstyled modal bug and standardized all 15 modals across all pages on the shared `.modal-overlay` / `.modal-dialog` component (`js/modal.js`).
+- Built `/pages/targets.html` (`js/targets.js`) for managing default and per-level basics thresholds, and wired `results_with_target` target badges into student Basics, Review, and Dashboard views without calculating `meets_target` in JS.
+- Built `/pages/weekly-tests.html` (`js/weeklyTests.js`) for creating weekly tests and entering official teacher scores per category with section-grouped dropdowns, keyboard Enter flow, and unsaved-changes guard.
+- Added the "Weekly Tests" summary card (last 3 tests + overall accuracy) to `/pages/student.html` and `/pages/student-detail.html`, and fixed `attendanceRes` destructuring in `js/dashboardData.js`.
+- Updated all 10 admin pages to the unified navigation bar (`Overview`, `Review`, `Students`, `Attendance`, `Weekly Tests`, and `Setup ▾` dropdown with mobile hamburger menu).
 
 ---
 

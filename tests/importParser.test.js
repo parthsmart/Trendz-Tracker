@@ -1,0 +1,290 @@
+/**
+ * Unit Tests for Trendz Tracker Score Sheet CSV Parser (tests/importParser.test.js)
+ * Run with: node --test tests/importParser.test.js
+ */
+
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  colLabel,
+  cellRef,
+  parseCsv,
+  parseTimeCell,
+  parseScoreCell,
+  normalizeCategoryKey,
+  parseScoreSheetCsv,
+  SAMPLE_TWO_BLOCK_CSV,
+} from '../js/importParser.js';
+
+const MOCK_DB_ROUND_CATEGORIES = [
+  { id: 'cat-1', name: 'ADD', section: 'round', active: true, sort_order: 1 },
+  { id: 'cat-2', name: 'SUB', section: 'round', active: true, sort_order: 2 },
+  { id: 'cat-3', name: 'MIX', section: 'round', active: true, sort_order: 3 },
+  { id: 'cat-4', name: 'HCF and LCM', section: 'round', active: true, sort_order: 4 },
+  { id: 'cat-5', name: 'Approximation', section: 'round', active: true, sort_order: 5 },
+  { id: 'cat-6', name: 'Calendar', section: 'round', active: true, sort_order: 6 },
+  { id: 'cat-7', name: 'Time Elapsed', section: 'round', active: true, sort_order: 7 },
+  { id: 'cat-8', name: 'Surprise Task', section: 'round', active: true, sort_order: 8 },
+  { id: 'cat-9', name: 'Missing Figures', section: 'round', active: false, sort_order: 9 },
+];
+
+test('colLabel and cellRef convert 0-based indices to spreadsheet coordinates', () => {
+  assert.equal(colLabel(0), 'A');
+  assert.equal(colLabel(25), 'Z');
+  assert.equal(colLabel(26), 'AA');
+  assert.equal(colLabel(27), 'AB');
+  assert.equal(colLabel(51), 'AZ');
+  assert.equal(colLabel(52), 'BA');
+  assert.equal(colLabel(153), 'EX');
+
+  assert.equal(cellRef(0, 0), 'A1');
+  assert.equal(cellRef(4, 3), 'D5');
+  assert.equal(cellRef(4, 4), 'E5');
+  assert.equal(cellRef(8, 3), 'D9');
+  assert.equal(cellRef(9, 14), 'O10');
+});
+
+test('parseCsv handles UTF-8 BOM, quoted fields, escaped quotes, newlines inside quotes, CRLF, and ragged rows', () => {
+  const raw =
+    '\uFEFF"Header, 1","Header ""Quoted"" 2",Header 3\r\n' +
+    '"Line 1\nLine 2",plain,extra,ragged\r\n' +
+    'short\n';
+
+  const grid = parseCsv(raw, 2);
+  assert.equal(grid.length, 3);
+  // Widest row has 4 cols + 2 spare = 6 cols
+  assert.equal(grid[0].length, 6);
+  assert.equal(grid[1].length, 6);
+  assert.equal(grid[2].length, 6);
+
+  assert.equal(grid[0][0], 'Header, 1');
+  assert.equal(grid[0][1], 'Header "Quoted" 2');
+  assert.equal(grid[0][2], 'Header 3');
+  assert.equal(grid[1][0], 'Line 1\nLine 2');
+  assert.equal(grid[1][3], 'ragged');
+  assert.equal(grid[2][0], 'short');
+  assert.equal(grid[2][1], '');
+});
+
+test('parseTimeCell accepts m:ss and h:mm:ss and rejects plain numbers like "75"', () => {
+  assert.deepEqual(parseTimeCell(''), { status: 'empty', seconds: null, raw: '', reason: null });
+  assert.deepEqual(parseTimeCell('......'), { status: 'empty', seconds: null, raw: '......', reason: null });
+  assert.deepEqual(parseTimeCell('1:42'), { status: 'ok', seconds: 102, raw: '1:42', reason: null });
+  assert.deepEqual(parseTimeCell('01:08:37'), { status: 'ok', seconds: 4117, raw: '01:08:37', reason: null });
+
+  const plainNum = parseTimeCell('75');
+  assert.equal(plainNum.status, 'unreadable');
+  assert.equal(plainNum.seconds, null);
+
+  const badSecs = parseTimeCell('2:65');
+  assert.equal(badSecs.status, 'unreadable');
+});
+
+test('parseScoreCell validates ratios, dots-only empty cells, Surprise Task notes, and rejects correct > total ("95/90")', () => {
+  assert.equal(parseScoreCell('......').status, 'empty');
+  assert.deepEqual(parseScoreCell('75/75'), {
+    status: 'ok',
+    correct: 75,
+    total: 75,
+    note: null,
+    reason: null,
+  });
+
+  const invalidRatio = parseScoreCell('95/90');
+  assert.equal(invalidRatio.status, 'unreadable');
+  assert.match(invalidRatio.reason, /exceeds total/i);
+
+  const zeroTotal = parseScoreCell('0/0');
+  assert.equal(zeroTotal.status, 'unreadable');
+
+  const surpriseRatio = parseScoreCell('379/384', true);
+  assert.equal(surpriseRatio.status, 'ok');
+  assert.equal(surpriseRatio.correct, 379);
+  assert.equal(surpriseRatio.total, 384);
+
+  const surpriseNote = parseScoreCell('Mental relay bonus', true);
+  assert.equal(surpriseNote.status, 'note');
+  assert.equal(surpriseNote.note, 'Mental relay bonus');
+  assert.equal(surpriseNote.correct, null);
+  assert.equal(surpriseNote.total, null);
+});
+
+test('SAMPLE_TWO_BLOCK_CSV parses both blocks, aliases, stray O10, ignored Round0, Time Taken, and Final Score mismatch', () => {
+  const result = parseScoreSheetCsv(SAMPLE_TWO_BLOCK_CSV, {
+    roundCategories: MOCK_DB_ROUND_CATEGORIES,
+    dateFormat: 'auto',
+    todayIST: '2026-10-18',
+    selectedStudentName: 'TEST STUDENT',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.resolvedDateFormat, 'DD/MM');
+  assert.equal(result.dateFormatError, null);
+  assert.equal(result.primaryStudentName, 'TEST STUDENT');
+  assert.equal(result.studentNameMismatchWarning, null);
+  assert.ok(result.levelLabels.includes('JUNIOR -1'));
+
+  // "NEW SIMULATOR" is captured as a hint, never auto-assigned as seriesName
+  assert.ok(result.labelHints.some((h) => h.text === 'NEW SIMULATOR' && h.ref === 'H1'));
+  assert.equal(result.blocks.length, 2);
+  assert.equal(result.blocks[0].seriesName, 'Block 1 (left)');
+  assert.equal(result.blocks[1].seriesName, 'Block 2');
+
+  // Block 1: Round0 ignored as info, 2 active rounds (Round 1, Round 2)
+  const blk1 = result.blocks[0];
+  assert.equal(blk1.ignoredRounds.length, 1);
+  assert.equal(blk1.ignoredRounds[0].rawHeader, 'Round0');
+  assert.equal(blk1.ignoredRounds[0].ref, 'C2');
+  assert.equal(blk1.rounds.length, 2);
+  assert.equal(blk1.rounds[0].dateISO, '2026-08-17');
+  assert.equal(blk1.rounds[1].dateISO, '2026-08-21');
+
+  // Block 1 categories: ADD (exact), SUB (exact), Currency (unmatched), Calender (alias -> Calendar), Surprise Task (exact)
+  assert.equal(blk1.categories.length, 5);
+  const currencyCat = blk1.categories.find((c) => c.sheetName === 'Currency');
+  assert.equal(currencyCat.matchStatus, 'unmatched');
+  const calenderCat = blk1.categories.find((c) => c.sheetName === 'Calender');
+  assert.equal(calenderCat.matchStatus, 'alias');
+  assert.equal(calenderCat.matchedCategory.name, 'Calendar');
+
+  // Block 1 Round 1: D5="75/75", E5="75" (unreadable time), D9="......" (empty)
+  const b1r1 = blk1.rounds[0];
+  const cellD5 = b1r1.cells[0];
+  assert.equal(cellD5.scoreRef, 'D5');
+  assert.equal(cellD5.timeRef, 'E5');
+  assert.equal(cellD5.correct, 75);
+  assert.equal(cellD5.total, 75);
+  assert.equal(cellD5.timeStatus, 'unreadable');
+  assert.equal(cellD5.status, 'unreadable');
+
+  const cellD9 = b1r1.cells[4];
+  assert.equal(cellD9.scoreRef, 'D9');
+  assert.equal(cellD9.status, 'empty');
+
+  // Block 1 Round 2: Time Taken "1:08:37" -> 4117s, Surprise Task "379/384" included in sum (617 / 624)
+  const b1r2 = blk1.rounds[1];
+  assert.equal(b1r2.summary.roundType, 'Flat Round');
+  assert.equal(b1r2.summary.timeTakenSeconds, 4117);
+  assert.equal(b1r2.computed.sumCorrect, 617);
+  assert.equal(b1r2.computed.sumTotal, 624);
+  assert.equal(b1r2.crossChecks.finalScore.status, 'OK');
+  assert.equal(b1r2.crossChecks.totalAttempt.status, 'OK');
+  assert.equal(b1r2.crossChecks.marksToBeCorrected.status, 'OK');
+
+  // Block 2: 3 rounds, "Time Elapse" alias -> "Time Elapsed", stray value at O10 ("94/231")
+  const blk2 = result.blocks[1];
+  assert.equal(blk2.rounds.length, 3);
+  const timeElapseCat = blk2.categories.find((c) => c.sheetName === 'Time Elapse');
+  assert.equal(timeElapseCat.matchStatus, 'alias');
+  assert.equal(timeElapseCat.matchedCategory.name, 'Time Elapsed');
+
+  assert.equal(blk2.strayValues.length, 1);
+  assert.equal(blk2.strayValues[0].ref, 'O10');
+  assert.equal(blk2.strayValues[0].rawValue, '94/231');
+
+  // Block 2 Round 1: Final Score MISMATCH (Sheet: 250, Computed: 255, Diff: +5)
+  const b2r1 = blk2.rounds[0];
+  assert.equal(b2r1.crossChecks.finalScore.status, 'MISMATCH');
+  assert.equal(b2r1.crossChecks.finalScore.sheetValue, 250);
+  assert.equal(b2r1.crossChecks.finalScore.computedValue, 255);
+  assert.equal(b2r1.crossChecks.finalScore.diff, 5);
+
+  // Block 2 Round 2: Time Taken "Without Time" -> null seconds, withoutTime = true, Surprise Task note
+  const b2r2 = blk2.rounds[1];
+  assert.equal(b2r2.summary.withoutTime, true);
+  assert.equal(b2r2.summary.timeTakenSeconds, null);
+  const surpriseNoteCell = b2r2.cells[4];
+  assert.equal(surpriseNoteCell.status, 'note');
+  assert.equal(surpriseNoteCell.note, 'Mental relay bonus');
+
+  // Block 2 Round 3: stray O10 excluded from totals (sumCorrect = 375)
+  const b2r3 = blk2.rounds[2];
+  assert.equal(b2r3.computed.sumCorrect, 375);
+  assert.equal(b2r3.crossChecks.finalScore.status, 'OK');
+});
+
+test('Unreadable score ("95/90") marks round cross-checks as INCOMPLETE', () => {
+  const csv = [
+    'INDEX,Category,Round 1,',
+    ',,17/08/26,',
+    ',,Score,Time',
+    '1,ADD,95/90,1:10',
+    ',Final Score,95,',
+    ',Total Attempt,90,',
+    ',Marks TO BE CORRECTED,0,',
+  ].join('\n');
+
+  const res = parseScoreSheetCsv(csv, {
+    roundCategories: MOCK_DB_ROUND_CATEGORIES,
+    todayIST: '2026-10-18',
+  });
+
+  assert.equal(res.ok, true);
+  const rnd = res.blocks[0].rounds[0];
+  assert.equal(rnd.cells[0].status, 'unreadable');
+  assert.equal(rnd.crossChecks.finalScore.status, 'INCOMPLETE');
+  assert.equal(rnd.crossChecks.totalAttempt.status, 'INCOMPLETE');
+  assert.equal(rnd.crossChecks.marksToBeCorrected.status, 'INCOMPLETE');
+});
+
+test('Missing round headers returns a friendly layout not recognised error', () => {
+  const csv = [
+    'INDEX,Category,SomethingElse',
+    '1,ADD,75/75',
+  ].join('\n');
+
+  const res = parseScoreSheetCsv(csv, { roundCategories: MOCK_DB_ROUND_CATEGORIES });
+  assert.equal(res.ok, false);
+  assert.match(res.error, /layout not recognised/i);
+});
+
+test('Out-of-order round dates and duplicate dates within a block are detected', () => {
+  const csv = [
+    'INDEX,Category,Round 1,,Round 2,,Round 3,',
+    ',,20/08/26,,18/08/26,,18/08/26,',
+    ',,Score,Time,Score,Time,Score,Time',
+    '1,ADD,70/75,1:20,72/75,1:15,75/75,1:10',
+  ].join('\n');
+
+  const res = parseScoreSheetCsv(csv, {
+    roundCategories: MOCK_DB_ROUND_CATEGORIES,
+    todayIST: '2026-10-18',
+  });
+
+  assert.equal(res.ok, true);
+  const blk = res.blocks[0];
+  // Round 2 (2026-08-18) is earlier than Round 1 (2026-08-20) -> warning
+  assert.ok(blk.dateWarnings.some((w) => w.code === 'out_of_order_date'));
+  // Round 2 and Round 3 share 2026-08-18 -> info
+  assert.ok(blk.dateInfos.some((i) => i.code === 'duplicate_date'));
+});
+
+test('Mixed date formats (21/8/26 and 8/21/26) trigger error in Auto mode and mark impossible date unreadable when overridden', () => {
+  const csv = [
+    'INDEX,Category,Round 1,,Round 2,',
+    ',,21/8/26,,8/21/26,',
+    ',,Score,Time,Score,Time',
+    '1,ADD,70/75,1:20,72/75,1:15',
+  ].join('\n');
+
+  const autoRes = parseScoreSheetCsv(csv, {
+    roundCategories: MOCK_DB_ROUND_CATEGORIES,
+    dateFormat: 'auto',
+    todayIST: '2026-10-18',
+  });
+
+  assert.equal(autoRes.ok, true);
+  assert.ok(autoRes.dateFormatError);
+  assert.match(autoRes.dateFormatError, /dates are mixed/i);
+
+  // Override with DD/MM: Round 1 (21/8/26 -> 2026-08-21) is valid, Round 2 (8/21/26 -> month 21) is unreadable
+  const ddmmRes = parseScoreSheetCsv(csv, {
+    roundCategories: MOCK_DB_ROUND_CATEGORIES,
+    dateFormat: 'DD/MM',
+    todayIST: '2026-10-18',
+  });
+
+  assert.equal(ddmmRes.dateFormatError, null);
+  assert.equal(ddmmRes.blocks[0].rounds[0].dateISO, '2026-08-21');
+  assert.equal(ddmmRes.blocks[0].rounds[1].dateStatus, 'unreadable');
+});

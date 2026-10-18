@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Rounds Management - Trendz Tracker</title>
-    <meta name="description" content="Admin management for official Junior Mental Calculation competition rounds." />
+    <meta name="description" content="Admin management for per-student competition rounds across simulator series." />
     
     <!-- Design tokens & unified styles -->
     <link rel="stylesheet" href="/css/style.css" />
@@ -48,6 +48,7 @@
                 <a href="/pages/categories.html" class="dropdown-item" role="menuitem">Categories</a>
                 <a href="/pages/rounds.html" class="dropdown-item active" role="menuitem" aria-current="page">Rounds</a>
                 <a href="/pages/targets.html" class="dropdown-item" role="menuitem">Targets</a>
+                <a href="/pages/import.html" class="dropdown-item" role="menuitem">Import</a>
               </div>
             </div>
           </nav>
@@ -73,10 +74,10 @@
           <div id="config-banner-placeholder"></div>
 
           <!-- Page Heading & Actions -->
-          <div class="section-header-row" style="margin-bottom: var(--space-6);">
+          <div class="section-header-row" style="margin-bottom: var(--space-5);">
             <div>
-              <h1>Competition Rounds</h1>
-              <p style="font-size: var(--text-sm);">Create and manage official Junior Mental Calculation World Championship practice rounds.</p>
+              <h1>Student Competition Rounds</h1>
+              <p style="font-size: var(--text-sm);">Inspect, create, edit, and manage each student's competition rounds across simulator series.</p>
             </div>
             <div style="display: flex; gap: var(--space-2); flex-wrap: wrap;">
               <button type="button" id="btn-quick-next-round" class="btn btn-secondary">
@@ -88,15 +89,49 @@
             </div>
           </div>
 
+          <!-- Student & Series Filter Bar -->
+          <section class="card" style="padding: var(--space-4); margin-bottom: var(--space-5);">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-4); align-items: end;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="filter-student-search" class="form-label" style="font-size: var(--text-xs);">Filter Student List</label>
+                <input
+                  type="search"
+                  id="filter-student-search"
+                  class="form-input"
+                  placeholder="Search by name or student code..."
+                  autocomplete="off"
+                />
+              </div>
+
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="select-student-rounds" class="form-label" style="font-size: var(--text-xs);">Student *</label>
+                <select id="select-student-rounds" class="form-select">
+                  <option value="">Loading students...</option>
+                </select>
+              </div>
+
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="select-series-filter" class="form-label" style="font-size: var(--text-xs);">Simulator Series</label>
+                <select id="select-series-filter" class="form-select">
+                  <option value="all">All Series</option>
+                </select>
+              </div>
+            </div>
+          </section>
+
           <!-- Quick Stats Row -->
-          <div class="stats-grid">
+          <div class="stats-grid" style="margin-bottom: var(--space-5);">
             <div class="stat-card">
-              <span class="stat-label">Total Rounds</span>
-              <span class="stat-value" id="stat-total-rounds">0</span>
+              <span class="stat-label">Selected Student</span>
+              <span class="stat-value" id="stat-selected-student" style="font-size: 1.1rem;">—</span>
             </div>
             <div class="stat-card">
-              <span class="stat-label">Latest Round</span>
-              <span class="stat-value" id="stat-latest-round" style="color: var(--color-primary);">—</span>
+              <span class="stat-label">Total Rounds Shown</span>
+              <span class="stat-value num" id="stat-total-rounds">0</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Latest Round in Current Series</span>
+              <span class="stat-value num" id="stat-latest-round" style="color: var(--color-primary);">—</span>
             </div>
           </div>
 
@@ -106,16 +141,18 @@
               <table class="table" id="rounds-table">
                 <thead>
                   <tr>
+                    <th>Series</th>
                     <th>Round Number</th>
                     <th>Round Date</th>
                     <th>Round Type</th>
+                    <th>Time Taken</th>
                     <th>Scores Recorded</th>
                     <th style="text-align: right;">Actions</th>
                   </tr>
                 </thead>
                 <tbody id="rounds-table-body">
                   <tr>
-                    <td colspan="5"><div class="skeleton-row"></div></td>
+                    <td colspan="7"><div class="skeleton-row"></div></td>
                   </tr>
                 </tbody>
               </table>
@@ -124,8 +161,8 @@
             <!-- Empty State -->
             <div id="rounds-empty-state" class="empty-state" style="display: none;">
               <div class="empty-state-icon">📋</div>
-              <h3 class="empty-state-title">No rounds created yet</h3>
-              <p class="empty-state-desc">Click "Add Next Round" above to publish Round 1.</p>
+              <h3 class="empty-state-title">No rounds recorded for this student</h3>
+              <p class="empty-state-desc">Click "Add Next Round" above to create Round 1 for the selected student.</p>
             </div>
           </div>
         </div>
@@ -136,22 +173,31 @@
     <div id="create-round-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="create-round-title">
       <div class="modal-dialog">
         <header class="modal-header">
-          <h2 id="create-round-title" class="modal-title">Create Competition Round</h2>
+          <h2 id="create-round-title" class="modal-title">Create Student Round</h2>
           <button type="button" class="modal-close" data-close-modal="create-round-modal" aria-label="Close modal">&times;</button>
         </header>
         <form id="create-round-form">
           <div class="modal-body">
+            <p style="font-size: var(--text-xs); color: var(--text-muted); margin-bottom: var(--space-3);">
+              Student: <strong id="create-round-student-label" style="color: var(--text-main);">—</strong>
+            </p>
+
+            <div class="form-group">
+              <label for="new-round-series" class="form-label">Simulator Series *</label>
+              <select id="new-round-series" class="form-select" required></select>
+            </div>
+
             <div class="form-group">
               <label for="new-round-number" class="form-label">Round Number *</label>
               <input
                 type="number"
                 id="new-round-number"
-                class="form-input"
-                placeholder="e.g. 245"
+                class="form-input num"
+                placeholder="e.g. 1"
                 required
                 min="1"
               />
-              <span class="form-hint">Unique round number (cannot be changed once created).</span>
+              <span class="form-hint">Unique per student and simulator series.</span>
             </div>
 
             <div class="form-group">
@@ -159,7 +205,7 @@
               <input
                 type="date"
                 id="new-round-date"
-                class="form-input"
+                class="form-input num"
                 required
               />
             </div>
@@ -175,12 +221,22 @@
               />
             </div>
 
+            <div class="form-group">
+              <label for="new-round-time" class="form-label">Time Taken (h:mm:ss or mm:ss, optional)</label>
+              <input
+                type="text"
+                id="new-round-time"
+                class="form-input num"
+                placeholder="e.g. 1:08:37 or 45:00"
+              />
+            </div>
+
             <div id="create-round-error" class="banner banner-error" style="display: none; margin-bottom: 0;" role="alert"></div>
           </div>
           <footer class="modal-footer">
             <button type="button" class="btn btn-outline" data-close-modal="create-round-modal">Cancel</button>
             <button type="submit" id="btn-submit-create-round" class="btn btn-primary">
-              <span id="btn-create-round-text">Publish Round</span>
+              <span id="btn-create-round-text">Create Round</span>
             </button>
           </footer>
         </form>
@@ -191,14 +247,14 @@
     <div id="edit-round-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="edit-round-title">
       <div class="modal-dialog">
         <header class="modal-header">
-          <h2 id="edit-round-title" class="modal-title">Edit Round</h2>
+          <h2 id="edit-round-title" class="modal-title">Edit Student Round</h2>
           <button type="button" class="modal-close" data-close-modal="edit-round-modal" aria-label="Close modal">&times;</button>
         </header>
         <form id="edit-round-form">
-          <input type="hidden" id="edit-round-number-hidden" />
+          <input type="hidden" id="edit-round-id-hidden" />
           <div class="modal-body">
             <p style="font-size: var(--text-sm); margin-bottom: var(--space-4);">
-              Editing details for: <strong>Round <span id="edit-round-number-display"></span></strong>
+              Editing: <strong id="edit-round-display-label">Round</strong>
             </p>
 
             <div class="form-group">
@@ -206,7 +262,7 @@
               <input
                 type="date"
                 id="edit-round-date"
-                class="form-input"
+                class="form-input num"
                 required
               />
             </div>
@@ -218,6 +274,16 @@
                 id="edit-round-type"
                 class="form-input"
                 required
+              />
+            </div>
+
+            <div class="form-group">
+              <label for="edit-round-time" class="form-label">Time Taken (h:mm:ss or mm:ss, optional)</label>
+              <input
+                type="text"
+                id="edit-round-time"
+                class="form-input num"
+                placeholder="e.g. 1:08:37 or leave blank"
               />
             </div>
 

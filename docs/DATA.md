@@ -42,17 +42,38 @@ This catalog outlines every database table in the Trendz Tracker PostgreSQL sche
 
 ---
 
-### 3. Table: `rounds`
-- **Purpose**: Represents practice competition rounds created by instructors (e.g. Round 1, Round 2).
-- **Columns**:
-  - `round_number`: `INTEGER PRIMARY KEY`
-  - `round_date`: `DATE NOT NULL DEFAULT CURRENT_DATE`
-  - `round_type`: `TEXT NOT NULL DEFAULT 'Category wise'`
+### 3. Tables: `round_series`, `category_series`, and `student_rounds` (Phase 4c-0)
+- **Legacy Note**: The old shared `rounds` table is deprecated and no longer queried or mutated by the application.
+- **Table `round_series`**:
+  - `id`: `UUID PRIMARY KEY DEFAULT gen_random_uuid()`
+  - `name`: `TEXT NOT NULL` (e.g. `Old simulator`, `New simulator`)
+  - `sort_order`: `INTEGER NOT NULL DEFAULT 0`
+  - `is_current`: `BOOLEAN NOT NULL DEFAULT false` (exactly one series is current)
+- **Table `category_series`**:
+  - `category_id`: `UUID NOT NULL REFERENCES public.categories(id) ON DELETE CASCADE`
+  - `series_id`: `UUID NOT NULL REFERENCES public.round_series(id) ON DELETE CASCADE`
+  - `sort_order`: `INTEGER NOT NULL DEFAULT 0`
+  - **Purpose**: Defines which round categories belong to which simulator series and their exact sequence within that series. Always use `category_series.sort_order` (not `categories.sort_order`) to order round categories.
+- **Table `student_rounds`**:
+  - `id`: `UUID PRIMARY KEY DEFAULT gen_random_uuid()`
+  - `student_id`: `UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE`
+  - `series_id`: `UUID NOT NULL REFERENCES public.round_series(id) ON DELETE RESTRICT`
+  - `round_number`: `INTEGER NOT NULL` (each student's own counter within that series)
+  - `round_date`: `DATE NOT NULL DEFAULT public.today_ist()`
+  - `round_type`: `TEXT NOT NULL DEFAULT 'Category wise'` (`Category wise` or `All at a time`)
+  - `time_taken_seconds`: `INTEGER NULL CHECK (time_taken_seconds IS NULL OR time_taken_seconds >= 0)` (optional total round time, e.g. for "All at a time" rounds)
+  - `import_batch_id`: `UUID NULL` (tracks rounds created via historical CSV import)
   - `created_at`: `TIMESTAMPTZ NOT NULL DEFAULT now()`
-- **Who Reads**: Every authenticated user (`auth.role() = 'authenticated'`).
-- **Who Writes**: Administrators only (`is_admin() = true`).
-- **Expected Size**: $\approx 50\text{--}300$ rounds per academic year ($\approx 25\text{ KB}$ storage).
-- **Trade-off**: Simple integer primary key (`round_number`) keeps paper-to-digital correlation straightforward for children and teachers.
+  - **Constraints**: `UNIQUE (student_id, series_id, round_number)`
+  - **Who Reads**: Students read only their own rows (`student_id = auth.uid()`); Admins read all rows.
+  - **Who Writes**:
+    - **Student**: Cannot `INSERT` directly; must invoke RPC `start_round(p_student DEFAULT NULL, p_round_type DEFAULT 'Category wise')`, which returns the round `id`, assigns `max + 1` in the current series, uses `today_ist()`, and reuses today's empty round instead of creating duplicates. Students can `UPDATE` only `round_type` and `time_taken_seconds` on their own rounds from the last 7 days.
+    - **Admin**: Full `SELECT`, `INSERT`, `UPDATE`, and `DELETE` access (deletion of rounds with recorded results is blocked).
+- **Table `category_aliases` (Phase 4c-2a)**:
+  - `alias`: `TEXT PRIMARY KEY` (normalised lowercase category name with all whitespace removed)
+  - `category_id`: `UUID NOT NULL REFERENCES public.categories(id) ON DELETE CASCADE`
+  - **Who Reads**: Admins can read all rows (`public.is_admin()`).
+  - **Purpose**: Resolves recurring historical spreadsheet category name variations to canonical `round` categories with highest priority during CSV import.
 
 ---
 
@@ -62,7 +83,7 @@ This catalog outlines every database table in the Trendz Tracker PostgreSQL sche
   - `id`: `UUID PRIMARY KEY DEFAULT gen_random_uuid()`
   - `student_id`: `UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE`
   - `category_id`: `UUID NOT NULL REFERENCES public.categories(id) ON DELETE RESTRICT`
-  - `round_number`: `INTEGER NULL REFERENCES public.rounds(round_number) ON DELETE SET NULL`
+  - `student_round_id`: `UUID NULL REFERENCES public.student_rounds(id) ON DELETE RESTRICT` (required for `round` categories, forbidden for other sections; replaces the removed `round_number` column)
   - `correct`: `INTEGER NULL CHECK (correct >= 0)`
   - `total`: `INTEGER NULL CHECK (total >= 0)`
   - `time_seconds`: `INTEGER NULL CHECK (time_seconds >= 0)`
@@ -76,15 +97,15 @@ This catalog outlines every database table in the Trendz Tracker PostgreSQL sche
   - `corrected_by`: `UUID NULL REFERENCES public.profiles(id)`
   - `corrected_at`: `TIMESTAMPTZ NULL`
   - `created_at`: `TIMESTAMPTZ NOT NULL DEFAULT now()`
-- **Indexes**:
-  - Partial Unique Index: `(student_id, round_number, category_id) WHERE round_number IS NOT NULL`
-  - Performance Indexes: `(student_id, entry_date DESC)`, `(student_id, category_id)`, `(verified_at)`, `(flagged)`
+- **Indexes & Constraints**:
+  - Unique Constraint: `UNIQUE (student_round_id, category_id)`
+  - Performance Indexes: `(student_id, entry_date DESC)`, `(student_id, category_id)`, `(student_round_id)`, `(verified_at)`, `(flagged)`
 - **Database Trigger & Mutation Rules**:
   - `DEFAULT public.today_ist()`: Never computed from client browser clocks.
   - Insert for today: Client **omits** `entry_date` so the database assigns `today_ist()`.
   - Insert for past date: Client sends `entry_date`, which is validated by a database trigger (allowing only the past 7 days).
   - Update: Client **never sends** `entry_date`, preserving the date on which the student originally achieved the score.
-  - Trigger validations: Raises user-friendly Postgres errors if `correct > total` or if scores are backdated beyond 7 days.
+  - Trigger validations: Raises user-friendly Postgres errors if `correct > total`, if scores are backdated beyond 7 days, if `student_round_id` does not belong to the student, if a student attempts to write to a non-current simulator series, or if a category is not part of the round's series.
   - **Locking Trigger (Phase 4a)**: Students cannot change `flagged`, `flag_note`, `verified_by`, `verified_at`, `corrected_by`, or `corrected_at`. Furthermore, students **cannot edit or delete** any row that is verified (`verified_at IS NOT NULL` or `verified = true`) or has `corrected_at IS NOT NULL`.
   - **Flagged Rows (Phase 4a)**: Flagging (`flagged = true`, `flag_note`) does NOT lock the row; it instructs the student ("Your teacher asked you to check this entry"), keeping the row editable unless verified or corrected.
 - **Who Reads**:
@@ -94,7 +115,7 @@ This catalog outlines every database table in the Trendz Tracker PostgreSQL sche
   - **Student**: Can `INSERT`, `UPDATE`, and `DELETE` their own unverified, uncorrected rows.
   - **Admin**: Must perform verification, flagging, and corrections through dedicated RPCs (`admin_set_verified`, `admin_set_flag`, `admin_correct_result`) so all actions are transactionally logged to `result_audit`. Never update `results` directly for admin actions.
 - **Expected Size**: High volume. 100 students entering 24 categories daily $\approx 2,400$ rows/day ($\approx 100\text{ MB}$ to $1\text{ GB}$ over multi-year cycles).
-- **Trade-off**: Using a single unified table with nullable fields rather than multiple separate tables simplifies aggregation and streak tracking, but requires partial unique indexes to handle round vs non-round category constraints.
+- **Trade-off**: Using a single unified table with `student_round_id` required for round categories and `NULL` for non-round drills keeps streak and to-do aggregation unified while cleanly isolating per-student round counters.
 
 ---
 

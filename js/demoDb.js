@@ -12,22 +12,34 @@ import { isSupabaseConfigured, isDemoAllowedHost } from './config.js';
 
 // Static keys for demo state persistence
 const DEMO_STORAGE_KEY_STUDENTS = 'trendz_demo_students_v2';
-const DEMO_STORAGE_KEY_CATEGORIES = 'trendz_demo_categories_v2';
+const DEMO_STORAGE_KEY_CATEGORIES = 'trendz_demo_categories_v3';
+const DEMO_STORAGE_KEY_ROUND_SERIES = 'trendz_demo_round_series_v1';
+const DEMO_STORAGE_KEY_CATEGORY_SERIES = 'trendz_demo_category_series_v1';
+const DEMO_STORAGE_KEY_STUDENT_ROUNDS = 'trendz_demo_student_rounds_v1';
 const DEMO_STORAGE_KEY_AUTH = 'trendz_demo_auth_v2';
 const DEMO_STORAGE_KEY_TODOS = 'trendz_demo_todos_v2';
 const DEMO_STORAGE_KEY_RESOURCES = 'trendz_demo_resources_v2';
-const DEMO_STORAGE_KEY_RESULTS = 'trendz_demo_results_v2';
+const DEMO_STORAGE_KEY_RESULTS = 'trendz_demo_results_v3';
 const DEMO_STORAGE_KEY_AUDIT = 'trendz_demo_audit_v2';
 const DEMO_STORAGE_KEY_SESSIONS = 'trendz_demo_sessions_v2';
 const DEMO_STORAGE_KEY_ATTENDANCE = 'trendz_demo_attendance_v2';
 const DEMO_STORAGE_KEY_TARGETS = 'trendz_demo_targets_v2';
 const DEMO_STORAGE_KEY_WEEKLY_TESTS = 'trendz_demo_weekly_tests_v2';
 const DEMO_STORAGE_KEY_WEEKLY_SCORES = 'trendz_demo_weekly_scores_v2';
+const DEMO_STORAGE_KEY_CATEGORY_ALIASES = 'trendz_demo_category_aliases_v1';
+const DEMO_STORAGE_KEY_IMPORT_BATCHES = 'trendz_demo_import_batches_v1';
 
 export const DEFAULT_ROUND_CATEGORIES = [
   'ADD', 'SUB', 'MIX', 'MULT', 'DIV', 'BRAC',
   'PRIME FACTORS', 'HCF and LCM', 'FRAC +', 'FRAC -', 'FRAC *', 'FRAC ÷',
   'Approximation', 'Remainder', 'Ratio', 'Square Root', 'D.P', 'Next Square',
+  'Cube root', 'Next cube', 'Calendar', 'Time Elapsed', 'Sum of Squares', 'Surprise Task'
+];
+
+export const OLD_SIMULATOR_CATEGORIES = [
+  'ADD', 'SUB', 'MIX', 'MULT', 'DIV', 'BRAC',
+  'PRIME FACTORS', 'Currency', 'FRAC +', 'FRAC -', 'FRAC *', 'FRAC ÷',
+  'Missing Figures', 'Remainder', 'Ratio', 'Square Root', 'D.P', 'Next Square',
   'Cube root', 'Next cube', 'Calendar', 'Time Elapsed', 'Sum of Squares', 'Surprise Task'
 ];
 
@@ -60,7 +72,7 @@ function initDemoStorage() {
     localStorage.setItem(DEMO_STORAGE_KEY_STUDENTS, JSON.stringify(initialStudents));
   }
 
-  // 2. Initial Categories
+  // 2. Initial Categories (24 New Simulator + 2 Old Simulator extras + 2 Basics)
   if (!localStorage.getItem(DEMO_STORAGE_KEY_CATEGORIES)) {
     const initialCats = [];
     DEFAULT_ROUND_CATEGORIES.forEach((name, index) => {
@@ -73,6 +85,23 @@ function initDemoStorage() {
         created_at: '2026-10-01T00:00:00.000Z'
       });
     });
+    // Legacy Old simulator round categories
+    initialCats.push({
+      id: 'cat-rnd-25',
+      name: 'Currency',
+      section: 'round',
+      sort_order: 25,
+      active: true,
+      created_at: '2026-10-01T00:00:00.000Z'
+    });
+    initialCats.push({
+      id: 'cat-rnd-26',
+      name: 'Missing Figures',
+      section: 'round',
+      sort_order: 26,
+      active: true,
+      created_at: '2026-10-01T00:00:00.000Z'
+    });
     DEFAULT_BASICS_CATEGORIES.forEach((name, index) => {
       initialCats.push({
         id: `cat-bas-${index + 1}`,
@@ -84,6 +113,114 @@ function initDemoStorage() {
       });
     });
     localStorage.setItem(DEMO_STORAGE_KEY_CATEGORIES, JSON.stringify(initialCats));
+  }
+
+  // 2b. Initial Round Series (Old simulator & New simulator)
+  if (!localStorage.getItem(DEMO_STORAGE_KEY_ROUND_SERIES)) {
+    const initialSeries = [
+      { id: 'ser-old', name: 'Old simulator', sort_order: 1, is_current: false },
+      { id: 'ser-new', name: 'New simulator', sort_order: 2, is_current: true }
+    ];
+    localStorage.setItem(DEMO_STORAGE_KEY_ROUND_SERIES, JSON.stringify(initialSeries));
+  }
+
+  // 2c. Initial Category Series Mappings
+  if (!localStorage.getItem(DEMO_STORAGE_KEY_CATEGORY_SERIES)) {
+    const cats = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_CATEGORIES) || '[]');
+    const nameToId = new Map(cats.map(c => [c.name, c.id]));
+    const catSeries = [];
+
+    DEFAULT_ROUND_CATEGORIES.forEach((name, idx) => {
+      const catId = nameToId.get(name);
+      if (catId) {
+        catSeries.push({
+          category_id: catId,
+          series_id: 'ser-new',
+          sort_order: idx + 1
+        });
+      }
+    });
+
+    OLD_SIMULATOR_CATEGORIES.forEach((name, idx) => {
+      const catId = nameToId.get(name);
+      if (catId) {
+        catSeries.push({
+          category_id: catId,
+          series_id: 'ser-old',
+          sort_order: idx + 1
+        });
+      }
+    });
+
+    localStorage.setItem(DEMO_STORAGE_KEY_CATEGORY_SERIES, JSON.stringify(catSeries));
+  }
+
+  // 2d-alias. Initial Category Aliases (category_aliases)
+  if (!localStorage.getItem(DEMO_STORAGE_KEY_CATEGORY_ALIASES)) {
+    const initialAliases = [
+      { alias: 'fracdiv', category_id: 'cat-rnd-12' },
+      { alias: 'decimalpower', category_id: 'cat-rnd-17' },
+      { alias: 'sumofsquare', category_id: 'cat-rnd-23' }
+    ];
+    localStorage.setItem(DEMO_STORAGE_KEY_CATEGORY_ALIASES, JSON.stringify(initialAliases));
+  }
+
+  // 2d. Initial Student Rounds (student_rounds)
+  if (!localStorage.getItem(DEMO_STORAGE_KEY_STUDENT_ROUNDS)) {
+    const now = new Date();
+    const studentRounds = [];
+
+    // 5 rounds in New simulator for STU101 (Round 1 to Round 5)
+    const newRoundNums = [1, 2, 3, 4, 5];
+    newRoundNums.forEach((roundNum, rIdx) => {
+      const daysAgo = (4 - rIdx) * 2;
+      const roundDate = new Date(now.getTime() - daysAgo * 86400000).toISOString().split('T')[0];
+      studentRounds.push({
+        id: `sr-101-new-${roundNum}`,
+        student_id: 'usr-101',
+        series_id: 'ser-new',
+        round_number: roundNum,
+        round_date: roundDate,
+        round_type: roundNum % 2 === 0 ? 'All at a time' : 'Category wise',
+        time_taken_seconds: 1180 + roundNum * 15,
+        created_at: new Date(now.getTime() - daysAgo * 86400000).toISOString()
+      });
+    });
+
+    // 2 legacy rounds in Old simulator for STU101 (Round 1, Round 2)
+    [1, 2].forEach((roundNum, rIdx) => {
+      const daysAgo = 20 - rIdx * 3;
+      const roundDate = new Date(now.getTime() - daysAgo * 86400000).toISOString().split('T')[0];
+      studentRounds.push({
+        id: `sr-101-old-${roundNum}`,
+        student_id: 'usr-101',
+        series_id: 'ser-old',
+        round_number: roundNum,
+        round_date: roundDate,
+        round_type: 'Category wise',
+        time_taken_seconds: 1320 - roundNum * 20,
+        created_at: new Date(now.getTime() - daysAgo * 86400000).toISOString()
+      });
+    });
+
+    // Sample rounds for other students
+    ['usr-102', 'usr-103', 'usr-105', 'usr-107'].forEach((stuId) => {
+      [1, 2].forEach((rNum) => {
+        const daysAgo = (2 - rNum) * 2;
+        studentRounds.push({
+          id: `sr-${stuId}-new-${rNum}`,
+          student_id: stuId,
+          series_id: 'ser-new',
+          round_number: rNum,
+          round_date: new Date(now.getTime() - daysAgo * 86400000).toISOString().split('T')[0],
+          round_type: 'Category wise',
+          time_taken_seconds: 1200,
+          created_at: new Date(now.getTime() - daysAgo * 86400000).toISOString()
+        });
+      });
+    });
+
+    localStorage.setItem(DEMO_STORAGE_KEY_STUDENT_ROUNDS, JSON.stringify(studentRounds));
   }
 
   // 3. Initial Resources
@@ -147,66 +284,98 @@ function initDemoStorage() {
     localStorage.setItem(DEMO_STORAGE_KEY_TODOS, JSON.stringify(initialTodos));
   }
 
-  // 5. Initial Results (90-day sample data for STU101 across 5 rounds and daily basics)
+  // 5. Initial Results (90-day sample data for STU101 across New/Old simulator rounds and daily basics)
   if (!localStorage.getItem(DEMO_STORAGE_KEY_RESULTS)) {
     const sampleResults = [];
     const now = new Date();
     
-    // Sample rounds: 240, 241, 242, 243, 244
-    const rounds = [240, 241, 242, 243, 244];
+    // Sample New simulator rounds: 1..5
+    const rounds = [1, 2, 3, 4, 5];
     rounds.forEach((roundNum, rIdx) => {
       const daysAgo = (4 - rIdx) * 2;
       const roundDate = new Date(now.getTime() - daysAgo * 86400000).toISOString().split('T')[0];
+      const studentRoundId = `sr-101-new-${roundNum}`;
       
       DEFAULT_ROUND_CATEGORIES.forEach((catName, cIdx) => {
-        // Some categories in older rounds left unattempted to demonstrate partial rounds
-        if (roundNum === 240 && cIdx > 18) return;
-        if (roundNum === 241 && cIdx > 20) return;
+        if (roundNum === 1 && cIdx > 18) return;
+        if (roundNum === 2 && cIdx > 20) return;
 
         const total = 20;
-        // High accuracy with occasional realistic mistakes
         let correct = total;
         if (cIdx % 7 === 1) correct = 19;
         else if (cIdx % 7 === 3) correct = 18;
         else if (cIdx % 7 === 5) correct = 17;
 
+        const isRound3AddIdenticalFixture = roundNum === 3 && cIdx === 0;
+        const finalCorrect = isRound3AddIdenticalFixture ? 95 : correct;
+        const finalTotal = isRound3AddIdenticalFixture ? 95 : total;
+        const finalTime = isRound3AddIdenticalFixture ? 65 : 45 + (cIdx % 5) * 8;
+
         sampleResults.push({
           id: `res-rnd-${roundNum}-${cIdx + 1}`,
           student_id: 'usr-101',
-          round_number: roundNum,
+          student_round_id: studentRoundId,
           category_id: `cat-rnd-${cIdx + 1}`,
-          correct,
-          total,
-          time_seconds: 45 + (cIdx % 5) * 8,
+          correct: finalCorrect,
+          total: finalTotal,
+          time_seconds: finalTime,
           note: null,
           entry_date: roundDate,
           created_at: new Date(now.getTime() - daysAgo * 86400000 + cIdx * 60000).toISOString(),
-          verified_by: roundNum <= 241 ? 'usr-admin-1' : null,
-          verified_at: roundNum <= 241 ? new Date(now.getTime() - (daysAgo - 1) * 86400000).toISOString() : null,
-          corrected_by: roundNum === 242 && cIdx === 2 ? 'usr-admin-1' : null,
-          corrected_at: roundNum === 242 && cIdx === 2 ? new Date(now.getTime() - 2 * 86400000).toISOString() : null,
-          flagged: roundNum === 243 && cIdx === 4,
-          flag_note: roundNum === 243 && cIdx === 4 ? 'Please re-verify your multiplication count against your practice worksheet.' : null
+          verified_by: roundNum <= 2 ? 'usr-admin-1' : null,
+          verified_at: roundNum <= 2 ? new Date(now.getTime() - (daysAgo - 1) * 86400000).toISOString() : null,
+          corrected_by: roundNum === 3 && (cIdx === 2 || cIdx === 12) ? 'usr-admin-1' : null,
+          corrected_at: roundNum === 3 && (cIdx === 2 || cIdx === 12) ? new Date(now.getTime() - 2 * 86400000).toISOString() : null,
+          flagged: roundNum === 4 && cIdx === 4,
+          flag_note: roundNum === 4 && cIdx === 4 ? 'Please re-verify your multiplication count against your practice worksheet.' : null
         });
       });
     });
 
-    // Add diverse sample results for STU102, STU103, STU107
+    // Sample Old simulator results for STU101
+    [1, 2].forEach((roundNum, rIdx) => {
+      const daysAgo = 20 - rIdx * 3;
+      const roundDate = new Date(now.getTime() - daysAgo * 86400000).toISOString().split('T')[0];
+      const studentRoundId = `sr-101-old-${roundNum}`;
+      const oldCatIds = ['cat-rnd-1', 'cat-rnd-2', 'cat-rnd-25', 'cat-rnd-26'];
+      oldCatIds.forEach((catId, cIdx) => {
+        sampleResults.push({
+          id: `res-old-${roundNum}-${cIdx + 1}`,
+          student_id: 'usr-101',
+          student_round_id: studentRoundId,
+          category_id: catId,
+          correct: 19,
+          total: 20,
+          time_seconds: 50 + cIdx * 5,
+          note: null,
+          entry_date: roundDate,
+          created_at: new Date(now.getTime() - daysAgo * 86400000 + cIdx * 60000).toISOString(),
+          verified_by: 'usr-admin-1',
+          verified_at: new Date(now.getTime() - (daysAgo - 1) * 86400000).toISOString(),
+          corrected_by: null,
+          corrected_at: null,
+          flagged: false,
+          flag_note: null
+        });
+      });
+    });
+
+    // Add diverse sample results for STU102, STU103, STU105, STU107
     const otherStudents = ['usr-102', 'usr-103', 'usr-105', 'usr-107'];
     otherStudents.forEach((stuId, sIdx) => {
-      const stuRounds = [243, 244];
+      const stuRounds = [1, 2];
       stuRounds.forEach(rNum => {
         sampleResults.push({
           id: `res-rnd-${stuId}-${rNum}-1`,
           student_id: stuId,
-          round_number: rNum,
+          student_round_id: `sr-${stuId}-new-${rNum}`,
           category_id: 'cat-rnd-1',
           correct: 20,
           total: 20,
           time_seconds: 42 + sIdx * 3,
           note: null,
-          entry_date: new Date(now.getTime() - (244 - rNum) * 86400000).toISOString().split('T')[0],
-          created_at: new Date(now.getTime() - (244 - rNum) * 86400000 + sIdx * 3600000).toISOString(),
+          entry_date: new Date(now.getTime() - (2 - rNum) * 86400000).toISOString().split('T')[0],
+          created_at: new Date(now.getTime() - (2 - rNum) * 86400000 + sIdx * 3600000).toISOString(),
           verified_by: null,
           verified_at: null,
           corrected_by: null,
@@ -224,7 +393,7 @@ function initDemoStorage() {
       sampleResults.push({
         id: `res-bas-1d-${day}`,
         student_id: 'usr-101',
-        round_number: null,
+        student_round_id: null,
         category_id: 'cat-bas-1',
         correct: 19 + (day % 2),
         total: 20,
@@ -244,7 +413,7 @@ function initDemoStorage() {
         sampleResults.push({
           id: `res-bas-2d-${day}`,
           student_id: 'usr-101',
-          round_number: null,
+          student_round_id: null,
           category_id: 'cat-bas-2',
           correct: 18 + (day % 3 === 0 ? 2 : 1),
           total: 20,
@@ -490,6 +659,11 @@ function initDemoStorage() {
       { id: 'sc-5-1', test_id: 'wkt-5', student_id: 'usr-102', category_id: 'cat-bas-1', correct: 17, total: 20, time_seconds: 115, created_at: '2026-09-20T05:00:00.000Z' }
     ];
     localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_SCORES, JSON.stringify(initialWeeklyScores));
+  }
+
+  // 12. Initial Import Batches (Phase 4c-2b)
+  if (!localStorage.getItem(DEMO_STORAGE_KEY_IMPORT_BATCHES)) {
+    localStorage.setItem(DEMO_STORAGE_KEY_IMPORT_BATCHES, JSON.stringify([]));
   }
 }
 
@@ -930,11 +1104,12 @@ export const DemoDB = {
     const results = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_RESULTS) || '[]');
     const categories = this.getCategories();
     const students = this.getStudents();
+    const targets = this.getBasicsThresholds().filter(t => t.active);
 
     const catMap = new Map(categories.map(c => [c.id, c]));
     const studentMap = new Map(students.map(s => [s.id, s]));
 
-    // Join with category and student
+    // Join with category, student, and target benchmark (emulating results_with_target view)
     let list = results.map(r => {
       const cat = catMap.get(r.category_id) || { name: 'Unknown Category', section: 'other' };
       const student = studentMap.get(r.student_id) || { full_name: 'Unknown Student', student_code: '—', level: '—' };
@@ -942,13 +1117,33 @@ export const DemoDB = {
       const isCorrected = !!r.corrected_at || !!r.corrected_by;
       const isFlagged = r.flagged === true;
 
+      let meetsTarget = null;
+      if (cat.section === 'basics') {
+        const studentLevel = (student.level || '').trim().toLowerCase();
+        const levelRule = targets.find(t => t.category_id === r.category_id && t.level && t.level.trim().toLowerCase() === studentLevel);
+        const defaultRule = targets.find(t => t.category_id === r.category_id && !t.level);
+        const effective = levelRule || defaultRule;
+        if (effective) {
+          const minAcc = effective.min_accuracy;
+          const maxTime = effective.max_time_seconds;
+          if (maxTime !== null && (r.time_seconds === null || r.time_seconds > maxTime)) {
+            meetsTarget = false;
+          } else if (r.total && r.total > 0) {
+            meetsTarget = ((r.correct / r.total) * 100) >= minAcc;
+          } else {
+            meetsTarget = false;
+          }
+        }
+      }
+
       return {
         ...r,
         category: cat,
         student,
         isVerified,
         isCorrected,
-        isFlagged
+        isFlagged,
+        meets_target: meetsTarget
       };
     });
 
@@ -1544,5 +1739,630 @@ export const DemoDB = {
         };
       })
       .filter(r => !section || (r.categories && r.categories.section === section));
+  },
+
+  // ==================== PHASE 4c-0: ROUND SERIES, CATEGORY SERIES & STUDENT ROUNDS ====================
+
+  getRoundSeries() {
+    initDemoStorage();
+    const list = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_ROUND_SERIES) || '[]');
+    return list.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  },
+
+  getCategorySeries() {
+    initDemoStorage();
+    const list = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_CATEGORY_SERIES) || '[]');
+    return list.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  },
+
+  getCategoryAliases() {
+    initDemoStorage();
+    return JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_CATEGORY_ALIASES) || '[]');
+  },
+
+  saveCategoryAliases(list) {
+    localStorage.setItem(DEMO_STORAGE_KEY_CATEGORY_ALIASES, JSON.stringify(list));
+  },
+
+  upsertCategoryAlias(alias, categoryId) {
+    initDemoStorage();
+    const key = String(alias || '')
+      .toLowerCase()
+      .replace(/\s+/g, '');
+    if (!key || !categoryId) {
+      throw new Error('Both alias and category_id are required.');
+    }
+    const list = this.getCategoryAliases();
+    const idx = list.findIndex(a => String(a.alias || '').toLowerCase().replace(/\s+/g, '') === key);
+    if (idx >= 0) {
+      list[idx] = { alias: key, category_id: categoryId };
+    } else {
+      list.push({ alias: key, category_id: categoryId });
+    }
+    this.saveCategoryAliases(list);
+    return { alias: key, category_id: categoryId };
+  },
+
+  deleteCategoryAlias(alias) {
+    initDemoStorage();
+    const key = String(alias || '')
+      .toLowerCase()
+      .replace(/\s+/g, '');
+    const list = this.getCategoryAliases().filter(
+      a => String(a.alias || '').toLowerCase().replace(/\s+/g, '') !== key
+    );
+    this.saveCategoryAliases(list);
+    return true;
+  },
+
+  getImportBatches(studentId = null) {
+    initDemoStorage();
+    let list = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_IMPORT_BATCHES) || '[]');
+    if (studentId) {
+      list = list.filter(b => b.student_id === studentId);
+    }
+    return list.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  },
+
+  saveImportBatches(list) {
+    localStorage.setItem(DEMO_STORAGE_KEY_IMPORT_BATCHES, JSON.stringify(list));
+  },
+
+  adminStartImport({
+    p_student,
+    p_file_name,
+    p_name_in_file,
+    p_mark_verified,
+    p_rows_found,
+    p_summary
+  }, adminId = 'usr-admin-1') {
+    initDemoStorage();
+    if (!p_student) throw new Error('Student is required to start an import batch.');
+    const batches = this.getImportBatches();
+    const newBatch = {
+      id: `batch-demo-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      student_id: p_student,
+      file_name: String(p_file_name || 'scoresheet.csv'),
+      name_in_file: p_name_in_file ? String(p_name_in_file) : null,
+      mark_verified: Boolean(p_mark_verified),
+      rows_found: Number(p_rows_found) || 0,
+      summary: p_summary || {},
+      status: 'started',
+      rounds_created: 0,
+      rounds_merged: 0,
+      rounds_skipped: 0,
+      cells_inserted: 0,
+      cells_skipped: 0,
+      created_at: new Date().toISOString(),
+      created_by: adminId,
+      finished_at: null,
+      undone_at: null,
+      undone_by: null,
+      undo_reason: null,
+      results_deleted: 0,
+      results_kept: 0,
+      rounds_deleted: 0
+    };
+    batches.unshift(newBatch);
+    this.saveImportBatches(batches);
+    return newBatch.id;
+  },
+
+  adminImportEnsureCategory({
+    p_batch,
+    p_series,
+    p_category = null,
+    p_new_name = null
+  }) {
+    initDemoStorage();
+    if (!p_batch || !p_series) {
+      throw new Error('Batch ID and Series ID are required for admin_import_ensure_category.');
+    }
+    const categories = this.getCategories();
+    const catSeries = this.getCategorySeries();
+
+    let targetCatId = null;
+
+    if (p_category) {
+      const existingCat = categories.find(c => c.id === p_category && c.section === 'round');
+      if (!existingCat) {
+        throw new Error(`Round category "${p_category}" not found.`);
+      }
+      targetCatId = existingCat.id;
+    } else if (p_new_name && String(p_new_name).trim()) {
+      const cleanName = String(p_new_name).trim();
+      const matchKey = cleanName.toLowerCase().replace(/\s+/g, '');
+      let existingCat = categories.find(
+        c => c.section === 'round' && String(c.name || '').toLowerCase().replace(/\s+/g, '') === matchKey
+      );
+      if (!existingCat) {
+        const roundCats = categories.filter(c => c.section === 'round');
+        const maxSort = roundCats.reduce((m, c) => Math.max(m, c.sort_order || 0), 0);
+        existingCat = {
+          id: `cat-rnd-hist-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          name: cleanName,
+          section: 'round',
+          sort_order: maxSort + 1,
+          active: false, // Historical imported categories are created INACTIVE
+          import_batch_id: p_batch,
+          created_at: new Date().toISOString()
+        };
+        categories.push(existingCat);
+        this.saveCategories(categories);
+      }
+      targetCatId = existingCat.id;
+    } else {
+      throw new Error('Either p_category or p_new_name must be provided.');
+    }
+
+    // Link targetCatId to p_series in category_series if not already linked
+    const alreadyLinked = catSeries.some(
+      cs => cs.category_id === targetCatId && cs.series_id === p_series
+    );
+    if (!alreadyLinked) {
+      const seriesItems = catSeries.filter(cs => cs.series_id === p_series);
+      const maxSort = seriesItems.reduce((m, cs) => Math.max(m, cs.sort_order || 0), 0);
+      catSeries.push({
+        category_id: targetCatId,
+        series_id: p_series,
+        sort_order: maxSort + 1
+      });
+      this.saveCategorySeries(catSeries);
+    }
+
+    return targetCatId;
+  },
+
+  adminImportRounds({
+    p_batch,
+    p_series,
+    p_rounds,
+    p_on_date_conflict = 'use_existing'
+  }) {
+    initDemoStorage();
+    if (!p_batch || !p_series) {
+      throw new Error('p_batch and p_series are required.');
+    }
+    if (!Array.isArray(p_rounds) || p_rounds.length < 1 || p_rounds.length > 100) {
+      throw new Error('admin_import_rounds accepts between 1 and 100 rounds per call.');
+    }
+    if (p_on_date_conflict !== 'skip' && p_on_date_conflict !== 'use_existing') {
+      throw new Error("p_on_date_conflict must be 'skip' or 'use_existing'.");
+    }
+
+    let totalCellsInCall = 0;
+    for (const rnd of p_rounds) {
+      if (!rnd || !Number.isFinite(Number(rnd.round_number)) || !rnd.round_date) {
+        throw new Error('Each round must include a valid round_number and round_date.');
+      }
+      const cells = Array.isArray(rnd.cells) ? rnd.cells : [];
+      totalCellsInCall += cells.length;
+    }
+    if (totalCellsInCall > 3000) {
+      throw new Error('admin_import_rounds accepts at most 3000 cells per call.');
+    }
+
+    const batches = this.getImportBatches();
+    const batchIdx = batches.findIndex(b => b.id === p_batch);
+    if (batchIdx === -1) {
+      throw new Error(`Import batch "${p_batch}" not found.`);
+    }
+    const batch = batches[batchIdx];
+    const studentId = batch.student_id;
+
+    const allRounds = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_STUDENT_ROUNDS) || '[]');
+    const allResults = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_RESULTS) || '[]');
+    const nowISO = new Date().toISOString();
+
+    let rounds_created = 0;
+    let rounds_merged = 0;
+    let rounds_skipped = 0;
+    let cells_inserted = 0;
+    let cells_skipped = 0;
+
+    for (const rnd of p_rounds) {
+      const rNum = Number(rnd.round_number);
+      const rDate = String(rnd.round_date);
+      const rType = rnd.round_type ? String(rnd.round_type).trim() : 'Category wise';
+      const rTime =
+        rnd.time_taken_seconds !== null && rnd.time_taken_seconds !== undefined
+          ? Number(rnd.time_taken_seconds)
+          : null;
+      const cells = Array.isArray(rnd.cells) ? rnd.cells : [];
+
+      let targetRound = allRounds.find(
+        sr =>
+          sr.student_id === studentId &&
+          sr.series_id === p_series &&
+          Number(sr.round_number) === rNum
+      );
+
+      if (targetRound) {
+        const hasDateConflict = Boolean(
+          targetRound.round_date && rDate && targetRound.round_date !== rDate
+        );
+        if (hasDateConflict && p_on_date_conflict === 'skip') {
+          rounds_skipped += 1;
+          cells_skipped += cells.length;
+          continue;
+        }
+        // Merge into existing round (never overwrite existing round date; fill time_taken_seconds if missing)
+        if (
+          (targetRound.time_taken_seconds === null || targetRound.time_taken_seconds === undefined) &&
+          rTime !== null
+        ) {
+          targetRound.time_taken_seconds = rTime;
+        }
+        rounds_merged += 1;
+      } else {
+        targetRound = {
+          id: `sr-imp-${studentId}-${rNum}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          student_id: studentId,
+          series_id: p_series,
+          round_number: rNum,
+          round_date: rDate,
+          round_type: rType,
+          time_taken_seconds: rTime,
+          import_batch_id: p_batch,
+          created_at: nowISO
+        };
+        allRounds.push(targetRound);
+        rounds_created += 1;
+      }
+
+      for (const cell of cells) {
+        if (!cell || !cell.category_id) {
+          throw new Error(`Invalid cell in Round ${rNum}: missing category_id.`);
+        }
+        const existingRes = allResults.find(
+          r => r.student_round_id === targetRound.id && r.category_id === cell.category_id
+        );
+        if (existingRes) {
+          // Never overwrite existing cells
+          cells_skipped += 1;
+        } else {
+          allResults.push({
+            id: `res-imp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            student_id: studentId,
+            student_round_id: targetRound.id,
+            category_id: cell.category_id,
+            correct: cell.correct !== null && cell.correct !== undefined ? Number(cell.correct) : null,
+            total: cell.total !== null && cell.total !== undefined ? Number(cell.total) : null,
+            time_seconds:
+              cell.time_seconds !== null && cell.time_seconds !== undefined
+                ? Number(cell.time_seconds)
+                : null,
+            note: cell.note ? String(cell.note) : null,
+            entry_date: targetRound.round_date,
+            created_at: nowISO,
+            verified: Boolean(batch.mark_verified),
+            verified_by: batch.mark_verified ? batch.created_by : null,
+            verified_at: batch.mark_verified ? nowISO : null,
+            corrected_by: null,
+            corrected_at: null,
+            flagged: false,
+            flag_note: null,
+            import_batch_id: p_batch
+          });
+          cells_inserted += 1;
+        }
+      }
+    }
+
+    this.saveStudentRounds(allRounds);
+    localStorage.setItem(DEMO_STORAGE_KEY_RESULTS, JSON.stringify(allResults));
+
+    // Update cumulative counts on batch
+    batch.rounds_created = (batch.rounds_created || 0) + rounds_created;
+    batch.rounds_merged = (batch.rounds_merged || 0) + rounds_merged;
+    batch.rounds_skipped = (batch.rounds_skipped || 0) + rounds_skipped;
+    batch.cells_inserted = (batch.cells_inserted || 0) + cells_inserted;
+    batch.cells_skipped = (batch.cells_skipped || 0) + cells_skipped;
+    batches[batchIdx] = batch;
+    this.saveImportBatches(batches);
+
+    return {
+      rounds_created,
+      rounds_merged,
+      rounds_skipped,
+      cells_inserted,
+      cells_skipped
+    };
+  },
+
+  adminFinishImport({ p_batch }) {
+    initDemoStorage();
+    const batches = this.getImportBatches();
+    const idx = batches.findIndex(b => b.id === p_batch);
+    if (idx === -1) throw new Error(`Import batch "${p_batch}" not found.`);
+    batches[idx].status = 'completed';
+    batches[idx].finished_at = new Date().toISOString();
+    this.saveImportBatches(batches);
+    return true;
+  },
+
+  adminUndoImport({ p_batch, p_reason }, adminId = 'usr-admin-1') {
+    initDemoStorage();
+    if (!p_batch) throw new Error('Batch ID is required to undo an import.');
+    const cleanReason = String(p_reason || '').trim();
+    if (!cleanReason) {
+      throw new Error('A reason is required to undo an import batch.');
+    }
+
+    const batches = this.getImportBatches();
+    const idx = batches.findIndex(b => b.id === p_batch);
+    if (idx === -1) throw new Error(`Import batch "${p_batch}" not found.`);
+    const batch = batches[idx];
+    if (batch.status === 'undone' || batch.undone_at) {
+      throw new Error('This import batch has already been undone.');
+    }
+
+    const allResults = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_RESULTS) || '[]');
+    const allRounds = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_STUDENT_ROUNDS) || '[]');
+
+    let results_deleted = 0;
+    let results_kept = 0;
+    const nextResults = [];
+
+    for (const res of allResults) {
+      if (res.import_batch_id === p_batch) {
+        // Keep results that were subsequently corrected or verified after an unverified import
+        const wasCorrected = Boolean(res.corrected_at || res.corrected_by);
+        const wasVerifiedLater = Boolean(!batch.mark_verified && (res.verified_at || res.verified_by));
+        if (wasCorrected || wasVerifiedLater) {
+          results_kept += 1;
+          nextResults.push(res);
+        } else {
+          results_deleted += 1;
+        }
+      } else {
+        nextResults.push(res);
+      }
+    }
+
+    const remainingRoundIdsWithResults = new Set(
+      nextResults.map(r => r.student_round_id).filter(Boolean)
+    );
+
+    let rounds_deleted = 0;
+    const nextRounds = [];
+    for (const rnd of allRounds) {
+      if (rnd.import_batch_id === p_batch && !remainingRoundIdsWithResults.has(rnd.id)) {
+        rounds_deleted += 1;
+      } else {
+        nextRounds.push(rnd);
+      }
+    }
+
+    localStorage.setItem(DEMO_STORAGE_KEY_RESULTS, JSON.stringify(nextResults));
+    this.saveStudentRounds(nextRounds);
+
+    batch.status = 'undone';
+    batch.undone_at = new Date().toISOString();
+    batch.undone_by = adminId;
+    batch.undo_reason = cleanReason;
+    batch.results_deleted = results_deleted;
+    batch.results_kept = results_kept;
+    batch.rounds_deleted = rounds_deleted;
+    batches[idx] = batch;
+    this.saveImportBatches(batches);
+
+    return {
+      results_deleted,
+      results_kept,
+      rounds_deleted
+    };
+  },
+
+  saveCategorySeries(list) {
+    localStorage.setItem(DEMO_STORAGE_KEY_CATEGORY_SERIES, JSON.stringify(list));
+  },
+
+  toggleCategorySeriesMembership(categoryId, seriesId, shouldBelong) {
+    initDemoStorage();
+    let list = this.getCategorySeries();
+    const existingIdx = list.findIndex(cs => cs.category_id === categoryId && cs.series_id === seriesId);
+    if (shouldBelong && existingIdx === -1) {
+      const seriesItems = list.filter(cs => cs.series_id === seriesId);
+      const maxSort = seriesItems.reduce((m, cs) => Math.max(m, cs.sort_order || 0), 0);
+      list.push({
+        category_id: categoryId,
+        series_id: seriesId,
+        sort_order: maxSort + 1
+      });
+      this.saveCategorySeries(list);
+    } else if (!shouldBelong && existingIdx !== -1) {
+      list.splice(existingIdx, 1);
+      this.saveCategorySeries(list);
+    }
+    return this.getCategorySeries();
+  },
+
+  reorderCategoryInSeries(categoryId, seriesId, direction) {
+    initDemoStorage();
+    const list = this.getCategorySeries();
+    const seriesItems = list
+      .filter(cs => cs.series_id === seriesId)
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+
+    const idx = seriesItems.findIndex(cs => cs.category_id === categoryId);
+    if (idx === -1) return;
+    const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= seriesItems.length) return;
+
+    const cur = seriesItems[idx];
+    const target = seriesItems[targetIdx];
+    const tmp = cur.sort_order;
+    cur.sort_order = target.sort_order;
+    target.sort_order = tmp;
+    this.saveCategorySeries(list);
+  },
+
+  getStudentRounds(studentId = null, seriesId = null) {
+    initDemoStorage();
+    let list = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_STUDENT_ROUNDS) || '[]');
+    const results = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_RESULTS) || '[]');
+    const seriesList = this.getRoundSeries();
+    const seriesMap = new Map(seriesList.map(s => [s.id, s]));
+
+    if (studentId) {
+      list = list.filter(sr => sr.student_id === studentId);
+    }
+    if (seriesId && seriesId !== 'all') {
+      list = list.filter(sr => sr.series_id === seriesId);
+    }
+
+    return list
+      .map(sr => {
+        const count = results.filter(r => r.student_round_id === sr.id).length;
+        const ser = seriesMap.get(sr.series_id) || null;
+        return {
+          ...sr,
+          series: ser,
+          scores_count: count
+        };
+      })
+      .sort((a, b) => {
+        if (a.series_id !== b.series_id) {
+          const ordA = a.series?.sort_order ?? 0;
+          const ordB = b.series?.sort_order ?? 0;
+          if (ordA !== ordB) return ordB - ordA;
+        }
+        return (b.round_number || 0) - (a.round_number || 0);
+      });
+  },
+
+  saveStudentRounds(list) {
+    localStorage.setItem(DEMO_STORAGE_KEY_STUDENT_ROUNDS, JSON.stringify(list));
+  },
+
+  async mockStartRound(studentId, roundType = 'Category wise') {
+    initDemoStorage();
+    const todayIST = await this.mockTodayIST();
+    const seriesList = this.getRoundSeries();
+    const currentSeries = seriesList.find(s => s.is_current) || seriesList[seriesList.length - 1];
+    if (!currentSeries) throw new Error('No current round series configured.');
+
+    const allRounds = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_STUDENT_ROUNDS) || '[]');
+    const results = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_RESULTS) || '[]');
+
+    // Reuse today's empty round in the current series if one exists
+    const studentCurrentRounds = allRounds.filter(
+      sr => sr.student_id === studentId && sr.series_id === currentSeries.id
+    );
+
+    const todayEmpty = studentCurrentRounds.find(sr => {
+      if (sr.round_date !== todayIST) return false;
+      const hasScores = results.some(r => r.student_round_id === sr.id);
+      return !hasScores;
+    });
+
+    if (todayEmpty) {
+      return todayEmpty.id;
+    }
+
+    const maxNum = studentCurrentRounds.reduce((m, sr) => Math.max(m, sr.round_number || 0), 0);
+    const newRound = {
+      id: `sr-${studentId}-new-${maxNum + 1}-${Date.now()}`,
+      student_id: studentId,
+      series_id: currentSeries.id,
+      round_number: maxNum + 1,
+      round_date: todayIST,
+      round_type: roundType || 'Category wise',
+      time_taken_seconds: null,
+      created_at: new Date().toISOString()
+    };
+
+    allRounds.push(newRound);
+    this.saveStudentRounds(allRounds);
+    return newRound.id;
+  },
+
+  createStudentRoundAdmin({ student_id, series_id, round_number, round_date, round_type, time_taken_seconds }) {
+    initDemoStorage();
+    const allRounds = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_STUDENT_ROUNDS) || '[]');
+    const dup = allRounds.find(
+      sr => sr.student_id === student_id && sr.series_id === series_id && Number(sr.round_number) === Number(round_number)
+    );
+    if (dup) {
+      throw new Error(`Round ${round_number} already exists for this student in this series.`);
+    }
+    const newRound = {
+      id: `sr-${student_id}-${Date.now()}`,
+      student_id,
+      series_id,
+      round_number: Number(round_number),
+      round_date,
+      round_type: (round_type || 'Category wise').trim(),
+      time_taken_seconds: time_taken_seconds !== null && time_taken_seconds !== undefined && time_taken_seconds !== '' ? Number(time_taken_seconds) : null,
+      created_at: new Date().toISOString()
+    };
+    allRounds.push(newRound);
+    this.saveStudentRounds(allRounds);
+    return newRound;
+  },
+
+  updateStudentRound(roundId, updates) {
+    initDemoStorage();
+    const allRounds = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_STUDENT_ROUNDS) || '[]');
+    const idx = allRounds.findIndex(sr => sr.id === roundId);
+    if (idx === -1) throw new Error('Round not found.');
+
+    allRounds[idx] = {
+      ...allRounds[idx],
+      ...(updates.round_date !== undefined ? { round_date: updates.round_date } : {}),
+      ...(updates.round_type !== undefined ? { round_type: updates.round_type } : {}),
+      ...(updates.time_taken_seconds !== undefined ? { time_taken_seconds: updates.time_taken_seconds } : {})
+    };
+    this.saveStudentRounds(allRounds);
+    return allRounds[idx];
+  },
+
+  deleteStudentRoundAdmin(roundId) {
+    initDemoStorage();
+    const allRounds = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_STUDENT_ROUNDS) || '[]');
+    const results = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_RESULTS) || '[]');
+    const hasScores = results.some(r => r.student_round_id === roundId);
+    if (hasScores) {
+      throw new Error('Cannot delete a round that already has recorded scores.');
+    }
+    const next = allRounds.filter(sr => sr.id !== roundId);
+    this.saveStudentRounds(next);
+    return true;
+  },
+
+  getRoundResults(studentRoundId) {
+    initDemoStorage();
+    const results = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_RESULTS) || '[]');
+    return results.filter(r => r.student_round_id === studentRoundId);
+  },
+
+  saveRoundResults(studentRoundId, updates = [], inserts = []) {
+    initDemoStorage();
+    const results = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_RESULTS) || '[]');
+    updates.forEach(up => {
+      const idx = results.findIndex(r => r.id === up.id);
+      if (idx !== -1) {
+        results[idx] = { ...results[idx], ...up };
+      }
+    });
+    inserts.forEach(ins => {
+      results.push({
+        id: `res-demo-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        ...ins,
+        student_round_id: studentRoundId,
+        entry_date: ins.entry_date || new Date().toISOString().split('T')[0],
+        created_at: new Date().toISOString(),
+        verified: false,
+        verified_by: null,
+        verified_at: null,
+        corrected_by: null,
+        corrected_at: null,
+        flagged: false,
+        flag_note: null
+      });
+    });
+    localStorage.setItem(DEMO_STORAGE_KEY_RESULTS, JSON.stringify(results));
+    return true;
   }
 };

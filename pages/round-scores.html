@@ -51,22 +51,60 @@
           <div class="section-header-row" style="align-items: flex-end; flex-wrap: wrap; gap: var(--space-4); margin-bottom: var(--space-4);">
             <div>
               <h1>Championship Round Scores</h1>
-              <p style="font-size: var(--text-sm);">Select your practice round and enter scores for the 24 championship categories.</p>
+              <p style="font-size: var(--text-sm);">Select your practice round in the current simulator series and enter scores for each category.</p>
             </div>
 
-            <!-- Round Selector Dropdown -->
-            <div style="display: flex; align-items: center; gap: var(--space-2); min-width: 260px;">
-              <label for="select-round" class="form-label" style="margin-bottom: 0; white-space: nowrap;">Round:</label>
-              <select id="select-round" class="form-select" style="font-weight: 600; min-height: 42px;" aria-label="Select round">
-                <option value="">Loading rounds...</option>
-              </select>
+            <!-- Round Selector Dropdown + Start Today's Round Action -->
+            <div style="display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;">
+              <div style="display: flex; align-items: center; gap: var(--space-2); min-width: 260px;">
+                <label for="select-round" class="form-label" style="margin-bottom: 0; white-space: nowrap;">Round:</label>
+                <select id="select-round" class="form-select" style="font-weight: 600; min-height: 42px;" aria-label="Select round">
+                  <option value="">Loading rounds...</option>
+                </select>
+              </div>
+              <button type="button" id="btn-start-today-round" class="btn btn-secondary" style="min-height: 42px; white-space: nowrap;">
+                <span id="btn-start-round-text">+ Start today's round</span>
+              </button>
             </div>
           </div>
 
+          <!-- Selected Round Metadata Card: Round Type & Time Taken (Editable within last 7 days) -->
+          <section class="card" id="round-meta-card" style="display: none; margin-bottom: var(--space-4); padding: var(--space-4);">
+            <div style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: var(--space-4);">
+              <div style="display: flex; gap: var(--space-4); flex-wrap: wrap; align-items: flex-end;">
+                <div>
+                  <label for="input-round-type" class="form-label" style="font-size: var(--text-xs); margin-bottom: 4px;">Round Type</label>
+                  <select id="input-round-type" class="form-select" style="min-width: 190px; min-height: 38px;">
+                    <option value="Category wise">Category wise</option>
+                    <option value="Flat Round">Flat Round</option>
+                    <option value="Mock Exam">Mock Exam</option>
+                    <option value="Timed Simulation">Timed Simulation</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label for="input-round-time-taken" class="form-label" style="font-size: var(--text-xs); margin-bottom: 4px;">
+                    Round Time Taken <span style="font-weight: normal; color: var(--text-muted);">(h:mm:ss or mm:ss, optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    id="input-round-time-taken"
+                    class="form-input num"
+                    placeholder="e.g. 1:08:37 or 45:00"
+                    style="max-width: 180px; min-height: 38px;"
+                  />
+                </div>
+              </div>
+
+              <div id="round-meta-lock-notice" style="font-size: var(--text-xs); color: var(--text-muted);"></div>
+            </div>
+          </section>
+
           <!-- Progress Bar & Save Controls -->
-          <div class="progress-header-box">
-            <div style="display: flex; align-items: center; gap: var(--space-3);">
+          <div class="progress-header-box" id="round-progress-bar">
+            <div style="display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;">
               <span class="progress-text-count" id="progress-display">Loading categories...</span>
+              <span id="series-badge-display" class="badge badge-active" style="display: none; font-size: 11px;"></span>
             </div>
             <div>
               <button type="button" id="btn-save-round" class="btn btn-primary" style="min-width: 140px;">
@@ -98,7 +136,7 @@
           </div>
 
           <!-- Bottom Sticky Save Bar for Mobile Accessibility -->
-          <div style="position: sticky; bottom: var(--space-4); display: flex; justify-content: flex-end; z-index: 20;">
+          <div id="sticky-save-bar" style="position: sticky; bottom: var(--space-4); display: flex; justify-content: flex-end; z-index: 20;">
             <button type="button" id="btn-save-round-bottom" class="btn btn-primary" style="box-shadow: var(--shadow-lg); min-width: 160px;">
               Save Changes
             </button>

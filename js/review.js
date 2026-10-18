@@ -219,65 +219,69 @@ async function loadReviewEntries() {
     if (isSupabaseConfigured()) {
       const supabase = await getSupabase();
 
-      // Build PostgREST query
-      let query = supabase
-        .from('results')
-        .select(`
-          id,
-          student_id,
-          round_number,
-          category_id,
-          correct,
-          total,
-          time_seconds,
-          note,
-          entry_date,
-          created_at,
-          verified_by,
-          verified_at,
-          corrected_by,
-          corrected_at,
-          flagged,
-          flag_note,
-          category:categories!results_category_id_fkey(id, name, section, sort_order),
-          student:profiles!results_student_id_fkey(id, full_name, student_code, level)
-        `, { count: 'exact' });
+      const buildReviewQuery = (tableName, includeTargetFields) => {
+        const targetCols = includeTargetFields ? 'min_accuracy, max_time_seconds, meets_target,' : '';
+        let q = supabase
+          .from(tableName)
+          .select(`
+            id,
+            student_id,
+            student_round_id,
+            category_id,
+            correct,
+            total,
+            time_seconds,
+            note,
+            entry_date,
+            created_at,
+            verified_by,
+            verified_at,
+            corrected_by,
+            corrected_at,
+            flagged,
+            flag_note,
+            ${targetCols}
+            category:categories!results_category_id_fkey(id, name, section, sort_order),
+            student:profiles!results_student_id_fkey(id, full_name, student_code, level)
+          `, { count: 'exact' });
 
-      // Apply Filters
-      if (activeFilters.dateFrom) {
-        query = query.gte('entry_date', activeFilters.dateFrom);
-      }
-      if (activeFilters.dateTo) {
-        query = query.lte('entry_date', activeFilters.dateTo);
-      }
-      if (activeFilters.categoryId && activeFilters.categoryId !== 'all') {
-        query = query.eq('category_id', activeFilters.categoryId);
-      }
-      if (activeFilters.section && activeFilters.section !== 'all') {
-        query = query.eq('category.section', activeFilters.section);
-      }
+        if (activeFilters.dateFrom) {
+          q = q.gte('entry_date', activeFilters.dateFrom);
+        }
+        if (activeFilters.dateTo) {
+          q = q.lte('entry_date', activeFilters.dateTo);
+        }
+        if (activeFilters.categoryId && activeFilters.categoryId !== 'all') {
+          q = q.eq('category_id', activeFilters.categoryId);
+        }
+        if (activeFilters.section && activeFilters.section !== 'all') {
+          q = q.eq('category.section', activeFilters.section);
+        }
 
-      // Verification Status filter
-      if (activeFilters.status === 'unverified') {
-        query = query.is('verified_at', null).is('corrected_at', null);
-      } else if (activeFilters.status === 'verified') {
-        query = query.not('verified_at', 'is', null);
-      } else if (activeFilters.status === 'flagged') {
-        query = query.eq('flagged', true);
-      } else if (activeFilters.status === 'corrected') {
-        query = query.not('corrected_at', 'is', null);
+        if (activeFilters.status === 'unverified') {
+          q = q.is('verified_at', null).is('corrected_at', null);
+        } else if (activeFilters.status === 'verified') {
+          q = q.not('verified_at', 'is', null);
+        } else if (activeFilters.status === 'flagged') {
+          q = q.eq('flagged', true);
+        } else if (activeFilters.status === 'corrected') {
+          q = q.not('corrected_at', 'is', null);
+        }
+
+        q = q.order('created_at', { ascending: false });
+        const from = (currentPage - 1) * PAGE_SIZE;
+        const to = from + PAGE_SIZE - 1;
+        return q.range(from, to);
+      };
+
+      // Read entries from results_with_target view (fallback to results if view has no FK hints)
+      let { data, count, error } = await buildReviewQuery('results_with_target', true);
+      if (error) {
+        const fallback = await buildReviewQuery('results', false);
+        if (fallback.error) throw new Error(fallback.error.message);
+        data = fallback.data;
+        count = fallback.count;
       }
-
-      // Order newest first
-      query = query.order('created_at', { ascending: false });
-
-      // Pagination range (0-based)
-      const from = (currentPage - 1) * PAGE_SIZE;
-      const to = from + PAGE_SIZE - 1;
-      query = query.range(from, to);
-
-      const { data, count, error } = await query;
-      if (error) throw new Error(error.message);
 
       entries = data || [];
       totalCount = count || 0;
@@ -389,8 +393,8 @@ function renderReviewTable(entries) {
       : '—';
 
     // Round / Task
-    const roundLabel = entry.round_number
-      ? `Round ${entry.round_number}`
+    const roundLabel = entry.student_round_id
+      ? 'Round Entry'
       : (category.section === 'basics' ? 'Basics Sprint' : 'Practice');
 
     // Date in IST
@@ -410,6 +414,11 @@ function renderReviewTable(entries) {
     }
     if (!isVerified && !isCorrected && !isFlagged) {
       statusChipsHtml = `<span class="status-chip chip-unverified">Unverified</span>`;
+    }
+    if (entry.meets_target === true) {
+      statusChipsHtml += `<span class="badge badge-success" title="Meets target benchmark">🎯 Meets target</span>`;
+    } else if (entry.meets_target === false) {
+      statusChipsHtml += `<span class="badge badge-warning" title="Below target benchmark">⚠️ Below target</span>`;
     }
 
     html += `

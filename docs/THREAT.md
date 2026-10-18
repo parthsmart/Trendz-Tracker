@@ -138,6 +138,15 @@ The serverless functions in `/api/create-student.js` and `/api/reset-password.js
       - The admin attendance dashboard actively calculates and displays an `Unmarked` counter on each session card.
       - When saving an attendance session with unmarked active students, a prominent confirmation warning modal alerts the teacher: *"There are N active students without an attendance mark. Unmarked students will not be recorded."*
 
+15. **Malformed or Malicious CSV Files in Score Sheet Import Preview (Phase 4c-1)**:
+    - *Risk*: A user selects an oversized file (causing browser tab memory exhaustion) or a crafted CSV containing HTML/script payloads (`<script>`, `<img onerror=...>`) inside student names, category names, round headers, or Surprise Task notes to trigger Cross-Site Scripting (XSS) in the admin console.
+    - *Mitigation in Place*:
+      - **Strict File Type & 2 MB Size Gate**: `js/import.js` rejects non-`.csv` files and any file larger than `2,097,152` bytes (2 MB) before reading.
+      - **In-Browser Read Only**: Files are read locally via `FileReader.readAsText()` and never uploaded to any server endpoint.
+      - **Strict `textContent` Rendering**: Every string originating from the CSV file (names, level labels, block hints, categories, dates, scores, times, notes, and stray values) is rendered exclusively via `document.createElement()` and `.textContent`, never `innerHTML`.
+      - **Zero Database Writes in Phase 4c-1**: The preview step performs no `INSERT`, `UPDATE`, `DELETE`, or write RPC calls.
+
+
 
 
 

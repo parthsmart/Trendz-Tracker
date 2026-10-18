@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CSV Score Sheet Import &mdash; Trendz Tracker</title>
+    <meta
+      name="description"
+      content="Admin CSV score sheet parser, simulator series planner, database comparison, batch import, and undo history."
+    />
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="app-layout">
+      <!-- App Header -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <!-- Zone 1: Wordmark & Brand -->
+          <a href="/pages/admin.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <!-- Zone 2: Navigation Links -->
+          <nav class="nav-zone" id="admin-nav-zone" aria-label="Admin Navigation">
+            <a href="/pages/admin.html" class="nav-link">Overview</a>
+            <a href="/pages/review.html" class="nav-link">Review</a>
+            <a href="/pages/students.html" class="nav-link">Students</a>
+            <a href="/pages/attendance.html" class="nav-link">Attendance</a>
+            <a href="/pages/weekly-tests.html" class="nav-link">Weekly Tests</a>
+            <div class="nav-dropdown" id="nav-setup-dropdown">
+              <button
+                type="button"
+                class="nav-dropdown-btn active"
+                id="btn-nav-setup"
+                aria-haspopup="true"
+                aria-expanded="false"
+              >
+                <span>Setup</span>
+                <span aria-hidden="true">▾</span>
+              </button>
+              <div class="nav-dropdown-menu" id="setup-dropdown-menu" role="menu">
+                <a href="/pages/todos.html" class="nav-dropdown-item" role="menuitem">Daily To-Do</a>
+                <a href="/pages/resources.html" class="nav-dropdown-item" role="menuitem">Resources</a>
+                <a href="/pages/categories.html" class="nav-dropdown-item" role="menuitem">Categories</a>
+                <a href="/pages/rounds.html" class="nav-dropdown-item" role="menuitem">Rounds</a>
+                <a href="/pages/targets.html" class="nav-dropdown-item" role="menuitem">Targets</a>
+                <a
+                  href="/pages/import.html"
+                  class="nav-dropdown-item active"
+                  role="menuitem"
+                  aria-current="page"
+                >
+                  Import
+                </a>
+              </div>
+            </div>
+          </nav>
+
+          <!-- Zone 3: User Details, Hamburger & Logout Action -->
+          <div class="actions-zone">
+            <button
+              type="button"
+              id="btn-nav-hamburger"
+              class="nav-hamburger-btn"
+              aria-label="Toggle navigation menu"
+              aria-expanded="false"
+            >
+              ☰
+            </button>
+            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Admin</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-role" class="num" style="color: var(--text-muted);">Admin</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Page Content -->
+      <main class="main-content">
+        <div class="container">
+          <!-- Demo Mode Banner Placeholder -->
+          <div id="config-banner-placeholder"></div>
+
+          <!-- Page Heading -->
+          <div class="section-header-row" style="margin-bottom: var(--space-5);">
+            <div>
+              <div class="meta-row" style="margin-bottom: var(--space-1); font-size: var(--text-xs);">
+                <a href="/pages/admin.html" style="color: var(--color-primary); text-decoration: none;">
+                  &larr; Back to Overview
+                </a>
+                <span class="meta-separator">·</span>
+                <span style="color: var(--text-dim);">Setup &amp; Historical Data</span>
+              </div>
+              <h1>Import Student Score Sheet</h1>
+              <p style="font-size: var(--text-sm);">
+                Parse a student's multi-block CSV competition sheet, confirm simulator series and category mappings, compare against existing records, and save or undo batch imports.
+              </p>
+            </div>
+            <div id="demo-sample-action-wrapper" style="display: none; gap: var(--space-2); flex-wrap: wrap;">
+              <button type="button" id="btn-load-clean-sample-csv" class="btn btn-primary btn-sm">
+                Load Ready-to-Import 2-Block CSV
+              </button>
+              <button type="button" id="btn-load-sample-csv" class="btn btn-outline btn-sm">
+                Load Sample 2-Block CSV (With Edge Cases)
+              </button>
+            </div>
+          </div>
+
+          <!-- Last Import / Undo Result Banner -->
+          <div
+            id="import-operation-result-banner"
+            class="card"
+            style="display: none; margin-bottom: var(--space-6); border-left: 4px solid var(--color-primary);"
+            role="status"
+            aria-live="polite"
+          ></div>
+
+          <!-- STEP 1: Student, File & Date Format Selection -->
+          <section class="card" style="margin-bottom: var(--space-6);" aria-labelledby="step1-heading">
+            <div
+              class="card-header"
+              style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-4);"
+            >
+              <div>
+                <h2 id="step1-heading" class="card-title" style="font-size: var(--text-lg);">
+                  Step 1: Choose Student, CSV File &amp; Date Format
+                </h2>
+                <p style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">
+                  The file is read in your browser and is not uploaded.
+                </p>
+              </div>
+              <span class="badge badge-inactive num" style="font-size: var(--text-xs);">
+                Browser Parser · Max 2 MB (.csv)
+              </span>
+            </div>
+
+            <div class="import-step1-grid">
+              <!-- 1. Student Selector (Search by Name or ID) -->
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="import-student-search" class="form-label">
+                  1. Select Student (Search by Name or ID)
+                </label>
+                <input
+                  type="text"
+                  id="import-student-search"
+                  class="form-input"
+                  placeholder="Type student name or ID (e.g. STU101)..."
+                  autocomplete="off"
+                  style="margin-bottom: var(--space-2);"
+                />
+                <select id="import-student-select" class="form-select" aria-label="Choose student">
+                  <option value="">Loading students...</option>
+                </select>
+              </div>
+
+              <!-- 2. CSV File Input -->
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="import-csv-file" class="form-label">
+                  2. Score Sheet File (.csv, max 2 MB)
+                </label>
+                <input
+                  type="file"
+                  id="import-csv-file"
+                  class="form-input"
+                  accept=".csv,text/csv"
+                />
+                <div
+                  style="font-size: var(--text-xs); color: var(--text-muted); margin-top: var(--space-1); display: flex; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap;"
+                >
+                  <span>🔒 The file is read in your browser and is not uploaded.</span>
+                  <span id="import-file-meta" class="num" style="font-weight: 600;"></span>
+                </div>
+              </div>
+
+              <!-- 3. Date Format Selector -->
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="import-date-format" class="form-label">
+                  3. Date Format
+                </label>
+                <select id="import-date-format" class="form-select">
+                  <option value="auto" selected>Auto (detect from file)</option>
+                  <option value="DD/MM">DD/MM (Day / Month / Year)</option>
+                  <option value="MM/DD">MM/DD (Month / Day / Year)</option>
+                </select>
+                <div style="font-size: var(--text-xs); color: var(--text-dim); margin-top: var(--space-1);">
+                  Two-digit years map to 2000 + yy. Explicit choice overrides Auto.
+                </div>
+              </div>
+            </div>
+
+            <!-- File / Layout Error Banner -->
+            <div
+              id="import-step1-error"
+              class="banner banner-error"
+              role="alert"
+              style="display: none; margin-top: var(--space-4);"
+            ></div>
+          </section>
+
+          <!-- STEP 2: Preview & Import Execution Container (hidden until a CSV is parsed) -->
+          <div id="import-preview-container" style="display: none;">
+            <!-- Needs Attention Panel -->
+            <section
+              id="import-attention-section"
+              class="card"
+              style="margin-bottom: var(--space-6);"
+              aria-labelledby="attention-heading"
+            ></section>
+
+            <!-- Overview Summary Cards -->
+            <section
+              id="import-summary-cards"
+              class="stats-grid"
+              style="margin-bottom: var(--space-6);"
+              aria-label="Sheet Summary Metrics"
+            ></section>
+
+            <!-- Existing Data Comparison Summary Panel (Phase 4c-2a) -->
+            <section
+              id="import-comparison-summary-section"
+              class="card"
+              style="margin-bottom: var(--space-6);"
+              aria-labelledby="comparison-summary-heading"
+            ></section>
+
+            <!-- Per-Block Sections -->
+            <div id="import-blocks-container"></div>
+
+            <!-- STEP 3: Import Options & Save Card (Phase 4c-2b) -->
+            <section
+              id="import-save-card"
+              class="card"
+              style="margin-top: var(--space-6); margin-bottom: var(--space-6);"
+              aria-labelledby="import-save-heading"
+            >
+              <div
+                style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-4); padding-bottom: var(--space-3); border-bottom: 1px solid var(--border-hairline);"
+              >
+                <div>
+                  <h2 id="import-save-heading" class="card-title" style="font-size: var(--text-lg);">
+                    Step 3: Import Options &amp; Save
+                  </h2>
+                  <p style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">
+                    Existing scores in the database are never overwritten. Missing rounds are created and missing scores are merged into existing rounds.
+                  </p>
+                </div>
+                <span id="import-readiness-status" class="badge badge-inactive num" style="font-size: var(--text-xs);">
+                  Checking readiness...
+                </span>
+              </div>
+
+              <!-- Import Options Grid -->
+              <div
+                style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--space-4); margin-bottom: var(--space-4);"
+              >
+                <!-- Option 1: Mark Verified -->
+                <div
+                  style="padding: var(--space-3); background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-sm);"
+                >
+                  <label
+                    for="import-opt-mark-verified"
+                    style="display: flex; align-items: flex-start; gap: var(--space-2); cursor: pointer; font-size: var(--text-sm); font-weight: 600; color: var(--text-main);"
+                  >
+                    <input
+                      type="checkbox"
+                      id="import-opt-mark-verified"
+                      style="margin-top: 3px;"
+                    />
+                    <span>Mark imported scores as verified (<code class="num">p_mark_verified</code>)</span>
+                  </label>
+                  <p style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 4px; margin-left: 22px;">
+                    When checked, newly inserted scores are immediately stamped as verified and locked from student edits.
+                  </p>
+                </div>
+
+                <!-- Option 2: On Date Conflict Policy -->
+                <div
+                  style="padding: var(--space-3); background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-sm);"
+                >
+                  <label for="import-opt-date-conflict" class="form-label" style="margin-bottom: 4px;">
+                    When an existing round has a different date in DB (<code class="num">p_on_date_conflict</code>)
+                  </label>
+                  <select id="import-opt-date-conflict" class="form-select" style="font-size: var(--text-xs);">
+                    <option value="use_existing" selected>
+                      Use existing round in DB &amp; merge missing scores (use_existing)
+                    </option>
+                    <option value="skip">
+                      Skip rounds whose date differs from the database (skip)
+                    </option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Live Progress Indicator during RPC execution -->
+              <div
+                id="import-progress-banner"
+                class="banner banner-info"
+                style="display: none; margin-bottom: var(--space-4);"
+                role="status"
+                aria-live="polite"
+              ></div>
+
+              <!-- Bottom Action Row -->
+              <div
+                style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-4);"
+              >
+                <div>
+                  <button type="button" id="btn-import-start-over" class="btn btn-outline">
+                    &larr; Start over
+                  </button>
+                </div>
+                <div style="display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;">
+                  <span
+                    id="import-action-hint"
+                    style="font-size: var(--text-xs); color: var(--text-muted);"
+                  >
+                    Confirm all simulator series and resolve all categories to enable import.
+                  </span>
+                  <button
+                    type="button"
+                    id="btn-import-execute"
+                    class="btn btn-primary"
+                    disabled
+                    aria-disabled="true"
+                  >
+                    Import Score Sheet
+                  </button>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <!-- IMPORT HISTORY & UNDO SECTION (import_batches) -->
+          <section
+            id="import-history-section"
+            class="card"
+            style="margin-bottom: var(--space-6);"
+            aria-labelledby="import-history-heading"
+          >
+            <div
+              style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3); margin-bottom: var(--space-4);"
+            >
+              <div>
+                <h2 id="import-history-heading" class="card-title" style="font-size: var(--text-lg);">
+                  Import History &amp; Undo
+                </h2>
+                <p style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">
+                  Past CSV import batches (<code class="num">import_batches</code>). Undoing a batch deletes its imported scores and empty rounds while preserving any scores later corrected or verified by a teacher.
+                </p>
+              </div>
+              <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
+                <select
+                  id="import-history-filter"
+                  class="form-select"
+                  style="font-size: var(--text-xs); min-height: 32px; padding: 2px 28px 2px 10px; width: auto;"
+                  aria-label="Filter import history"
+                >
+                  <option value="all" selected>All Students</option>
+                  <option value="selected">Selected Student Only</option>
+                </select>
+                <button type="button" id="btn-refresh-import-history" class="btn btn-outline btn-sm">
+                  ↻ Refresh History
+                </button>
+              </div>
+            </div>
+
+            <div id="import-history-container">
+              <div class="loading-state" style="padding: var(--space-6); text-align: center;">
+                Loading import history...
+              </div>
+            </div>
+          </section>
+
+          <!-- SAVED CATEGORY ALIASES SECTION (category_aliases) -->
+          <section
+            id="import-aliases-section"
+            class="card"
+            style="margin-bottom: var(--space-6);"
+            aria-labelledby="import-aliases-heading"
+          >
+            <div
+              style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3); margin-bottom: var(--space-3);"
+            >
+              <div>
+                <h2 id="import-aliases-heading" class="card-title" style="font-size: var(--text-base);">
+                  Saved Category Aliases (<code class="num">category_aliases</code>)
+                </h2>
+                <p style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">
+                  Aliases are matched first (lowercase with all whitespace removed) before built-in aliases and exact category names.
+                </p>
+              </div>
+            </div>
+
+            <form
+              id="add-alias-form"
+              style="display: flex; gap: var(--space-2); align-items: flex-end; flex-wrap: wrap; margin-bottom: var(--space-3);"
+            >
+              <div style="flex: 1; min-width: 180px;">
+                <label for="new-alias-input" class="form-label" style="font-size: var(--text-xs);">
+                  Sheet Alias Name (e.g. "Frac Div")
+                </label>
+                <input
+                  type="text"
+                  id="new-alias-input"
+                  class="form-input"
+                  placeholder="Enter sheet category label..."
+                  style="font-size: var(--text-xs);"
+                  required
+                />
+              </div>
+              <div style="flex: 1; min-width: 200px;">
+                <label for="new-alias-category-select" class="form-label" style="font-size: var(--text-xs);">
+                  Target Round Category
+                </label>
+                <select id="new-alias-category-select" class="form-select" style="font-size: var(--text-xs);" required>
+                  <option value="">-- Choose round category --</option>
+                </select>
+              </div>
+              <button type="submit" id="btn-save-alias" class="btn btn-outline btn-sm" style="min-height: 36px;">
+                + Save Alias
+              </button>
+            </form>
+
+            <div id="import-aliases-container"></div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <!-- MODAL 1: Confirm Planned Import -->
+    <div
+      id="confirm-import-modal"
+      class="modal-backdrop"
+      aria-hidden="true"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="confirm-import-modal-title"
+    >
+      <div class="modal-dialog">
+        <header class="modal-header">
+          <h2 class="modal-title" id="confirm-import-modal-title">Confirm CSV Score Sheet Import</h2>
+          <button
+            type="button"
+            class="modal-close"
+            data-close-modal="confirm-import-modal"
+            aria-label="Close modal"
+          >
+            &times;
+          </button>
+        </header>
+        <div class="modal-body" id="confirm-import-modal-body"></div>
+        <footer class="modal-footer">
+          <button
+            type="button"
+            class="btn btn-outline"
+            data-close-modal="confirm-import-modal"
+            id="btn-cancel-confirm-import"
+          >
+            Cancel
+          </button>
+          <button type="button" class="btn btn-primary" id="btn-proceed-confirm-import">
+            Confirm &amp; Import Now
+          </button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- MODAL 2: Confirm Undo Import Batch -->
+    <div
+      id="undo-import-modal"
+      class="modal-backdrop"
+      aria-hidden="true"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="undo-import-modal-title"
+    >
+      <div class="modal-dialog">
+        <header class="modal-header">
+          <h2 class="modal-title" id="undo-import-modal-title">Undo Import Batch</h2>
+          <button
+            type="button"
+            class="modal-close"
+            data-close-modal="undo-import-modal"
+            aria-label="Close modal"
+          >
+            &times;
+          </button>
+        </header>
+        <form id="undo-import-form">
+          <input type="hidden" id="undo-import-batch-id" />
+          <div class="modal-body">
+            <div
+              id="undo-import-batch-meta"
+              style="background: var(--bg-surface-subtle); padding: var(--space-3); border-radius: var(--radius-sm); margin-bottom: var(--space-3); font-size: var(--text-xs);"
+            ></div>
+            <p style="font-size: var(--text-xs); color: var(--text-muted); margin-bottom: var(--space-3);">
+              Undoing this import calls <code class="num">admin_undo_import(p_batch, p_reason)</code>. It removes all untouched scores and empty rounds created by this batch, while keeping any scores that were subsequently corrected or verified by a teacher.
+            </p>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="undo-import-reason" class="form-label">Reason for Undo * (Required)</label>
+              <textarea
+                id="undo-import-reason"
+                class="form-input"
+                rows="2"
+                required
+                minlength="3"
+                placeholder="e.g. Imported wrong CSV file or wrong student selected."
+              ></textarea>
+            </div>
+          </div>
+          <footer class="modal-footer">
+            <button type="button" class="btn btn-outline" data-close-modal="undo-import-modal">
+              Cancel
+            </button>
+            <button type="submit" class="btn btn-primary" id="btn-submit-undo-import">
+              Confirm Undo Import
+            </button>
+          </footer>
+        </form>
+      </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <!-- Import Page Controller -->
+    <script type="module" src="/js/import.js"></script>
+  </body>
+</html>

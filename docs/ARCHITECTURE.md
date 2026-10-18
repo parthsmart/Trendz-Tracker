@@ -83,8 +83,11 @@ One-page overview of the modules, data flows, and trust boundaries governing **T
 | **Admin Attendance**| `/js/attendance.js` | Session attendance tracking (`present`, `absent`, `excused`) with bulk status actions and create/edit modal. |
 | **Admin Targets** | `/js/targets.js` | Basics speed & accuracy target rules (`basics_thresholds`) with default and level-specific overrides. |
 | **Admin Weekly Tests**| `/js/weeklyTests.js` | Weekly test creation, editing, and multi-student multi-category batch score grid (`weekly_tests`, `weekly_test_scores`). |
+| **Admin Import Preview**| `/js/import.js` | Read-only CSV score sheet preview UI (`/pages/import.html`): student picker, 2 MB `.csv` validator, triage summary, category mapping, and round cross-check inspector. |
+| **CSV Sheet Parser**| `/js/importParser.js`| Pure RFC-4180 CSV & multi-block competition sheet parser with zero DOM/`import.meta.env` dependencies (`node --test` compatible). |
 | **Admin Categories**| `/js/categories.js` | Displays 24 championship categories grouped strictly by section; handles reordering and deactivation. |
 | **Dashboard Modules**| `/js/dashboardData.js`, `/js/dashboardComponents.js` | Shared data loaders (`results_with_target`, `streak_for`, `todo_for`, `attendance_summary`, `weekly_tests`) and cards for `/pages/student.html` and `/pages/student-detail.html`. |
 | **Shared Modal & Nav**| `/js/modal.js` | Universal accessible modal manager (`openModal`, `closeModal`, Escape key, focus management) and Admin `Setup ▾` dropdown / mobile hamburger (`setupAdminNav`). |
 | **Server Admin API**| `/api/*.js` | Serverless Node.js endpoints executing user creation and password resets with service key. |
 | **Database DDL** | `/supabase/schema.sql`| PostgreSQL tables, views (`results_with_target`), RPCs, indexes, RLS policies, and triggers. |
+
