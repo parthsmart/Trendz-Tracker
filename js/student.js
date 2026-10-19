@@ -26,6 +26,7 @@ import {
   setupProgressChartsController
 } from './dashboardComponents.js';
 import { loadAndRenderLeaderboardCard } from './leaderboardCard.js';
+import { renderElementsCard } from './elementsCard.js';
 
 async function initStudentDashboard() {
   // 1. Guard check: Strictly for logged-in students (or admin viewing their own student record).
@@ -67,6 +68,15 @@ async function initStudentDashboard() {
 
     // Flash Anzan This Week (Phase 7)
     renderFlashThisWeek(data.activityResults, data.todayIST);
+
+    // Elements Worksheet Drills Card (Phase 8)
+    await renderElementsCard({
+      studentId: currentStudentId,
+      containerId: 'elements-week-container',
+      isReadOnly: false,
+      todayIST: data.todayIST,
+      preloadedResults: data.activityResults
+    });
 
     // Attendance Card (Phase 4a)
     renderAttendanceCard(data.attendance, 'attendance-card-container');

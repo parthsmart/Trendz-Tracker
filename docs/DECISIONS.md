@@ -458,3 +458,20 @@ Every meaningful technical and architectural decision made for **Trendz Tracker*
      - **Why**: Avoids third-party ZIP libraries (`jszip`, `fflate`) while producing standard PKZIP archives (`method = 0`, UTF-8 bit 11 flag) containing 18 RFC 4180 CSVs (with formula-prefix sanitization for non-numeric strings starting with `=`, `+`, `-`, `@`) and `README.txt`. If any table fails to read, the export aborts immediately so an incomplete ZIP is never downloaded. Completed exports are logged via `admin_log_export(p_rows, p_tables)`.
 - **Rejected Options**: Installing `googleapis` or `jszip` packages, converting cursor timestamps through JavaScript `Date` (loses microseconds), using `USER_ENTERED` mode in Google Sheets, or downloading partial ZIP archives when a table query fails.
 
+---
+
+### ADR-031: Phase 8 — Elements Timed Worksheet Drills: Server-Authoritative Generation & Grading (`api/_drills.js`, `/api/drill`), Exact Integer/BigInt Arithmetic, `modulo` Disabled by Default, and `days_to_seconds` 300s Limit
+- **Date**: 2026-10-19
+- **Context**: Phase 8 brings the 18 timed "Elements" mental-math and calendar/time conversion worksheet drills from the legacy Python desktop program into Trendz Tracker while enforcing server-only answer generation and grading (`drill_sessions` and `activity_results`).
+- **Decisions & Rationale**:
+  1. *Pure Server Module (`api/_drills.js`) with Injectable RNG & Exact Integer / `BigInt` Arithmetic*:
+     - **Why**: Keeping all 18 generators, parsers, canonical comparators, and display formatters in a pure, network-free Node module with an injectable `rng(min, max)` function (defaulting to `crypto.randomInt`) allows deterministic unit testing across 200 seeded runs per drill (3,600 generated sets total in `tests/drills.test.js`). Using exact integer and `BigInt` arithmetic (including exact integer square-root ceiling via binary search in `number_to_be_squared` and Euclidean GCD reduction in `ratio`) eliminates floating-point precision drift.
+  2. *`modulo` Drill Disabled Until Teacher Confirmation (`MODULO_DRILL_ENABLED = false`)*:
+     - **Why**: In the legacy desktop program, the 3-digit `n2` branch of `modulo` sets the lower bound using `d1*d3*2 + d2*d2 + 10` (subtracting the duplex sum `d1*d3*2 + d2*d2`), whereas its answer formula computed `n3 - d1*d3*2 + d2*d2`. Both formulas are preserved side-by-side in code comments in `api/_drills.js` (with the generator's intended `n3 - (d1*d3*2 + d2*d2)` active for unit testing), and `DRILLS.modulo.enabled` is controlled by a single constant `MODULO_DRILL_ENABLED = false` so the catalog displays `"Coming soon"` and `/api/drill` rejects `start` calls for `modulo` until a teacher confirms the rule.
+  3. *`days_to_seconds` Time Limit Set to `300` Seconds (5 Minutes)*:
+     - **Why**: The original desktop screen states a 5-minute time limit (`300` seconds), whereas its timer loop contained a bug that stopped at `60` seconds. We use the intended `300` seconds (`5 minutes`).
+  4. *Personal Best Ranking (`bestForDrill`) & Zero-Attempt Handling*:
+     - **Why**: Because Elements worksheets have fixed question counts and time limits where students may leave questions blank, `activity_results.total` records `attempted` (non-blank answers). `bestForDrill` ranks completed sets by highest `correct` first, then fewest wrong answers (`total - correct`), then shortest `time_seconds`. If `attempted === 0`, the server marks the session submitted and returns the review breakdown (`saved: false`) without cluttering `activity_results` with 0-attempt rows.
+- **Rejected Options**: Client-side question generation or answer checking, using `Math.sqrt` or `Number()` coercion for answer parsing, or enabling `modulo` before teacher sign-off.
+
+

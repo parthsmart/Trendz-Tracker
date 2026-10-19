@@ -92,3 +92,71 @@ export async function verifyAdminCaller(req) {
     accessToken: token,
   };
 }
+
+/**
+ * Extracts and verifies the Bearer JWT token from the Request header,
+ * checking that the user exists, has role === 'student', and is active in public.profiles.
+ * Sets `err.statusCode = 401` for missing/invalid token and `403` for role/active mismatch.
+ *
+ * @param {Request | Object} req
+ * @returns {Promise<Object>} The authenticated student profile (including accessToken)
+ */
+export async function verifyStudentCaller(req) {
+  let authHeader = '';
+  if (req && req.headers) {
+    if (typeof req.headers.get === 'function') {
+      authHeader = req.headers.get('authorization') || '';
+    } else {
+      authHeader = req.headers.authorization || req.headers.Authorization || '';
+    }
+  }
+
+  if (!authHeader.startsWith('Bearer ')) {
+    const err = new Error('Unauthorized: Please sign in to continue.');
+    err.statusCode = 401;
+    throw err;
+  }
+
+  const token = authHeader.replace('Bearer ', '').trim();
+  if (!token) {
+    const err = new Error('Unauthorized: Please sign in to continue.');
+    err.statusCode = 401;
+    throw err;
+  }
+
+  const supabase = hasSupabaseAdminConfig() ? getAdminClient() : getCallerClient(token);
+
+  // 1. Verify token with Supabase Auth
+  const { data: authData, error: userError } = await supabase.auth.getUser(token);
+  const user = authData?.user;
+  if (userError || !user) {
+    const err = new Error('Unauthorized: Your session has expired. Please sign in again.');
+    err.statusCode = 401;
+    throw err;
+  }
+
+  // 2. Query public.profiles to verify role is student and active is true
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('id, student_code, full_name, role, active')
+    .eq('id', user.id)
+    .single();
+
+  if (profileError || !profile) {
+    const err = new Error('Forbidden: Student profile not found.');
+    err.statusCode = 403;
+    throw err;
+  }
+
+  if (profile.role !== 'student' || !profile.active) {
+    const err = new Error('Forbidden: Only active student accounts can run drills.');
+    err.statusCode = 403;
+    throw err;
+  }
+
+  return {
+    ...profile,
+    accessToken: token,
+  };
+}
+

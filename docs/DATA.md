@@ -296,4 +296,41 @@ This catalog outlines every database table in the Trendz Tracker PostgreSQL sche
   - **Exclusions**: Students with `profiles.leaderboard_visible = false`, inactive students, and rows with zero/non-positive values are never returned.
   - **Display Names**: Already formatted by SQL as first name + initial or `student_code`; full names and raw scores are never exposed by this function.
 
+---
+
+### 13. Tables: `drill_sessions` & `activity_results` (Phase 7 Flash Anzan & Phase 8 Elements Drills)
+
+#### Table: `public.drill_sessions`
+- **Purpose**: Server-only ephemeral session store holding generated questions, expected canonical answers, timing boundaries, and submission status for Flash Anzan (`activity_type = 'flash_anzan'`) and Elements timed worksheet drills (`activity_type = 'element'`).
+- **Columns**:
+  - `id`: `UUID PRIMARY KEY`
+  - `student_id`: `UUID NOT NULL REFERENCES public.profiles(id)`
+  - `activity_type`: `'flash_anzan' | 'element'`
+  - `activity_name`: `TEXT NOT NULL` (e.g. `'Flash Anzan'` or the drill's `title` such as `'Day Codes'`)
+  - `settings`: `JSONB NOT NULL` (for Elements: `{ drill, questions, time_limit_seconds }`)
+  - `questions`: `JSONB NOT NULL` (array of signed-integer arrays for Flash Anzan; array of prompt strings for Elements)
+  - `expected`: `JSONB NOT NULL` (array of canonical expected answers; **never sent to the browser before submission**)
+  - `min_seconds`: `NUMERIC NOT NULL` (`0` at start for Elements; enforced as `attempted * 0.25` seconds on submit)
+  - `started_at`: `TIMESTAMPTZ NOT NULL`
+  - `expires_at`: `TIMESTAMPTZ NOT NULL` (`started_at + time_limit_seconds + 30 seconds` for Elements)
+  - `status`: `'open' | 'submitted'`
+  - `submitted_at`: `TIMESTAMPTZ NULL`
+  - `result_id`: `UUID NULL REFERENCES public.activity_results(id)`
+- **Who Reads / Writes**: Readable only by administrators; written exclusively via `SECURITY DEFINER` RPCs (`flash_start`, `flash_submit`) or the service-role serverless endpoint (`POST /api/drill`). Students have **zero** read or write access to `drill_sessions`.
+
+#### Table: `public.activity_results`
+- **Purpose**: Permanent log of completed Flash Anzan sets (`activity_type = 'flash_anzan'`) and Elements worksheet sets (`activity_type = 'element'`). Read by `streak_for`, `todo_for` (tasks with `section = 'elements'`), and the `practice_days` leaderboard.
+- **Columns**:
+  - `id`: `UUID PRIMARY KEY`
+  - `student_id`: `UUID NOT NULL REFERENCES public.profiles(id)`
+  - `activity_type`: `'flash_anzan' | 'element'`
+  - `activity_name`: `TEXT NOT NULL` (drill title)
+  - `correct`: `INT NOT NULL`
+  - `total`: `INT NOT NULL` (for Elements: `attempted`, the number of non-blank answers submitted; if `attempted === 0`, no row is inserted)
+  - `time_seconds`: `INT NOT NULL` (`min(round(elapsed), time_limit_seconds)`)
+  - `settings`: `JSONB NOT NULL` (for Elements: `{ drill, questions, time_limit_seconds, attempted, session_id }`)
+  - `created_at`, `updated_at`: `TIMESTAMPTZ NOT NULL`
+- **Who Reads**: Students can `SELECT` only their own rows (`student_id = auth.uid()`); admins can `SELECT` all rows.
+- **Who Writes**: Students can **never** `INSERT`, `UPDATE`, or `DELETE` rows in `activity_results`. Only `flash_submit` and the service-role `/api/drill` endpoint insert rows after verifying session ownership, expiry, atomic `status = 'open' -> 'submitted'` transition, and minimum completion time.
+
 

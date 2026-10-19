@@ -25,6 +25,7 @@ import {
   setupScoreSheetController,
   setupProgressChartsController
 } from './dashboardComponents.js';
+import { renderElementsCard } from './elementsCard.js';
 
 async function initStudentDetail() {
   // 1. Guard check: Strictly admin-only.
@@ -83,6 +84,15 @@ async function initStudentDetail() {
 
     // Flash Anzan this week (Phase 7)
     renderFlashThisWeek(data.activityResults, data.todayIST);
+
+    // Elements Worksheet Drills Card (Phase 8, read-only for admin)
+    await renderElementsCard({
+      studentId: profile.id,
+      containerId: 'elements-week-container',
+      isReadOnly: true,
+      todayIST: data.todayIST,
+      preloadedResults: data.activityResults
+    });
 
     // Attendance Card (Phase 4a)
     renderAttendanceCard(data.attendance, 'attendance-card-container');

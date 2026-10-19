@@ -183,7 +183,9 @@ export function renderTodoList(todos = [], containerId = 'todo-list-container', 
               ? `/pages/basics.html?cat=${encodeURIComponent(t.task_category_id || '')}`
               : t.task_section === 'flash'
                 ? `/pages/flash.html`
-                : `/pages/round-scores.html?cat=${encodeURIComponent(t.task_category_id || '')}`;
+                : t.task_section === 'elements'
+                  ? `/pages/elements.html`
+                  : `/pages/round-scores.html?cat=${encodeURIComponent(t.task_category_id || '')}`;
 
             return `
               <div class="todo-task-item ${isDone ? 'todo-task-done' : ''}" style="display: flex; align-items: center; justify-content: space-between; padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline);">

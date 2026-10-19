@@ -156,6 +156,16 @@ The serverless functions in `/api/create-student.js` and `/api/reset-password.js
       - **Disclosure**: Calling `leaderboard()` exposes the formatted `display_name` (`first_name_initial` e.g. `"Aarav S."` or `student_code` e.g. `"STU101"`) and **one aggregate number** (`value` and `rank`) for top-10 peers in the **same level** to authenticated students in that level.
       - **Protections**: Full names (`full_name`), internal `student_id` UUIDs (`NULL` for students), raw test/practice scores, students from other levels, hidden students (`leaderboard_visible = false`), and ranks below #10 (except the caller's own row) are never exposed to students.
 
+17. **Elements Timed Worksheet Answer Scraping, Replay & Speed-Bot Submissions (Phase 8)**:
+    - *Risk*: A student inspects browser DevTools network responses to view expected worksheet answers before submitting, replays a `submit` request multiple times to duplicate `activity_results` rows, scripts instant 0-second submissions, or spams `start` requests to flood `drill_sessions`.
+    - *Mitigation in Place*:
+      - **Server-Only Answer Retention**: `api/_drills.js` generates questions and expected answers inside `POST /api/drill` (`action: 'start'`), stores `expected` in `public.drill_sessions` using the service role (inaccessible to students under RLS), and strips all expected answers via `buildDrillStartResponse` before returning `{ session_id, drill, title, time_limit_seconds, hint, questions }` to the browser.
+      - **Hourly Rate Limit (60 Sets / Hour)**: `action: 'start'` counts rows in `drill_sessions` for `(student_id, activity_type = 'element')` with `started_at >= now() - 1 hour` and rejects requests exceeding 60 sets with HTTP 429 (`"You have started too many drills this hour. Take a short break and try again."`).
+      - **Atomic Single-Use Session Locking**: `action: 'submit'` performs an atomic conditional update `UPDATE drill_sessions SET status = 'submitted', submitted_at = now() WHERE id = session_id AND student_id = caller.id AND status = 'open'`. Concurrent or replayed submissions match 0 rows and are rejected (`"This drill was already submitted."`).
+      - **Expiry & Minimum Human Speed Enforcement**: Submissions arriving after `expires_at` (`started_at + time_limit_seconds + 30s`) are rejected as expired, and submissions where `elapsed < attempted * 0.25` seconds are rejected (`"That was faster than possible. Please answer the questions yourself."`) without writing to `activity_results`.
+      - **Zero-Attempt Filtering**: Submitting an entirely blank worksheet (`attempted === 0`) marks the session submitted and returns the review breakdown with `saved: false` without inserting a zero-question row into `activity_results`.
+
+
 
 
 

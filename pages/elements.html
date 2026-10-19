@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Elements Drills - Trendz Tracker</title>
+    <meta
+      name="description"
+      content="Practice 18 timed Elements worksheet drills with server-side checking on Trendz Tracker."
+    />
+    <meta property="og:title" content="Elements Drills - Trendz Tracker" />
+    <meta
+      property="og:description"
+      content="Practice 18 timed Elements worksheet drills with server-side checking on Trendz Tracker."
+    />
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- Top Bar Contract: 3-Zone Navigation -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <!-- Zone 1: Wordmark & Brand -->
+          <a href="/pages/student.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <!-- Zone 2: Navigation Links -->
+          <nav class="nav-zone" aria-label="Student Navigation">
+            <a href="/pages/student.html" class="nav-link">Home</a>
+            <a href="/pages/round-scores.html" class="nav-link">Round Scores</a>
+            <a href="/pages/basics.html" class="nav-link">Basics</a>
+            <a href="/pages/flash.html" class="nav-link">Flash Anzan</a>
+            <a href="/pages/elements.html" class="nav-link active" aria-current="page">Elements</a>
+            <a href="/pages/leaderboard.html" class="nav-link">Leaderboard</a>
+            <a href="/pages/monthly-report.html" class="nav-link">Monthly Report</a>
+          </nav>
+
+          <!-- Zone 3: User Details & Logout Action -->
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Student</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-code" class="num" style="color: var(--text-muted);">STU</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div id="config-banner-placeholder" class="container" style="padding-top: var(--space-3);"></div>
+
+    <!-- Main Content -->
+    <main class="page-main">
+      <div class="container">
+        <header
+          class="page-header"
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: var(--space-4);
+          "
+        >
+          <div>
+            <h1 class="page-title">Elements Worksheet Drills</h1>
+            <p class="page-subtitle">
+              18 timed mental-math and code conversion worksheets. Questions and answers are generated and checked on the server.
+            </p>
+          </div>
+          <div style="display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;">
+            <span
+              id="elements-week-summary-text"
+              class="num"
+              style="font-size: var(--text-xs); font-weight: 600; color: var(--text-muted);"
+            >
+              Loading this week's practice...
+            </span>
+            <a href="/pages/student.html" class="btn btn-secondary btn-sm">&larr; Back to Home</a>
+          </div>
+        </header>
+
+        <!-- Grouped Drill Cards Container -->
+        <div id="elements-catalog-container" aria-live="polite">
+          <div class="loading-state" style="padding: var(--space-6);">
+            Loading Elements drills and your personal best scores...
+          </div>
+        </div>
+      </div>
+    </main>
+    </div>
+
+    <script type="module" src="/js/elements.js"></script>
+  </body>
+</html>

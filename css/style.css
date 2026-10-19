@@ -2686,4 +2686,131 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   border-color: var(--color-primary);
 }
 
+/* ==========================================================================
+   PHASE 8: ELEMENTS DRILLS CATALOG & TIMED WORKSHEET STYLES
+   ========================================================================== */
+.elements-catalog-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+}
+
+@media (min-width: 640px) {
+  .elements-catalog-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .elements-catalog-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.element-drill-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  gap: var(--space-3);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.element-drill-card:hover {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.element-drill-card.disabled {
+  opacity: 0.72;
+  background: var(--bg-surface-subtle);
+}
+
+.element-drill-card.disabled:hover {
+  border-color: var(--border-subtle);
+  box-shadow: none;
+}
+
+.element-sticky-bar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  box-shadow: var(--shadow-md);
+}
+
+.element-worksheet-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-3);
+}
+
+@media (min-width: 640px) {
+  .element-worksheet-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .element-worksheet-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.element-question-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.element-question-row:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary-subtle);
+}
+
+.element-question-prompt {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-base);
+  font-weight: 700;
+  color: var(--text-main);
+  white-space: pre-wrap;
+  word-break: break-word;
+  flex: 1;
+}
+
+.element-answer-input {
+  width: 120px;
+  min-height: 44px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-base);
+  font-weight: 700;
+  text-align: right;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-subtle);
+  color: var(--text-main);
+}
+
+.element-answer-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  background: var(--bg-surface);
+}
+
+
 

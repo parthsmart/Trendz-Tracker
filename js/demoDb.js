@@ -2953,9 +2953,10 @@ export const DemoDB = {
     initDemoStorage();
     const key = 'trendz_demo_activity_results_v1';
     let list = JSON.parse(localStorage.getItem(key) || 'null');
+    const nowIso = new Date().toISOString();
+    const yestIso = new Date(Date.now() - 86400000).toISOString();
+    const twoDaysIso = new Date(Date.now() - 2 * 86400000).toISOString();
     if (!Array.isArray(list)) {
-      const nowIso = new Date().toISOString();
-      const yestIso = new Date(Date.now() - 86400000).toISOString();
       list = [
         {
           id: 'act-demo-1',
@@ -2980,8 +2981,60 @@ export const DemoDB = {
           settings: { digits: 1, count: 5, speed_ms: 2000, questions: 10, mode: 'add' },
           created_at: yestIso,
           updated_at: yestIso
+        },
+        {
+          id: 'act-demo-elem-1',
+          student_id: 'usr-101',
+          activity_type: 'element',
+          activity_name: 'Day Codes',
+          correct: 54,
+          total: 56,
+          time_seconds: 48,
+          settings: { drill: 'day_codes', questions: 56, time_limit_seconds: 60, attempted: 56 },
+          created_at: nowIso,
+          updated_at: nowIso
+        },
+        {
+          id: 'act-demo-elem-2',
+          student_id: 'usr-101',
+          activity_type: 'element',
+          activity_name: 'Square (11-50)',
+          correct: 49,
+          total: 50,
+          time_seconds: 95,
+          settings: { drill: 'squares_11_50', questions: 50, time_limit_seconds: 120, attempted: 50 },
+          created_at: twoDaysIso,
+          updated_at: twoDaysIso
         }
       ];
+      localStorage.setItem(key, JSON.stringify(list));
+    } else if (!list.some(r => r && r.activity_type === 'element')) {
+      list.push(
+        {
+          id: 'act-demo-elem-1',
+          student_id: 'usr-101',
+          activity_type: 'element',
+          activity_name: 'Day Codes',
+          correct: 54,
+          total: 56,
+          time_seconds: 48,
+          settings: { drill: 'day_codes', questions: 56, time_limit_seconds: 60, attempted: 56 },
+          created_at: nowIso,
+          updated_at: nowIso
+        },
+        {
+          id: 'act-demo-elem-2',
+          student_id: 'usr-101',
+          activity_type: 'element',
+          activity_name: 'Square (11-50)',
+          correct: 49,
+          total: 50,
+          time_seconds: 95,
+          settings: { drill: 'squares_11_50', questions: 50, time_limit_seconds: 120, attempted: 50 },
+          created_at: twoDaysIso,
+          updated_at: twoDaysIso
+        }
+      );
       localStorage.setItem(key, JSON.stringify(list));
     }
 
@@ -3248,7 +3301,79 @@ export const DemoDB = {
     const updated = [newRun, ...(status.runs || [])].slice(0, 20);
     localStorage.setItem(runsKey, JSON.stringify(updated));
     return newRun;
-  }
+  },
+
+  // ==================== PHASE 8: ELEMENTS DRILLS DEMO FIXTURES ====================
+  // Fixed sample questions and fixed fake result (never re-implements generation or checking).
+  mockElementDrillStart(drillKey = 'day_codes', drillMeta = null) {
+    if (!isDemoMode()) {
+      throw new Error('Action blocked: Demo mode cannot mutate live database.');
+    }
+    const title = drillMeta?.title || 'Day Codes (Demo Sample)';
+    const timeLimitSeconds = Number(drillMeta?.time_limit_seconds) || 60;
+    const hint =
+      drillMeta?.hint ||
+      'Demo sample set (5 fixed questions). Live server generates and grades full sets.';
+
+    return {
+      session_id: `demo-elem-session-${Date.now()}`,
+      drill: drillKey,
+      title,
+      questions: ['Sunday', 'Saturday', 'February (02)', '47', '97 / 4'],
+      time_limit_seconds: timeLimitSeconds,
+      hint,
+    };
+  },
+
+  mockElementDrillSubmit(sessionId, answers = [], studentId = 'usr-101', drillMeta = null) {
+    if (!isDemoMode()) {
+      throw new Error('Action blocked: Demo mode cannot mutate live database.');
+    }
+    const drillKey = drillMeta?.key || 'day_codes';
+    const title = drillMeta?.title || 'Day Codes';
+    const timeLimitSeconds = Number(drillMeta?.time_limit_seconds) || 60;
+
+    // Fixed fake result per specification (no client-side grading or generation)
+    const fixedResult = {
+      correct: 4,
+      attempted: 5,
+      questions_total: 5,
+      accuracy: 80.0,
+      seconds: 18,
+      detail: [
+        { question: 'Sunday', expected_display: '1', given: answers[0] ?? '1', correct: true },
+        { question: 'Saturday', expected_display: '0', given: answers[1] ?? '0', correct: true },
+        { question: 'February (02)', expected_display: '4', given: answers[2] ?? '4', correct: true },
+        { question: '47', expected_display: '2209', given: answers[3] ?? '2209', correct: true },
+        { question: '97 / 4', expected_display: '24', given: answers[4] ?? '23', correct: false },
+      ],
+    };
+
+    const actKey = 'trendz_demo_activity_results_v1';
+    const currentList = this.getActivityResults();
+    const nowIso = new Date().toISOString();
+    currentList.unshift({
+      id: `act-elem-${Date.now()}`,
+      student_id: studentId || 'usr-101',
+      activity_type: 'element',
+      activity_name: title,
+      correct: fixedResult.correct,
+      total: fixedResult.attempted,
+      time_seconds: fixedResult.seconds,
+      settings: {
+        drill: drillKey,
+        questions: fixedResult.questions_total,
+        time_limit_seconds: timeLimitSeconds,
+        attempted: fixedResult.attempted,
+        session_id: sessionId || 'demo-session',
+      },
+      created_at: nowIso,
+      updated_at: nowIso,
+    });
+    localStorage.setItem(actKey, JSON.stringify(currentList));
+
+    return fixedResult;
+  },
 };
 
 

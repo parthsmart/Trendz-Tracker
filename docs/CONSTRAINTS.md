@@ -66,3 +66,13 @@ These constraints are **hard, non-negotiable rules**. They govern all current an
 - **Enforcement**:
   - Use soft deactivation (`active = false`).
   - Deactivating a category hides it from new practice pickers while keeping historical tournament spreadsheets and trend analyses intact.
+
+---
+
+### 8. Server-Authoritative Drill Grading & `activity_results` Write Protection
+- **Rule**: Browser JavaScript must **NEVER** generate live drill expected answers, grade Flash Anzan or Elements worksheet answers, calculate streaks/points, or write directly (`INSERT`, `UPDATE`, `DELETE`) to `public.activity_results` or `public.drill_sessions`.
+- **Enforcement**:
+  - Students have `SELECT`-only Row Level Security access to their own rows in `public.activity_results` (`student_id = auth.uid()`).
+  - `public.drill_sessions` is readable only by administrators and written exclusively by server-side RPCs (`flash_start`, `flash_submit`) or the service-role serverless endpoint (`/api/drill`).
+  - Expected answers are stripped before `/api/drill` (`action: 'start'`) responds to the client and are only revealed per question after the session is atomically marked `status = 'submitted'`.
+

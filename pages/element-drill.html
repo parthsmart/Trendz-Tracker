@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Elements Drill Worksheet - Trendz Tracker</title>
+    <meta
+      name="description"
+      content="Timed Elements mental-math worksheet drill with server-side checking on Trendz Tracker."
+    />
+    <meta property="og:title" content="Elements Drill Worksheet - Trendz Tracker" />
+    <meta
+      property="og:description"
+      content="Timed Elements mental-math worksheet drill with server-side checking on Trendz Tracker."
+    />
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- Top Bar Contract: 3-Zone Navigation -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <!-- Zone 1: Wordmark & Brand -->
+          <a href="/pages/student.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <!-- Zone 2: Navigation Links -->
+          <nav class="nav-zone" aria-label="Student Navigation">
+            <a href="/pages/student.html" class="nav-link">Home</a>
+            <a href="/pages/round-scores.html" class="nav-link">Round Scores</a>
+            <a href="/pages/basics.html" class="nav-link">Basics</a>
+            <a href="/pages/flash.html" class="nav-link">Flash Anzan</a>
+            <a href="/pages/elements.html" class="nav-link active" aria-current="page">Elements</a>
+            <a href="/pages/leaderboard.html" class="nav-link">Leaderboard</a>
+            <a href="/pages/monthly-report.html" class="nav-link">Monthly Report</a>
+          </nav>
+
+          <!-- Zone 3: User Details & Logout Action -->
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Student</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-code" class="num" style="color: var(--text-muted);">STU</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div id="config-banner-placeholder" class="container" style="padding-top: var(--space-3);"></div>
+
+    <!-- Main Content -->
+    <main class="page-main">
+      <div class="container">
+        <!-- ==============================================================
+             SCREEN 1: DRILL INTRO SCREEN
+             ============================================================== -->
+        <section id="drill-intro-screen" aria-labelledby="intro-drill-title">
+          <div style="margin-bottom: var(--space-4);">
+            <a href="/pages/elements.html" class="btn btn-secondary btn-sm">&larr; All Drills</a>
+          </div>
+
+          <div class="card" style="max-width: 680px; margin: 0 auto;">
+            <div class="card-header">
+              <div>
+                <div
+                  id="intro-drill-group"
+                  style="font-size: var(--text-xs); font-weight: 700; color: var(--color-primary); margin-bottom: 4px;"
+                >
+                  Elements Worksheet
+                </div>
+                <h1 id="intro-drill-title" class="page-title" style="margin: 0;">
+                  Loading Drill...
+                </h1>
+              </div>
+            </div>
+
+            <div class="card-body">
+              <!-- Question count & time limit -->
+              <div
+                style="
+                  display: grid;
+                  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+                  gap: var(--space-3);
+                  margin-bottom: var(--space-4);
+                "
+              >
+                <div
+                  style="
+                    background: var(--bg-surface-subtle);
+                    border: 1px solid var(--border-hairline);
+                    border-radius: var(--radius-md);
+                    padding: var(--space-3);
+                  "
+                >
+                  <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">
+                    Questions
+                  </div>
+                  <div
+                    id="intro-drill-questions"
+                    class="num"
+                    style="font-size: 1.5rem; font-weight: 800; color: var(--text-main); margin-top: 2px;"
+                  >
+                    —
+                  </div>
+                </div>
+
+                <div
+                  style="
+                    background: var(--bg-surface-subtle);
+                    border: 1px solid var(--border-hairline);
+                    border-radius: var(--radius-md);
+                    padding: var(--space-3);
+                  "
+                >
+                  <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">
+                    Time Limit
+                  </div>
+                  <div
+                    id="intro-drill-time"
+                    class="num"
+                    style="font-size: 1.5rem; font-weight: 800; color: var(--color-primary); margin-top: 2px;"
+                  >
+                    —
+                  </div>
+                </div>
+
+                <div
+                  style="
+                    background: var(--bg-surface-subtle);
+                    border: 1px solid var(--border-hairline);
+                    border-radius: var(--radius-md);
+                    padding: var(--space-3);
+                  "
+                >
+                  <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">
+                    Your Personal Best
+                  </div>
+                  <div
+                    id="intro-drill-best"
+                    class="num"
+                    style="font-size: var(--text-sm); font-weight: 700; color: var(--text-main); margin-top: 6px;"
+                  >
+                    No attempts yet
+                  </div>
+                </div>
+              </div>
+
+              <!-- Answer format hint -->
+              <div
+                style="
+                  background: var(--color-primary-subtle);
+                  border: 1px solid var(--border-subtle);
+                  border-radius: var(--radius-md);
+                  padding: var(--space-3) var(--space-4);
+                  margin-bottom: var(--space-4);
+                "
+              >
+                <div style="font-size: var(--text-xs); font-weight: 700; color: var(--color-primary-text); margin-bottom: 2px;">
+                  How to Type Your Answer
+                </div>
+                <div id="intro-drill-hint" style="font-size: var(--text-sm); color: var(--text-main);">
+                  —
+                </div>
+              </div>
+
+              <div
+                id="intro-error-alert"
+                class="alert alert-danger"
+                role="alert"
+                style="display: none; margin-bottom: var(--space-4);"
+              ></div>
+
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); flex-wrap: wrap;">
+                <span style="font-size: var(--text-xs); color: var(--text-muted);">
+                  Tip: Press <strong>Enter</strong>, <strong>Tab</strong>, or <strong>&darr;</strong> to move to the next question.
+                </span>
+                <button
+                  type="button"
+                  id="btn-start-drill"
+                  class="btn btn-primary"
+                  style="min-width: 160px; min-height: 48px; font-size: var(--text-base);"
+                >
+                  Start Worksheet &rarr;
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==============================================================
+             SCREEN 2: ACTIVE TIMED WORKSHEET SCREEN
+             ============================================================== -->
+        <section id="drill-worksheet-screen" style="display: none;" aria-label="Timed Worksheet">
+          <!-- Sticky Timer & Progress Bar -->
+          <div class="element-sticky-bar">
+            <div
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: var(--space-3);
+                flex-wrap: wrap;
+                margin-bottom: var(--space-2);
+              "
+            >
+              <div>
+                <div
+                  id="worksheet-drill-title"
+                  style="font-size: var(--text-base); font-weight: 800; color: var(--text-main);"
+                >
+                  Drill
+                </div>
+                <div
+                  id="worksheet-drill-hint"
+                  style="font-size: var(--text-xs); color: var(--text-muted);"
+                ></div>
+              </div>
+
+              <div style="display: flex; align-items: center; gap: var(--space-4);">
+                <div style="text-align: right;">
+                  <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--text-muted);">
+                    Remaining Time
+                  </div>
+                  <div
+                    id="worksheet-timer-display"
+                    class="num"
+                    style="font-size: 1.5rem; font-weight: 800; color: var(--color-primary);"
+                    aria-live="off"
+                  >
+                    00:00
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  id="btn-submit-now"
+                  class="btn btn-primary"
+                  style="min-height: 44px;"
+                >
+                  Submit now
+                </button>
+              </div>
+            </div>
+
+            <!-- Countdown Progress Bar -->
+            <div
+              style="
+                width: 100%;
+                height: 8px;
+                background: var(--bg-surface-subtle);
+                border-radius: 999px;
+                overflow: hidden;
+                border: 1px solid var(--border-hairline);
+              "
+            >
+              <div
+                id="worksheet-progress-bar"
+                style="
+                  width: 100%;
+                  height: 100%;
+                  background: var(--color-primary);
+                  transition: width 0.2s linear;
+                "
+              ></div>
+            </div>
+          </div>
+
+          <!-- Network Error / Retry Banner (Preserves typed answers until expiry) -->
+          <div
+            id="worksheet-retry-banner"
+            class="card"
+            role="alert"
+            style="
+              display: none;
+              margin-bottom: var(--space-4);
+              border-color: var(--color-danger);
+              background: var(--color-danger-subtle);
+            "
+          >
+            <div
+              class="card-body"
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: var(--space-3);
+                flex-wrap: wrap;
+              "
+            >
+              <div>
+                <strong
+                  id="worksheet-retry-title"
+                  style="font-size: var(--text-sm); color: var(--color-danger); display: block;"
+                >
+                  Could not send your answers due to a network problem.
+                </strong>
+                <span
+                  id="worksheet-retry-subtitle"
+                  style="font-size: var(--text-xs); color: var(--text-main);"
+                >
+                  Your typed answers are still on screen. Click "Try sending again" before the session expires.
+                </span>
+              </div>
+              <div style="display: flex; gap: var(--space-2); flex-wrap: wrap;">
+                <button type="button" id="btn-retry-submit" class="btn btn-primary btn-sm">
+                  Try sending again
+                </button>
+                <button type="button" id="btn-expired-new-set" class="btn btn-secondary btn-sm" style="display: none;">
+                  Start a new set
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- All Questions Grid -->
+          <form id="worksheet-form" novalidate>
+            <div id="worksheet-questions-grid" class="element-worksheet-grid"></div>
+          </form>
+        </section>
+
+        <!-- ==============================================================
+             SCREEN 3: RESULT & REVIEW SCREEN
+             ============================================================== -->
+        <section id="drill-result-screen" style="display: none;" aria-labelledby="result-heading">
+          <div class="card" style="margin-bottom: var(--space-6);">
+            <div
+              class="card-header"
+              style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3);"
+            >
+              <div>
+                <h2 id="result-heading" class="card-title" style="margin: 0;">Worksheet Results</h2>
+                <p id="result-subtitle" style="font-size: var(--text-xs); color: var(--text-muted); margin: 2px 0 0 0;"></p>
+              </div>
+              <div style="display: flex; gap: var(--space-2); flex-wrap: wrap;">
+                <button type="button" id="btn-same-drill-again" class="btn btn-primary btn-sm">
+                  Same drill again
+                </button>
+                <a href="/pages/elements.html" class="btn btn-secondary btn-sm" style="text-decoration: none;">
+                  All drills
+                </a>
+              </div>
+            </div>
+
+            <div class="card-body">
+              <!-- Personal Best Callout -->
+              <div
+                id="result-personal-best-banner"
+                style="
+                  display: none;
+                  background: var(--color-score-perfect-subtle);
+                  color: var(--color-score-perfect);
+                  border: 1px solid var(--color-score-perfect);
+                  border-radius: var(--radius-md);
+                  padding: var(--space-3) var(--space-4);
+                  margin-bottom: var(--space-4);
+                  font-weight: 700;
+                  font-size: var(--text-sm);
+                "
+              >
+                New personal best! Great accuracy and speed on this drill.
+              </div>
+
+              <!-- Status Notice (e.g., 0 attempted answers not saved) -->
+              <div
+                id="result-notice-banner"
+                class="alert alert-warning"
+                style="display: none; margin-bottom: var(--space-4);"
+              ></div>
+
+              <!-- Summary Metrics Row -->
+              <div
+                style="
+                  display: grid;
+                  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+                  gap: var(--space-3);
+                  margin-bottom: var(--space-4);
+                "
+              >
+                <div
+                  style="
+                    background: var(--bg-surface-subtle);
+                    border: 1px solid var(--border-hairline);
+                    border-radius: var(--radius-md);
+                    padding: var(--space-3);
+                  "
+                >
+                  <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted);">
+                    Score (Correct / Attempted)
+                  </div>
+                  <div
+                    id="result-score-text"
+                    class="num"
+                    style="font-size: 1.5rem; font-weight: 800; color: var(--text-main); margin-top: 4px;"
+                  >
+                    0 / 0
+                  </div>
+                  <div style="margin-top: 6px;">
+                    <span id="result-wrong-badge" class="score-tag score-tag-neutral">0 wrong</span>
+                  </div>
+                </div>
+
+                <div
+                  style="
+                    background: var(--bg-surface-subtle);
+                    border: 1px solid var(--border-hairline);
+                    border-radius: var(--radius-md);
+                    padding: var(--space-3);
+                  "
+                >
+                  <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted);">
+                    Left Blank
+                  </div>
+                  <div
+                    id="result-blank-text"
+                    class="num"
+                    style="font-size: 1.5rem; font-weight: 800; color: var(--text-main); margin-top: 4px;"
+                  >
+                    0
+                  </div>
+                  <div
+                    id="result-blank-sub"
+                    style="font-size: var(--text-xs); color: var(--text-dim); margin-top: 4px;"
+                  >
+                    of 0 questions
+                  </div>
+                </div>
+
+                <div
+                  style="
+                    background: var(--bg-surface-subtle);
+                    border: 1px solid var(--border-hairline);
+                    border-radius: var(--radius-md);
+                    padding: var(--space-3);
+                  "
+                >
+                  <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted);">
+                    Accuracy
+                  </div>
+                  <div
+                    id="result-accuracy-text"
+                    class="num"
+                    style="font-size: 1.5rem; font-weight: 800; color: var(--color-primary); margin-top: 4px;"
+                  >
+                    0%
+                  </div>
+                </div>
+
+                <div
+                  style="
+                    background: var(--bg-surface-subtle);
+                    border: 1px solid var(--border-hairline);
+                    border-radius: var(--radius-md);
+                    padding: var(--space-3);
+                  "
+                >
+                  <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted);">
+                    Time Taken
+                  </div>
+                  <div
+                    id="result-time-text"
+                    class="num"
+                    style="font-size: 1.5rem; font-weight: 800; color: var(--text-main); margin-top: 4px;"
+                  >
+                    00:00
+                  </div>
+                </div>
+              </div>
+
+              <!-- Question-by-Question Review Table -->
+              <h3 style="font-size: var(--text-base); font-weight: 700; margin: var(--space-4) 0 var(--space-2) 0;">
+                Question Review
+              </h3>
+              <div class="table-responsive">
+                <table class="data-table" aria-label="Question by Question Review">
+                  <thead>
+                    <tr>
+                      <th style="width: 60px;">#</th>
+                      <th>Question</th>
+                      <th>Your Answer</th>
+                      <th>Correct Answer</th>
+                      <th>Result</th>
+                    </tr>
+                  </thead>
+                  <tbody id="result-review-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+    </div>
+
+    <script type="module" src="/js/elementDrill.js"></script>
+  </body>
+</html>

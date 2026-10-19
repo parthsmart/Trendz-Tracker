@@ -842,3 +842,34 @@ This document contains step-by-step test scenarios to verify security boundaries
   - **Back up to Google Sheet now** executes up to 10 passes against `POST /api/backup` (`{ action: 'run' }`), updating table row counts, cell capacity, and the recent runs table after each pass.
   - On `/pages/admin.html` and `/pages/backup.html`, if the last completed backup is older than 2 days (or has never run), a clear warning banner is displayed with a direct link to `/pages/backup.html`.
 
+---
+
+## Phase 7 & Phase 8 Test Cases (Flash Anzan Trainer & Elements Timed Worksheet Drills)
+
+### Test Case 43: Automated Unit Test Suite for Phase 7 & Phase 8 (`tests/flash.test.js`, `tests/drills.test.js`, `tests/drillStats.test.js`)
+- **Action**:
+  1. Run `node --test tests/*.test.js` in the terminal.
+- **Expected Result**:
+  - All 93 unit tests across the repository pass (`0 fail`).
+  - `tests/drills.test.js` verifies:
+    - Exact 1:1 parity between `js/drillCatalog.js` and `api/_drills.js` across all 18 drills.
+    - 200 deterministic seeded runs for every one of the 18 drills (3,600 sets total) verifying question counts, non-empty prompts, canonical answers, and domain invariants (including non-square `n` and `(k-1)^2 < n < k^2` for `number_to_be_squared`, 20 distinct numbers for `squares_3d_4d`, non-negative answers for `minutes_to_seconds`, and `1 Year` as the 25th question in `time_conversion`).
+    - All known mathematical examples from the specification (`Saturday -> 0`, `February (02) -> 4`, `1857 -> 2`, `3 Week -> 1814400`, `47 -> 2209`, `99 -> 970299`, `97 / 4 -> 24`, `97 / 7 -> 6`, `1261 -> [13, 97]`, `888 / 1554 -> 4/7`, `Jan. 10, 1700 - March 5, 1800 -> 4665600`, `7:00:00 - 19:00:00 -> 43200`, `12:30 - 25:10 -> 760`, `2000000 -> 1415`, `999 -> 998001`).
+    - Answer parsing edge cases (`86,400` and `0086400`, prime factor separators `x`, `X`, `×`, `*`, `,`, space in either order, lowest-terms ratio `4/7` accepted while unreduced `8/14` is rejected, invalid/blank inputs returning `null` without throwing).
+    - `buildDrillStartResponse` security check ensuring expected answers never appear in the start payload.
+  - `tests/drillStats.test.js` verifies `bestForDrill`, `isNewPersonalBest`, `recentSets`, `setsThisWeek` (Monday–Sunday in `Asia/Kolkata`), and `summaryByDrill`.
+
+### Test Case 44: Elements Catalog & Timed Worksheet Flow (`/pages/elements.html`, `/pages/element-drill.html`)
+- **Action**:
+  1. Log in as a Student (`STU101` / `pass123`) and click **Elements** in the top navigation bar (or click **Open Elements →** on the student dashboard Elements card, or click **Start →** on a daily to-do task in section `'elements'`).
+  2. Inspect the 5 drill groups (*Codes*, *Squares and cubes*, *Division*, *Time*, *Other*) and verify that **Modulo Calculation** displays **Coming soon** and its button is disabled.
+  3. Click **Start →** on **Day Codes** (or any enabled drill) to open `/pages/element-drill.html?drill=day_codes`.
+  4. On the intro screen, verify the title, question count, time limit, and answer-format hint, then click **Start**.
+  5. Open DevTools Network tab and inspect the `POST /api/drill` (`action: 'start'`) response to confirm it contains `questions` (strings) and **no** expected answers.
+  6. Type answers into several inputs, using `Enter` or `ArrowDown` to move to the next input, leave some blank, and click **Submit now** (or wait for the sticky countdown bar to reach `00:00`).
+- **Expected Result**:
+  - The worksheet grades on the server via `POST /api/drill` (`action: 'submit'`) and displays the Result & Review screen with `correct / attempted` (`n left blank`), accuracy %, time taken, mistake badge (`n wrong` with colour + text), `"New personal best!"` callout when earned, and a question-by-question table showing `Question`, `Your answer` (or `"Blank"`), `Correct answer`, and explicit `"Correct"` / `"Wrong"` badges.
+  - Submitting with 0 attempted answers (`attempted === 0`) shows `"No questions were answered, so this attempt was not saved to your history."` and does not insert a row into `activity_results`.
+  - Returning to `/pages/student.html` or `/pages/student-detail.html` shows the updated **Elements** summary card, **Personal Bests by Drill** table, and **Recent Elements Sets** table.
+
+

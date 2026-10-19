@@ -12,6 +12,7 @@ import resetPasswordHandler from './api/reset-password.js';
 import supabaseProxyHandler from './api/supabase-proxy.js';
 import weeklyReportHandler from './api/weekly-report.js';
 import backupHandler from './api/backup.js';
+import drillHandler from './api/drill.js';
 import { getSupabaseServerConfig } from './api/_configHelper.js';
 
 dotenv.config();
@@ -56,6 +57,10 @@ app.all('/api/weekly-report', (req, res) => {
 
 app.all('/api/backup', (req, res) => {
   return backupHandler(req, res);
+});
+
+app.all('/api/drill', (req, res) => {
+  return drillHandler(req, res);
 });
 
 async function startServer() {

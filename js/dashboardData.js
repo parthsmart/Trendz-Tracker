@@ -261,7 +261,7 @@ export async function fetchStudentDashboardData(studentId) {
       };
     })(),
 
-    // 9. Flash Anzan Activity Results (Phase 7, read-only from activity_results)
+    // 9. Activity Results (Flash Anzan & Elements Drills, read-only from activity_results)
     (async () => {
       if (supabase) {
         try {
@@ -269,15 +269,14 @@ export async function fetchStudentDashboardData(studentId) {
             .from('activity_results')
             .select('id, student_id, activity_type, activity_name, correct, total, time_seconds, settings, created_at')
             .eq('student_id', studentId)
-            .eq('activity_type', 'flash_anzan')
             .order('created_at', { ascending: false })
-            .limit(30);
+            .limit(200);
           if (!error && data) return data;
         } catch {
           // fall through
         }
       }
-      return DemoDB.getActivityResults(studentId, 'flash_anzan');
+      return DemoDB.getActivityResults(studentId);
     })()
   ]);
 
