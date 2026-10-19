@@ -32,7 +32,7 @@ let useProxy = isRestrictedEnv;
 
 /**
  * Removes any expired or invalid Supabase session tokens from localStorage
- * to prevent repetitive AuthApiError loops.
+ * to prevent repetitive AuthApiError / AuthRetryableFetchError loops.
  */
 export function clearStaleSupabaseSession() {
   if (typeof localStorage === 'undefined') return;
@@ -44,38 +44,118 @@ export function clearStaleSupabaseSession() {
         keysToRemove.push(k);
       }
     }
-    keysToRemove.forEach(k => localStorage.removeItem(k));
+    keysToRemove.forEach((k) => localStorage.removeItem(k));
   } catch (e) {
     console.warn('Could not clear Supabase auth tokens:', e);
   }
 }
 
-// Global protection against stale or invalid refresh token and retryable auth fetch rejections
+/**
+ * Checks whether an error object or message comes from a transient or stale
+ * @supabase/auth-js background token refresh.
+ */
+function classifySupabaseAuthError(errOrArg) {
+  if (!errOrArg) return { isRetryableAuthError: false, isInvalidRefreshToken: false };
+  const name = typeof errOrArg === 'object' ? (errOrArg.name || '') : '';
+  const code = typeof errOrArg === 'object' ? (errOrArg.code || errOrArg.error_code || '') : '';
+  const msg =
+    typeof errOrArg === 'string'
+      ? errOrArg
+      : (errOrArg.message || errOrArg.msg || errOrArg.error_description || '');
+
+  const isInvalidRefreshToken =
+    code === 'refresh_token_not_found' ||
+    code === 'session_not_found' ||
+    code === 'validation_failed' ||
+    name === 'AuthSessionMissingError' ||
+    msg.includes('Invalid Refresh Token') ||
+    msg.includes('Refresh Token Not Found') ||
+    msg.includes('Refresh token is not valid') ||
+    msg.includes('refresh_token_not_found') ||
+    msg.includes('session_not_found');
+
+  const isRetryableAuthError =
+    name === 'AuthRetryableFetchError' ||
+    msg.includes('AuthRetryableFetchError') ||
+    msg.includes('Auto refresh tick failed');
+
+  return { isRetryableAuthError, isInvalidRefreshToken };
+}
+
+// Global protection against stale or invalid refresh token and retryable auth fetch errors.
+// Note: @supabase/auth-js catches refresh errors inside _recoverAndRefresh() and calls
+// console.error(error) directly, which triggers preview error overlays unless intercepted.
 if (typeof window !== 'undefined') {
   window.addEventListener('unhandledrejection', (event) => {
-    const reason = event?.reason;
-    const msg = reason?.message || (typeof reason === 'string' ? reason : '');
-    const name = reason?.name || '';
-    const isInvalidRefreshToken =
-      msg.includes('Invalid Refresh Token') ||
-      msg.includes('Refresh Token Not Found') ||
-      msg.includes('refresh_token_not_found');
-    const isRetryableAuthError =
-      name === 'AuthRetryableFetchError' ||
-      msg.includes('AuthRetryableFetchError');
-
+    const { isRetryableAuthError, isInvalidRefreshToken } = classifySupabaseAuthError(event?.reason);
     if (isInvalidRefreshToken || isRetryableAuthError) {
-      console.warn('Caught unhandled auth rejection. Cleaning up stale session if needed.', name || msg);
       event.preventDefault();
       if (isInvalidRefreshToken) {
         clearStaleSupabaseSession();
       }
     }
   });
+
+  if (typeof console !== 'undefined' && typeof console.error === 'function' && !console.error.__trendzWrapped) {
+    const origConsoleError = console.error.bind(console);
+    const wrappedConsoleError = (...args) => {
+      for (const arg of args) {
+        const { isRetryableAuthError, isInvalidRefreshToken } = classifySupabaseAuthError(arg);
+        if (isRetryableAuthError || isInvalidRefreshToken) {
+          if (isInvalidRefreshToken) {
+            clearStaleSupabaseSession();
+          }
+          console.warn('[Supabase Auth] Handled background session recovery warning:', arg?.message || arg?.name || arg);
+          return;
+        }
+      }
+      origConsoleError(...args);
+    };
+    wrappedConsoleError.__trendzWrapped = true;
+    console.error = wrappedConsoleError;
+  }
+}
+
+/**
+ * Validates any persisted sb-*-auth-token entry in localStorage prior to client creation.
+ * Purges malformed entries so GoTrueClient._recoverAndRefresh() does not fail on startup.
+ */
+function sanitizeStoredSupabaseSessions() {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    const keysToInspect = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith('sb-') && k.endsWith('-auth-token')) {
+        keysToInspect.push(k);
+      }
+    }
+    for (const k of keysToInspect) {
+      const raw = localStorage.getItem(k);
+      if (!raw) continue;
+      try {
+        const parsed = JSON.parse(raw);
+        if (
+          !parsed ||
+          typeof parsed !== 'object' ||
+          typeof parsed.access_token !== 'string' ||
+          typeof parsed.refresh_token !== 'string' ||
+          parsed.refresh_token.trim().length < 8
+        ) {
+          localStorage.removeItem(k);
+        }
+      } catch {
+        localStorage.removeItem(k);
+      }
+    }
+  } catch {
+    // ignore storage access issues
+  }
 }
 
 /**
  * Attempts a direct browser fetch to Supabase (used as a fallback if the local proxy is restarting).
+ * Never returns a 502/503/504 response, as @supabase/auth-js throws AuthRetryableFetchError on those codes.
  */
 async function tryDirectSupabaseFetch(url, method, headers, body) {
   if (!url || typeof url !== 'string' || !url.startsWith('https://')) {
@@ -90,7 +170,10 @@ async function tryDirectSupabaseFetch(url, method, headers, body) {
       directInit.body = body;
     }
     const directRes = await fetch(url, directInit);
-    return makeSafeResponse(directRes);
+    if ([502, 503, 504].includes(directRes.status)) {
+      return null;
+    }
+    return makeSafeResponse(directRes, '', url);
   } catch {
     return null;
   }
@@ -101,24 +184,31 @@ async function tryDirectSupabaseFetch(url, method, headers, body) {
  * in @supabase/auth-js (which throws AuthRetryableFetchError on status 502, 503, 504).
  */
 function buildSyntheticErrorResponse(url, message, originalStatus = 500) {
+  const cleanMessage = message || 'Service temporarily unavailable';
   const isAuthEndpoint = typeof url === 'string' && url.includes('/auth/v1/');
   if (isAuthEndpoint) {
     clearStaleSupabaseSession();
     return makeSafeResponse(
       new Response(
         JSON.stringify({
-          message: message || 'Authentication session expired or unreachable.',
+          message: cleanMessage,
+          msg: cleanMessage,
           error: 'invalid_grant',
+          error_description: cleanMessage,
           error_code: 'session_not_found',
-          code: 401,
+          code: 'session_not_found',
         }),
         {
           status: 401,
           statusText: 'Unauthorized',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Supabase-Api-Version': '2024-01-01',
+          },
         }
       ),
-      message
+      cleanMessage,
+      url
     );
   }
 
@@ -127,9 +217,11 @@ function buildSyntheticErrorResponse(url, message, originalStatus = 500) {
   return makeSafeResponse(
     new Response(
       JSON.stringify({
-        message: message || 'Service temporarily unavailable',
-        error: message || 'Service temporarily unavailable',
-        code: safeStatus,
+        message: cleanMessage,
+        msg: cleanMessage,
+        error: cleanMessage,
+        error_description: cleanMessage,
+        code: String(safeStatus),
       }),
       {
         status: safeStatus,
@@ -137,13 +229,15 @@ function buildSyntheticErrorResponse(url, message, originalStatus = 500) {
         headers: { 'Content-Type': 'application/json' },
       }
     ),
-    message
+    cleanMessage,
+    url
   );
 }
 
 /**
  * Proxies request through /api/supabase-proxy to bypass browser cross-origin,
- * adblocker, or network/firewall blocking. Falls back to direct fetch if proxy is restarting.
+ * adblocker, or network/firewall blocking. Retries transient server restarts and
+ * falls back to direct fetch if needed.
  */
 async function proxyFetch(input, init = {}) {
   let url = '';
@@ -201,17 +295,28 @@ async function proxyFetch(input, init = {}) {
     }
   }
 
-  let proxyRes;
-  try {
-    proxyRes = await fetch('/api/supabase-proxy', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, method, headers, body })
-    });
-  } catch (netErr) {
+  let proxyRes = null;
+  let lastNetErr = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      proxyRes = await fetch('/api/supabase-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, method, headers, body }),
+      });
+      if (![502, 503, 504].includes(proxyRes.status) || attempt === 1) {
+        break;
+      }
+    } catch (netErr) {
+      lastNetErr = netErr;
+    }
+    await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
+  }
+
+  if (!proxyRes) {
     const directFallback = await tryDirectSupabaseFetch(url, method, headers, body);
     if (directFallback) return directFallback;
-    return buildSyntheticErrorResponse(url, 'Proxy connection failed: ' + (netErr?.message || 'offline'), 503);
+    return buildSyntheticErrorResponse(url, 'Proxy connection failed: ' + (lastNetErr?.message || 'offline'), 500);
   }
 
   let proxyData = null;
@@ -250,12 +355,11 @@ async function proxyFetch(input, init = {}) {
     if (directFallback && ![502, 503, 504].includes(directFallback.status)) {
       return directFallback;
     }
-    status = 500;
+    return buildSyntheticErrorResponse(url, 'Upstream Supabase gateway timeout or unavailable', 500);
   }
 
   // Auto-clear stale refresh token if validation fails
   if ((status === 400 || status === 401) && (url.includes('grant_type=refresh_token') || url.includes('refresh_token'))) {
-    console.warn('Detected invalid refresh token response. Purging stale session.');
     clearStaleSupabaseSession();
   }
 
@@ -278,57 +382,76 @@ async function proxyFetch(input, init = {}) {
   if ([204, 205, 304].includes(status)) {
     responseBody = null;
   } else if (proxyData.body === null || proxyData.body === undefined || (typeof proxyData.body === 'string' && proxyData.body.trim() === '')) {
-    // If upstream returned empty body on a non-204 response (e.g. 200/201),
-    // supply 'null' for JSON so calling .json() doesn't throw "Unexpected end of JSON input"
     responseBody = isJsonHeader ? 'null' : '';
   } else {
     responseBody = proxyData.body;
   }
 
   try {
-    return makeSafeResponse(new Response(responseBody, {
-      status,
-      statusText: (proxyData.statusText && /^[a-zA-Z0-9\s]+$/.test(proxyData.statusText)) ? proxyData.statusText : undefined,
-      headers: safeHeaders
-    }));
-  } catch (resErr) {
-    console.warn('Constructing full Response failed, using clean minimal Response:', resErr);
-    try {
-      return makeSafeResponse(new Response(responseBody, {
+    return makeSafeResponse(
+      new Response(responseBody, {
         status,
-        headers: { 'Content-Type': safeHeaders['content-type'] || 'application/json' }
-      }));
+        statusText: (proxyData.statusText && /^[a-zA-Z0-9\s]+$/.test(proxyData.statusText)) ? proxyData.statusText : undefined,
+        headers: safeHeaders,
+      }),
+      '',
+      url
+    );
+  } catch (resErr) {
+    try {
+      return makeSafeResponse(
+        new Response(responseBody, {
+          status,
+          headers: { 'Content-Type': safeHeaders['content-type'] || 'application/json' },
+        }),
+        '',
+        url
+      );
     } catch {
-      return makeSafeResponse(new Response(responseBody, { status: 200 }));
+      return makeSafeResponse(new Response(responseBody, { status: 200 }), '', url);
     }
   }
 }
 
 /**
- * Wraps Response.prototype.json so that unexpected empty responses return null
- * instead of throwing "Unexpected end of JSON input", and attaches a readable
- * message property in case @supabase/auth-js inspects the Response object directly.
+ * Guarantees that a Response never has status 502/503/504 (which causes @supabase/auth-js
+ * to throw `AuthRetryableFetchError: {}`), wraps `.json()` against empty bodies, and
+ * attaches a readable `.message` property on non-2xx responses.
  */
-function makeSafeResponse(res, fallbackMessage = '') {
+function makeSafeResponse(res, fallbackMessage = '', requestUrl = '') {
   if (!res || typeof res.json !== 'function') return res;
-  if (fallbackMessage && !res.message) {
-    try {
-      Object.defineProperty(res, 'message', {
-        value: fallbackMessage,
-        configurable: true,
-        enumerable: false,
-      });
-    } catch {
-      // ignore if Response object is frozen
+
+  // Never allow status 502, 503, or 504 to reach @supabase/auth-js handleError()
+  if ([502, 503, 504].includes(res.status)) {
+    return buildSyntheticErrorResponse(
+      requestUrl || res.url || '',
+      fallbackMessage || `Service temporarily unavailable (HTTP ${res.status})`,
+      500
+    );
+  }
+
+  if (!res.ok || fallbackMessage) {
+    const msgValue = fallbackMessage || res.statusText || `HTTP ${res.status || 500} error`;
+    if (!res.message) {
+      try {
+        Object.defineProperty(res, 'message', {
+          value: msgValue,
+          configurable: true,
+          enumerable: false,
+        });
+      } catch {
+        // ignore if Response object is frozen
+      }
     }
   }
+
   const origJson = res.json.bind(res);
   res.json = async function safeJson() {
     try {
       return await origJson();
     } catch (e) {
       if (e && (e.name === 'SyntaxError' || String(e.message).includes('JSON') || String(e.message).includes('end of'))) {
-        return null;
+        return res.ok ? null : { message: fallbackMessage || `HTTP ${res.status || 500} error` };
       }
       throw e;
     }
@@ -341,10 +464,16 @@ function makeSafeResponse(res, fallbackMessage = '') {
  * In restricted environments (iframe sandbox), proxies with automatic direct fallback.
  */
 async function smartFetch(input, init = {}) {
+  const reqUrl = typeof input === 'string' ? input : (input?.url || '');
+
   // In production, ALWAYS talk directly to Supabase. Never use the proxy.
   if (isProduction) {
-    const directRes = await fetch(input, init);
-    return makeSafeResponse(directRes);
+    try {
+      const directRes = await fetch(input, init);
+      return makeSafeResponse(directRes, '', reqUrl);
+    } catch (err) {
+      return buildSyntheticErrorResponse(reqUrl, err?.message || 'Network request failed', 500);
+    }
   }
 
   if (isRestrictedEnv) {
@@ -353,7 +482,10 @@ async function smartFetch(input, init = {}) {
 
   try {
     const directRes = await fetch(input, init);
-    return makeSafeResponse(directRes);
+    if ([502, 503, 504].includes(directRes.status)) {
+      return proxyFetch(input, init);
+    }
+    return makeSafeResponse(directRes, '', reqUrl);
   } catch (err) {
     console.warn('Direct fetch to Supabase failed in browser. Seamlessly switching to /api/supabase-proxy...', err);
     return proxyFetch(input, init);
@@ -374,6 +506,8 @@ export async function getSupabase() {
   }
 
   try {
+    sanitizeStoredSupabaseSessions();
+
     supabase = createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey, {
       auth: {
         persistSession: true,
@@ -396,3 +530,4 @@ export async function getSupabase() {
     return null;
   }
 }
+

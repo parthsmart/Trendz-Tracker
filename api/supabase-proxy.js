@@ -128,7 +128,24 @@ export default async function handler(req, res) {
       fetchOptions.body = typeof body === 'object' ? JSON.stringify(body) : String(body);
     }
 
-    const upstreamRes = await fetch(parsedTarget.toString(), fetchOptions);
+    let upstreamRes = null;
+    let lastFetchErr = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        upstreamRes = await fetch(parsedTarget.toString(), fetchOptions);
+        if (![502, 503, 504].includes(upstreamRes.status) || attempt === 1) {
+          break;
+        }
+      } catch (fetchErr) {
+        lastFetchErr = fetchErr;
+      }
+      await new Promise((r) => setTimeout(r, 250));
+    }
+
+    if (!upstreamRes) {
+      throw lastFetchErr || new Error('Failed to reach upstream Supabase URL');
+    }
+
     const responseText = await upstreamRes.text();
 
     const responseHeaders = {};
@@ -139,17 +156,30 @@ export default async function handler(req, res) {
       }
     });
 
+    // Map 502/503/504 to 500 so @supabase/auth-js does not throw AuthRetryableFetchError: {}
+    const safeUpstreamStatus = [502, 503, 504].includes(upstreamRes.status) ? 500 : upstreamRes.status;
+
     res.setHeader('Cache-Control', 'no-store');
     return res.status(200).json({
-      status: upstreamRes.status,
-      statusText: upstreamRes.statusText,
+      status: safeUpstreamStatus,
+      statusText: upstreamRes.statusText || (safeUpstreamStatus === 500 ? 'Internal Server Error' : 'OK'),
       headers: responseHeaders,
       body: responseText
     });
   } catch (err) {
-    console.error('Error in /api/supabase-proxy connecting upstream:', err);
-    return res.status(502).json({
-      error: 'Proxy gateway error connecting to Supabase: ' + (err.message || 'Unknown network error')
+    console.warn('Warning in /api/supabase-proxy connecting upstream:', err?.message || err);
+    const errMsg = 'Proxy gateway error connecting to Supabase: ' + (err?.message || 'Unknown network error');
+    return res.status(200).json({
+      status: 500,
+      statusText: 'Internal Server Error',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        message: errMsg,
+        error: 'upstream_connection_failed',
+        error_description: errMsg,
+        code: 'upstream_connection_failed',
+      }),
     });
   }
 }
+

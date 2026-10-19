@@ -18,6 +18,14 @@
 
 import { isSupabaseConfigured } from './config.js';
 import { isDemoMode } from './demoDb.js';
+import {
+  MIGRATION_FILES,
+  initDriveAuth,
+  googleSignInForDrive,
+  googleSignOutFromDrive,
+  getDriveAccessToken,
+  saveAllSqlMigrationsToDrive,
+} from './driveBackup.js';
 import { requireAuth } from './guard.js';
 import { setupAdminNav, setupModalListeners, openModal, closeModal } from './modal.js';
 import {
@@ -79,6 +87,7 @@ async function initAdminOverview() {
   setupAdminNav();
   setupModalListeners();
   renderDemoBanner();
+  initSqlMigrationsAndDriveBackup();
 
   attachEventListeners();
 
@@ -808,7 +817,185 @@ function attachEventListeners() {
   }
 }
 
+/**
+ * Renders the 12 ordered SQL migration scripts + README.md table and wires
+ * Google Drive authentication + upload confirmation modal.
+ */
+function initSqlMigrationsAndDriveBackup() {
+  const tbody = document.getElementById('sql-migrations-table-body');
+  if (tbody) {
+    tbody.innerHTML = MIGRATION_FILES.map((item, idx) => {
+      const orderBadge = item.order === 0 ? 'README' : `#${String(item.order).padStart(2, '0')}`;
+      return `
+        <tr>
+          <td class="num" style="font-weight: 700; color: var(--color-primary);">${escapeHtml(orderBadge)}</td>
+          <td style="font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 600;">
+            ${escapeHtml(item.filename)}
+          </td>
+          <td style="font-size: var(--text-xs); color: var(--text-muted);">
+            ${escapeHtml(item.label)}
+          </td>
+          <td style="text-align: right; white-space: nowrap;">
+            <button type="button" class="btn btn-outline btn-sm btn-copy-sql-script" data-idx="${idx}" style="margin-right: 4px;">
+              Copy
+            </button>
+            <button type="button" class="btn btn-outline btn-sm btn-download-sql-script" data-idx="${idx}">
+              Download
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    tbody.querySelectorAll('.btn-copy-sql-script').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const idx = Number(btn.getAttribute('data-idx'));
+        const item = MIGRATION_FILES[idx];
+        if (!item) return;
+        try {
+          await navigator.clipboard.writeText(item.content);
+          showToast('success', `Copied ${item.filename} to clipboard.`);
+        } catch {
+          showToast('error', `Could not copy ${item.filename}.`);
+        }
+      });
+    });
+
+    tbody.querySelectorAll('.btn-download-sql-script').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const idx = Number(btn.getAttribute('data-idx'));
+        const item = MIGRATION_FILES[idx];
+        if (!item) return;
+        const blob = new Blob([item.content], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = item.filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        showToast('success', `Downloaded ${item.filename}.`);
+      });
+    });
+  }
+
+  const btnSignIn = document.getElementById('btn-google-drive-signin');
+  const connectedWrap = document.getElementById('drive-connected-controls');
+  const connectedEmailEl = document.getElementById('drive-connected-email');
+  const btnSaveToDrive = document.getElementById('btn-save-sql-to-drive');
+  const btnSignOut = document.getElementById('btn-google-drive-signout');
+  const btnConfirmUpload = document.getElementById('btn-confirm-drive-backup');
+
+  const updateDriveAuthUI = (user) => {
+    const hasToken = Boolean(user && getDriveAccessToken());
+    if (btnSignIn) {
+      btnSignIn.style.display = hasToken ? 'none' : 'inline-flex';
+    }
+    if (connectedWrap) {
+      connectedWrap.style.display = hasToken ? 'inline-flex' : 'none';
+    }
+    if (connectedEmailEl) {
+      connectedEmailEl.textContent = hasToken && user.email ? `Connected: ${user.email}` : '';
+    }
+  };
+
+  initDriveAuth(
+    (user) => updateDriveAuthUI(user),
+    () => updateDriveAuthUI(null)
+  );
+
+  if (btnSignIn) {
+    btnSignIn.addEventListener('click', async () => {
+      btnSignIn.disabled = true;
+      try {
+        const res = await googleSignInForDrive();
+        if (res?.user) {
+          updateDriveAuthUI(res.user);
+          showToast('success', 'Connected to Google Drive. Click "Save All 12 SQL Scripts to Google Drive" to back up.');
+        }
+      } catch (err) {
+        showToast('error', err.message || 'Google Sign-In was cancelled or failed.');
+      } finally {
+        btnSignIn.disabled = false;
+      }
+    });
+  }
+
+  if (btnSignOut) {
+    btnSignOut.addEventListener('click', async () => {
+      await googleSignOutFromDrive();
+      updateDriveAuthUI(null);
+      showToast('info', 'Disconnected from Google Drive.');
+    });
+  }
+
+  if (btnSaveToDrive) {
+    btnSaveToDrive.addEventListener('click', () => {
+      if (!getDriveAccessToken()) {
+        updateDriveAuthUI(null);
+        showToast('warning', 'Please sign in with Google first.');
+        return;
+      }
+      const progressEl = document.getElementById('drive-upload-progress');
+      if (progressEl) {
+        progressEl.style.display = 'none';
+        progressEl.textContent = '';
+      }
+      openModal('drive-backup-confirm-modal', btnSaveToDrive);
+    });
+  }
+
+  if (btnConfirmUpload) {
+    btnConfirmUpload.addEventListener('click', async () => {
+      const folderInput = document.getElementById('input-drive-folder-name');
+      const folderName = (folderInput?.value || '').trim() || 'Trendz Tracker SQL Migrations';
+      const progressEl = document.getElementById('drive-upload-progress');
+      const cancelBtn = document.getElementById('btn-cancel-drive-backup');
+
+      btnConfirmUpload.disabled = true;
+      if (cancelBtn) cancelBtn.disabled = true;
+      btnConfirmUpload.textContent = 'Uploading to Drive...';
+
+      if (progressEl) {
+        progressEl.style.display = 'block';
+        progressEl.textContent = 'Starting upload...';
+      }
+
+      try {
+        const result = await saveAllSqlMigrationsToDrive(folderName, (statusText) => {
+          if (progressEl) progressEl.textContent = statusText;
+        });
+
+        closeModal('drive-backup-confirm-modal');
+
+        const banner = document.getElementById('drive-backup-result-banner');
+        const bannerText = document.getElementById('drive-backup-result-text');
+        const folderLink = document.getElementById('drive-backup-folder-link');
+
+        if (banner && bannerText && folderLink) {
+          banner.style.display = 'flex';
+          bannerText.textContent = `✅ Saved ${result.uploadedCount} files (README.md + 12 SQL scripts) to Google Drive folder "${result.folderName}".`;
+          folderLink.href = result.folderUrl;
+        }
+
+        showToast('success', `Saved all ${result.uploadedCount} SQL migration files to Google Drive!`);
+      } catch (err) {
+        if (!getDriveAccessToken()) {
+          updateDriveAuthUI(null);
+        }
+        showToast('error', err.message || 'Failed to upload SQL scripts to Google Drive.');
+      } finally {
+        btnConfirmUpload.disabled = false;
+        if (cancelBtn) cancelBtn.disabled = false;
+        btnConfirmUpload.textContent = 'Confirm & Save to Google Drive';
+      }
+    });
+  }
+}
+
 // Bootstrap
 if (typeof document !== 'undefined') {
   document.addEventListener('DOMContentLoaded', initAdminOverview);
 }
+

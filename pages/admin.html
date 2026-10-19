@@ -290,8 +290,121 @@
             </div>
           </section>
 
+          <!-- SQL Migrations & Google Drive Backup Card (Phase 5c) -->
+          <section class="card" id="sql-migrations-drive-card" style="margin-bottom: var(--space-6);" aria-labelledby="sql-migrations-drive-heading">
+            <div class="card-header" style="padding: var(--space-4) var(--space-5);">
+              <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: var(--space-3);">
+                <div>
+                  <h2 id="sql-migrations-drive-heading" class="card-title" style="display: flex; align-items: center; gap: 6px; font-size: var(--text-base);">
+                    <span aria-hidden="true">🗄️</span>
+                    <span>SQL Migrations &amp; Google Drive Backup (<code>supabase/migrations/</code>)</span>
+                  </h2>
+                  <p style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">
+                    All 12 ordered SQL scripts (Phase 1 through Phase 5c) and <code>README.md</code> needed to rebuild an empty Supabase project from scratch. Save a copy directly to a folder in your Google Drive.
+                  </p>
+                </div>
+
+                <!-- Google Sign-In & Drive Action Controls -->
+                <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
+                  <!-- Shown when not authenticated with Google Drive -->
+                  <button type="button" id="btn-google-drive-signin" class="gsi-material-button">
+                    <div class="gsi-material-button-state"></div>
+                    <div class="gsi-material-button-content-wrapper">
+                      <div class="gsi-material-button-icon">
+                        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" style="display: block;">
+                          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+                          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+                          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+                          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+                          <path fill="none" d="M0 0h48v48H0z"></path>
+                        </svg>
+                      </div>
+                      <span class="gsi-material-button-contents">Sign in with Google</span>
+                      <span style="display: none;">Sign in with Google</span>
+                    </div>
+                  </button>
+
+                  <!-- Shown when authenticated with Google Drive -->
+                  <div id="drive-connected-controls" style="display: none; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
+                    <span id="drive-connected-email" style="font-size: var(--text-xs); color: var(--text-muted); font-weight: 600;"></span>
+                    <button type="button" id="btn-save-sql-to-drive" class="btn btn-primary btn-sm">
+                      ☁️ Save All 12 SQL Scripts to Google Drive
+                    </button>
+                    <button type="button" id="btn-google-drive-signout" class="btn btn-outline btn-sm">
+                      Disconnect Google
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card-body" style="padding: var(--space-4) var(--space-5);">
+              <!-- Drive Upload Result Banner -->
+              <div id="drive-backup-result-banner" class="banner" style="display: none; margin-bottom: var(--space-4); justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2);" role="status">
+                <span id="drive-backup-result-text"></span>
+                <a id="drive-backup-folder-link" href="#" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm" style="text-decoration: none;">
+                  Open Google Drive Folder &nearr;
+                </a>
+              </div>
+
+              <!-- Ordered SQL Migrations Table -->
+              <div class="table-wrapper">
+                <table class="table" aria-label="Ordered SQL migration scripts">
+                  <thead>
+                    <tr>
+                      <th style="width: 70px;">Order</th>
+                      <th>File Name (<code>supabase/migrations/</code>)</th>
+                      <th>Description</th>
+                      <th style="text-align: right; width: 150px;">Local Copy</th>
+                    </tr>
+                  </thead>
+                  <tbody id="sql-migrations-table-body">
+                    <!-- Populated dynamically by js/adminOverview.js -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
         </div>
       </main>
+    </div>
+
+    <!-- Google Drive Backup Confirmation Modal (Mandatory per Workspace guidelines) -->
+    <div id="drive-backup-confirm-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="drive-confirm-modal-title" hidden>
+      <div class="modal-dialog" style="max-width: 520px; width: 95%;">
+        <div class="modal-header">
+          <h2 id="drive-confirm-modal-title" class="modal-title">Save SQL Scripts to Google Drive?</h2>
+          <button type="button" class="modal-close" data-modal-close="drive-backup-confirm-modal" aria-label="Close modal">&times;</button>
+        </div>
+        <div class="modal-body" style="display: flex; flex-direction: column; gap: var(--space-3);">
+          <p style="font-size: var(--text-sm); color: var(--text-main); margin: 0;">
+            This will create a new folder in your Google Drive and upload <strong>13 files</strong> (<code>README.md</code> plus all <strong>12 ordered SQL migration scripts</strong> from Phase 1 through Phase 5c):
+          </p>
+          <div class="form-group" style="margin: 0;">
+            <label for="input-drive-folder-name" class="form-label">Google Drive Folder Name</label>
+            <input
+              type="text"
+              id="input-drive-folder-name"
+              class="form-input"
+              value="Trendz Tracker SQL Migrations"
+            />
+          </div>
+          <div style="font-size: var(--text-xs); color: var(--text-muted); background: var(--bg-surface-subtle); padding: var(--space-3); border-radius: var(--radius-sm); border: 1px solid var(--border-hairline);">
+            <strong>Files to be created (13 total):</strong>
+            <code>README.md</code>, <code>01_phase1_schema.sql</code> through <code>12_phase5c_backup_and_health.sql</code>.
+          </div>
+          <div id="drive-upload-progress" style="display: none; font-size: var(--text-xs); font-weight: 600; color: var(--color-primary);"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="btn-cancel-drive-backup" data-modal-close="drive-backup-confirm-modal">
+            Cancel
+          </button>
+          <button type="button" class="btn btn-primary" id="btn-confirm-drive-backup">
+            Confirm &amp; Save to Google Drive
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Weekly Report Preview Modal (Shared js/modal.js contract) -->
