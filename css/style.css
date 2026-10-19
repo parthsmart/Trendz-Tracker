@@ -2488,96 +2488,202 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 }
 
 /* ==========================================================================
-   GOOGLE SIGN-IN BUTTON (.gsi-material-button) FOR GOOGLE DRIVE BACKUP
+   PHASE 7: FLASH ANZAN TRAINER STYLES
    ========================================================================== */
-.gsi-material-button {
-  -moz-user-select: none;
-  -webkit-user-select: none;
-  -ms-user-select: none;
-  -webkit-appearance: none;
-  background-color: #ffffff;
-  background-image: none;
-  border: 1px solid #747775;
-  border-radius: 6px;
-  box-sizing: border-box;
-  color: #1f1f1f;
+.flash-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+}
+
+.flash-preset-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  padding: var(--space-4);
+  min-height: 68px;
+  border-radius: var(--radius-lg);
+  border: 2px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-main);
   cursor: pointer;
-  font-family: 'Roboto', arial, sans-serif;
-  font-size: 13px;
-  height: 36px;
-  letter-spacing: 0.25px;
-  outline: none;
-  overflow: hidden;
-  padding: 0 12px;
+  transition: border-color var(--transition-fast), background-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.flash-preset-btn:hover {
+  border-color: var(--color-primary);
+  background: var(--bg-surface-subtle);
+}
+
+.flash-preset-btn.active {
+  border-color: var(--color-primary);
+  background: var(--color-primary-subtle);
+}
+
+.flash-preset-title {
+  font-size: var(--text-base);
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 2px;
+}
+
+.flash-preset-btn.active .flash-preset-title {
+  color: var(--color-primary);
+}
+
+.flash-preset-desc {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.flash-control-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-5);
+}
+
+.flash-pill-group {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.flash-pill-btn {
+  flex: 1 1 48px;
+  min-height: 46px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-size: var(--text-base);
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.flash-pill-btn:hover {
+  border-color: var(--color-primary);
+}
+
+.flash-pill-btn.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--text-inverse);
+}
+
+.flash-stepper-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.flash-stepper-btn {
+  min-width: 46px;
+  min-height: 46px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-size: 1.15rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.flash-stepper-btn:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  background: var(--bg-surface-subtle);
+}
+
+.flash-stepper-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.flash-stage-box {
+  background: #0f172a;
+  color: #f8fafc;
+  border-radius: var(--radius-xl);
+  min-height: 280px;
+  padding: var(--space-6) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   position: relative;
   text-align: center;
-  transition: background-color 0.218s, border-color 0.218s, box-shadow 0.218s;
-  vertical-align: middle;
-  white-space: nowrap;
-  width: auto;
-  max-width: 400px;
-  min-width: min-content;
+  user-select: none;
+  box-shadow: var(--shadow-md);
 }
 
-.gsi-material-button .gsi-material-button-icon {
-  height: 18px;
-  margin-right: 10px;
-  min-width: 18px;
-  width: 18px;
-}
-
-.gsi-material-button .gsi-material-button-content-wrapper {
-  align-items: center;
+.flash-number-display {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(3.5rem, 11vw, 6.25rem);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  min-height: 1.2em;
   display: flex;
-  flex-direction: row;
-  flex-wrap: nowrap;
-  height: 100%;
-  justify-content: space-between;
-  position: relative;
+  align-items: center;
+  justify-content: center;
+}
+
+.flash-number-display.negative {
+  color: #fda4af;
+}
+
+.flash-number-display.positive {
+  color: #6ee7b7;
+}
+
+.flash-answer-input {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 2rem;
+  font-weight: 800;
+  text-align: center;
+  height: 64px;
+  max-width: 280px;
   width: 100%;
+  border-radius: var(--radius-lg);
+  border: 2px solid var(--border-subtle);
 }
 
-.gsi-material-button .gsi-material-button-contents {
-  flex-grow: 1;
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  vertical-align: top;
+.flash-answer-input:focus {
+  border-color: var(--color-primary);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--color-primary-subtle);
 }
 
-.gsi-material-button .gsi-material-button-state {
-  transition: opacity 0.218s;
-  bottom: 0;
-  left: 0;
-  opacity: 0;
-  position: absolute;
-  right: 0;
-  top: 0;
+.flash-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+  max-width: 320px;
+  width: 100%;
+  margin: var(--space-3) auto 0;
 }
 
-.gsi-material-button:disabled {
-  cursor: default;
-  background-color: #ffffff61;
-  border-color: #1f1f1f1f;
+.flash-key-btn {
+  min-height: 52px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-family: var(--font-mono);
+  font-size: 1.25rem;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
 }
 
-.gsi-material-button:disabled .gsi-material-button-contents,
-.gsi-material-button:disabled .gsi-material-button-icon {
-  opacity: 38%;
+.flash-key-btn:active {
+  background: var(--color-primary-subtle);
+  border-color: var(--color-primary);
 }
 
-.gsi-material-button:not(:disabled):active .gsi-material-button-state,
-.gsi-material-button:not(:disabled):focus .gsi-material-button-state {
-  background-color: #303030;
-  opacity: 12%;
-}
-
-.gsi-material-button:not(:disabled):hover {
-  box-shadow: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
-}
-
-.gsi-material-button:not(:disabled):hover .gsi-material-button-state {
-  background-color: #303030;
-  opacity: 8%;
-}
 

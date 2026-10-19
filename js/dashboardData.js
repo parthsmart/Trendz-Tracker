@@ -51,7 +51,8 @@ export async function fetchStudentDashboardData(studentId) {
     resourcesRes,
     resultsRes,
     attendanceRes,
-    weeklyTestsRes
+    weeklyTestsRes,
+    activityResultsRes
   ] = await Promise.all([
     // 1. Authoritative today in IST via RPC
     (async () => {
@@ -258,6 +259,25 @@ export async function fetchStudentDashboardData(studentId) {
         tests: demoTests,
         scores: demoScores
       };
+    })(),
+
+    // 9. Flash Anzan Activity Results (Phase 7, read-only from activity_results)
+    (async () => {
+      if (supabase) {
+        try {
+          const { data, error } = await supabase
+            .from('activity_results')
+            .select('id, student_id, activity_type, activity_name, correct, total, time_seconds, settings, created_at')
+            .eq('student_id', studentId)
+            .eq('activity_type', 'flash_anzan')
+            .order('created_at', { ascending: false })
+            .limit(30);
+          if (!error && data) return data;
+        } catch {
+          // fall through
+        }
+      }
+      return DemoDB.getActivityResults(studentId, 'flash_anzan');
     })()
   ]);
 
@@ -273,7 +293,8 @@ export async function fetchStudentDashboardData(studentId) {
     resources: resourcesRes || [],
     results: resultsRes || [],
     attendance: attendanceRes || { present_count: 0, absent_count: 0, excused_count: 0, attendance_pct: null },
-    weeklyTests: weeklyTestsRes || { tests: [], scores: [] }
+    weeklyTests: weeklyTestsRes || { tests: [], scores: [] },
+    activityResults: activityResultsRes || []
   };
 }
 

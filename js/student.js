@@ -18,6 +18,7 @@ import {
   renderStreakCard,
   renderTodoList,
   renderBasicsThisWeek,
+  renderFlashThisWeek,
   renderResources,
   renderAttendanceCard,
   renderWeeklyTestsCard,
@@ -63,6 +64,9 @@ async function initStudentDashboard() {
 
     // Basics This Week
     renderBasicsThisWeek(data.results, data.categories, data.todayIST);
+
+    // Flash Anzan This Week (Phase 7)
+    renderFlashThisWeek(data.activityResults, data.todayIST);
 
     // Attendance Card (Phase 4a)
     renderAttendanceCard(data.attendance, 'attendance-card-container');

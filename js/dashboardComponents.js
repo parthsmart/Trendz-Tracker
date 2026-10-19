@@ -15,9 +15,11 @@
  */
 
 import { getScoreFeedback } from './scoreColors.js';
+import { formatFlashSettingsSummary } from './flashPresets.js';
 import {
   formatDisplayDateIST,
   formatSecondsToTime,
+   getISTDateString,
   calculateBasicsWeeklySummary,
   buildRoundScoreMatrix,
   calculate7DayDualTrend,
@@ -179,7 +181,9 @@ export function renderTodoList(todos = [], containerId = 'todo-list-container', 
             const isDone = !!t.done;
             const targetLink = t.task_section === 'basics'
               ? `/pages/basics.html?cat=${encodeURIComponent(t.task_category_id || '')}`
-              : `/pages/round-scores.html?cat=${encodeURIComponent(t.task_category_id || '')}`;
+              : t.task_section === 'flash'
+                ? `/pages/flash.html`
+                : `/pages/round-scores.html?cat=${encodeURIComponent(t.task_category_id || '')}`;
 
             return `
               <div class="todo-task-item ${isDone ? 'todo-task-done' : ''}" style="display: flex; align-items: center; justify-content: space-between; padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline);">
@@ -261,6 +265,83 @@ export function renderBasicsThisWeek(results, categories, todayIST, containerId 
   `;
 
   container.innerHTML = html;
+}
+
+/**
+ * --------------------------------------------------------------------------
+ * 3b. Flash Anzan This Week Card (Past 7 Days, Phase 7)
+ * --------------------------------------------------------------------------
+ */
+export function renderFlashThisWeek(activityResults = [], todayIST, containerId = 'flash-week-container') {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const cutoffMs = Date.now() - 7 * 86400000;
+  const cutoffDateStr = getISTDateString(new Date(cutoffMs));
+
+  const recentSets = (activityResults || []).filter(r => {
+    if (r.activity_type && r.activity_type !== 'flash_anzan') return false;
+    if (!r.created_at) return true;
+    const dStr = getISTDateString(new Date(r.created_at));
+    return dStr >= cutoffDateStr;
+  });
+
+  if (recentSets.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state" style="padding: var(--space-4);">
+        No Flash Anzan sets completed in the last 7 days.
+      </div>
+    `;
+    return;
+  }
+
+  let totalCorrect = 0;
+  let totalQuestions = 0;
+  recentSets.forEach(s => {
+    totalCorrect += Number(s.correct) || 0;
+    totalQuestions += Number(s.total) || 0;
+  });
+
+  const avgAcc = totalQuestions > 0 ? Math.round((totalCorrect / totalQuestions) * 1000) / 10 : 0;
+  const overallFeedback = getScoreFeedback(totalCorrect, totalQuestions);
+  const latestThree = recentSets.slice(0, 3);
+
+  container.innerHTML = `
+    <div style="display: flex; justify-content: space-between; align-items: center; background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: var(--space-3); margin-bottom: var(--space-3);">
+      <div>
+        <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted);">
+          7-Day Summary
+        </div>
+        <div style="font-size: var(--text-xs); color: var(--text-main); font-weight: 600; margin-top: 2px;">
+          ${recentSets.length} set${recentSets.length === 1 ? '' : 's'} (${totalCorrect}/${totalQuestions} correct)
+        </div>
+      </div>
+      <div style="text-align: right;">
+        <div class="num" style="font-size: 1.25rem; font-weight: 800; color: ${overallFeedback.colorVar};">
+          ${avgAcc}%
+        </div>
+        <div style="font-size: 10px; color: var(--text-dim);">Avg Accuracy</div>
+      </div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: var(--space-1);">
+      ${latestThree.map(row => {
+        const c = Number(row.correct) || 0;
+        const t = Number(row.total) || 0;
+        const fb = getScoreFeedback(c, t);
+        const summary = row.settings && typeof row.settings === 'object'
+          ? formatFlashSettingsSummary(row.settings)
+          : (row.activity_name || 'Flash Anzan');
+        return `
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: var(--text-xs); padding: 6px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-hairline);">
+            <span style="color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 72%;">
+              ${escapeHtml(summary)}
+            </span>
+            <strong class="num" style="color: ${fb.colorVar};">${c}/${t}</strong>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
 }
 
 /**

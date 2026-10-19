@@ -1,0 +1,653 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Flash Anzan Trainer - Trendz Tracker</title>
+    <meta
+      name="description"
+      content="Practice Flash Anzan mental calculation sets with customizable digits, speed, and question counts."
+    />
+
+    <!-- Design tokens & unified styles -->
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- Top Bar Contract: 3-Zone Navigation -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <!-- Zone 1: Wordmark & Brand -->
+          <a href="/pages/student.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <!-- Zone 2: Navigation Links -->
+          <nav class="nav-zone" aria-label="Student Navigation">
+            <a href="/pages/student.html" class="nav-link">Home</a>
+            <a href="/pages/round-scores.html" class="nav-link">Round Scores</a>
+            <a href="/pages/basics.html" class="nav-link">Basics</a>
+            <a href="/pages/flash.html" class="nav-link active" aria-current="page">Flash Anzan</a>
+            <a href="/pages/leaderboard.html" class="nav-link">Leaderboard</a>
+            <a href="/pages/monthly-report.html" class="nav-link">Monthly Report</a>
+          </nav>
+
+          <!-- Zone 3: User Details & Logout Action -->
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Student</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-code" class="num" style="color: var(--text-muted);">STU</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Page Content -->
+      <main class="main-content">
+        <div class="container">
+          <!-- Demo Mode / Config Banner Placeholder -->
+          <div id="config-banner-placeholder"></div>
+
+          <!-- Page Heading -->
+          <div class="section-header-row" style="margin-bottom: var(--space-5);">
+            <div>
+              <h1>Flash Anzan Trainer</h1>
+              <p style="font-size: var(--text-sm); color: var(--text-muted);">
+                Visualize and calculate rapid flashing numbers mentally. Completed sets automatically count toward your daily streak, to-do list, and practice days.
+              </p>
+            </div>
+          </div>
+
+          <!-- Error / Alert Banner -->
+          <div
+            id="flash-error-banner"
+            class="banner banner-error"
+            style="display: none; margin-bottom: var(--space-5);"
+            role="alert"
+          ></div>
+
+          <!-- ================================================================
+               SCREEN 1: SETUP SCREEN (#flash-setup-screen)
+               ================================================================ -->
+          <section
+            id="flash-setup-screen"
+            class="card"
+            style="margin-bottom: var(--space-8);"
+            aria-labelledby="setup-card-title"
+          >
+            <div class="card-header">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2);">
+                <h2 class="card-title" id="setup-card-title">Configure Flash Set</h2>
+                <span id="setup-active-preset-badge" class="badge badge-active" style="font-size: var(--text-xs);">
+                  Beginner Preset
+                </span>
+              </div>
+            </div>
+
+            <form id="flash-setup-form" novalidate>
+              <div class="card-body">
+                <!-- 1. Quick Preset Buttons -->
+                <div style="margin-bottom: var(--space-2);">
+                  <label class="form-label" style="margin-bottom: var(--space-2); display: block;">
+                    Quick Presets
+                  </label>
+                  <div class="flash-preset-grid" role="group" aria-label="Flash Anzan Presets">
+                    <button
+                      type="button"
+                      class="flash-preset-btn active"
+                      data-preset="beginner"
+                      id="preset-btn-beginner"
+                    >
+                      <span class="flash-preset-title">Beginner</span>
+                      <span class="flash-preset-desc">1 digit · 5 numbers · 2.0 s · Add · 10 questions</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      class="flash-preset-btn"
+                      data-preset="intermediate"
+                      id="preset-btn-intermediate"
+                    >
+                      <span class="flash-preset-title">Intermediate</span>
+                      <span class="flash-preset-desc">2 digits · 7 numbers · 1.5 s · Add · 10 questions</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      class="flash-preset-btn"
+                      data-preset="advanced"
+                      id="preset-btn-advanced"
+                    >
+                      <span class="flash-preset-title">Advanced</span>
+                      <span class="flash-preset-desc">3 digits · 10 numbers · 1.0 s · Add &amp; subtract · 10 questions</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      class="flash-preset-btn"
+                      data-preset="custom"
+                      id="preset-btn-custom"
+                    >
+                      <span class="flash-preset-title">Custom</span>
+                      <span class="flash-preset-desc">Fine-tune digits, numbers, speed, mode &amp; set length</span>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 2. Detailed Controls Grid -->
+                <div class="flash-control-grid">
+                  <!-- Control A: Digits (1 to 5) -->
+                  <div class="form-group">
+                    <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                      <label class="form-label" id="label-flash-digits">Digits per Number (1 to 5)</label>
+                      <span class="num" id="display-digits-val" style="font-size: var(--text-sm); font-weight: 700; color: var(--color-primary);">
+                        1 digit
+                      </span>
+                    </div>
+                    <div class="flash-pill-group" role="radiogroup" aria-labelledby="label-flash-digits">
+                      <button type="button" class="flash-pill-btn active" data-digits="1" aria-pressed="true">1</button>
+                      <button type="button" class="flash-pill-btn" data-digits="2" aria-pressed="false">2</button>
+                      <button type="button" class="flash-pill-btn" data-digits="3" aria-pressed="false">3</button>
+                      <button type="button" class="flash-pill-btn" data-digits="4" aria-pressed="false">4</button>
+                      <button type="button" class="flash-pill-btn" data-digits="5" aria-pressed="false">5</button>
+                    </div>
+                    <input type="hidden" id="flash-digits" value="1" />
+                    <span class="form-hint">Number of digits in each flashed number (1 to 5).</span>
+                  </div>
+
+                  <!-- Control B: Mode (Add only / Add and subtract) -->
+                  <div class="form-group">
+                    <label class="form-label" id="label-flash-mode">Calculation Mode</label>
+                    <div class="flash-pill-group" role="radiogroup" aria-labelledby="label-flash-mode">
+                      <button
+                        type="button"
+                        class="flash-pill-btn active"
+                        data-mode="add"
+                        id="mode-btn-add"
+                        aria-pressed="true"
+                      >
+                        Add only (+)
+                      </button>
+                      <button
+                        type="button"
+                        class="flash-pill-btn"
+                        data-mode="add_sub"
+                        id="mode-btn-add-sub"
+                        aria-pressed="false"
+                      >
+                        Add and subtract (+ / −)
+                      </button>
+                    </div>
+                    <input type="hidden" id="flash-mode" value="add" />
+                    <span class="form-hint">Negative numbers are subtracted in Add and subtract mode.</span>
+                  </div>
+
+                  <!-- Control C: Numbers per Question (3 to 30) -->
+                  <div class="form-group">
+                    <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                      <label for="flash-count" class="form-label">Numbers per Question (3 to 30)</label>
+                      <span class="num" id="display-count-val" style="font-size: var(--text-sm); font-weight: 700; color: var(--color-primary);">
+                        5 numbers
+                      </span>
+                    </div>
+                    <div class="flash-stepper-row">
+                      <button type="button" class="flash-stepper-btn" id="btn-count-dec" aria-label="Decrease numbers per question">−</button>
+                      <input
+                        type="number"
+                        id="flash-count"
+                        class="form-input num"
+                        min="3"
+                        max="30"
+                        step="1"
+                        value="5"
+                        style="text-align: center; font-weight: 700; min-height: 46px;"
+                        required
+                      />
+                      <button type="button" class="flash-stepper-btn" id="btn-count-inc" aria-label="Increase numbers per question">+</button>
+                    </div>
+                    <input
+                      type="range"
+                      id="flash-count-range"
+                      min="3"
+                      max="30"
+                      step="1"
+                      value="5"
+                      aria-label="Numbers per question slider"
+                      style="width: 100%; margin-top: var(--space-2); accent-color: var(--color-primary);"
+                    />
+                    <span class="form-hint">How many numbers flash in a single question (3 to 30).</span>
+                  </div>
+
+                  <!-- Control D: Speed per Number (0.2 to 5.0 seconds in steps of 0.1) -->
+                  <div class="form-group">
+                    <div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 4px;">
+                      <label for="flash-speed-seconds" class="form-label">Speed per Number (0.2 to 5.0 s)</label>
+                      <span class="num" id="display-speed-combined" style="font-size: var(--text-xs); font-weight: 700; color: var(--color-primary);">
+                        2.0 s · 0.5 numbers/sec
+                      </span>
+                    </div>
+                    <div class="flash-stepper-row">
+                      <button type="button" class="flash-stepper-btn" id="btn-speed-dec" aria-label="Faster speed (decrease seconds)">−</button>
+                      <input
+                        type="number"
+                        id="flash-speed-seconds"
+                        class="form-input num"
+                        min="0.2"
+                        max="5.0"
+                        step="0.1"
+                        value="2.0"
+                        style="text-align: center; font-weight: 700; min-height: 46px;"
+                        required
+                      />
+                      <button type="button" class="flash-stepper-btn" id="btn-speed-inc" aria-label="Slower speed (increase seconds)">+</button>
+                    </div>
+                    <input
+                      type="range"
+                      id="flash-speed-range"
+                      min="200"
+                      max="5000"
+                      step="100"
+                      value="2000"
+                      aria-label="Speed per number slider in milliseconds"
+                      style="width: 100%; margin-top: var(--space-2); accent-color: var(--color-primary);"
+                    />
+                    <div style="display: flex; justify-content: space-between; font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">
+                      <span>Seconds/number: <strong id="display-speed-seconds" class="num">2.0 s</strong></span>
+                      <span>Rate: <strong id="display-speed-rate" class="num">0.5 numbers/sec</strong></span>
+                    </div>
+                  </div>
+
+                  <!-- Control E: Questions per Set (3 to 30) -->
+                  <div class="form-group">
+                    <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                      <label for="flash-questions" class="form-label">Questions in Set (3 to 30)</label>
+                      <span class="num" id="display-questions-val" style="font-size: var(--text-sm); font-weight: 700; color: var(--color-primary);">
+                        10 questions
+                      </span>
+                    </div>
+                    <div class="flash-stepper-row">
+                      <button type="button" class="flash-stepper-btn" id="btn-questions-dec" aria-label="Decrease questions in set">−</button>
+                      <input
+                        type="number"
+                        id="flash-questions"
+                        class="form-input num"
+                        min="3"
+                        max="30"
+                        step="1"
+                        value="10"
+                        style="text-align: center; font-weight: 700; min-height: 46px;"
+                        required
+                      />
+                      <button type="button" class="flash-stepper-btn" id="btn-questions-inc" aria-label="Increase questions in set">+</button>
+                    </div>
+                    <input
+                      type="range"
+                      id="flash-questions-range"
+                      min="3"
+                      max="30"
+                      step="1"
+                      value="10"
+                      aria-label="Questions in set slider"
+                      style="width: 100%; margin-top: var(--space-2); accent-color: var(--color-primary);"
+                    />
+                    <span class="form-hint">Total questions to complete in this session (3 to 30).</span>
+                  </div>
+
+                  <!-- Control F: Optional Web Audio Beep Toggle -->
+                  <div class="form-group" style="justify-content: center;">
+                    <label class="form-label">Audio Cue (Optional)</label>
+                    <label
+                      for="flash-sound-toggle"
+                      style="display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-surface-subtle); cursor: pointer; min-height: 54px;"
+                    >
+                      <input
+                        type="checkbox"
+                        id="flash-sound-toggle"
+                        style="width: 20px; height: 20px; accent-color: var(--color-primary); cursor: pointer;"
+                      />
+                      <div>
+                        <div style="font-size: var(--text-sm); font-weight: 700; color: var(--text-main);">
+                          Beep on each flashed number
+                        </div>
+                        <div style="font-size: var(--text-xs); color: var(--text-muted);">
+                          Uses Web Audio API tone tick so you can track rhythm by ear.
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                <!-- Summary Bar -->
+                <div
+                  style="margin-top: var(--space-5); padding: var(--space-3) var(--space-4); background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2);"
+                >
+                  <div style="font-size: var(--text-xs); color: var(--text-muted);">
+                    Selected Set:
+                    <strong id="setup-summary-text" style="color: var(--text-main);">
+                      1 digit · 5 numbers · 2.0s/num · Add only · 10 questions
+                    </strong>
+                  </div>
+                  <div style="font-size: var(--text-xs); color: var(--text-muted);" class="num">
+                    Flash duration: <strong id="setup-duration-text" style="color: var(--color-primary);">10.0s / question</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card-footer" style="justify-content: flex-end;">
+                <button
+                  type="submit"
+                  id="btn-start-flash"
+                  class="btn btn-primary"
+                  style="min-height: 48px; padding: 0 var(--space-6); font-size: var(--text-base); font-weight: 700;"
+                >
+                  ⚡ Start Flash Set
+                </button>
+              </div>
+            </form>
+          </section>
+
+          <!-- ================================================================
+               SCREEN 2: ACTIVE PLAY SCREEN (#flash-play-screen)
+               ================================================================ -->
+          <section
+            id="flash-play-screen"
+            class="card"
+            style="display: none; margin-bottom: var(--space-8);"
+            aria-labelledby="play-question-heading"
+          >
+            <div class="card-header">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3);">
+                <div>
+                  <h2 class="card-title" id="play-question-heading">
+                    Question <span id="play-q-current" class="num">1</span> of <span id="play-q-total" class="num">10</span>
+                  </h2>
+                  <div id="play-settings-badge" style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">
+                    1 digit · 5 numbers · 2.0s/num · Add only
+                  </div>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: var(--space-2);">
+                  <button
+                    type="button"
+                    id="btn-play-sound-toggle"
+                    class="btn btn-outline btn-sm"
+                    title="Toggle number beep sound"
+                  >
+                    🔇 Sound Off
+                  </button>
+                  <button
+                    type="button"
+                    id="btn-abandon-set"
+                    class="btn btn-outline btn-sm"
+                    style="color: var(--color-danger); border-color: var(--border-subtle);"
+                  >
+                    ✕ Stop Set
+                  </button>
+                </div>
+              </div>
+
+              <!-- Question Progress Bar -->
+              <div
+                style="width: 100%; height: 6px; background: var(--bg-surface-subtle); border-radius: 999px; overflow: hidden; margin-top: var(--space-3);"
+                aria-hidden="true"
+              >
+                <div
+                  id="play-progress-bar"
+                  style="height: 100%; width: 10%; background: var(--color-primary); transition: width 200ms ease;"
+                ></div>
+              </div>
+            </div>
+
+            <div class="card-body">
+              <!-- Sub-stage A: Countdown & Number Flashing Display -->
+              <div id="flash-stage-display" class="flash-stage-box" aria-live="off">
+                <div
+                  id="flash-step-counter"
+                  style="position: absolute; top: var(--space-4); left: var(--space-4); right: var(--space-4); display: flex; justify-content: space-between; align-items: center; font-size: var(--text-xs); color: #94a3b8; font-weight: 600;"
+                >
+                  <span id="flash-step-label">Get Ready</span>
+                  <span id="flash-step-index" class="num"></span>
+                </div>
+
+                <div id="flash-number-box" class="flash-number-display">
+                  Ready
+                </div>
+
+                <div
+                  id="flash-stage-subtext"
+                  style="margin-top: var(--space-4); font-size: var(--text-xs); color: #94a3b8;"
+                >
+                  Keep your eyes focused in the center
+                </div>
+              </div>
+
+              <!-- Sub-stage B: Answer Input after Question Flashes -->
+              <div id="flash-stage-answer" style="display: none; text-align: center; padding: var(--space-4) 0;">
+                <h3 style="font-size: var(--text-lg); font-weight: 700; margin-bottom: var(--space-2);">
+                  Enter Answer for Question <span id="answer-q-num" class="num">1</span>
+                </h3>
+                <p style="font-size: var(--text-xs); color: var(--text-muted); margin-bottom: var(--space-4);">
+                  Type your total or use the keypad below, then press <strong>Next</strong> (or <strong>Enter</strong>).
+                </p>
+
+                <form id="flash-answer-form" novalidate>
+                  <div style="display: flex; justify-content: center; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3);">
+                    <button
+                      type="button"
+                      id="btn-toggle-sign"
+                      class="flash-stepper-btn"
+                      title="Toggle positive/negative sign"
+                      aria-label="Toggle negative sign"
+                      style="height: 64px; min-width: 56px; font-family: var(--font-mono);"
+                    >
+                      ±
+                    </button>
+                    <input
+                      type="text"
+                      inputmode="numeric"
+                      id="flash-answer-input"
+                      class="flash-answer-input"
+                      placeholder="?"
+                      autocomplete="off"
+                      aria-label="Your answer"
+                    />
+                  </div>
+
+                  <div
+                    id="flash-answer-error"
+                    style="display: none; color: var(--color-danger); font-size: var(--text-xs); font-weight: 600; margin-bottom: var(--space-3);"
+                    role="alert"
+                  ></div>
+
+                  <!-- Primary Answer Actions -->
+                  <div style="display: flex; justify-content: center; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-4);">
+                    <button
+                      type="button"
+                      id="btn-skip-question"
+                      class="btn btn-outline"
+                      style="min-height: 48px; min-width: 130px; font-weight: 600;"
+                    >
+                      Skip Question
+                    </button>
+                    <button
+                      type="submit"
+                      id="btn-submit-answer"
+                      class="btn btn-primary"
+                      style="min-height: 48px; min-width: 180px; font-size: var(--text-base); font-weight: 700;"
+                    >
+                      Next Question &rarr;
+                    </button>
+                  </div>
+
+                  <!-- Touch-Friendly On-Screen Numeric Keypad -->
+                  <div class="flash-keypad" aria-label="On-screen numeric keypad">
+                    <button type="button" class="flash-key-btn" data-key="7">7</button>
+                    <button type="button" class="flash-key-btn" data-key="8">8</button>
+                    <button type="button" class="flash-key-btn" data-key="9">9</button>
+                    <button type="button" class="flash-key-btn" data-key="4">4</button>
+                    <button type="button" class="flash-key-btn" data-key="5">5</button>
+                    <button type="button" class="flash-key-btn" data-key="6">6</button>
+                    <button type="button" class="flash-key-btn" data-key="1">1</button>
+                    <button type="button" class="flash-key-btn" data-key="2">2</button>
+                    <button type="button" class="flash-key-btn" data-key="3">3</button>
+                    <button type="button" class="flash-key-btn" data-key="clear" style="font-size: var(--text-sm);">Clear</button>
+                    <button type="button" class="flash-key-btn" data-key="0">0</button>
+                    <button type="button" class="flash-key-btn" data-key="backspace" aria-label="Backspace">⌫</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </section>
+
+          <!-- ================================================================
+               SCREEN 3: RESULTS & BREAKDOWN SCREEN (#flash-results-screen)
+               ================================================================ -->
+          <section
+            id="flash-results-screen"
+            class="card"
+            style="display: none; margin-bottom: var(--space-8);"
+            aria-labelledby="results-card-title"
+          >
+            <div class="card-header">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2);">
+                <div>
+                  <h2 class="card-title" id="results-card-title">Flash Anzan Set Results</h2>
+                  <p id="results-settings-summary" style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">
+                    —
+                  </p>
+                </div>
+                <span class="badge badge-success" style="font-size: var(--text-xs);">
+                  ✓ Saved to Practice Log
+                </span>
+              </div>
+            </div>
+
+            <div class="card-body">
+              <!-- Summary Metric Boxes -->
+              <div
+                style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-4); margin-bottom: var(--space-6);"
+              >
+                <div
+                  style="background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: var(--space-4); text-align: center;"
+                >
+                  <div style="font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; color: var(--text-muted);">
+                    Score
+                  </div>
+                  <div
+                    id="res-metric-score"
+                    class="num"
+                    style="font-size: 1.75rem; font-weight: 800; color: var(--text-main); margin-top: 4px;"
+                  >
+                    — / —
+                  </div>
+                </div>
+
+                <div
+                  style="background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: var(--space-4); text-align: center;"
+                >
+                  <div style="font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; color: var(--text-muted);">
+                    Accuracy
+                  </div>
+                  <div
+                    id="res-metric-accuracy"
+                    class="num"
+                    style="font-size: 1.75rem; font-weight: 800; color: var(--color-primary); margin-top: 4px;"
+                  >
+                    —%
+                  </div>
+                </div>
+
+                <div
+                  style="background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: var(--space-4); text-align: center;"
+                >
+                  <div style="font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; color: var(--text-muted);">
+                    Total Time
+                  </div>
+                  <div
+                    id="res-metric-time"
+                    class="num"
+                    style="font-size: 1.75rem; font-weight: 800; color: var(--text-main); margin-top: 4px;"
+                  >
+                    —
+                  </div>
+                </div>
+              </div>
+
+              <!-- Question-by-Question Breakdown Table -->
+              <h3 style="font-size: var(--text-sm); font-weight: 700; margin-bottom: var(--space-3);">
+                Question-by-Question Review
+              </h3>
+              <div class="table-responsive" style="border: 1px solid var(--border-hairline); border-radius: var(--radius-md);">
+                <table class="data-table" aria-label="Flash Anzan Question Breakdown">
+                  <thead>
+                    <tr>
+                      <th style="width: 60px;">#</th>
+                      <th>Numbers Flashed</th>
+                      <th style="width: 130px; text-align: right;">Expected</th>
+                      <th style="width: 130px; text-align: right;">Your Answer</th>
+                      <th style="width: 120px; text-align: center;">Result</th>
+                    </tr>
+                  </thead>
+                  <tbody id="results-detail-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="card-footer" style="justify-content: space-between; flex-wrap: wrap; gap: var(--space-3);">
+              <button
+                type="button"
+                id="btn-change-settings"
+                class="btn btn-outline"
+                style="min-height: 46px;"
+              >
+                &larr; Change Settings
+              </button>
+              <button
+                type="button"
+                id="btn-play-again"
+                class="btn btn-primary"
+                style="min-height: 46px; font-weight: 700;"
+              >
+                ⚡ Play Again (Same Settings)
+              </button>
+            </div>
+          </section>
+
+          <!-- ================================================================
+               RECENT FLASH ANZAN SETS HISTORY (#flash-history-section)
+               ================================================================ -->
+          <section id="flash-history-section" aria-labelledby="history-heading">
+            <div class="section-header-row" style="margin-bottom: var(--space-3);">
+              <h2 class="section-badge-title" id="history-heading">
+                <span>⚡</span>
+                <span>Recent Flash Anzan Sets</span>
+                <span
+                  class="num"
+                  id="flash-today-count-badge"
+                  style="font-size: var(--text-xs); color: var(--text-dim); font-weight: normal;"
+                >
+                  (0 today)
+                </span>
+              </h2>
+            </div>
+
+            <div id="flash-history-container">
+              <div class="skeleton-row"></div>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <!-- Toast Notifications Container -->
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <!-- Flash Anzan Trainer Controller -->
+    <script type="module" src="/js/flash.js"></script>
+  </body>
+</html>

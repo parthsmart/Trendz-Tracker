@@ -8,6 +8,17 @@
 
 ## Current Status Overview
 
+### Session: 2026-10-19 (Phase 5c — Nightly Google Sheet Backup, Manual Store ZIP Export & Restoration Guide)
+
+#### 5-Line Session Summary
+- Built `/api/_backupTables.js` (single source of truth for all 18 tables: 12 snapshot + 6 append, primary keys, cursor columns, and sheet cell serializers), `/api/_google.js` (zero-dependency Node `crypto` RS256 service-account JWT signer, in-memory token cache, 2s retry on 429/5xx, `valueInputOption=RAW` Sheets REST v4 client, and secret redaction), and `/api/backup.js` (`GET` cron + `POST` admin `status`/`run` with 8s time budget, 3m stale lock recovery, 1m safe horizon, and keyset cursor paging).
+- Added the nightly Vercel Cron job `{"path": "/api/backup", "schedule": "30 20 * * *"}` (~2:00 AM IST; runs only on Vercel production) to `vercel.json` and added `GOOGLE_SERVICE_ACCOUNT_JSON` and `BACKUP_SHEET_ID` to `.env.example` and `api/_configHelper.js`.
+- Built the pure zero-dependency RFC 4180 CSV & uncompressed PKZIP Store builder in `js/backupExport.js` (IEEE 802.3 CRC32, formula-injection sanitization, 18 CSVs + `README.txt`) and the Admin Backup page `/pages/backup.html` (`js/backup.js`) with multi-pass Google Sheet backup runner, cell capacity bar (warning at 70% of 10M limit), 2-day staleness warning banner (on both `/pages/backup.html` and `/pages/admin.html`), and `Backup` link in the `Setup ▾` menu across all admin pages and `vite.config.ts`.
+- Created the beginner-friendly disaster recovery guide `docs/RESTORE.md` covering step-by-step restoration from both the manual ZIP archive and the Google Sheet backup (including deduplicating append tables by `id` keeping latest `updated_at`/`changed_at`).
+- Added 16 unit and integration tests in `tests/backup.test.js` (all 54 tests across the repository pass via `node --test tests/*.test.js`), updated `supabase/migrations/12_phase5c_backup_and_health.sql`, and updated `DECISIONS.md` (ADR-030), `TESTING.md`, and `HANDOVER.md`.
+
+---
+
 ### Session: 2026-10-19 (Phase 5b — Weekly Report Email, Monthly Student Report & Milestone Alerts)
 
 #### 5-Line Session Summary

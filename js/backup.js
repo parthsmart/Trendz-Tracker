@@ -19,7 +19,7 @@
  *      and logs completion via `admin_log_export(p_rows, p_tables)`.
  */
 
-import { logout } from './auth.js';
+import { logoutUser } from './auth.js';
 import {
   EXPORT_TABLES,
   EXPORT_PAGE_SIZE,
@@ -496,7 +496,7 @@ async function handleRunGoogleBackup() {
       if (!res?.ok || res?.status === 'failed' || (res?.error && res.error !== 'more to do')) {
         const errMsg = res?.error || 'Google Sheet backup stopped due to an error.';
         showActionAlert('error', `Backup failed on pass ${pass}: ${errMsg}`);
-        showToast(errMsg, 'error');
+        showToast('error', errMsg);
         break;
       }
 
@@ -511,7 +511,7 @@ async function handleRunGoogleBackup() {
           'success',
           `Google Sheet backup completed (${formatNum(totalRowsAcrossPasses)} rows written across ${pass} pass${pass === 1 ? '' : 'es'}).`
         );
-        showToast('Google Sheet backup completed!', 'success');
+        showToast('success', 'Google Sheet backup completed!');
         break;
       }
 
@@ -536,7 +536,7 @@ async function handleRunGoogleBackup() {
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Failed to run Google Sheet backup.';
     showActionAlert('error', msg);
-    showToast(msg, 'error');
+    showToast('error', msg);
   } finally {
     isRunningSheetBackup = false;
     cancelSheetBackupRequested = false;
@@ -710,7 +710,7 @@ async function handleDownloadAllDataZip() {
       'success',
       `Downloaded ${fileName} with ${formatNum(totalRows)} total rows across all ${EXPORT_TABLES.length} tables.`
     );
-    showToast(`Downloaded ${fileName}`, 'success');
+    showToast('success', `Downloaded ${fileName}`);
 
     await loadBackupStatus();
   } catch (err) {
@@ -719,7 +719,7 @@ async function handleDownloadAllDataZip() {
         ? err.message
         : 'ZIP export aborted because a table could not be read.';
     showActionAlert('error', `Export aborted (no incomplete ZIP was downloaded): ${msg}`);
-    showToast(msg, 'error');
+    showToast('error', msg);
   } finally {
     isRunningZipExport = false;
     if (btnZip) btnZip.disabled = false;
@@ -750,7 +750,7 @@ async function initBackupPage() {
   const btnLogout = document.getElementById('btn-header-logout');
   if (btnLogout) {
     btnLogout.addEventListener('click', async () => {
-      await logout();
+      await logoutUser();
     });
   }
 

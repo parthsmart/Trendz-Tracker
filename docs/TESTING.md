@@ -814,3 +814,31 @@ This document contains step-by-step test scenarios to verify security boundaries
   - The header tooltip explains: *"Hidden students do not appear on any leaderboard."*
   - Clicking the toggle updates `profiles.leaderboard_visible` and switches the button state between `✓ Shown` and `Hidden` with a confirmation toast.
   - When a student is set to `Hidden` (`leaderboard_visible = false`), they no longer appear on any leaderboard.
+
+---
+
+## Phase 5c Test Cases (Nightly Google Sheet Backup & Manual Store ZIP Export)
+
+### Test Case 41: Automated Unit & Integration Suite for Phase 5c (`tests/backup.test.js`)
+- **Action**:
+  1. Run `node --test tests/*.test.js` in the terminal.
+- **Expected Result**:
+  - All 54 unit tests across `tests/backup.test.js`, `tests/importParser.test.js`, `tests/importPlan.test.js`, `tests/importResolver.test.js`, `tests/monthlyReportPdf.test.js`, and `tests/reportEmail.test.js` pass (`0 fail`).
+  - `tests/backup.test.js` verifies:
+    - All 18 tables (12 snapshot + 6 append) and their primary keys and cursor columns in `api/_backupTables.js`.
+    - `convertValueForSheets`, 49,000-character truncation (`[TRUNCATED]`), evolving append headers (`_backed_up_at`), and microsecond-preserving `buildKeysetOrFilter`.
+    - RFC 4180 CSV formatting, formula-injection sanitization (`=`, `+`, `-`, `@`), IEEE 802.3 CRC-32 (`"123456789"` -> `0xCBF43926`), and round-trip PKZIP Store archive creation and parsing (`buildStoreZip` + `parseStoreZip`).
+    - Ephemeral RSA-2048 RS256 JWT signing (`buildServiceAccountJwt`), OAuth2 token exchange and caching, HTTP 503 retry, and secret redaction (`sanitizeGoogleErrorMessage`).
+    - `/api/backup` concurrency locking (`{ busy: true }` on unique constraint `23505`) and 8-second time-budget pause (`status: 'partial'`, `error: 'more to do'`).
+
+### Test Case 42: Admin Backup Page & Manual ZIP Download (`/pages/backup.html`)
+- **Action**:
+  1. Log in as Admin (`ADMIN01` / `admin123`) and navigate to **Setup ▾ → Backup** (`/pages/backup.html`).
+  2. Inspect the **Google Sheet Backup** card, **Cell Capacity** bar, **Per-Table Backup Status (18 Tables)** table, and **Recent Backup & Export Runs** table.
+  3. Click **Download all data (ZIP)** (`#btn-download-zip`).
+  4. Click **Back up to Google Sheet now** (`#btn-run-google-backup`).
+- **Expected Result**:
+  - **Download all data (ZIP)** reads all 18 tables in pages of 1,000 with live progress updates, downloads `trendz-backup-YYYY-MM-DD.zip` containing 18 `.csv` files + `README.txt`, and logs an `'export'` row in `backup_runs` via `admin_log_export`.
+  - **Back up to Google Sheet now** executes up to 10 passes against `POST /api/backup` (`{ action: 'run' }`), updating table row counts, cell capacity, and the recent runs table after each pass.
+  - On `/pages/admin.html` and `/pages/backup.html`, if the last completed backup is older than 2 days (or has never run), a clear warning banner is displayed with a direct link to `/pages/backup.html`.
+

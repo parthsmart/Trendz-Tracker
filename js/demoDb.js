@@ -2940,12 +2940,201 @@ export const DemoDB = {
       case 'attendance':
         return JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_ATTENDANCE) || '[]');
       case 'activity_results':
-        return [];
+        return this.getActivityResults();
       case 'result_audit':
         return JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_AUDIT) || '[]');
       default:
         return [];
     }
+  },
+
+  // ==================== PHASE 7: FLASH ANZAN DEMO RPC FIXTURES ====================
+  getActivityResults(studentId = null, activityType = null) {
+    initDemoStorage();
+    const key = 'trendz_demo_activity_results_v1';
+    let list = JSON.parse(localStorage.getItem(key) || 'null');
+    if (!Array.isArray(list)) {
+      const nowIso = new Date().toISOString();
+      const yestIso = new Date(Date.now() - 86400000).toISOString();
+      list = [
+        {
+          id: 'act-demo-1',
+          student_id: 'usr-101',
+          activity_type: 'flash_anzan',
+          activity_name: 'Flash Anzan',
+          correct: 9,
+          total: 10,
+          time_seconds: 112,
+          settings: { digits: 2, count: 7, speed_ms: 1500, questions: 10, mode: 'add' },
+          created_at: nowIso,
+          updated_at: nowIso
+        },
+        {
+          id: 'act-demo-2',
+          student_id: 'usr-101',
+          activity_type: 'flash_anzan',
+          activity_name: 'Flash Anzan',
+          correct: 10,
+          total: 10,
+          time_seconds: 104,
+          settings: { digits: 1, count: 5, speed_ms: 2000, questions: 10, mode: 'add' },
+          created_at: yestIso,
+          updated_at: yestIso
+        }
+      ];
+      localStorage.setItem(key, JSON.stringify(list));
+    }
+
+    return list.filter(r => {
+      if (studentId && r.student_id !== studentId) return false;
+      if (activityType && r.activity_type !== activityType) return false;
+      return true;
+    });
+  },
+
+  mockFlashStart(p_settings = {}, studentId = 'usr-101') {
+    if (!isDemoMode()) {
+      throw new Error('Action blocked: Demo mode cannot mutate live database.');
+    }
+    const digits = Number(p_settings.digits);
+    const count = Number(p_settings.count);
+    const speed_ms = Number(p_settings.speed_ms);
+    const questions = Number(p_settings.questions);
+    const mode = p_settings.mode;
+
+    if (
+      !Number.isInteger(digits) || digits < 1 || digits > 5 ||
+      !Number.isInteger(count) || count < 3 || count > 30 ||
+      !Number.isInteger(speed_ms) || speed_ms < 200 || speed_ms > 5000 ||
+      !Number.isInteger(questions) || questions < 3 || questions > 30 ||
+      (mode !== 'add' && mode !== 'add_sub')
+    ) {
+      throw new Error('Invalid Flash Anzan settings.');
+    }
+
+    const minVal = digits === 1 ? 1 : Math.pow(10, digits - 1);
+    const maxVal = Math.pow(10, digits) - 1;
+
+    const generatedQuestions = [];
+    const expectedAnswers = [];
+
+    for (let q = 0; q < questions; q++) {
+      const nums = [];
+      let runningSum = 0;
+      for (let i = 0; i < count; i++) {
+        let mag = Math.floor(Math.random() * (maxVal - minVal + 1)) + minVal;
+        let signed = mag;
+        if (mode === 'add_sub' && i > 0 && Math.random() < 0.4) {
+          // Keep running total non-negative when possible, or allow signed subtraction
+          if (runningSum > minVal) {
+            const subMax = Math.min(maxVal, runningSum);
+            mag = Math.floor(Math.random() * (subMax - minVal + 1)) + minVal;
+            signed = -mag;
+          }
+        }
+        nums.push(signed);
+        runningSum += signed;
+      }
+      generatedQuestions.push(nums);
+      expectedAnswers.push(runningSum);
+    }
+
+    const sessionId = `fsess-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const sessionsKey = 'trendz_demo_flash_sessions_v1';
+    const sessions = JSON.parse(localStorage.getItem(sessionsKey) || '{}');
+    sessions[sessionId] = {
+      session_id: sessionId,
+      student_id: studentId || 'usr-101',
+      settings: { digits, count, speed_ms, questions, mode },
+      questions: generatedQuestions,
+      expected: expectedAnswers,
+      started_at_ms: Date.now(),
+      min_duration_ms: questions * count * speed_ms,
+      submitted: false
+    };
+    localStorage.setItem(sessionsKey, JSON.stringify(sessions));
+
+    return {
+      session_id: sessionId,
+      questions: generatedQuestions,
+      settings: { digits, count, speed_ms, questions, mode }
+    };
+  },
+
+  mockFlashSubmit(p_session, p_answers = [], studentId = 'usr-101') {
+    if (!isDemoMode()) {
+      throw new Error('Action blocked: Demo mode cannot mutate live database.');
+    }
+    const sessionsKey = 'trendz_demo_flash_sessions_v1';
+    const sessions = JSON.parse(localStorage.getItem(sessionsKey) || '{}');
+    const sess = sessions[p_session];
+
+    if (!sess) {
+      throw new Error('Flash Anzan session not found.');
+    }
+    if (sess.submitted) {
+      throw new Error('This Flash Anzan set has already been submitted.');
+    }
+
+    const elapsedMs = Date.now() - sess.started_at_ms;
+    if (elapsedMs + 250 < sess.min_duration_ms) {
+      throw new Error('Set finished faster than the numbers were shown.');
+    }
+    if (elapsedMs > sess.min_duration_ms + 30 * 60 * 1000) {
+      throw new Error('This Flash Anzan session has expired (30 minutes after minimum time).');
+    }
+
+    const total = sess.questions.length;
+    if (!Array.isArray(p_answers) || p_answers.length !== total) {
+      throw new Error('Answer array length does not match question count.');
+    }
+
+    let correctCount = 0;
+    const detail = sess.questions.map((nums, idx) => {
+      const exp = sess.expected[idx];
+      const rawGiven = p_answers[idx];
+      const given = rawGiven === null || rawGiven === undefined ? null : Number(rawGiven);
+      const isCorrect = given !== null && Number.isInteger(given) && given === exp;
+      if (isCorrect) correctCount++;
+      return {
+        numbers: nums,
+        expected: exp,
+        given,
+        correct: isCorrect
+      };
+    });
+
+    sess.submitted = true;
+    localStorage.setItem(sessionsKey, JSON.stringify(sessions));
+
+    const seconds = Math.max(1, Math.round(elapsedMs / 1000));
+    const accuracy = total > 0 ? Math.round((correctCount / total) * 1000) / 10 : 0;
+
+    // Save into demo activity_results
+    const actKey = 'trendz_demo_activity_results_v1';
+    const currentList = this.getActivityResults();
+    const nowIso = new Date().toISOString();
+    currentList.unshift({
+      id: `act-${Date.now()}`,
+      student_id: sess.student_id || studentId || 'usr-101',
+      activity_type: 'flash_anzan',
+      activity_name: 'Flash Anzan',
+      correct: correctCount,
+      total,
+      time_seconds: seconds,
+      settings: sess.settings,
+      created_at: nowIso,
+      updated_at: nowIso
+    });
+    localStorage.setItem(actKey, JSON.stringify(currentList));
+
+    return {
+      correct: correctCount,
+      total,
+      accuracy,
+      seconds,
+      detail
+    };
   },
 
   getBackupStatus() {
@@ -3061,5 +3250,6 @@ export const DemoDB = {
     return newRun;
   }
 };
+
 
 

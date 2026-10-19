@@ -25,6 +25,7 @@
             <a href="/pages/student.html" class="nav-link active">Home</a>
             <a href="/pages/round-scores.html" class="nav-link">Round Scores</a>
             <a href="/pages/basics.html" class="nav-link">Basics</a>
+            <a href="/pages/flash.html" class="nav-link">Flash Anzan</a>
             <a href="/pages/leaderboard.html" class="nav-link">Leaderboard</a>
             <a href="/pages/monthly-report.html" class="nav-link">Monthly Report</a>
           </nav>
@@ -92,6 +93,17 @@
                         <span>Enter Basics</span>
                       </h3>
                       <p style="font-size: 11px;">Log mental speed calculation drills (1d4r, 2d2r digits and rows).</p>
+                    </div>
+                    <span class="action-card-arrow" aria-hidden="true">&rarr;</span>
+                  </a>
+
+                  <a href="/pages/flash.html" class="action-card-btn" style="padding: var(--space-3);" aria-label="Practice Flash Anzan trainer">
+                    <div class="action-card-content">
+                      <h3 style="font-size: var(--text-sm);">
+                        <span>🔢</span>
+                        <span>Flash Anzan Trainer</span>
+                      </h3>
+                      <p style="font-size: 11px;">Practice timed mental abacus flash calculation sets.</p>
                     </div>
                     <span class="action-card-arrow" aria-hidden="true">&rarr;</span>
                   </a>
@@ -208,6 +220,26 @@
               <div class="card-body">
                 <div id="basics-week-container">
                   <div class="loading-state">Loading basics summary...</div>
+                </div>
+              </div>
+            </section>
+
+            <!-- Flash Anzan This Week Card (Phase 7) -->
+            <section class="card" aria-labelledby="flash-week-heading">
+              <div class="card-header">
+                <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                  <h2 id="flash-week-heading" class="card-title" style="display: flex; align-items: center; gap: 6px;">
+                    <span aria-hidden="true">🔢</span>
+                    <span>Flash Anzan (Last 7 Days)</span>
+                  </h2>
+                  <a href="/pages/flash.html" style="font-size: var(--text-xs); font-weight: 600; color: var(--color-primary); text-decoration: none;">
+                    Practice &rarr;
+                  </a>
+                </div>
+              </div>
+              <div class="card-body">
+                <div id="flash-week-container">
+                  <div class="loading-state">Loading Flash Anzan summary...</div>
                 </div>
               </div>
             </section>
