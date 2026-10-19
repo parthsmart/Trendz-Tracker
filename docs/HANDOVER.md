@@ -8,6 +8,17 @@
 
 ## Current Status Overview
 
+### Session: 2026-10-19 (Phase 4c-2c — Import Validation Limits Mirroring, Pre-Flight `validatePayload`, Better Error Diagnostics & Import UI Polish)
+
+#### 5-Line Session Summary
+- Mirrored all PostgreSQL `admin_import_rounds` limits in `js/importParser.js` and `js/importPlan.js`: `Time Taken > 28,800s` (e.g. `59:23:00` at `DV31`) warns and sends `time_taken_seconds = null` without blocking the round; cell times `> 14,400s` become unreadable; `round_type > 40` and `note > 500` truncate with warnings; out-of-range round numbers (`1..100000`) or dates (`2020-01-01..today_ist()`) exclude only that round.
+- Added `validatePayload(payload)` in `js/importPlan.js` and wired it as a mandatory pre-flight gate in `js/import.js` before any database RPC call, reporting `{ roundNumber, field, value, message }` and preventing orphan batches if any limit is broken.
+- Updated `Marks TO BE CORRECTED` cross-check in `js/importParser.js` to always compare against `Total Attempt - Final Score` (`177` vs `178` on Block 2 Round 26) and sorted duplicate-date info lines chronologically (`25 Jul 2026` and `16 Aug 2026`).
+- Upgraded database failure handling in `js/import.js` with exact DB error messages, an expandable `"Technical details"` panel (failing step, series, round numbers, and first 3 rounds' metadata with zero secrets), and a plain-language recovery explanation (`Open` batch with 0 rows can be undone, safe to re-run).
+- Polished `/pages/import.html` and `css/style.css`: unified searchable student picker, left-aligned `"Needs Attention"` rows grouped by severity with `"Show info lines"` toggle and non-repeating cell refs, non-wrapping summary cards with thousands separators (`1,677`) and `Sep` month formatting, top nav spacing, and 24 passing `node:test` unit tests.
+
+---
+
 ### Session: 2026-10-18 (Phase 4c-2a — Admin CSV Import Part 2A: Simulator per Block, Category Resolution & Existing Data Comparison)
 
 #### 5-Line Session Summary

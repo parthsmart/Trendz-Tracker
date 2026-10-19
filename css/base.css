@@ -61,7 +61,8 @@ a:hover {
 }
 
 /* Layout Containers */
-.app-shell {
+.app-shell,
+.app-layout {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -85,7 +86,7 @@ a:hover {
 
 .main-content {
   flex: 1;
-  padding-top: var(--space-6);
+  padding-top: var(--space-8);
   padding-bottom: var(--space-12);
 }
 
@@ -102,8 +103,10 @@ a:hover {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-6);
-  height: 64px;
+  gap: var(--space-4);
+  min-height: 64px;
+  padding-top: var(--space-2);
+  padding-bottom: var(--space-2);
 }
 
 .brand-zone {

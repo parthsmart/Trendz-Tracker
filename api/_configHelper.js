@@ -10,20 +10,35 @@ function isPlaceholder(val) {
   return (
     trimmed === '' ||
     trimmed.includes('your-project-ref') ||
+    trimmed.includes('<your-') ||
     trimmed.includes('YOUR_SUPABASE_') ||
-    trimmed.startsWith('YOUR_')
+    trimmed.startsWith('YOUR_') ||
+    trimmed.endsWith('...')
   );
 }
 
 /**
- * Reads and validates public Supabase URL and Anon Key.
+ * Picks the first non-placeholder value from a list of candidate environment variable values.
+ */
+function pickValidEnv(...candidates) {
+  for (const candidate of candidates) {
+    if (!isPlaceholder(candidate)) {
+      return candidate.trim();
+    }
+  }
+  return '';
+}
+
+/**
+ * Reads and validates public Supabase URL and Anon Key from either
+ * VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY or SUPABASE_URL / SUPABASE_ANON_KEY.
  * Throws 500 error if unconfigured or placeholder.
  */
 export function getSupabaseServerConfig() {
-  const rawUrl = (process.env.SUPABASE_URL || '').trim();
-  const rawAnonKey = (process.env.SUPABASE_ANON_KEY || '').trim();
+  const rawUrl = pickValidEnv(process.env.VITE_SUPABASE_URL, process.env.SUPABASE_URL);
+  const rawAnonKey = pickValidEnv(process.env.VITE_SUPABASE_ANON_KEY, process.env.SUPABASE_ANON_KEY);
 
-  if (isPlaceholder(rawUrl) || isPlaceholder(rawAnonKey)) {
+  if (!rawUrl || !rawAnonKey) {
     throw new Error('Supabase configuration error: SUPABASE_URL and SUPABASE_ANON_KEY must be properly configured in environment variables.');
   }
 

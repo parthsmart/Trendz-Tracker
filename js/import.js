@@ -1,7 +1,7 @@
 /**
  * Trendz Tracker — Admin CSV Score Sheet Import Controller (js/import.js)
  *
- * STRICT PHASE 4c-1, 4c-2a & 4c-2b RULES:
+ * STRICT PHASE 4c-1, 4c-2a, 4c-2b, 4c-2c & 4c-2d RULES:
  * - Admin-only route guard (`requireAuth(['admin'])`).
  * - NEVER inserts, updates, or deletes `results`, `student_rounds`, or `categories` directly.
  * - Uses ONLY the authoritative database RPCs for import mutations:
@@ -12,6 +12,9 @@
  *   4. `admin_finish_import(p_batch)`
  *   5. `admin_undo_import(p_batch, p_reason)`
  * - Reads `import_batches` and reads/writes `category_aliases`.
+ * - Phase 4c-2d: Supports live non-destructive round & cell editing in the preview, live cross-check
+ *   and date-check recalculation, "Edited" chips with "Reset to sheet value", record of edits in
+ *   `p_summary.edits` (capped at 500 entries + count), history display, and unsaved-edits guard.
  * - Renders all strings coming from the CSV file strictly via `textContent` (never `innerHTML`).
  */
 
@@ -34,9 +37,25 @@ import {
   buildImportPreviewState,
   buildImportExecutionPlan,
   materializeBlockRoundChunks,
+  validatePayload,
+  createEmptyEditState,
+  validateRoundEdit,
+  validateCellEdit,
 } from './importPlan.js';
 
 const MAX_CSV_BYTES = 2 * 1024 * 1024; // 2 MB
+
+/**
+ * Formats an integer with thousands separators (e.g. 1677 -> "1,677").
+ *
+ * @param {number} n
+ * @returns {string}
+ */
+function formatNum(n) {
+  const num = Number(n ?? 0);
+  if (!Number.isFinite(num)) return '0';
+  return num.toLocaleString('en-US');
+}
 
 /**
  * Clean 2-block sample CSV fixture for Demo Mode where all cells have valid ratios and times
@@ -56,6 +75,7 @@ let categorySeries = [];
 let categoryAliases = [];
 let importBatches = [];
 let todayIST = '';
+let showInfoLines = true;
 
 // Existing data for the currently selected student
 let selectedStudentIdLoaded = null;
@@ -67,10 +87,30 @@ let isImporting = false;
 // Current CSV & per-block interactive UI state
 let currentCsvText = '';
 let currentFileName = '';
-let currentParsedResult = null;
+let currentParsedResult = null; // Immutable original parsed sheet from parseScoreSheetCsv
 let currentPreviewState = null;
 let currentExecutionPlan = null;
 let blockUiState = {}; // { [blockNumber]: { seriesId: string, confirmed: boolean, adminMappings: { [rawKey]: { action, targetCategoryId, saveAlias } } } }
+
+// Phase 4c-2d: Live preview edit state & inline editor UI state
+let previewEditState = createEmptyEditState();
+let expandedRoundKeys = new Set(); // Set of `${blockNumber}-${roundNumber}`
+let activeRoundEditor = null; // { blockNumber, roundNumber, focusField: 'date'|'type'|'time'|'skip'|null } | null
+let activeCellEditor = null; // { blockNumber, roundNumber, rowIndex } | null
+
+/**
+ * Returns true when the admin has any active unsaved edits in the current preview.
+ *
+ * @returns {boolean}
+ */
+function hasUnsavedPreviewEdits() {
+  if (!currentPreviewState || !Array.isArray(currentPreviewState.editsList)) {
+    const rKeys = Object.keys(previewEditState?.rounds || {});
+    const cKeys = Object.keys(previewEditState?.cells || {});
+    return rKeys.length > 0 || cKeys.length > 0;
+  }
+  return currentPreviewState.editsList.length > 0;
+}
 
 /**
  * Initialize the Admin Import Page
@@ -92,9 +132,93 @@ async function initImportPage() {
   bindStep1Listeners();
   bindImportOptionsAndModals();
   bindHistoryAndAliasesListeners();
+  bindUnsavedEditsBeforeUnloadGuard();
 
   await loadReferenceData();
   await loadImportBatches();
+}
+
+/**
+ * Warns the admin before closing or leaving the page if there are unsaved preview edits
+ */
+function bindUnsavedEditsBeforeUnloadGuard() {
+  window.addEventListener('beforeunload', (e) => {
+    if (hasUnsavedPreviewEdits() && !isImporting) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
+}
+
+/**
+ * Shows an inline confirmation prompt when the admin attempts to start over or load a new file
+ * while unsaved preview edits exist (avoids window.confirm / window.alert in iframe).
+ *
+ * @param {string} actionLabel
+ * @param {Function} onConfirmDiscard
+ */
+function promptUnsavedEditsGuard(actionLabel, onConfirmDiscard) {
+  if (!hasUnsavedPreviewEdits()) {
+    hideUnsavedEditsWarning();
+    onConfirmDiscard();
+    return;
+  }
+
+  const warnBox = document.getElementById('import-unsaved-edits-warning');
+  if (!warnBox) {
+    onConfirmDiscard();
+    return;
+  }
+
+  const editCount = currentPreviewState?.editsList?.length || 1;
+  warnBox.replaceChildren();
+  warnBox.style.display = 'block';
+
+  const row = document.createElement('div');
+  row.style.display = 'flex';
+  row.style.justifyContent = 'space-between';
+  row.style.alignItems = 'center';
+  row.style.flexWrap = 'wrap';
+  row.style.gap = 'var(--space-3)';
+
+  const msg = document.createElement('div');
+  msg.style.fontSize = 'var(--text-xs)';
+  msg.style.fontWeight = '600';
+  msg.textContent = `⚠️ You have ${formatNum(editCount)} unsaved edit${editCount === 1 ? '' : 's'} in this preview. Are you sure you want to ${actionLabel} and discard ${editCount === 1 ? 'it' : 'them'}?`;
+
+  const actions = document.createElement('div');
+  actions.style.display = 'flex';
+  actions.style.gap = 'var(--space-2)';
+  actions.style.flexWrap = 'wrap';
+
+  const keepBtn = document.createElement('button');
+  keepBtn.type = 'button';
+  keepBtn.className = 'btn btn-outline btn-sm';
+  keepBtn.textContent = 'Keep Editing';
+  keepBtn.addEventListener('click', () => {
+    hideUnsavedEditsWarning();
+  });
+
+  const discardBtn = document.createElement('button');
+  discardBtn.type = 'button';
+  discardBtn.className = 'btn btn-primary btn-sm';
+  discardBtn.textContent = `Discard Edits & ${actionLabel}`;
+  discardBtn.addEventListener('click', () => {
+    hideUnsavedEditsWarning();
+    onConfirmDiscard();
+  });
+
+  actions.append(keepBtn, discardBtn);
+  row.append(msg, actions);
+  warnBox.appendChild(row);
+  warnBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function hideUnsavedEditsWarning() {
+  const warnBox = document.getElementById('import-unsaved-edits-warning');
+  if (!warnBox) return;
+  warnBox.style.display = 'none';
+  warnBox.replaceChildren();
 }
 
 /**
@@ -284,12 +408,16 @@ async function ensureStudentExistingDataLoaded(studentId, forceReload = false) {
       const [roundsRes, resultsRes] = await Promise.all([
         supabase
           .from('student_rounds')
-          .select('*')
+          .select(
+            'id, student_id, series_id, round_number, round_date, round_type, time_taken_seconds, import_batch_id'
+          )
           .eq('student_id', studentId)
           .order('round_number', { ascending: true }),
         supabase
           .from('results')
-          .select('*')
+          .select(
+            'id, student_id, category_id, student_round_id, correct, total, time_seconds, entry_date, note, verified_by, verified_at, corrected_by, corrected_at, import_batch_id'
+          )
           .eq('student_id', studentId)
           .not('student_round_id', 'is', null),
       ]);
@@ -304,20 +432,16 @@ async function ensureStudentExistingDataLoaded(studentId, forceReload = false) {
       existingStudentRounds = DemoDB.getStudentRounds
         ? DemoDB.getStudentRounds(studentId, 'all')
         : [];
-      existingStudentResults = DemoDB.getResults
-        ? DemoDB.getResults().filter(
-            (r) =>
-              r.student_id === studentId &&
-              r.student_round_id !== null &&
-              r.student_round_id !== undefined
-          )
+      existingStudentResults = DemoDB.getResultsForStudent
+        ? DemoDB.getResultsForStudent(studentId).filter((r) => Boolean(r.student_round_id))
         : [];
       selectedStudentIdLoaded = studentId;
     }
   } catch (err) {
-    console.error('Error loading student existing rounds/results for comparison:', err);
-    showStep1Error(
-      `Failed to load existing rounds/results for selected student: ${err.message || 'Network error'}`
+    console.error('Failed to load existing rounds/results for student:', err);
+    showToast(
+      'error',
+      `Could not load existing database rounds for comparison: ${err.message || 'Database error'}`
     );
     existingStudentRounds = [];
     existingStudentResults = [];
@@ -328,66 +452,150 @@ async function ensureStudentExistingDataLoaded(studentId, forceReload = false) {
 }
 
 /**
- * Loads `import_batches` from the database (or DemoDB) and renders the Import History table.
+ * Loads `import_batches` for the Import History & Undo section
  */
 async function loadImportBatches() {
   const container = document.getElementById('import-history-container');
   try {
     if (isSupabaseConfigured()) {
       const supabase = await getSupabase();
-      const { data, error } = await supabase.from('import_batches').select('*');
+      const { data, error } = await supabase
+        .from('import_batches')
+        .select('*')
+        .order('imported_at', { ascending: false })
+        .limit(50);
+
       if (error) throw new Error(error.message);
-      importBatches = (data || []).sort((a, b) => {
-        const tA = String(a.created_at || a.started_at || a.imported_at || '');
-        const tB = String(b.created_at || b.started_at || b.imported_at || '');
-        return tB.localeCompare(tA);
+      const studentById = new Map(allStudents.map((s) => [s.id, s]));
+      importBatches = (data || []).map((b) => {
+        const stu = studentById.get(b.student_id);
+        return {
+          ...b,
+          fileName: b.file_name || b.fileName || 'scoresheet.csv',
+          nameInFile: b.name_in_file ?? b.nameInFile ?? null,
+          markVerified: Boolean(b.mark_verified ?? b.markVerified),
+          rowsFound: Number(b.rows_found ?? b.rowsFound ?? 0),
+          rowsImported:
+            b.rows_imported !== undefined ? b.rows_imported : (b.rowsImported ?? null),
+          importedAt: b.imported_at || b.importedAt || null,
+          undoneAt: b.undone_at || b.undoneAt || null,
+          undoReason: b.undo_reason || b.undoReason || null,
+          studentName: stu ? stu.full_name : b.studentName || 'Student',
+          studentCode: stu ? stu.student_code : b.studentCode || '—',
+        };
       });
     } else {
       importBatches = DemoDB.getImportBatches ? DemoDB.getImportBatches() : [];
     }
+
     renderImportHistoryTable();
   } catch (err) {
-    console.error('Error loading import_batches:', err);
+    console.error('Failed to load import_batches:', err);
     if (container) {
-      const errBox = document.createElement('div');
-      errBox.className = 'banner banner-error';
-      errBox.textContent = `Could not load import history: ${err.message || 'Database error'}`;
-      container.replaceChildren(errBox);
+      const errDiv = document.createElement('div');
+      errDiv.className = 'banner banner-error';
+      errDiv.textContent = `Could not load import history: ${err.message || 'Database error'}`;
+      container.replaceChildren(errDiv);
     }
   }
 }
 
 /**
- * Renders the filtered student <select> options using textContent
+ * Renders the unified searchable student picker dropdown & selected student pill
  */
-function renderStudentOptions(preserveSelectedId = null) {
-  const select = document.getElementById('import-student-select');
-  if (!select) return;
+function renderStudentOptions(selectedId = null) {
+  const hiddenInput = document.getElementById('import-student-select');
+  const badgeEl = document.getElementById('import-student-selected-badge');
+  const clearBtn = document.getElementById('btn-clear-student-selection');
+  const searchInput = document.getElementById('import-student-search');
+  const dropdown = document.getElementById('import-student-dropdown');
+  if (!hiddenInput) return;
 
-  const previousValue = preserveSelectedId !== null ? preserveSelectedId : select.value;
-  select.replaceChildren();
-
-  const placeholderOpt = document.createElement('option');
-  placeholderOpt.value = '';
-  placeholderOpt.textContent =
-    filteredStudents.length === 0
-      ? 'No matching students found'
-      : `-- Select a student (${filteredStudents.length} shown) --`;
-  select.appendChild(placeholderOpt);
-
-  for (const stu of filteredStudents) {
-    const opt = document.createElement('option');
-    opt.value = stu.id;
-    const statusSuffix = stu.active === false ? ' [Inactive]' : '';
-    const levelInfo = stu.level ? ` · ${stu.level}` : '';
-    opt.textContent = `${stu.full_name} (${stu.student_code}${levelInfo})${statusSuffix}`;
-    select.appendChild(opt);
+  if (selectedId !== null && selectedId !== undefined) {
+    hiddenInput.value = selectedId;
   }
 
-  if (previousValue && filteredStudents.some((s) => s.id === previousValue)) {
-    select.value = previousValue;
-  } else if (filteredStudents.length === 1) {
-    select.value = filteredStudents[0].id;
+  const activeStudent = allStudents.find((s) => s.id === hiddenInput.value) || null;
+  if (badgeEl && clearBtn && searchInput) {
+    if (activeStudent) {
+      const levelInfo = activeStudent.level ? ` · ${activeStudent.level}` : '';
+      badgeEl.textContent = `✓ ${activeStudent.full_name} (${activeStudent.student_code}${levelInfo})`;
+      badgeEl.style.display = 'inline-flex';
+      clearBtn.style.display = 'inline-flex';
+      searchInput.placeholder = 'Type to switch student...';
+    } else {
+      badgeEl.textContent = '';
+      badgeEl.style.display = 'none';
+      clearBtn.style.display = 'none';
+      searchInput.placeholder = 'Search and select student by name or ID (e.g. STU101)...';
+    }
+  }
+
+  if (!dropdown) return;
+  dropdown.replaceChildren();
+
+  if (filteredStudents.length === 0) {
+    const emptyDiv = document.createElement('div');
+    emptyDiv.style.padding = '8px 10px';
+    emptyDiv.style.fontSize = 'var(--text-xs)';
+    emptyDiv.style.color = 'var(--text-muted)';
+    emptyDiv.textContent = 'No matching students found.';
+    dropdown.appendChild(emptyDiv);
+    return;
+  }
+
+  for (const stu of filteredStudents) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `import-student-option${stu.id === hiddenInput.value ? ' selected' : ''}`;
+    btn.setAttribute('role', 'option');
+    btn.setAttribute('aria-selected', stu.id === hiddenInput.value ? 'true' : 'false');
+
+    const leftSpan = document.createElement('span');
+    const statusSuffix = stu.active === false ? ' [Inactive]' : '';
+    const levelInfo = stu.level ? ` · ${stu.level}` : '';
+    leftSpan.textContent = `${stu.full_name} (${stu.student_code}${levelInfo})${statusSuffix}`;
+
+    const rightSpan = document.createElement('span');
+    rightSpan.className = 'num';
+    rightSpan.style.fontSize = '11px';
+    rightSpan.style.color =
+      stu.id === hiddenInput.value ? 'var(--color-primary-text)' : 'var(--text-dim)';
+    rightSpan.textContent = stu.id === hiddenInput.value ? '✓ Selected' : stu.student_code;
+
+    btn.append(leftSpan, rightSpan);
+    btn.addEventListener('click', async () => {
+      await selectStudentFromPicker(stu.id);
+    });
+    dropdown.appendChild(btn);
+  }
+}
+
+/**
+ * Selects a student in the unified searchable student picker and refreshes comparison & history
+ */
+async function selectStudentFromPicker(studentId) {
+  const hiddenInput = document.getElementById('import-student-select');
+  const searchInput = document.getElementById('import-student-search');
+  const dropdown = document.getElementById('import-student-dropdown');
+
+  if (hiddenInput) hiddenInput.value = studentId || '';
+  if (searchInput) {
+    searchInput.value = '';
+    searchInput.setAttribute('aria-expanded', 'false');
+  }
+  filteredStudents = [...allStudents];
+  renderStudentOptions(studentId || '');
+
+  if (dropdown) {
+    dropdown.style.display = 'none';
+  }
+
+  const stu = getSelectedStudent();
+  await ensureStudentExistingDataLoaded(stu ? stu.id : null);
+  renderImportHistoryTable();
+  if (currentCsvText) {
+    await runParseAndRenderPreview(false);
   }
 }
 
@@ -404,16 +612,41 @@ function getSelectedStudent() {
  * Binds Step 1 interactive controls
  */
 function bindStep1Listeners() {
+  const pickerWrap = document.getElementById('import-student-picker');
   const searchInput = document.getElementById('import-student-search');
   const studentSelect = document.getElementById('import-student-select');
+  const clearStudentBtn = document.getElementById('btn-clear-student-selection');
+  const dropdown = document.getElementById('import-student-dropdown');
   const fileInput = document.getElementById('import-csv-file');
   const dateFormatSelect = document.getElementById('import-date-format');
   const startOverBtn = document.getElementById('btn-import-start-over');
   const sampleBtn = document.getElementById('btn-load-sample-csv');
   const cleanSampleBtn = document.getElementById('btn-load-clean-sample-csv');
 
+  const openDropdown = () => {
+    if (!dropdown) return;
+    dropdown.style.display = 'block';
+    if (searchInput) searchInput.setAttribute('aria-expanded', 'true');
+  };
+
+  const closeDropdown = () => {
+    if (!dropdown) return;
+    dropdown.style.display = 'none';
+    if (searchInput) searchInput.setAttribute('aria-expanded', 'false');
+  };
+
   if (searchInput) {
-    searchInput.addEventListener('input', async () => {
+    searchInput.addEventListener('focus', () => {
+      renderStudentOptions(studentSelect ? studentSelect.value : '');
+      openDropdown();
+    });
+
+    searchInput.addEventListener('click', () => {
+      renderStudentOptions(studentSelect ? studentSelect.value : '');
+      openDropdown();
+    });
+
+    searchInput.addEventListener('input', () => {
       const q = searchInput.value.trim().toLowerCase();
       const currentSelected = studentSelect ? studentSelect.value : '';
       if (!q) {
@@ -426,23 +659,33 @@ function bindStep1Listeners() {
         );
       }
       renderStudentOptions(currentSelected);
-      renderImportHistoryTable();
-      if (currentCsvText) {
-        await runParseAndRenderPreview(false);
+      openDropdown();
+    });
+
+    searchInput.addEventListener('keydown', async (e) => {
+      if (e.key === 'Escape') {
+        closeDropdown();
+      } else if (e.key === 'Enter' && filteredStudents.length > 0) {
+        e.preventDefault();
+        await selectStudentFromPicker(filteredStudents[0].id);
       }
     });
   }
 
-  if (studentSelect) {
-    studentSelect.addEventListener('change', async () => {
-      const stu = getSelectedStudent();
-      await ensureStudentExistingDataLoaded(stu ? stu.id : null);
-      renderImportHistoryTable();
-      if (currentCsvText) {
-        await runParseAndRenderPreview(false);
+  if (clearStudentBtn) {
+    clearStudentBtn.addEventListener('click', async () => {
+      await selectStudentFromPicker('');
+      if (searchInput) {
+        searchInput.focus();
       }
     });
   }
+
+  document.addEventListener('click', (e) => {
+    if (pickerWrap && !pickerWrap.contains(e.target)) {
+      closeDropdown();
+    }
+  });
 
   if (dateFormatSelect) {
     dateFormatSelect.addEventListener('change', async () => {
@@ -454,50 +697,60 @@ function bindStep1Listeners() {
 
   if (fileInput) {
     fileInput.addEventListener('change', () => {
-      handleFileSelected(fileInput.files ? fileInput.files[0] : null);
+      const selectedFile = fileInput.files ? fileInput.files[0] : null;
+      if (!selectedFile) return;
+      promptUnsavedEditsGuard('load a different CSV file', () => {
+        handleFileSelected(selectedFile);
+      });
     });
   }
 
   if (startOverBtn) {
     startOverBtn.addEventListener('click', () => {
-      resetImportWorkflow();
+      promptUnsavedEditsGuard('start over', () => {
+        resetImportWorkflow();
+      });
     });
   }
 
   if (cleanSampleBtn) {
-    cleanSampleBtn.addEventListener('click', async () => {
-      clearStep1Error();
-      if (studentSelect && !studentSelect.value && allStudents.length > 0) {
-        studentSelect.value = allStudents[0].id;
-      }
-      currentFileName = 'ready-two-block-sheet.csv';
-      currentCsvText = CLEAN_READY_TWO_BLOCK_CSV;
-      const metaEl = document.getElementById('import-file-meta');
-      if (metaEl) {
-        metaEl.textContent = `${currentFileName} (${currentCsvText.length} bytes)`;
-      }
-      await runParseAndRenderPreview(true);
-      showToast(
-        'info',
-        'Loaded ready-to-import 2-block CSV fixture. Confirm Block 1 & Block 2 series to import.'
-      );
+    cleanSampleBtn.addEventListener('click', () => {
+      promptUnsavedEditsGuard('load the ready-to-import fixture', async () => {
+        clearStep1Error();
+        if (studentSelect && !studentSelect.value && allStudents.length > 0) {
+          await selectStudentFromPicker(allStudents[0].id);
+        }
+        currentFileName = 'ready-two-block-sheet.csv';
+        currentCsvText = CLEAN_READY_TWO_BLOCK_CSV;
+        const metaEl = document.getElementById('import-file-meta');
+        if (metaEl) {
+          metaEl.textContent = `${currentFileName} (${formatNum(currentCsvText.length)} bytes)`;
+        }
+        await runParseAndRenderPreview(true);
+        showToast(
+          'info',
+          'Loaded ready-to-import 2-block CSV fixture. Confirm Block 1 & Block 2 series to import.'
+        );
+      });
     });
   }
 
   if (sampleBtn) {
-    sampleBtn.addEventListener('click', async () => {
-      clearStep1Error();
-      if (studentSelect && !studentSelect.value && allStudents.length > 0) {
-        studentSelect.value = allStudents[0].id;
-      }
-      currentFileName = 'sample-two-block-sheet.csv';
-      currentCsvText = SAMPLE_TWO_BLOCK_CSV;
-      const metaEl = document.getElementById('import-file-meta');
-      if (metaEl) {
-        metaEl.textContent = `${currentFileName} (${currentCsvText.length} bytes)`;
-      }
-      await runParseAndRenderPreview(true);
-      showToast('info', 'Loaded 2-block CSV fixture with validation edge cases.');
+    sampleBtn.addEventListener('click', () => {
+      promptUnsavedEditsGuard('load the edge-case sample fixture', async () => {
+        clearStep1Error();
+        if (studentSelect && !studentSelect.value && allStudents.length > 0) {
+          await selectStudentFromPicker(allStudents[0].id);
+        }
+        currentFileName = 'sample-two-block-sheet.csv';
+        currentCsvText = SAMPLE_TWO_BLOCK_CSV;
+        const metaEl = document.getElementById('import-file-meta');
+        if (metaEl) {
+          metaEl.textContent = `${currentFileName} (${formatNum(currentCsvText.length)} bytes)`;
+        }
+        await runParseAndRenderPreview(true);
+        showToast('info', 'Loaded 2-block CSV fixture with validation edge cases.');
+      });
     });
   }
 }
@@ -547,6 +800,14 @@ function bindImportOptionsAndModals() {
         showToast(
           'warning',
           'Please check the student name confirmation box before importing.'
+        );
+        return;
+      }
+      const ackCheckbox = document.getElementById('confirm-acknowledgments-checkbox');
+      if (ackCheckbox && !ackCheckbox.checked) {
+        showToast(
+          'warning',
+          'Please acknowledge the warnings and adjustments list before importing.'
         );
         return;
       }
@@ -697,10 +958,11 @@ function handleFileSelected(file) {
 }
 
 /**
- * Initializes default per-block UI state when a new CSV file is loaded:
+ * Initializes default per-block UI state and clears preview edits when a new CSV file is loaded:
  * - Pre-selects the SUGGESTED simulator series (`Old simulator` or `New simulator` or `""`)
  * - Leaves `confirmed = false` so the admin must explicitly confirm each block
  * - Initializes empty `adminMappings`
+ * - Resets `previewEditState`, `expandedRoundKeys`, and active inline editors
  */
 function initBlockUiStateForParsedSheet(parsed) {
   const nextState = {};
@@ -713,12 +975,17 @@ function initBlockUiStateForParsedSheet(parsed) {
     };
   }
   blockUiState = nextState;
+  previewEditState = createEmptyEditState();
+  expandedRoundKeys = new Set();
+  activeRoundEditor = null;
+  activeCellEditor = null;
+  hideUnsavedEditsWarning();
 }
 
 /**
  * Runs parseScoreSheetCsv + buildImportPreviewState and renders the full preview
  *
- * @param {boolean} [resetBlockState=false] - Whether to reset per-block series/category selections
+ * @param {boolean} [resetBlockState=false] - Whether to reset per-block series/category selections and edits
  */
 async function runParseAndRenderPreview(resetBlockState = false) {
   clearStep1Error();
@@ -756,7 +1023,8 @@ async function runParseAndRenderPreview(resetBlockState = false) {
 }
 
 /**
- * Re-computes Phase 4c-2a/2b resolution, comparison & execution plan state and updates the DOM
+ * Re-computes Phase 4c-2a/2b/2c/2d live preview state, edits list, and execution plan,
+ * and updates all DOM sections while keeping `currentParsedResult` immutable for resets.
  */
 function renderCurrentPreviewState() {
   if (!currentParsedResult || !currentParsedResult.ok) return;
@@ -777,13 +1045,17 @@ function renderCurrentPreviewState() {
     existingStudentRounds,
     existingResults: existingStudentResults,
     blockUiState,
+    editState: previewEditState,
   });
 
-  const executionPlan = buildImportExecutionPlan(currentParsedResult, previewState, {
+  const effectiveParsed = previewState.effectiveParsed || currentParsedResult;
+
+  const executionPlan = buildImportExecutionPlan(effectiveParsed, previewState, {
     selectedStudent,
     fileName: currentFileName,
     markVerified,
     onDateConflict,
+    editState: previewEditState,
   });
 
   currentPreviewState = previewState;
@@ -794,15 +1066,182 @@ function renderCurrentPreviewState() {
     previewContainer.style.display = 'block';
   }
 
-  renderNeedsAttentionSection(currentParsedResult, previewState, selectedStudent);
-  renderSummaryCards(currentParsedResult, selectedStudent);
+  renderNeedsAttentionSection(effectiveParsed, previewState, selectedStudent);
+  renderSummaryCards(effectiveParsed, selectedStudent);
   renderComparisonSummarySection(previewState, selectedStudent);
-  renderBlocksSection(currentParsedResult, previewState, selectedStudent);
+  renderBlocksSection(effectiveParsed, previewState, selectedStudent);
   renderReadinessAndActionState(previewState, executionPlan, selectedStudent);
 }
 
 /**
- * Renders the "Needs Attention" triage panel at the top of Step 2
+ * Opens the inline Round Editor for a given block and round, optionally focusing a specific field,
+ * and scrolls smoothly to the round row.
+ *
+ * @param {number} blockNumber
+ * @param {number} roundNumber
+ * @param {'date'|'type'|'time'|'skip'|null} [focusField=null]
+ */
+function openRoundEditorAndScroll(blockNumber, roundNumber, focusField = null) {
+  activeRoundEditor = {
+    blockNumber: Number(blockNumber),
+    roundNumber: Number(roundNumber),
+    focusField,
+  };
+  renderCurrentPreviewState();
+
+  requestAnimationFrame(() => {
+    const editorEl = document.getElementById(
+      `round-editor-${blockNumber}-${roundNumber}`
+    );
+    if (editorEl) {
+      editorEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      let targetInput = null;
+      if (focusField === 'date') {
+        targetInput = editorEl.querySelector('[data-field="round-date"]');
+      } else if (focusField === 'time') {
+        targetInput = editorEl.querySelector('[data-field="round-time"]');
+      } else if (focusField === 'type') {
+        targetInput = editorEl.querySelector('[data-field="round-type-select"]');
+      }
+      if (targetInput && typeof targetInput.focus === 'function') {
+        targetInput.focus();
+      }
+    }
+  });
+}
+
+/**
+ * Expands the round's cell drawer, opens the inline Cell Editor for a given cell, and scrolls to it.
+ *
+ * @param {number} blockNumber
+ * @param {number} roundNumber
+ * @param {number} rowIndex
+ */
+function openCellEditorAndScroll(blockNumber, roundNumber, rowIndex) {
+  const key = `${blockNumber}-${roundNumber}`;
+  expandedRoundKeys.add(key);
+  activeCellEditor = {
+    blockNumber: Number(blockNumber),
+    roundNumber: Number(roundNumber),
+    rowIndex: Number(rowIndex),
+  };
+  renderCurrentPreviewState();
+
+  requestAnimationFrame(() => {
+    const editorEl = document.getElementById(
+      `cell-editor-${blockNumber}-${roundNumber}-${rowIndex}`
+    );
+    if (editorEl) {
+      editorEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const firstInput = editorEl.querySelector('input[type="number"], input[type="text"]');
+      if (firstInput && typeof firstInput.focus === 'function') {
+        firstInput.focus();
+      }
+    }
+  });
+}
+
+/**
+ * Resets a single round edit back to its original sheet value and triggers live recalculation.
+ *
+ * @param {number} blockNumber
+ * @param {number} roundNumber
+ */
+function resetRoundEditToSheetValue(blockNumber, roundNumber) {
+  const key = `${blockNumber}-${roundNumber}`;
+  if (previewEditState.rounds && previewEditState.rounds[key]) {
+    delete previewEditState.rounds[key];
+  }
+  if (
+    activeRoundEditor &&
+    activeRoundEditor.blockNumber === Number(blockNumber) &&
+    activeRoundEditor.roundNumber === Number(roundNumber)
+  ) {
+    activeRoundEditor = null;
+  }
+  renderCurrentPreviewState();
+  showToast('info', `Reset Block ${blockNumber} Round ${roundNumber} to original sheet values.`);
+}
+
+/**
+ * Resets a single cell edit back to its original sheet value and triggers live recalculation.
+ *
+ * @param {number} blockNumber
+ * @param {number} roundNumber
+ * @param {number} rowIndex
+ */
+function resetCellEditToSheetValue(blockNumber, roundNumber, rowIndex) {
+  const key = `${blockNumber}-${roundNumber}-${rowIndex}`;
+  if (previewEditState.cells && previewEditState.cells[key]) {
+    delete previewEditState.cells[key];
+  }
+  if (
+    activeCellEditor &&
+    activeCellEditor.blockNumber === Number(blockNumber) &&
+    activeCellEditor.roundNumber === Number(roundNumber) &&
+    activeCellEditor.rowIndex === Number(rowIndex)
+  ) {
+    activeCellEditor = null;
+  }
+  renderCurrentPreviewState();
+  showToast('info', `Reset cell in Block ${blockNumber} Round ${roundNumber} to sheet value.`);
+}
+
+/**
+ * Resets all preview edits (rounds and cells) back to the original CSV sheet values.
+ */
+function resetAllPreviewEditsToSheetValues() {
+  previewEditState = createEmptyEditState();
+  activeRoundEditor = null;
+  activeCellEditor = null;
+  hideUnsavedEditsWarning();
+  renderCurrentPreviewState();
+  showToast('info', 'All preview edits have been reset to original sheet values.');
+}
+
+/**
+ * Finds the original parsed cell rowIndex in `currentParsedResult` corresponding to an attention item ref
+ */
+function findCellByRefInBlock(blockNumber, roundNumber, ref) {
+  if (!currentParsedResult || !Array.isArray(currentParsedResult.blocks) || !ref) return null;
+  const blk = currentParsedResult.blocks.find((b) => b.blockNumber === Number(blockNumber));
+  if (!blk) return null;
+  const rnd = (blk.rounds || []).find((r) => r.roundNumber === Number(roundNumber));
+  if (!rnd) return null;
+  return (
+    (rnd.cells || []).find((c) => c.scoreRef === ref || c.timeRef === ref) || null
+  );
+}
+
+/**
+ * Strips duplicate cell reference mentions from an attention message when the cell reference
+ * is already displayed as a dedicated chip on the left of the row.
+ *
+ * @param {string} message
+ * @param {string|null} ref
+ * @returns {string}
+ */
+function stripDuplicateCellRefFromMessage(message, ref) {
+  const rawMsg = String(message || '');
+  const cleanRef = String(ref || '').trim();
+  if (!cleanRef) return rawMsg;
+
+  const escapedRef = cleanRef.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return rawMsg
+    .replace(new RegExp(`\\s+at\\s+${escapedRef}\\b`, 'gi'), '')
+    .replace(new RegExp(`\\s+in\\s+${escapedRef}\\b`, 'gi'), '')
+    .replace(new RegExp(`\\s*\\(${escapedRef}\\)`, 'gi'), '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+/**
+ * Renders the "Needs Attention" triage panel at the top of Step 2:
+ * - Heading count matches the rows (e.g. "5 warnings, 1 info")
+ * - Rows grouped by severity (Blocking Errors, Warnings, Info)
+ * - "Show info lines" toggle
+ * - Severity badge, block & round chip, and cell chip on the left, message text left-aligned right after them
+ * - Quick action "Fix" button on rounds with date/time problems and on unreadable cells
  */
 function renderNeedsAttentionSection(parsed, previewState, selectedStudent) {
   const section = document.getElementById('import-attention-section');
@@ -822,47 +1261,88 @@ function renderNeedsAttentionSection(parsed, previewState, selectedStudent) {
     });
   }
 
-  const errorCount = items.filter((i) => i.severity === 'error').length;
-  const warningCount = items.filter((i) => i.severity === 'warning').length;
-  const infoCount = items.filter((i) => i.severity === 'info').length;
+  const errorItems = items.filter((i) => i.severity === 'error');
+  const warningItems = items.filter((i) => i.severity === 'warning');
+  const infoItems = items.filter((i) => i.severity === 'info');
+
+  const errorCount = errorItems.length;
+  const warningCount = warningItems.length;
+  const infoCount = infoItems.length;
+
+  const countParts = [];
+  if (errorCount > 0) {
+    countParts.push(`${formatNum(errorCount)} blocking error${errorCount === 1 ? '' : 's'}`);
+  }
+  if (warningCount > 0) {
+    countParts.push(`${formatNum(warningCount)} warning${warningCount === 1 ? '' : 's'}`);
+  }
+  if (infoCount > 0) {
+    countParts.push(`${formatNum(infoCount)} info`);
+  }
+  const headingCountText = countParts.length > 0 ? countParts.join(', ') : '0 issues';
 
   const headerRow = document.createElement('div');
   headerRow.style.display = 'flex';
   headerRow.style.justifyContent = 'space-between';
   headerRow.style.alignItems = 'center';
   headerRow.style.flexWrap = 'wrap';
-  headerRow.style.gap = 'var(--space-2)';
+  headerRow.style.gap = 'var(--space-3)';
   headerRow.style.marginBottom = 'var(--space-3)';
 
   const titleEl = document.createElement('h2');
   titleEl.id = 'attention-heading';
   titleEl.style.fontSize = 'var(--text-lg)';
-  titleEl.textContent =
-    errorCount + warningCount > 0
-      ? `Needs Attention (${errorCount + warningCount} issue${errorCount + warningCount === 1 ? '' : 's'})`
-      : 'Validation, Series & Comparison Summary';
+  titleEl.textContent = `Needs Attention (${headingCountText})`;
 
-  const badgesWrap = document.createElement('div');
-  badgesWrap.style.display = 'flex';
-  badgesWrap.style.gap = 'var(--space-2)';
-  badgesWrap.style.flexWrap = 'wrap';
+  const controlsWrap = document.createElement('div');
+  controlsWrap.style.display = 'flex';
+  controlsWrap.style.alignItems = 'center';
+  controlsWrap.style.gap = 'var(--space-2)';
+  controlsWrap.style.flexWrap = 'wrap';
 
   const errBadge = document.createElement('span');
   errBadge.className = 'badge num';
   errBadge.style.backgroundColor = 'var(--color-danger-subtle)';
   errBadge.style.color = 'var(--color-danger-text)';
-  errBadge.textContent = `${errorCount} Blocking Error${errorCount === 1 ? '' : 's'}`;
+  errBadge.textContent = `${formatNum(errorCount)} Blocking`;
 
   const warnBadge = document.createElement('span');
   warnBadge.className = 'badge badge-warning num';
-  warnBadge.textContent = `${warningCount} Warning${warningCount === 1 ? '' : 's'}`;
+  warnBadge.textContent = `${formatNum(warningCount)} Warning${warningCount === 1 ? '' : 's'}`;
 
   const infoBadge = document.createElement('span');
   infoBadge.className = 'badge badge-inactive num';
-  infoBadge.textContent = `${infoCount} Info`;
+  infoBadge.textContent = `${formatNum(infoCount)} Info`;
 
-  badgesWrap.append(errBadge, warnBadge, infoBadge);
-  headerRow.append(titleEl, badgesWrap);
+  controlsWrap.append(errBadge, warnBadge, infoBadge);
+
+  if (infoCount > 0) {
+    const toggleLabel = document.createElement('label');
+    toggleLabel.style.display = 'inline-flex';
+    toggleLabel.style.alignItems = 'center';
+    toggleLabel.style.gap = '6px';
+    toggleLabel.style.fontSize = 'var(--text-xs)';
+    toggleLabel.style.fontWeight = '600';
+    toggleLabel.style.color = 'var(--text-main)';
+    toggleLabel.style.cursor = 'pointer';
+    toggleLabel.style.marginLeft = 'var(--space-2)';
+
+    const toggleCb = document.createElement('input');
+    toggleCb.type = 'checkbox';
+    toggleCb.id = 'toggle-show-info-lines';
+    toggleCb.checked = Boolean(showInfoLines);
+    toggleCb.addEventListener('change', () => {
+      showInfoLines = toggleCb.checked;
+      renderNeedsAttentionSection(parsed, previewState, selectedStudent);
+    });
+
+    const toggleText = document.createElement('span');
+    toggleText.textContent = `Show info lines (${formatNum(infoCount)})`;
+    toggleLabel.append(toggleCb, toggleText);
+    controlsWrap.appendChild(toggleLabel);
+  }
+
+  headerRow.append(titleEl, controlsWrap);
   section.appendChild(headerRow);
 
   if (items.length === 0) {
@@ -874,108 +1354,240 @@ function renderNeedsAttentionSection(parsed, previewState, selectedStudent) {
     return;
   }
 
-  const list = document.createElement('div');
-  list.className = 'import-attention-list';
+  const dateProblemTypes = new Set([
+    'missing_date',
+    'unreadable_date',
+    'future_date',
+    'before_2020',
+    'date_out_of_order',
+    'same_date_rounds',
+    'db_round_date_differs',
+  ]);
+  const timeProblemTypes = new Set([
+    'time_taken_exceeds_limit',
+    'unreadable_time_taken',
+  ]);
 
-  for (const item of items) {
-    const row = document.createElement('div');
-    row.className = `import-attention-item import-attention-${item.severity}`;
+  const renderGroup = (groupTitle, groupItems, severityKey) => {
+    if (groupItems.length === 0) return;
 
-    const left = document.createElement('div');
-    left.style.display = 'flex';
-    left.style.alignItems = 'center';
-    left.style.gap = 'var(--space-2)';
-    left.style.flexWrap = 'wrap';
+    const groupWrap = document.createElement('div');
+    groupWrap.className = 'import-attention-group';
 
-    const sevTag = document.createElement('span');
-    sevTag.className = 'badge num';
-    if (item.severity === 'error') {
-      sevTag.style.backgroundColor = 'var(--color-danger-subtle)';
-      sevTag.style.color = 'var(--color-danger-text)';
-      sevTag.textContent = 'BLOCKING';
-    } else if (item.severity === 'warning') {
-      sevTag.className = 'badge badge-warning num';
-      sevTag.textContent = 'WARNING';
-    } else {
-      sevTag.className = 'badge badge-inactive num';
-      sevTag.textContent = 'INFO';
+    const groupHeader = document.createElement('div');
+    groupHeader.className = 'import-attention-group-header';
+    const gTitleSpan = document.createElement('span');
+    gTitleSpan.textContent = `${groupTitle} (${formatNum(groupItems.length)})`;
+    groupHeader.appendChild(gTitleSpan);
+    groupWrap.appendChild(groupHeader);
+
+    const list = document.createElement('div');
+    list.className = 'import-attention-list';
+
+    for (const item of groupItems) {
+      const row = document.createElement('div');
+      row.className = `import-attention-item import-attention-${severityKey}`;
+
+      const chipsContainer = document.createElement('div');
+      chipsContainer.className = 'import-attention-chips';
+
+      const sevTag = document.createElement('span');
+      sevTag.className = 'badge num';
+      if (item.severity === 'error') {
+        sevTag.style.backgroundColor = 'var(--color-danger-subtle)';
+        sevTag.style.color = 'var(--color-danger-text)';
+        sevTag.textContent = 'BLOCKING';
+      } else if (item.severity === 'warning') {
+        sevTag.className = 'badge badge-warning num';
+        sevTag.textContent = 'WARNING';
+      } else {
+        sevTag.className = 'badge badge-inactive num';
+        sevTag.textContent = 'INFO';
+      }
+      chipsContainer.appendChild(sevTag);
+
+      if (item.blockNumber !== null && item.blockNumber !== undefined) {
+        const scopeBadge = document.createElement('span');
+        scopeBadge.className = 'badge badge-inactive num';
+        scopeBadge.textContent =
+          item.roundNumber !== null && item.roundNumber !== undefined
+            ? `Block ${item.blockNumber} · Round ${item.roundNumber}`
+            : `Block ${item.blockNumber}`;
+        chipsContainer.appendChild(scopeBadge);
+      }
+
+      if (item.ref) {
+        const refCode = document.createElement('code');
+        refCode.className = 'import-cell-ref num';
+        refCode.textContent = item.ref;
+        chipsContainer.appendChild(refCode);
+      }
+
+      const msgSpan = document.createElement('div');
+      msgSpan.className = 'import-attention-msg';
+      msgSpan.style.display = 'flex';
+      msgSpan.style.alignItems = 'center';
+      msgSpan.style.justifyContent = 'space-between';
+      msgSpan.style.gap = 'var(--space-2)';
+      msgSpan.style.flexWrap = 'wrap';
+
+      const textSpan = document.createElement('span');
+      textSpan.textContent = stripDuplicateCellRefFromMessage(item.message, item.ref);
+      msgSpan.appendChild(textSpan);
+
+      // Quick action "Fix" button for round date/time problems or unreadable cells
+      if (item.blockNumber && item.roundNumber) {
+        if (dateProblemTypes.has(item.type)) {
+          const fixBtn = document.createElement('button');
+          fixBtn.type = 'button';
+          fixBtn.className = 'btn btn-outline btn-sm';
+          fixBtn.style.padding = '2px 8px';
+          fixBtn.style.minHeight = '24px';
+          fixBtn.style.fontSize = '11px';
+          fixBtn.textContent = 'Fix Date';
+          fixBtn.addEventListener('click', () => {
+            openRoundEditorAndScroll(item.blockNumber, item.roundNumber, 'date');
+          });
+          msgSpan.appendChild(fixBtn);
+        } else if (timeProblemTypes.has(item.type)) {
+          const fixBtn = document.createElement('button');
+          fixBtn.type = 'button';
+          fixBtn.className = 'btn btn-outline btn-sm';
+          fixBtn.style.padding = '2px 8px';
+          fixBtn.style.minHeight = '24px';
+          fixBtn.style.fontSize = '11px';
+          fixBtn.textContent = 'Fix Time';
+          fixBtn.addEventListener('click', () => {
+            openRoundEditorAndScroll(item.blockNumber, item.roundNumber, 'time');
+          });
+          msgSpan.appendChild(fixBtn);
+        } else if (item.type === 'unreadable_cell' && item.ref) {
+          const targetCell = findCellByRefInBlock(item.blockNumber, item.roundNumber, item.ref);
+          if (targetCell) {
+            const fixCellBtn = document.createElement('button');
+            fixCellBtn.type = 'button';
+            fixCellBtn.className = 'btn btn-outline btn-sm';
+            fixCellBtn.style.padding = '2px 8px';
+            fixCellBtn.style.minHeight = '24px';
+            fixCellBtn.style.fontSize = '11px';
+            fixCellBtn.textContent = 'Fix Cell';
+            fixCellBtn.addEventListener('click', () => {
+              openCellEditorAndScroll(item.blockNumber, item.roundNumber, targetCell.rowIndex);
+            });
+            msgSpan.appendChild(fixCellBtn);
+          }
+        }
+      }
+
+      row.append(chipsContainer, msgSpan);
+      list.appendChild(row);
     }
-    left.appendChild(sevTag);
 
-    if (item.blockNumber !== null && item.blockNumber !== undefined) {
-      const scopeBadge = document.createElement('span');
-      scopeBadge.className = 'badge badge-inactive num';
-      scopeBadge.textContent =
-        item.roundNumber !== null && item.roundNumber !== undefined
-          ? `Block ${item.blockNumber} · Round ${item.roundNumber}`
-          : `Block ${item.blockNumber}`;
-      left.appendChild(scopeBadge);
-    }
+    groupWrap.appendChild(list);
+    section.appendChild(groupWrap);
+  };
 
-    if (item.ref) {
-      const refCode = document.createElement('code');
-      refCode.className = 'import-cell-ref num';
-      refCode.textContent = item.ref;
-      left.appendChild(refCode);
-    }
-
-    const msgSpan = document.createElement('span');
-    msgSpan.style.fontSize = 'var(--text-sm)';
-    msgSpan.style.color = 'var(--text-main)';
-    msgSpan.textContent = item.message;
-
-    row.append(left, msgSpan);
-    list.appendChild(row);
+  renderGroup('Blocking Errors', errorItems, 'error');
+  renderGroup('Warnings', warningItems, 'warning');
+  if (showInfoLines && infoItems.length > 0) {
+    renderGroup('Info Lines', infoItems, 'info');
   }
-
-  section.appendChild(list);
 }
 
 /**
- * Renders the 4 Overview Summary Cards
+ * Helper to build a non-wrapping metric column (label above number, short unit beneath)
+ */
+function createMetricColumn(label, value, unit) {
+  const col = document.createElement('div');
+  col.className = 'import-metric-col';
+
+  const lblEl = document.createElement('span');
+  lblEl.className = 'import-metric-label';
+  lblEl.textContent = label;
+
+  const numEl = document.createElement('span');
+  numEl.className = 'import-metric-number num';
+  numEl.textContent = typeof value === 'number' ? formatNum(value) : String(value);
+
+  const unitEl = document.createElement('span');
+  unitEl.className = 'import-metric-unit';
+  unitEl.textContent = unit;
+
+  col.append(lblEl, numEl, unitEl);
+  return col;
+}
+
+/**
+ * Normalizes month abbreviations in any date string so "Sept" is always written as "Sep"
+ */
+function normalizeShortMonths(str) {
+  return String(str || '').replace(/\bSept\b/g, 'Sep');
+}
+
+/**
+ * Renders the 4 Overview Summary Cards with label above number, short unit beneath,
+ * thousands separators, consistent 3-letter month names (Sep, not Sept), and live skipped counts.
  */
 function renderSummaryCards(parsed, selectedStudent) {
   const container = document.getElementById('import-summary-cards');
   if (!container) return;
   container.replaceChildren();
 
-  // Card 1: Blocks & Rounds per block
+  // Card 1: Blocks & Rounds per block (label above number, short unit beneath)
   const card1 = document.createElement('div');
   card1.className = 'stat-card';
-  const c1Label = document.createElement('span');
-  c1Label.className = 'stat-label';
-  c1Label.textContent = 'Blocks & Rounds Detected';
-  const c1Val = document.createElement('span');
-  c1Val.className = 'stat-value num';
-  c1Val.textContent = `${parsed.summary.blockCount} Block${parsed.summary.blockCount === 1 ? '' : 's'} · ${parsed.summary.totalRounds} Round${parsed.summary.totalRounds === 1 ? '' : 's'}`;
+
+  const c1Split = document.createElement('div');
+  c1Split.className = 'import-metrics-split';
+  c1Split.append(
+    createMetricColumn(
+      'Blocks',
+      formatNum(parsed.summary.blockCount),
+      parsed.summary.blockCount === 1 ? 'block detected' : 'blocks detected'
+    ),
+    createMetricColumn(
+      'Rounds',
+      formatNum(parsed.summary.totalRounds),
+      parsed.summary.totalRounds === 1 ? 'active round' : 'active rounds'
+    )
+  );
+
   const c1Sub = document.createElement('div');
   c1Sub.style.fontSize = 'var(--text-xs)';
   c1Sub.style.color = 'var(--text-muted)';
-  c1Sub.style.marginTop = 'var(--space-1)';
+  c1Sub.style.marginTop = 'var(--space-2)';
+  c1Sub.style.display = 'flex';
+  c1Sub.style.flexWrap = 'wrap';
+  c1Sub.style.gap = 'var(--space-2)';
   c1Sub.className = 'num';
-  c1Sub.textContent = parsed.summary.blockSummaries
-    .map((b) => `Block ${b.blockNumber}: ${b.roundCount} round${b.roundCount === 1 ? '' : 's'}`)
-    .join(' · ');
-  card1.append(c1Label, c1Val, c1Sub);
+  for (const b of parsed.summary.blockSummaries) {
+    const bChip = document.createElement('span');
+    bChip.style.whiteSpace = 'nowrap';
+    const skipSuffix = b.skippedRoundCount > 0 ? ` (${formatNum(b.skippedRoundCount)} skipped)` : '';
+    bChip.textContent = `Block ${b.blockNumber}: ${formatNum(b.roundCount)} round${b.roundCount === 1 ? '' : 's'}${skipSuffix}`;
+    c1Sub.appendChild(bChip);
+  }
+  card1.append(c1Split, c1Sub);
 
   // Card 2: Date Range per block
   const card2 = document.createElement('div');
   card2.className = 'stat-card';
   const c2Label = document.createElement('span');
-  c2Label.className = 'stat-label';
+  c2Label.className = 'import-metric-label';
   c2Label.textContent = `Date Range (${parsed.resolvedDateFormat})`;
   const c2List = document.createElement('div');
   c2List.style.display = 'flex';
   c2List.style.flexDirection = 'column';
   c2List.style.gap = '4px';
-  c2List.style.marginTop = 'var(--space-1)';
+  c2List.style.marginTop = 'var(--space-2)';
   for (const b of parsed.summary.blockSummaries) {
     const line = document.createElement('div');
     line.style.fontSize = 'var(--text-xs)';
+    line.style.fontWeight = '600';
     line.className = 'num';
     const rangeText =
       b.minDate && b.maxDate
-        ? `${formatDisplayDateIST(b.minDate)} – ${formatDisplayDateIST(b.maxDate)}`
+        ? `${normalizeShortMonths(formatDisplayDateIST(b.minDate))} – ${normalizeShortMonths(formatDisplayDateIST(b.maxDate))}`
         : 'No valid dates';
     line.textContent = `Block ${b.blockNumber}: ${rangeText}`;
     c2List.appendChild(line);
@@ -983,78 +1595,90 @@ function renderSummaryCards(parsed, selectedStudent) {
   const c2Sub = document.createElement('div');
   c2Sub.style.fontSize = '11px';
   c2Sub.style.color = 'var(--text-dim)';
-  c2Sub.style.marginTop = '4px';
+  c2Sub.style.marginTop = '6px';
   c2Sub.className = 'num';
-  c2Sub.textContent = `Checked against IST today: ${parsed.todayIST}`;
+  c2Sub.textContent = `IST limit: 01 Jan 2020 – ${normalizeShortMonths(formatDisplayDateIST(parsed.todayIST))}`;
   card2.append(c2Label, c2List, c2Sub);
 
   // Card 3: Total Cells by Status
   const tc = parsed.summary.totalCells;
   const card3 = document.createElement('div');
   card3.className = 'stat-card';
-  const c3Label = document.createElement('span');
-  c3Label.className = 'stat-label';
-  c3Label.textContent = 'Total Cells by Parse Status';
-  const c3Val = document.createElement('span');
-  c3Val.className = 'stat-value num';
-  c3Val.style.fontSize = 'var(--text-xl)';
-  c3Val.textContent = `${tc.ok} OK · ${tc.empty} Empty`;
+
+  const c3Metric = createMetricColumn(
+    'OK Score Cells',
+    formatNum(tc.ok),
+    tc.ok === 1 ? 'valid score cell' : 'valid score cells'
+  );
+
   const c3Sub = document.createElement('div');
   c3Sub.style.fontSize = 'var(--text-xs)';
-  c3Sub.style.color =
-    tc.unreadable > 0 || tc.stray > 0 ? 'var(--color-warning-text)' : 'var(--text-muted)';
-  c3Sub.style.marginTop = 'var(--space-1)';
+  c3Sub.style.color = 'var(--text-muted)';
+  c3Sub.style.marginTop = 'var(--space-2)';
+  c3Sub.style.display = 'flex';
+  c3Sub.style.flexWrap = 'wrap';
+  c3Sub.style.gap = 'var(--space-2)';
   c3Sub.className = 'num';
-  c3Sub.textContent = `${tc.unreadable} Unreadable · ${tc.stray} Stray · ${tc.note} Note${tc.note === 1 ? '' : 's'}`;
-  card3.append(c3Label, c3Val, c3Sub);
 
-  // Card 4: Student Name & Level Labels
+  const cellBreakdownItems = [
+    `${formatNum(tc.empty)} empty`,
+    `${formatNum(tc.note)} note${tc.note === 1 ? '' : 's'}`,
+    `${formatNum(tc.unreadable)} unreadable`,
+  ];
+  if (tc.skipped > 0) {
+    cellBreakdownItems.push(`${formatNum(tc.skipped)} skipped`);
+  }
+
+  cellBreakdownItems.forEach((txt) => {
+    const sp = document.createElement('span');
+    sp.style.whiteSpace = 'nowrap';
+    sp.textContent = txt;
+    c3Sub.appendChild(sp);
+  });
+  card3.append(c3Metric, c3Sub);
+
+  // Card 4: Student Name in File vs Selected Student
   const card4 = document.createElement('div');
   card4.className = 'stat-card';
   const c4Label = document.createElement('span');
-  c4Label.className = 'stat-label';
-  c4Label.textContent = 'Student Name & Level Labels';
-  const c4Val = document.createElement('div');
-  c4Val.style.fontSize = 'var(--text-sm)';
-  c4Val.style.fontWeight = '700';
-  c4Val.style.color = 'var(--text-main)';
-  c4Val.style.marginTop = '2px';
-  const sheetNameStr = parsed.primaryStudentName || '(None in sheet)';
-  c4Val.textContent = `In Sheet: ${sheetNameStr}`;
+  c4Label.className = 'import-metric-label';
+  c4Label.textContent = 'Student Name Check';
 
-  const c4Selected = document.createElement('div');
-  c4Selected.style.fontSize = 'var(--text-xs)';
-  c4Selected.style.marginTop = '2px';
-  if (selectedStudent) {
-    const namesDiffer =
-      parsed.primaryStudentName &&
-      parsed.primaryStudentName.trim().toLowerCase() !==
-        selectedStudent.full_name.trim().toLowerCase();
-    c4Selected.style.color = namesDiffer ? 'var(--color-warning-text)' : 'var(--text-muted)';
-    c4Selected.textContent = namesDiffer
-      ? `⚠️ Selected: ${selectedStudent.full_name} (${selectedStudent.student_code}) — differs from sheet`
-      : `✓ Selected: ${selectedStudent.full_name} (${selectedStudent.student_code})`;
+  const c4Val = document.createElement('div');
+  c4Val.style.fontSize = 'var(--text-base)';
+  c4Val.style.fontWeight = '700';
+  c4Val.style.marginTop = 'var(--space-1)';
+  if (parsed.studentNameInFile) {
+    c4Val.textContent = `${parsed.studentNameInFile}`;
   } else {
-    c4Selected.style.color = 'var(--color-warning-text)';
-    c4Selected.textContent = '⚠️ No student selected in Step 1';
+    c4Val.style.color = 'var(--text-muted)';
+    c4Val.textContent = 'Not found in top rows';
   }
 
-  const c4Levels = document.createElement('div');
-  c4Levels.style.fontSize = '11px';
-  c4Levels.style.color = 'var(--text-dim)';
-  c4Levels.style.marginTop = '4px';
-  c4Levels.textContent =
-    parsed.levelLabels.length > 0
-      ? `Levels seen: ${parsed.levelLabels.join(', ')}`
-      : 'Levels seen: none';
-
-  card4.append(c4Label, c4Val, c4Selected, c4Levels);
+  const c4Sub = document.createElement('div');
+  c4Sub.style.fontSize = 'var(--text-xs)';
+  c4Sub.style.marginTop = '6px';
+  const refPrefix = parsed.studentNameCellRef ? `Cell ${parsed.studentNameCellRef} · ` : '';
+  if (!selectedStudent) {
+    c4Sub.style.color = 'var(--color-danger-text)';
+    c4Sub.textContent = `${refPrefix}Select a student in Step 1 to verify`;
+  } else if (parsed.studentNameMatchesSelected === true) {
+    c4Sub.style.color = 'var(--color-success-text)';
+    c4Sub.textContent = `${refPrefix}✓ Matches ${selectedStudent.full_name} (${selectedStudent.student_code})`;
+  } else if (parsed.studentNameMatchesSelected === false) {
+    c4Sub.style.color = 'var(--color-warning-text)';
+    c4Sub.textContent = `${refPrefix}⚠️ Differs from ${selectedStudent.full_name} (${selectedStudent.student_code})`;
+  } else {
+    c4Sub.style.color = 'var(--text-muted)';
+    c4Sub.textContent = `Selected: ${selectedStudent.full_name} (${selectedStudent.student_code})`;
+  }
+  card4.append(c4Label, c4Val, c4Sub);
 
   container.append(card1, card2, card3, card4);
 }
 
 /**
- * Renders the Phase 4c-2a Existing Data Comparison Summary Panel
+ * Renders the overall Existing Database Comparison Summary section (Phase 4c-2a)
  */
 function renderComparisonSummarySection(previewState, selectedStudent) {
   const section = document.getElementById('import-comparison-summary-section');
@@ -1072,321 +1696,355 @@ function renderComparisonSummarySection(previewState, selectedStudent) {
   const h2 = document.createElement('h2');
   h2.id = 'comparison-summary-heading';
   h2.style.fontSize = 'var(--text-lg)';
-  h2.textContent = 'Comparison with Existing Database Records';
+  h2.textContent = 'Database Comparison & Resolution Summary';
 
-  const stuBadge = document.createElement('span');
-  stuBadge.className = selectedStudent ? 'badge badge-success num' : 'badge badge-warning num';
-  stuBadge.textContent = selectedStudent
-    ? `Comparing against ${selectedStudent.full_name} (${selectedStudent.student_code}) · ${existingStudentRounds.length} DB round${existingStudentRounds.length === 1 ? '' : 's'}`
-    : 'Select a student in Step 1 to compare with database';
+  const statusBadge = document.createElement('span');
+  statusBadge.className = 'badge num';
+  if (previewState.allBlocksReady && selectedStudent) {
+    statusBadge.classList.add('badge-success');
+    statusBadge.textContent = '✓ All Series Confirmed & Categories Resolved';
+  } else {
+    statusBadge.classList.add('badge-warning');
+    statusBadge.textContent = 'Action Required Before Import';
+  }
 
-  headerRow.append(h2, stuBadge);
+  headerRow.append(h2, statusBadge);
   section.appendChild(headerRow);
 
   if (!selectedStudent) {
-    const notice = document.createElement('div');
-    notice.className = 'banner banner-warning';
-    notice.textContent =
-      'Choose a student in Step 1 above to compare this CSV score sheet against their existing rounds and scores in the database.';
-    section.appendChild(notice);
+    const info = document.createElement('div');
+    info.className = 'banner banner-warning';
+    info.textContent =
+      'Select a student in Step 1 to compare this CSV score sheet against their existing rounds and results in the database.';
+    section.appendChild(info);
     return;
   }
 
-  const oc = previewState.overallComparison;
+  const rTotals = previewState.totals.rounds;
+  const cTotals = previewState.totals.cells;
+
   const grid = document.createElement('div');
-  grid.className = 'stats-grid';
+  grid.style.display = 'grid';
+  grid.style.gridTemplateColumns = 'repeat(auto-fit, minmax(220px, 1fr))';
+  grid.style.gap = 'var(--space-3)';
 
-  // Box 1: Rounds Comparison
-  const rCard = document.createElement('div');
-  rCard.className = 'stat-card';
-  const rTitle = document.createElement('span');
-  rTitle.className = 'stat-label';
-  rTitle.textContent = 'Rounds vs Database (by Student + Series + Round #)';
-  const rMain = document.createElement('div');
-  rMain.className = 'num';
-  rMain.style.fontSize = 'var(--text-base)';
-  rMain.style.fontWeight = '700';
-  rMain.style.marginTop = '4px';
-  rMain.textContent = `${oc.rounds.newRounds} New · ${oc.rounds.existingIdentical} Identical · ${oc.rounds.existingAddsCells} Add Missing Scores · ${oc.rounds.existingWithConflicts} Have Differences`;
-  const rSub = document.createElement('div');
-  rSub.className = 'num';
-  rSub.style.fontSize = 'var(--text-xs)';
-  rSub.style.color = 'var(--text-muted)';
-  rSub.style.marginTop = '4px';
-  rSub.textContent = `${oc.rounds.dbOnlyRounds} existing round${oc.rounds.dbOnlyRounds === 1 ? '' : 's'} in DB not in this sheet (kept untouched)`;
-  rCard.append(rTitle, rMain, rSub);
+  // Box 1: Series Confirmation Status
+  const boxSeries = document.createElement('div');
+  boxSeries.style.padding = 'var(--space-3)';
+  boxSeries.style.backgroundColor = 'var(--bg-surface-subtle)';
+  boxSeries.style.borderRadius = 'var(--radius-sm)';
+  boxSeries.style.border = '1px solid var(--border-hairline)';
 
-  // Box 2: Cells Comparison
-  const cCard = document.createElement('div');
-  cCard.className = 'stat-card';
-  const cTitle = document.createElement('span');
-  cTitle.className = 'stat-label';
-  cTitle.textContent = 'Category Scores vs Database';
-  const cMain = document.createElement('div');
-  cMain.className = 'num';
-  cMain.style.fontSize = 'var(--text-base)';
-  cMain.style.fontWeight = '700';
-  cMain.style.marginTop = '4px';
-  cMain.textContent = `${oc.cells.newCells} New · ${oc.cells.identicalCells} Identical · ${oc.cells.conflictCells} Unverified Conflict${oc.cells.conflictCells === 1 ? '' : 's'}`;
-  const cSub = document.createElement('div');
-  cSub.className = 'num';
-  cSub.style.fontSize = 'var(--text-xs)';
-  cSub.style.color =
-    oc.cells.protectedConflictCells > 0 ? 'var(--color-warning-text)' : 'var(--text-muted)';
-  cSub.style.marginTop = '4px';
-  cSub.textContent = `${oc.cells.protectedConflictCells} Protected (🔒 Verified / ✏️ Corrected — kept) · ${oc.cells.dbOnlyCells} In DB Only (kept)`;
-  cCard.append(cTitle, cMain, cSub);
+  const bsTitle = document.createElement('div');
+  bsTitle.className = 'import-metric-label';
+  bsTitle.textContent = '1. Simulator Series per Block';
+  boxSeries.appendChild(bsTitle);
 
-  grid.append(rCard, cCard);
+  for (const br of previewState.blockReports) {
+    const line = document.createElement('div');
+    line.style.fontSize = 'var(--text-xs)';
+    line.style.marginTop = '6px';
+    line.style.display = 'flex';
+    line.style.justifyContent = 'space-between';
+    line.style.alignItems = 'center';
+    line.style.gap = '8px';
+
+    const left = document.createElement('span');
+    left.style.fontWeight = '600';
+    left.textContent = `Block ${br.blockNumber}: ${br.seriesName || 'Not selected'}`;
+
+    const tag = document.createElement('span');
+    tag.className = `badge ${br.seriesConfirmed && br.seriesId ? 'badge-success' : 'badge-warning'} num`;
+    tag.textContent = br.seriesConfirmed && br.seriesId ? 'Confirmed' : 'Unconfirmed';
+
+    line.append(left, tag);
+    boxSeries.appendChild(line);
+  }
+
+  // Box 2: Category Resolution Status
+  const boxCats = document.createElement('div');
+  boxCats.style.padding = 'var(--space-3)';
+  boxCats.style.backgroundColor = 'var(--bg-surface-subtle)';
+  boxCats.style.borderRadius = 'var(--radius-sm)';
+  boxCats.style.border = '1px solid var(--border-hairline)';
+
+  const bcTitle = document.createElement('div');
+  bcTitle.className = 'import-metric-label';
+  bcTitle.textContent = '2. Category Resolution';
+  boxCats.appendChild(bcTitle);
+
+  for (const br of previewState.blockReports) {
+    const sc = br.categoryResolution.summaryCounts;
+    const line = document.createElement('div');
+    line.style.fontSize = 'var(--text-xs)';
+    line.style.marginTop = '6px';
+    line.className = 'num';
+    const unresolvedText =
+      sc.unresolved > 0 ? ` · ${formatNum(sc.unresolved)} unresolved` : ' · 0 unresolved';
+    line.textContent = `Block ${br.blockNumber}: ${formatNum(sc.inSelectedSeries)} in series, ${formatNum(
+      sc.inOtherSeriesOnly
+    )} in other series, ${formatNum(sc.mappedByAdmin + sc.createHistorical + sc.skippedByAdmin)} admin-resolved${unresolvedText}`;
+    boxCats.appendChild(line);
+  }
+
+  // Box 3: Round Comparison Totals
+  const boxRounds = document.createElement('div');
+  boxRounds.style.padding = 'var(--space-3)';
+  boxRounds.style.backgroundColor = 'var(--bg-surface-subtle)';
+  boxRounds.style.borderRadius = 'var(--radius-sm)';
+  boxRounds.style.border = '1px solid var(--border-hairline)';
+
+  const brTitle = document.createElement('div');
+  brTitle.className = 'import-metric-label';
+  brTitle.textContent = '3. Round Comparison vs DB';
+  const brBody = document.createElement('div');
+  brBody.style.fontSize = 'var(--text-xs)';
+  brBody.style.marginTop = '6px';
+  brBody.style.display = 'flex';
+  brBody.style.flexDirection = 'column';
+  brBody.style.gap = '3px';
+  brBody.className = 'num';
+
+  const rLines = [
+    `• ${formatNum(rTotals.newRounds)} new round${rTotals.newRounds === 1 ? '' : 's'} (not in DB yet)`,
+    `• ${formatNum(rTotals.existingIdentical)} existing round${rTotals.existingIdentical === 1 ? '' : 's'} with identical scores`,
+    `• ${formatNum(rTotals.existingAddsCells)} existing round${rTotals.existingAddsCells === 1 ? '' : 's'} where CSV adds missing scores`,
+    `• ${formatNum(rTotals.existingWithConflicts)} existing round${rTotals.existingWithConflicts === 1 ? '' : 's'} with value/date differences`,
+    `• ${formatNum(rTotals.dbOnlyRounds)} round${rTotals.dbOnlyRounds === 1 ? '' : 's'} in DB only (not in sheet — kept untouched)`,
+  ];
+  rLines.forEach((txt) => {
+    const d = document.createElement('div');
+    d.textContent = txt;
+    brBody.appendChild(d);
+  });
+  boxRounds.append(brTitle, brBody);
+
+  // Box 4: Cell Comparison Totals (Existing Data Never Overwritten)
+  const boxCells = document.createElement('div');
+  boxCells.style.padding = 'var(--space-3)';
+  boxCells.style.backgroundColor = 'var(--bg-surface-subtle)';
+  boxCells.style.borderRadius = 'var(--radius-sm)';
+  boxCells.style.border = '1px solid var(--border-hairline)';
+
+  const bcelTitle = document.createElement('div');
+  bcelTitle.className = 'import-metric-label';
+  bcelTitle.textContent = '4. Score Cell Comparison (Safe Merge)';
+  const bcelBody = document.createElement('div');
+  bcelBody.style.fontSize = 'var(--text-xs)';
+  bcelBody.style.marginTop = '6px';
+  bcelBody.style.display = 'flex';
+  bcelBody.style.flexDirection = 'column';
+  bcelBody.style.gap = '3px';
+  bcelBody.className = 'num';
+
+  const cLines = [
+    `• ${formatNum(cTotals.newCells)} new score${cTotals.newCells === 1 ? '' : 's'} (will be inserted)`,
+    `• ${formatNum(cTotals.identicalCells)} identical score${cTotals.identicalCells === 1 ? '' : 's'} (already in DB)`,
+    `• ${formatNum(cTotals.conflictCells)} differing score${cTotals.conflictCells === 1 ? '' : 's'} (DB kept, never overwritten)`,
+    `• ${formatNum(cTotals.protectedConflictCells)} protected Verified/Corrected conflict${
+      cTotals.protectedConflictCells === 1 ? '' : 's'
+    } (locked in DB)`,
+    `• ${formatNum(cTotals.dbOnlyCells)} score${cTotals.dbOnlyCells === 1 ? '' : 's'} in DB only (kept untouched)`,
+  ];
+  cLines.forEach((txt) => {
+    const d = document.createElement('div');
+    d.textContent = txt;
+    bcelBody.appendChild(d);
+  });
+  boxCells.append(bcelTitle, bcelBody);
+
+  grid.append(boxSeries, boxCats, boxRounds, boxCells);
   section.appendChild(grid);
 }
 
 /**
- * Renders a detailed section for each side-by-side Block
+ * Renders each detected block with:
+ * 1. Explicit Simulator Series Picker & Confirmation Banner
+ * 2. Interactive Category Mapping & Resolution Table (with "also save as alias")
+ * 3. Round-by-Round & Cell-by-Cell Comparison Table (with Phase 4c-2d inline Round & Cell Editors)
  */
 function renderBlocksSection(parsed, previewState, selectedStudent) {
   const container = document.getElementById('import-blocks-container');
   if (!container) return;
   container.replaceChildren();
 
-  for (const blk of parsed.blocks) {
-    const blockReport = previewState.blockReports.find(
-      (r) => r.blockNumber === blk.blockNumber
-    );
-    if (!blockReport) continue;
+  for (let i = 0; i < parsed.blocks.length; i++) {
+    const blk = parsed.blocks[i];
+    const blockReport =
+      previewState.blockReports.find((br) => br.blockNumber === blk.blockNumber) ||
+      previewState.blockReports[i];
 
     const blockCard = document.createElement('section');
     blockCard.className = 'card';
     blockCard.style.marginBottom = 'var(--space-6)';
 
-    // 1. Block Header & Simulator Series Selector + Confirmation + Metadata Hints
-    blockCard.appendChild(buildBlockSimulatorHeader(blk, blockReport));
+    // Block Title Header
+    const header = document.createElement('div');
+    header.style.display = 'flex';
+    header.style.justifyContent = 'space-between';
+    header.style.alignItems = 'center';
+    header.style.flexWrap = 'wrap';
+    header.style.gap = 'var(--space-3)';
+    header.style.marginBottom = 'var(--space-4)';
+    header.style.paddingBottom = 'var(--space-3)';
+    header.style.borderBottom = '1px solid var(--border-hairline)';
 
-    // 2. Category Resolution Section for this Block
-    blockCard.appendChild(buildBlockCategoriesSection(blk, blockReport));
+    const leftWrap = document.createElement('div');
+    const h2 = document.createElement('h2');
+    h2.style.fontSize = 'var(--text-lg)';
+    h2.textContent = `Block ${blk.blockNumber} (CSV Rows ${formatNum(blk.startRowNumber)}–${formatNum(blk.endRowNumber)})`;
+    const sub = document.createElement('p');
+    sub.style.fontSize = 'var(--text-xs)';
+    sub.style.color = 'var(--text-muted)';
+    sub.className = 'num';
+    sub.textContent = `Header cell ${blk.anchorRef} · ${formatNum(blk.categories.length)} categories · ${formatNum(blk.rounds.length)} rounds (${formatNum(blk.ignoredRounds.length)} empty round column${
+      blk.ignoredRounds.length === 1 ? '' : 's'
+    } ignored)`;
+    leftWrap.append(h2, sub);
 
-    // 3. Round-by-Round Table + Existing Data Comparison for this Block
-    blockCard.appendChild(buildBlockRoundsSection(blk, blockReport, selectedStudent));
+    const badgeWrap = document.createElement('div');
+    badgeWrap.style.display = 'flex';
+    badgeWrap.style.gap = 'var(--space-2)';
+    badgeWrap.style.alignItems = 'center';
+    badgeWrap.style.flexWrap = 'wrap';
+
+    const seriesStatusBadge = document.createElement('span');
+    seriesStatusBadge.className = `badge ${
+      blockReport.seriesConfirmed && blockReport.seriesId ? 'badge-success' : 'badge-warning'
+    } num`;
+    seriesStatusBadge.textContent =
+      blockReport.seriesConfirmed && blockReport.seriesId
+        ? `✓ Series: ${blockReport.seriesName}`
+        : '⚠️ Confirm Series Required';
+
+    badgeWrap.appendChild(seriesStatusBadge);
+    header.append(leftWrap, badgeWrap);
+    blockCard.appendChild(header);
+
+    // Sub-panel A: Simulator Series Picker & Explicit Admin Confirmation
+    blockCard.appendChild(buildBlockSeriesConfirmationPanel(blk, blockReport));
+
+    // Sub-panel B: Category Resolution & Interactive Admin Mapping Table
+    blockCard.appendChild(buildBlockCategoriesResolutionTable(blk, blockReport));
+
+    // Sub-panel C: Rounds & Database Comparison Table (with Phase 4c-2d Round & Cell Editors)
+    blockCard.appendChild(buildBlockRoundsComparisonTable(blk, blockReport, selectedStudent));
 
     container.appendChild(blockCard);
   }
 }
 
 /**
- * Builds the Simulator Series Selector, Confirmation Control, and Block Metadata Header
+ * Builds Sub-panel A: Explicit Simulator Series Selector & Confirmation Controls for a Block
  */
-function buildBlockSimulatorHeader(blk, blockReport) {
-  const wrapper = document.createElement('div');
-  wrapper.style.paddingBottom = 'var(--space-4)';
-  wrapper.style.borderBottom = '1px solid var(--border-hairline)';
-  wrapper.style.marginBottom = 'var(--space-4)';
+function buildBlockSeriesConfirmationPanel(blk, blockReport) {
+  const panel = document.createElement('div');
+  panel.style.padding = 'var(--space-4)';
+  panel.style.marginBottom = 'var(--space-5)';
+  panel.style.borderRadius = 'var(--radius-md)';
+  panel.style.border =
+    blockReport.seriesConfirmed && blockReport.seriesId
+      ? '1px solid var(--border-subtle)'
+      : '2px solid var(--color-warning)';
+  panel.style.backgroundColor = 'var(--bg-surface-subtle)';
 
   const topRow = document.createElement('div');
   topRow.style.display = 'flex';
   topRow.style.justifyContent = 'space-between';
   topRow.style.alignItems = 'flex-start';
   topRow.style.flexWrap = 'wrap';
-  topRow.style.gap = 'var(--space-4)';
+  topRow.style.gap = 'var(--space-3)';
 
-  // Left Column: Block Title + Metadata pills (File Label Hint, Round Range, Date Range)
-  const leftCol = document.createElement('div');
-  leftCol.style.flex = '1';
-  leftCol.style.minWidth = '260px';
+  const infoCol = document.createElement('div');
+  infoCol.style.flex = '1';
+  infoCol.style.minWidth = '240px';
 
-  const titleRow = document.createElement('div');
-  titleRow.style.display = 'flex';
-  titleRow.style.alignItems = 'center';
-  titleRow.style.gap = 'var(--space-2)';
-  titleRow.style.flexWrap = 'wrap';
+  const title = document.createElement('h3');
+  title.style.fontSize = 'var(--text-base)';
+  title.style.marginBottom = '4px';
+  title.textContent = `Step 2.${blk.blockNumber}a — Confirm Simulator Series for Block ${blk.blockNumber}`;
 
-  const h2 = document.createElement('h2');
-  h2.style.fontSize = 'var(--text-xl)';
-  h2.textContent = `Block ${blk.blockNumber}`;
-  titleRow.appendChild(h2);
+  const suggestion = blockReport.seriesSuggestion;
+  const reasonP = document.createElement('p');
+  reasonP.style.fontSize = 'var(--text-xs)';
+  reasonP.style.color = 'var(--text-muted)';
+  reasonP.style.margin = '0';
+  reasonP.textContent = suggestion.reason;
 
-  // Confirmation status badge
-  const confirmBadge = document.createElement('span');
-  if (blockReport.duplicateSeriesError) {
-    confirmBadge.className = 'badge num';
-    confirmBadge.style.backgroundColor = 'var(--color-danger-subtle)';
-    confirmBadge.style.color = 'var(--color-danger-text)';
-    confirmBadge.textContent = '🚫 Duplicate Series Error';
-  } else if (blockReport.confirmed && blockReport.seriesId) {
-    confirmBadge.className = 'badge badge-success num';
-    confirmBadge.textContent = `✓ Confirmed: ${blockReport.seriesName}`;
-  } else if (blockReport.seriesId) {
-    confirmBadge.className = 'badge badge-warning num';
-    confirmBadge.textContent = `Suggestion (Unconfirmed): ${blockReport.seriesName}`;
-  } else {
-    confirmBadge.className = 'badge num';
-    confirmBadge.style.backgroundColor = 'var(--color-danger-subtle)';
-    confirmBadge.style.color = 'var(--color-danger-text)';
-    confirmBadge.textContent = 'No Series Selected';
-  }
-  titleRow.appendChild(confirmBadge);
-  leftCol.appendChild(titleRow);
+  infoCol.append(title, reasonP);
 
-  // Metadata list: File Label Hint, Round Range, Date Range
-  const metaGrid = document.createElement('div');
-  metaGrid.style.display = 'flex';
-  metaGrid.style.flexWrap = 'wrap';
-  metaGrid.style.gap = 'var(--space-2)';
-  metaGrid.style.marginTop = 'var(--space-2)';
+  const controlsCol = document.createElement('div');
+  controlsCol.style.display = 'flex';
+  controlsCol.style.alignItems = 'center';
+  controlsCol.style.gap = 'var(--space-2)';
+  controlsCol.style.flexWrap = 'wrap';
 
-  const hm = blockReport.headerMeta;
-
-  // 1. Block Label Hint from File
-  const hintPill = document.createElement('span');
-  hintPill.className = 'badge badge-inactive num';
-  if (hm.blockHints && hm.blockHints.length > 0) {
-    const hintsStr = hm.blockHints.map((h) => `"${h.text}" (${h.ref})`).join(', ');
-    hintPill.textContent = `File Label Hint: ${hintsStr}`;
-  } else {
-    hintPill.textContent = 'File Label Hint: none';
-  }
-
-  // 2. Round Range
-  const roundPill = document.createElement('span');
-  roundPill.className = 'badge badge-inactive num';
-  roundPill.textContent = `Round Range: ${hm.roundRange.text}`;
-
-  // 3. Date Range
-  const datePill = document.createElement('span');
-  datePill.className = 'badge badge-inactive num';
-  const formattedDateRange =
-    hm.dateRange.minDate && hm.dateRange.maxDate
-      ? `${formatDisplayDateIST(hm.dateRange.minDate)} – ${formatDisplayDateIST(hm.dateRange.maxDate)} (${hm.dateRange.text})`
-      : 'No valid dates';
-  datePill.textContent = `Date Range: ${formattedDateRange}`;
-
-  metaGrid.append(hintPill, roundPill, datePill);
-  leftCol.appendChild(metaGrid);
-
-  if (blockReport.suggestion.suggestionReason) {
-    const sugNote = document.createElement('div');
-    sugNote.style.fontSize = 'var(--text-xs)';
-    sugNote.style.color = 'var(--text-muted)';
-    sugNote.style.marginTop = 'var(--space-2)';
-    sugNote.textContent = `💡 ${blockReport.suggestion.suggestionReason}`;
-    leftCol.appendChild(sugNote);
-  }
-
-  // Right Column: Simulator Series Dropdown + Confirm Button
-  const rightCol = document.createElement('div');
-  rightCol.style.minWidth = '300px';
-  rightCol.style.flex = '1';
-  rightCol.style.maxWidth = '480px';
-
-  const seriesLabel = document.createElement('label');
-  seriesLabel.className = 'form-label';
-  seriesLabel.htmlFor = `block-series-select-${blk.blockNumber}`;
-  seriesLabel.textContent = `Simulator Series for Block ${blk.blockNumber} (Required)`;
-
-  const controlsRow = document.createElement('div');
-  controlsRow.style.display = 'flex';
-  controlsRow.style.gap = 'var(--space-2)';
-  controlsRow.style.alignItems = 'center';
-  controlsRow.style.flexWrap = 'wrap';
-
-  const seriesSelect = document.createElement('select');
-  seriesSelect.id = `block-series-select-${blk.blockNumber}`;
-  seriesSelect.className = 'form-select';
-  seriesSelect.style.flex = '1';
-  seriesSelect.style.minWidth = '200px';
+  const select = document.createElement('select');
+  select.className = 'form-select';
+  select.style.width = 'auto';
+  select.style.minWidth = '210px';
+  select.setAttribute('aria-label', `Select simulator series for Block ${blk.blockNumber}`);
 
   const emptyOpt = document.createElement('option');
   emptyOpt.value = '';
-  emptyOpt.textContent = '-- Select simulator series --';
-  seriesSelect.appendChild(emptyOpt);
+  emptyOpt.textContent = '-- Select Simulator Series --';
+  select.appendChild(emptyOpt);
 
-  for (const ser of roundSeries) {
+  for (const s of roundSeries) {
     const opt = document.createElement('option');
-    opt.value = ser.id;
-    const isSug = blockReport.suggestion.suggestedSeriesId === ser.id;
-    const curSuffix = ser.is_current ? ' [Current]' : '';
-    const sugSuffix = isSug ? ' (Suggested)' : '';
-    opt.textContent = `${ser.name}${curSuffix}${sugSuffix}`;
-    seriesSelect.appendChild(opt);
+    opt.value = s.id;
+    const isSuggested = suggestion.suggestedSeriesId === s.id;
+    opt.textContent = `${s.name}${s.is_current ? ' (Current)' : ''}${isSuggested ? ' [Suggested]' : ''}`;
+    if (blockReport.seriesId === s.id) {
+      opt.selected = true;
+    }
+    select.appendChild(opt);
   }
-
-  seriesSelect.value = blockReport.seriesId || '';
 
   const confirmBtn = document.createElement('button');
   confirmBtn.type = 'button';
-  confirmBtn.id = `btn-confirm-series-${blk.blockNumber}`;
-  if (blockReport.confirmed && blockReport.seriesId) {
-    confirmBtn.className = 'btn btn-outline btn-sm';
-    confirmBtn.textContent = '✓ Series Confirmed';
-  } else {
-    confirmBtn.className = 'btn btn-primary btn-sm';
-    confirmBtn.disabled = !blockReport.seriesId;
-    confirmBtn.textContent = 'Confirm Series';
-  }
+  const isConfirmed = Boolean(blockReport.seriesConfirmed && blockReport.seriesId);
+  confirmBtn.className = isConfirmed ? 'btn btn-outline btn-sm' : 'btn btn-primary btn-sm';
+  confirmBtn.textContent = isConfirmed ? '✓ Series Confirmed' : 'Confirm Series';
 
-  seriesSelect.addEventListener('change', () => {
-    const ui = blockUiState[blk.blockNumber] || {
-      seriesId: '',
-      confirmed: false,
-      adminMappings: {},
-    };
-    ui.seriesId = seriesSelect.value;
-    ui.confirmed = false;
-    blockUiState[blk.blockNumber] = ui;
+  select.addEventListener('change', () => {
+    const chosenId = select.value;
+    if (!blockUiState[blk.blockNumber]) {
+      blockUiState[blk.blockNumber] = { seriesId: '', confirmed: false, adminMappings: {} };
+    }
+    blockUiState[blk.blockNumber].seriesId = chosenId;
+    blockUiState[blk.blockNumber].confirmed = Boolean(chosenId);
     renderCurrentPreviewState();
   });
 
   confirmBtn.addEventListener('click', () => {
-    const ui = blockUiState[blk.blockNumber] || {
-      seriesId: seriesSelect.value,
-      confirmed: false,
-      adminMappings: {},
-    };
-    if (!ui.seriesId) {
-      showToast('warning', `Please select a simulator series for Block ${blk.blockNumber} first.`);
+    const chosenId = select.value;
+    if (!chosenId) {
+      showToast('error', `Please select a simulator series for Block ${blk.blockNumber} first.`);
       return;
     }
-    ui.confirmed = !ui.confirmed;
-    blockUiState[blk.blockNumber] = ui;
+    if (!blockUiState[blk.blockNumber]) {
+      blockUiState[blk.blockNumber] = { seriesId: chosenId, confirmed: true, adminMappings: {} };
+    } else {
+      blockUiState[blk.blockNumber].seriesId = chosenId;
+      blockUiState[blk.blockNumber].confirmed = !blockUiState[blk.blockNumber].confirmed;
+    }
     renderCurrentPreviewState();
   });
 
-  controlsRow.append(seriesSelect, confirmBtn);
-  rightCol.append(seriesLabel, controlsRow);
+  controlsCol.append(select, confirmBtn);
+  topRow.append(infoCol, controlsCol);
+  panel.appendChild(topRow);
 
-  const helpNote = document.createElement('div');
-  helpNote.style.fontSize = 'var(--text-xs)';
-  helpNote.style.color = blockReport.confirmed
-    ? 'var(--color-success-text)'
-    : 'var(--color-warning-text)';
-  helpNote.style.marginTop = '4px';
-  helpNote.textContent = blockReport.confirmed
-    ? `Block ${blk.blockNumber} simulator series is confirmed.`
-    : `Please confirm the simulator series for Block ${blk.blockNumber}. Two blocks must never use the same series.`;
-  rightCol.appendChild(helpNote);
-
-  topRow.append(leftCol, rightCol);
-  wrapper.appendChild(topRow);
-
-  if (blockReport.duplicateSeriesError) {
-    const dupBanner = document.createElement('div');
-    dupBanner.className = 'banner banner-error';
-    dupBanner.style.marginTop = 'var(--space-3)';
-    dupBanner.textContent = `Blocking error: Block ${blk.blockNumber} uses "${blockReport.seriesName}", which is also selected in another block. Two blocks must never use the same simulator series.`;
-    wrapper.appendChild(dupBanner);
-  }
-
-  return wrapper;
+  return panel;
 }
 
 /**
- * Builds the Category Resolution table + Absent Series Categories info for a block
+ * Builds Sub-panel B: Category Resolution & Interactive Admin Mapping Table for a Block
  */
-function buildBlockCategoriesSection(blk, blockReport) {
+function buildBlockCategoriesResolutionTable(blk, blockReport) {
   const wrap = document.createElement('div');
-  wrap.style.marginBottom = 'var(--space-6)';
-
-  const catRes = blockReport.categoryResolution;
-  const counts = catRes.counts;
+  wrap.style.marginBottom = 'var(--space-5)';
 
   const headingRow = document.createElement('div');
   headingRow.style.display = 'flex';
@@ -1394,31 +2052,22 @@ function buildBlockCategoriesSection(blk, blockReport) {
   headingRow.style.alignItems = 'center';
   headingRow.style.flexWrap = 'wrap';
   headingRow.style.gap = 'var(--space-2)';
-  headingRow.style.marginBottom = 'var(--space-3)';
+  headingRow.style.marginBottom = 'var(--space-2)';
 
   const h3 = document.createElement('h3');
   h3.style.fontSize = 'var(--text-base)';
-  h3.textContent = `Block ${blk.blockNumber} Category Resolution (${counts.total} in sheet)`;
+  h3.textContent = `Step 2.${blk.blockNumber}b — Block ${blk.blockNumber} Categories (${formatNum(blk.categories.length)})`;
 
-  const statusBadge = document.createElement('span');
-  statusBadge.className =
-    counts.unmatched > 0 || catRes.errors.length > 0
-      ? 'badge badge-warning num'
-      : 'badge badge-success num';
-  statusBadge.textContent = `${counts.exact} Exact · ${counts.dbAlias} DB Alias · ${counts.builtinAlias} Built-in Alias · ${counts.unmatched} Unmatched`;
+  const sc = blockReport.categoryResolution.summaryCounts;
+  const summaryBadge = document.createElement('span');
+  summaryBadge.className = `badge ${sc.unresolved === 0 ? 'badge-success' : 'badge-warning'} num`;
+  summaryBadge.textContent =
+    sc.unresolved === 0
+      ? `✓ All ${formatNum(sc.total)} Categories Resolved`
+      : `⚠️ ${formatNum(sc.unresolved)} Unresolved Categor${sc.unresolved === 1 ? 'y' : 'ies'}`;
 
-  headingRow.append(h3, statusBadge);
+  headingRow.append(h3, summaryBadge);
   wrap.appendChild(headingRow);
-
-  if (catRes.errors.length > 0) {
-    for (const err of catRes.errors) {
-      const errBanner = document.createElement('div');
-      errBanner.className = 'banner banner-error';
-      errBanner.style.marginBottom = 'var(--space-3)';
-      errBanner.textContent = err.message;
-      wrap.appendChild(errBanner);
-    }
-  }
 
   const tableWrapper = document.createElement('div');
   tableWrapper.className = 'table-wrapper';
@@ -1431,13 +2080,12 @@ function buildBlockCategoriesSection(blk, blockReport) {
   const thead = document.createElement('thead');
   const headTr = document.createElement('tr');
   [
-    '#',
-    'Cell',
+    'CSV Row',
+    'S.No',
     'Sheet Category Name',
-    'Matching Key',
-    'Resolution Priority',
-    'Target Database Category / Action',
-    'Series Check',
+    'Resolution Status',
+    'Resolved DB Category & Series',
+    'Admin Resolution / Override',
   ].forEach((lbl) => {
     const th = document.createElement('th');
     th.textContent = lbl;
@@ -1448,230 +2096,94 @@ function buildBlockCategoriesSection(blk, blockReport) {
 
   const tbody = document.createElement('tbody');
 
-  for (const cat of catRes.categories) {
+  for (const catItem of blockReport.categoryResolution.items) {
     const tr = document.createElement('tr');
 
-    // 1. Index
-    const tdIdx = document.createElement('td');
-    tdIdx.className = 'num';
-    tdIdx.textContent = cat.indexLabel || '—';
+    // 1. CSV Row
+    const tdRow = document.createElement('td');
+    const codeRow = document.createElement('code');
+    codeRow.className = 'import-cell-ref num';
+    codeRow.textContent = catItem.nameRef || `Row ${catItem.rowNumber}`;
+    tdRow.appendChild(codeRow);
 
-    // 2. Cell ref
-    const tdRef = document.createElement('td');
-    const refCode = document.createElement('code');
-    refCode.className = 'import-cell-ref num';
-    refCode.textContent = cat.ref;
-    tdRef.appendChild(refCode);
+    // 2. S.No
+    const tdSno = document.createElement('td');
+    tdSno.className = 'num';
+    tdSno.textContent = String(catItem.sNo ?? '');
 
     // 3. Sheet Category Name
     const tdName = document.createElement('td');
     tdName.style.fontWeight = '600';
-    tdName.textContent = cat.sheetName;
+    tdName.textContent = catItem.rawName;
 
-    // 4. Matching Key (lowercase with all whitespace removed)
-    const tdKey = document.createElement('td');
-    const keyCode = document.createElement('code');
-    keyCode.className = 'import-cell-ref num';
-    keyCode.textContent = cat.rawKey;
-    tdKey.appendChild(keyCode);
-
-    // 5. Resolution Priority / Source badge
+    // 4. Resolution Status Badge
     const tdStatus = document.createElement('td');
-    const badge = document.createElement('span');
-    if (cat.effectiveStatus === 'db_alias') {
-      badge.className = 'badge badge-success';
-      badge.textContent = '1. DB Alias';
-    } else if (cat.effectiveStatus === 'builtin_alias') {
-      badge.className = 'badge badge-success';
-      badge.textContent = '2. Built-in Alias';
-    } else if (cat.effectiveStatus === 'exact') {
-      badge.className = 'badge badge-success';
-      badge.textContent = '3. Exact Match';
-    } else if (cat.effectiveStatus === 'mapped_existing') {
-      badge.className = 'badge badge-success';
-      badge.textContent = 'Mapped by Admin';
-    } else if (cat.effectiveStatus === 'create_historical') {
-      badge.className = 'badge badge-inactive';
-      badge.textContent = 'Create Inactive Category';
-    } else if (cat.effectiveStatus === 'skipped') {
-      badge.className = 'badge badge-inactive';
-      badge.textContent = 'Skipped';
+    const statusBadgeEl = document.createElement('span');
+    statusBadgeEl.className = 'badge num';
+
+    if (catItem.resolutionStatus === 'in_selected_series') {
+      statusBadgeEl.classList.add('badge-success');
+      statusBadgeEl.textContent =
+        catItem.matchedVia === 'db_alias'
+          ? 'In Series (Saved Alias)'
+          : catItem.matchedVia === 'builtin_alias'
+            ? 'In Series (Built-in Alias)'
+            : 'In Selected Series';
+    } else if (catItem.resolutionStatus === 'in_other_series_only') {
+      statusBadgeEl.classList.add('badge-warning');
+      statusBadgeEl.textContent = 'In Another Series Only (Will Link)';
+    } else if (catItem.resolutionStatus === 'mapped_by_admin') {
+      statusBadgeEl.classList.add('badge-success');
+      statusBadgeEl.textContent = 'Mapped by Admin';
+    } else if (catItem.resolutionStatus === 'create_historical') {
+      statusBadgeEl.classList.add('badge-warning');
+      statusBadgeEl.textContent = 'New Inactive Category (Historical)';
+    } else if (catItem.resolutionStatus === 'skipped_by_admin') {
+      statusBadgeEl.classList.add('badge-inactive');
+      statusBadgeEl.textContent = 'Skipped by Admin';
     } else {
-      badge.className = 'badge badge-warning';
-      badge.textContent = 'Unmatched';
+      statusBadgeEl.style.backgroundColor = 'var(--color-danger-subtle)';
+      statusBadgeEl.style.color = 'var(--color-danger-text)';
+      statusBadgeEl.textContent = 'Unknown / Unresolved';
     }
-    tdStatus.appendChild(badge);
+    tdStatus.appendChild(statusBadgeEl);
 
-    // 6. Target Database Category / Action
-    const tdAction = document.createElement('td');
-    if (cat.autoMatchType !== 'unmatched') {
-      const matchedText = document.createElement('span');
-      matchedText.style.fontSize = 'var(--text-sm)';
-      const inactiveNote =
-        cat.resolvedCategory && !cat.resolvedCategory.active ? ' (Inactive in DB)' : '';
-      matchedText.textContent =
-        cat.autoMatchType === 'db_alias' || cat.autoMatchType === 'builtin_alias'
-          ? `→ ${cat.resolvedCategory.name}${inactiveNote} (from alias "${cat.rawKey}")`
-          : `→ ${cat.resolvedCategory.name}${inactiveNote}`;
-      tdAction.appendChild(matchedText);
-    } else {
-      // Unmatched category: let admin choose resolution + optional Save Alias checkbox
-      const actionWrap = document.createElement('div');
-      actionWrap.style.display = 'flex';
-      actionWrap.style.flexDirection = 'column';
-      actionWrap.style.gap = '4px';
+    // 5. Resolved DB Category & Series membership
+    const tdTarget = document.createElement('td');
+    tdTarget.style.fontSize = 'var(--text-xs)';
+    if (catItem.resolvedCategoryName) {
+      const strong = document.createElement('strong');
+      strong.textContent = catItem.resolvedCategoryName;
+      tdTarget.appendChild(strong);
 
-      const select = document.createElement('select');
-      select.className = 'form-select';
-      select.style.fontSize = 'var(--text-xs)';
-      select.style.padding = '4px 8px';
-      select.style.minHeight = '34px';
-      select.setAttribute('aria-label', `Resolve unmatched category ${cat.sheetName}`);
-
-      const optUnresolved = document.createElement('option');
-      optUnresolved.value = 'unmatched';
-      optUnresolved.textContent = `-- Choose resolution for "${cat.sheetName}" --`;
-
-      const optCreate = document.createElement('option');
-      optCreate.value = 'create_historical';
-      optCreate.textContent = `Create "${cat.sheetName}" as an inactive round category & link to series`;
-
-      const optSkip = document.createElement('option');
-      optSkip.value = 'skip';
-      optSkip.textContent = 'Skip this category';
-
-      const optGroup = document.createElement('optgroup');
-      optGroup.label = 'Map to existing database round category';
-
-      for (const dbCat of roundCategories) {
-        const opt = document.createElement('option');
-        opt.value = `map:${dbCat.id}`;
-        opt.textContent = `${dbCat.name}${dbCat.active === false ? ' (Inactive)' : ''}`;
-        optGroup.appendChild(opt);
+      if (catItem.resolvedCategoryActive === false) {
+        const inactTag = document.createElement('span');
+        inactTag.className = 'badge badge-inactive';
+        inactTag.style.marginLeft = '6px';
+        inactTag.textContent = 'Inactive';
+        tdTarget.appendChild(inactTag);
       }
 
-      select.append(optUnresolved, optCreate, optSkip, optGroup);
-
-      if (cat.effectiveStatus === 'mapped_existing' && cat.resolvedCategory) {
-        select.value = `map:${cat.resolvedCategory.id}`;
-      } else if (cat.effectiveStatus === 'create_historical') {
-        select.value = 'create_historical';
-      } else if (cat.effectiveStatus === 'skipped') {
-        select.value = 'skip';
-      } else {
-        select.value = 'unmatched';
+      if (catItem.seriesNames && catItem.seriesNames.length > 0) {
+        const serSub = document.createElement('div');
+        serSub.style.color = 'var(--text-muted)';
+        serSub.style.marginTop = '2px';
+        serSub.textContent = `Linked series: ${catItem.seriesNames.join(', ')}`;
+        tdTarget.appendChild(serSub);
       }
-
-      select.addEventListener('change', () => {
-        const ui = blockUiState[blk.blockNumber] || {
-          seriesId: blockReport.seriesId,
-          confirmed: blockReport.confirmed,
-          adminMappings: {},
-        };
-        const prevChoice = ui.adminMappings[cat.rawKey] || {};
-        const val = select.value;
-        if (val.startsWith('map:')) {
-          ui.adminMappings[cat.rawKey] = {
-            action: 'map',
-            targetCategoryId: val.slice(4),
-            saveAlias: prevChoice.saveAlias !== undefined ? prevChoice.saveAlias : true,
-          };
-        } else if (val === 'create_historical') {
-          ui.adminMappings[cat.rawKey] = {
-            action: 'create_historical',
-            targetCategoryId: null,
-            saveAlias: false,
-          };
-        } else if (val === 'skip') {
-          ui.adminMappings[cat.rawKey] = {
-            action: 'skip',
-            targetCategoryId: null,
-            saveAlias: false,
-          };
-        } else {
-          delete ui.adminMappings[cat.rawKey];
-        }
-        blockUiState[blk.blockNumber] = ui;
-        renderCurrentPreviewState();
-      });
-
-      actionWrap.appendChild(select);
-
-      // Show "Save alias in category_aliases" checkbox when mapped to an existing category
-      if (cat.effectiveStatus === 'mapped_existing' && cat.resolvedCategory) {
-        const aliasLabel = document.createElement('label');
-        aliasLabel.style.display = 'inline-flex';
-        aliasLabel.style.alignItems = 'center';
-        aliasLabel.style.gap = '6px';
-        aliasLabel.style.fontSize = '11px';
-        aliasLabel.style.color = 'var(--text-muted)';
-        aliasLabel.style.cursor = 'pointer';
-
-        const aliasCb = document.createElement('input');
-        aliasCb.type = 'checkbox';
-        aliasCb.checked = cat.saveAlias !== false;
-        aliasCb.addEventListener('change', () => {
-          const ui = blockUiState[blk.blockNumber] || {
-            seriesId: blockReport.seriesId,
-            confirmed: blockReport.confirmed,
-            adminMappings: {},
-          };
-          if (ui.adminMappings[cat.rawKey]) {
-            ui.adminMappings[cat.rawKey].saveAlias = aliasCb.checked;
-            blockUiState[blk.blockNumber] = ui;
-            renderCurrentPreviewState();
-          }
-        });
-
-        const aliasText = document.createElement('span');
-        aliasText.textContent = `Save alias "${cat.rawKey}" → "${cat.resolvedCategory.name}" for future imports`;
-        aliasLabel.append(aliasCb, aliasText);
-        actionWrap.appendChild(aliasLabel);
-      }
-
-      tdAction.appendChild(actionWrap);
-    }
-
-    // 7. Series Check (category_series membership + duplicate check)
-    const tdSeriesCheck = document.createElement('td');
-    if (cat.duplicateTargetError) {
-      const dupBadge = document.createElement('span');
-      dupBadge.className = 'badge num';
-      dupBadge.style.backgroundColor = 'var(--color-danger-subtle)';
-      dupBadge.style.color = 'var(--color-danger-text)';
-      dupBadge.textContent = '🚫 Duplicate Target';
-      tdSeriesCheck.appendChild(dupBadge);
-    } else if (cat.effectiveStatus === 'create_historical') {
-      const createSer = document.createElement('span');
-      createSer.className = 'badge badge-inactive';
-      createSer.textContent = blockReport.seriesName
-        ? `Will create & link to ${blockReport.seriesName}`
-        : 'Will create inactive category';
-      tdSeriesCheck.appendChild(createSer);
-    } else if (!cat.resolvedCategory) {
-      const dash = document.createElement('span');
-      dash.style.fontSize = 'var(--text-xs)';
-      dash.style.color = 'var(--text-dim)';
-      dash.textContent = '—';
-      tdSeriesCheck.appendChild(dash);
-    } else if (!blockReport.seriesId) {
-      const noSer = document.createElement('span');
-      noSer.className = 'badge badge-inactive';
-      noSer.textContent = 'Select series above';
-      tdSeriesCheck.appendChild(noSer);
-    } else if (cat.inSelectedSeries) {
-      const inSer = document.createElement('span');
-      inSer.className = 'badge badge-success num';
-      inSer.textContent = `✓ In ${blockReport.seriesName} (#${cat.seriesSortOrder})`;
-      tdSeriesCheck.appendChild(inSer);
+    } else if (catItem.resolutionStatus === 'skipped_by_admin') {
+      tdTarget.style.color = 'var(--text-muted)';
+      tdTarget.textContent = 'Row will be ignored during import';
     } else {
-      const notInSer = document.createElement('span');
-      notInSer.className = 'badge badge-warning';
-      notInSer.textContent = `⚠️ Will link to ${blockReport.seriesName}`;
-      tdSeriesCheck.appendChild(notInSer);
+      tdTarget.style.color = 'var(--color-danger-text)';
+      tdTarget.textContent = 'Choose action on the right →';
     }
 
-    tr.append(tdIdx, tdRef, tdName, tdKey, tdStatus, tdAction, tdSeriesCheck);
+    // 6. Admin Resolution / Override Controls
+    const tdControls = document.createElement('td');
+    tdControls.appendChild(buildCategoryAdminDecisionControl(blk.blockNumber, catItem));
+
+    tr.append(tdRow, tdSno, tdName, tdStatus, tdTarget, tdControls);
     tbody.appendChild(tr);
   }
 
@@ -1679,35 +2191,425 @@ function buildBlockCategoriesSection(blk, blockReport) {
   tableWrapper.appendChild(table);
   wrap.appendChild(tableWrapper);
 
-  // Informational box: Series round categories absent from this block
-  if (catRes.absentCategories.length > 0) {
-    const absentBox = document.createElement('div');
-    absentBox.style.marginTop = 'var(--space-2)';
-    absentBox.style.padding = 'var(--space-2) var(--space-3)';
-    absentBox.style.backgroundColor = 'var(--bg-surface-subtle)';
-    absentBox.style.borderRadius = 'var(--radius-sm)';
-    absentBox.style.fontSize = 'var(--text-xs)';
-    absentBox.style.color = 'var(--text-muted)';
-
-    const absentLabel = document.createElement('strong');
-    const scopeName = blockReport.seriesName || 'Database';
-    absentLabel.textContent = `${scopeName} categories absent from Block ${blk.blockNumber} (${catRes.absentCategories.length}, info only): `;
-    const absentNames = document.createElement('span');
-    absentNames.textContent = catRes.absentCategories
-      .map((c) => (c.active ? c.name : `${c.name} [inactive]`))
-      .join(', ');
-
-    absentBox.append(absentLabel, absentNames);
-    wrap.appendChild(absentBox);
-  }
-
   return wrap;
 }
 
 /**
- * Builds the Round-by-Round Table with Database Comparison, Cross-Check Chips, and Expandable Cell Drawer
+ * Builds the interactive resolution dropdown + target category picker + "also save as alias" checkbox
+ * for a single category row inside a block
  */
-function buildBlockRoundsSection(blk, blockReport, selectedStudent) {
+function buildCategoryAdminDecisionControl(blockNumber, catItem) {
+  const container = document.createElement('div');
+  container.style.display = 'flex';
+  container.style.flexDirection = 'column';
+  container.style.gap = '6px';
+  container.style.minWidth = '240px';
+
+  const bState = blockUiState[blockNumber] || {
+    seriesId: '',
+    confirmed: false,
+    adminMappings: {},
+  };
+  const currentDecision = bState.adminMappings?.[catItem.rawKey] || {
+    action: 'auto',
+    targetCategoryId: '',
+    saveAlias: false,
+  };
+
+  const actionSelect = document.createElement('select');
+  actionSelect.className = 'form-select';
+  actionSelect.style.fontSize = 'var(--text-xs)';
+  actionSelect.style.padding = '4px 24px 4px 8px';
+  actionSelect.style.minHeight = '30px';
+  actionSelect.setAttribute('aria-label', `Resolution action for ${catItem.rawName}`);
+
+  const autoOpt = document.createElement('option');
+  autoOpt.value = 'auto';
+  autoOpt.textContent =
+    catItem.matchedVia !== 'none'
+      ? `Auto match (${catItem.resolvedCategoryName || 'Matched'})`
+      : '-- Choose how to resolve --';
+  actionSelect.appendChild(autoOpt);
+
+  const mapOpt = document.createElement('option');
+  mapOpt.value = 'map_existing';
+  mapOpt.textContent = 'Map to existing category...';
+  actionSelect.appendChild(mapOpt);
+
+  const createOpt = document.createElement('option');
+  createOpt.value = 'create_historical';
+  createOpt.textContent = `Create "${catItem.rawName}" as historical (inactive) category`;
+  actionSelect.appendChild(createOpt);
+
+  const skipOpt = document.createElement('option');
+  skipOpt.value = 'skip';
+  skipOpt.textContent = 'Skip this category';
+  actionSelect.appendChild(skipOpt);
+
+  actionSelect.value = currentDecision.action || 'auto';
+  container.appendChild(actionSelect);
+
+  if (currentDecision.action === 'map_existing') {
+    const targetSelect = document.createElement('select');
+    targetSelect.className = 'form-select';
+    targetSelect.style.fontSize = 'var(--text-xs)';
+    targetSelect.style.padding = '4px 24px 4px 8px';
+    targetSelect.style.minHeight = '30px';
+
+    const placeholderOpt = document.createElement('option');
+    placeholderOpt.value = '';
+    placeholderOpt.textContent = '-- Select target category --';
+    targetSelect.appendChild(placeholderOpt);
+
+    for (const rc of roundCategories) {
+      const opt = document.createElement('option');
+      opt.value = rc.id;
+      opt.textContent = `${rc.name}${rc.active === false ? ' [Inactive]' : ''}`;
+      if (currentDecision.targetCategoryId === rc.id) {
+        opt.selected = true;
+      }
+      targetSelect.appendChild(opt);
+    }
+
+    targetSelect.addEventListener('change', () => {
+      if (!blockUiState[blockNumber].adminMappings) {
+        blockUiState[blockNumber].adminMappings = {};
+      }
+      blockUiState[blockNumber].adminMappings[catItem.rawKey] = {
+        ...currentDecision,
+        action: 'map_existing',
+        targetCategoryId: targetSelect.value,
+      };
+      renderCurrentPreviewState();
+    });
+
+    container.appendChild(targetSelect);
+
+    // "Also save as alias" checkbox + immediate save button
+    const aliasRow = document.createElement('div');
+    aliasRow.style.display = 'flex';
+    aliasRow.style.alignItems = 'center';
+    aliasRow.style.justifyContent = 'space-between';
+    aliasRow.style.gap = '6px';
+    aliasRow.style.flexWrap = 'wrap';
+
+    const aliasLabel = document.createElement('label');
+    aliasLabel.style.display = 'inline-flex';
+    aliasLabel.style.alignItems = 'center';
+    aliasLabel.style.gap = '4px';
+    aliasLabel.style.fontSize = '11px';
+    aliasLabel.style.color = 'var(--text-muted)';
+    aliasLabel.style.cursor = 'pointer';
+
+    const aliasCheckbox = document.createElement('input');
+    aliasCheckbox.type = 'checkbox';
+    aliasCheckbox.checked = Boolean(currentDecision.saveAlias);
+    aliasCheckbox.addEventListener('change', () => {
+      blockUiState[blockNumber].adminMappings[catItem.rawKey] = {
+        ...currentDecision,
+        action: 'map_existing',
+        saveAlias: aliasCheckbox.checked,
+      };
+      renderCurrentPreviewState();
+    });
+
+    const aliasText = document.createElement('span');
+    aliasText.textContent = `Save "${catItem.rawKey}" as alias`;
+    aliasLabel.append(aliasCheckbox, aliasText);
+    aliasRow.appendChild(aliasLabel);
+
+    if (currentDecision.targetCategoryId) {
+      const saveNowBtn = document.createElement('button');
+      saveNowBtn.type = 'button';
+      saveNowBtn.className = 'btn btn-outline btn-sm';
+      saveNowBtn.style.padding = '2px 6px';
+      saveNowBtn.style.minHeight = '22px';
+      saveNowBtn.style.fontSize = '11px';
+      saveNowBtn.textContent = 'Save alias now';
+      saveNowBtn.addEventListener('click', async () => {
+        await saveCategoryAliasToDatabase(catItem.rawKey, currentDecision.targetCategoryId);
+      });
+      aliasRow.appendChild(saveNowBtn);
+    }
+
+    container.appendChild(aliasRow);
+  }
+
+  actionSelect.addEventListener('change', () => {
+    const nextAction = actionSelect.value;
+    if (!blockUiState[blockNumber].adminMappings) {
+      blockUiState[blockNumber].adminMappings = {};
+    }
+    if (nextAction === 'auto') {
+      delete blockUiState[blockNumber].adminMappings[catItem.rawKey];
+    } else {
+      blockUiState[blockNumber].adminMappings[catItem.rawKey] = {
+        action: nextAction,
+        targetCategoryId:
+          nextAction === 'map_existing' ? currentDecision.targetCategoryId || '' : '',
+        saveAlias: nextAction === 'map_existing' ? Boolean(currentDecision.saveAlias) : false,
+      };
+    }
+    renderCurrentPreviewState();
+  });
+
+  return container;
+}
+
+/**
+ * Builds the inline Round Editor row (`<tr>`) for Phase 4c-2d:
+ * - Round date (`YYYY-MM-DD`, date picker)
+ * - Round type (choose `Flat Round`, `Category wise`, or type a custom value up to 40 characters)
+ * - Total time (`h:mm:ss`; empty means no total time)
+ * - "Skip this round" switch
+ * - "Save Round Edit", "Cancel", and "Reset to sheet value"
+ */
+function buildInlineRoundEditorTr(blk, rnd, colSpan) {
+  const editorTr = document.createElement('tr');
+  editorTr.id = `round-editor-${blk.blockNumber}-${rnd.roundNumber}`;
+
+  const td = document.createElement('td');
+  td.colSpan = colSpan;
+  td.style.padding = 'var(--space-3) var(--space-4)';
+  td.style.backgroundColor = 'var(--bg-surface)';
+
+  const box = document.createElement('div');
+  box.className = 'import-inline-editor';
+
+  const headerRow = document.createElement('div');
+  headerRow.style.display = 'flex';
+  headerRow.style.justifyContent = 'space-between';
+  headerRow.style.alignItems = 'center';
+  headerRow.style.flexWrap = 'wrap';
+  headerRow.style.gap = 'var(--space-2)';
+  headerRow.style.marginBottom = 'var(--space-3)';
+
+  const title = document.createElement('strong');
+  title.style.fontSize = 'var(--text-sm)';
+  title.textContent = `Edit Block ${blk.blockNumber} · Round ${rnd.roundNumber}`;
+
+  const origMeta = document.createElement('span');
+  origMeta.className = 'num';
+  origMeta.style.fontSize = '11px';
+  origMeta.style.color = 'var(--text-muted)';
+  const origValues = rnd.originalValues || {};
+  origMeta.textContent = `Sheet values — Date: ${origValues.dateISO || origValues.rawDate || '—'} · Type: ${origValues.roundType || '—'} · Time: ${origValues.timeTakenDisplay || origValues.timeTakenRaw || '—'}`;
+
+  headerRow.append(title, origMeta);
+  box.appendChild(headerRow);
+
+  const grid = document.createElement('div');
+  grid.className = 'import-inline-editor-grid';
+
+  // 1. Round Date (YYYY-MM-DD)
+  const dateGroup = document.createElement('div');
+  dateGroup.className = 'form-group';
+  dateGroup.style.marginBottom = '0';
+  const dateLbl = document.createElement('label');
+  dateLbl.className = 'form-label';
+  dateLbl.style.fontSize = 'var(--text-xs)';
+  dateLbl.textContent = 'Round Date (YYYY-MM-DD)';
+  const dateInput = document.createElement('input');
+  dateInput.type = 'date';
+  dateInput.className = 'form-input num';
+  dateInput.style.fontSize = 'var(--text-xs)';
+  dateInput.min = '2020-01-01';
+  dateInput.max = todayIST || getISTDateString(new Date());
+  dateInput.value = rnd.dateISO || '';
+  dateInput.setAttribute('data-field', 'round-date');
+  dateGroup.append(dateLbl, dateInput);
+
+  // 2. Round Type (Flat Round, Category wise, or custom up to 40 chars)
+  const typeGroup = document.createElement('div');
+  typeGroup.className = 'form-group';
+  typeGroup.style.marginBottom = '0';
+  const typeLbl = document.createElement('label');
+  typeLbl.className = 'form-label';
+  typeLbl.style.fontSize = 'var(--text-xs)';
+  typeLbl.textContent = 'Round Type (max 40 chars)';
+
+  const currentType = rnd.summary.roundType || '';
+  const presetTypes = ['Flat Round', 'Category wise'];
+  const isCustomType = currentType !== '' && !presetTypes.includes(currentType);
+
+  const typeSelect = document.createElement('select');
+  typeSelect.className = 'form-select';
+  typeSelect.style.fontSize = 'var(--text-xs)';
+  typeSelect.setAttribute('data-field', 'round-type-select');
+
+  [
+    { value: 'Flat Round', label: 'Flat Round' },
+    { value: 'Category wise', label: 'Category wise' },
+    { value: '__custom__', label: 'Custom value (up to 40 chars)...' },
+    { value: '', label: '(Empty / None)' },
+  ].forEach((optItem) => {
+    const opt = document.createElement('option');
+    opt.value = optItem.value;
+    opt.textContent = optItem.label;
+    typeSelect.appendChild(opt);
+  });
+
+  if (isCustomType) {
+    typeSelect.value = '__custom__';
+  } else {
+    typeSelect.value = currentType;
+  }
+
+  const customTypeInput = document.createElement('input');
+  customTypeInput.type = 'text';
+  customTypeInput.className = 'form-input';
+  customTypeInput.style.fontSize = 'var(--text-xs)';
+  customTypeInput.style.marginTop = '6px';
+  customTypeInput.maxLength = 40;
+  customTypeInput.placeholder = 'Enter custom round type (max 40 chars)...';
+  customTypeInput.value = isCustomType ? currentType : '';
+  customTypeInput.style.display = isCustomType ? 'block' : 'none';
+
+  typeSelect.addEventListener('change', () => {
+    if (typeSelect.value === '__custom__') {
+      customTypeInput.style.display = 'block';
+      customTypeInput.focus();
+    } else {
+      customTypeInput.style.display = 'none';
+    }
+  });
+
+  typeGroup.append(typeLbl, typeSelect, customTypeInput);
+
+  // 3. Total Time (h:mm:ss; empty means no total time)
+  const timeGroup = document.createElement('div');
+  timeGroup.className = 'form-group';
+  timeGroup.style.marginBottom = '0';
+  const timeLbl = document.createElement('label');
+  timeLbl.className = 'form-label';
+  timeLbl.style.fontSize = 'var(--text-xs)';
+  timeLbl.textContent = 'Total Time (h:mm:ss, max 8:00:00)';
+  const timeInput = document.createElement('input');
+  timeInput.type = 'text';
+  timeInput.className = 'form-input num';
+  timeInput.style.fontSize = 'var(--text-xs)';
+  timeInput.placeholder = 'e.g. 0:59:23 (empty = no total time)';
+  timeInput.setAttribute('data-field', 'round-time');
+  timeInput.value =
+    rnd.summary.timeTakenSeconds !== null && rnd.summary.timeTakenSeconds !== undefined
+      ? formatSecondsDisplay(rnd.summary.timeTakenSeconds, true)
+      : '';
+  timeGroup.append(timeLbl, timeInput);
+
+  // 4. "Skip this round" switch
+  const skipGroup = document.createElement('div');
+  skipGroup.className = 'form-group';
+  skipGroup.style.marginBottom = '0';
+  const skipLblHeader = document.createElement('span');
+  skipLblHeader.className = 'form-label';
+  skipLblHeader.style.fontSize = 'var(--text-xs)';
+  skipLblHeader.style.display = 'block';
+  skipLblHeader.textContent = 'Skip Round';
+
+  const skipSwitchLabel = document.createElement('label');
+  skipSwitchLabel.style.display = 'inline-flex';
+  skipSwitchLabel.style.alignItems = 'center';
+  skipSwitchLabel.style.gap = '8px';
+  skipSwitchLabel.style.fontSize = 'var(--text-xs)';
+  skipSwitchLabel.style.fontWeight = '600';
+  skipSwitchLabel.style.cursor = 'pointer';
+  skipSwitchLabel.style.marginTop = '8px';
+
+  const skipCheckbox = document.createElement('input');
+  skipCheckbox.type = 'checkbox';
+  skipCheckbox.checked = Boolean(rnd.roundSkippedByAdmin);
+
+  const skipSpan = document.createElement('span');
+  skipSpan.textContent = 'Skip this round (do not import)';
+  skipSwitchLabel.append(skipCheckbox, skipSpan);
+  skipGroup.append(skipLblHeader, skipSwitchLabel);
+
+  grid.append(dateGroup, typeGroup, timeGroup, skipGroup);
+  box.appendChild(grid);
+
+  const errorBanner = document.createElement('div');
+  errorBanner.className = 'banner banner-error';
+  errorBanner.style.display = 'none';
+  errorBanner.style.marginTop = 'var(--space-3)';
+  errorBanner.style.fontSize = 'var(--text-xs)';
+  box.appendChild(errorBanner);
+
+  const actionsRow = document.createElement('div');
+  actionsRow.className = 'import-inline-editor-actions';
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.className = 'btn btn-outline btn-sm';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', () => {
+    activeRoundEditor = null;
+    renderCurrentPreviewState();
+  });
+
+  if (rnd.isEdited || rnd.roundSkippedByAdmin) {
+    const resetBtn = document.createElement('button');
+    resetBtn.type = 'button';
+    resetBtn.className = 'btn btn-outline btn-sm';
+    resetBtn.textContent = 'Reset to sheet value';
+    resetBtn.addEventListener('click', () => {
+      resetRoundEditToSheetValue(blk.blockNumber, rnd.roundNumber);
+    });
+    actionsRow.appendChild(resetBtn);
+  }
+
+  const saveBtn = document.createElement('button');
+  saveBtn.type = 'button';
+  saveBtn.className = 'btn btn-primary btn-sm';
+  saveBtn.textContent = 'Save Round Edit';
+  saveBtn.addEventListener('click', () => {
+    errorBanner.style.display = 'none';
+    const chosenType =
+      typeSelect.value === '__custom__' ? customTypeInput.value.trim() : typeSelect.value;
+
+    const validation = validateRoundEdit(
+      {
+        skip: skipCheckbox.checked,
+        roundDate: dateInput.value.trim(),
+        roundType: chosenType,
+        timeTakenRaw: timeInput.value.trim(),
+      },
+      { todayIST: todayIST || getISTDateString(new Date()) }
+    );
+
+    if (!validation.ok) {
+      errorBanner.textContent = validation.error;
+      errorBanner.style.display = 'block';
+      return;
+    }
+
+    const rKey = `${blk.blockNumber}-${rnd.roundNumber}`;
+    if (!previewEditState.rounds) previewEditState.rounds = {};
+    previewEditState.rounds[rKey] = {
+      skip: validation.value.skip,
+      roundDate: validation.value.roundDate,
+      roundType: validation.value.roundType,
+      timeTakenSeconds: validation.value.timeTakenSeconds,
+    };
+
+    activeRoundEditor = null;
+    renderCurrentPreviewState();
+    showToast('success', `Updated Block ${blk.blockNumber} · Round ${rnd.roundNumber} in preview.`);
+  });
+
+  actionsRow.append(cancelBtn, saveBtn);
+  box.appendChild(actionsRow);
+  td.appendChild(box);
+  editorTr.appendChild(td);
+
+  return editorTr;
+}
+
+/**
+ * Builds Sub-panel C: Rounds & Cell-by-Cell Database Comparison Table for a Block,
+ * including Phase 4c-2d Round Edits ("Edit", "Fix", "Edited" chip, "Reset to sheet value")
+ * and Cell Edits inside the expandable drawer.
+ */
+function buildBlockRoundsComparisonTable(blk, blockReport, selectedStudent) {
   const wrap = document.createElement('div');
   const dataComp = blockReport.dataComparison;
   const roundCompByNum = new Map(
@@ -1724,14 +2626,14 @@ function buildBlockRoundsSection(blk, blockReport, selectedStudent) {
 
   const h3 = document.createElement('h3');
   h3.style.fontSize = 'var(--text-base)';
-  h3.textContent = `Block ${blk.blockNumber} Rounds & Database Comparison (${blk.rounds.length})`;
+  h3.textContent = `Block ${blk.blockNumber} Rounds & Database Comparison (${formatNum(blk.rounds.length)})`;
 
   const rc = dataComp.summaryCounts.rounds;
   const compSummaryBadge = document.createElement('span');
   compSummaryBadge.className = 'badge badge-inactive num';
   compSummaryBadge.textContent =
     selectedStudent && blockReport.seriesId
-      ? `${rc.newRounds} New · ${rc.existingIdentical} Identical · ${rc.existingAddsCells} Add Scores · ${rc.existingWithConflicts} Diff/Conflict`
+      ? `${formatNum(rc.newRounds)} New · ${formatNum(rc.existingIdentical)} Identical · ${formatNum(rc.existingAddsCells)} Add Scores · ${formatNum(rc.existingWithConflicts)} Diff/Conflict`
       : 'Select student & series to compare';
 
   headingRow.append(h3, compSummaryBadge);
@@ -1756,9 +2658,12 @@ function buildBlockRoundsSection(blk, blockReport, selectedStudent) {
     dbOnlyBar.style.color = 'var(--text-muted)';
     dbOnlyBar.className = 'num';
     const listStr = dataComp.dbOnlyRounds
-      .map((r) => `Round ${r.roundNumber} (${r.roundDate}, ${r.scoresCount} scores)`)
+      .map(
+        (r) =>
+          `Round ${r.roundNumber} (${normalizeShortMonths(formatDisplayDateIST(r.roundDate))}, ${formatNum(r.scoresCount)} scores)`
+      )
       .join(' · ');
-    dbOnlyBar.textContent = `ℹ️ Existing rounds in "${blockReport.seriesName}" not in this sheet (${dataComp.dbOnlyRounds.length}, kept untouched): ${listStr}`;
+    dbOnlyBar.textContent = `ℹ️ Existing rounds in "${blockReport.seriesName}" not in this sheet (${formatNum(dataComp.dbOnlyRounds.length)}, kept untouched): ${listStr}`;
     wrap.appendChild(dbOnlyBar);
   }
 
@@ -1772,7 +2677,7 @@ function buildBlockRoundsSection(blk, blockReport, selectedStudent) {
 
   const thead = document.createElement('thead');
   const headTr = document.createElement('tr');
-  [
+  const colHeaders = [
     'Round #',
     'Date (IST)',
     'Round Type',
@@ -1781,8 +2686,9 @@ function buildBlockRoundsSection(blk, blockReport, selectedStudent) {
     'Cells Status',
     'Cross-Checks (Tap chip)',
     'Date Flags',
-    'Inspect Cells',
-  ].forEach((lbl) => {
+    'Actions & Cells',
+  ];
+  colHeaders.forEach((lbl) => {
     const th = document.createElement('th');
     th.textContent = lbl;
     headTr.appendChild(th);
@@ -1794,11 +2700,24 @@ function buildBlockRoundsSection(blk, blockReport, selectedStudent) {
 
   for (const rnd of blk.rounds) {
     const rComp = roundCompByNum.get(Number(rnd.roundNumber)) || null;
-    const tr = document.createElement('tr');
+    const roundKey = `${blk.blockNumber}-${rnd.roundNumber}`;
+    const isRoundExpanded = expandedRoundKeys.has(roundKey);
+    const isEditorOpen =
+      activeRoundEditor &&
+      activeRoundEditor.blockNumber === blk.blockNumber &&
+      activeRoundEditor.roundNumber === rnd.roundNumber;
 
-    // 1. Round #
+    const tr = document.createElement('tr');
+    if (rnd.roundSkippedByAdmin) {
+      tr.classList.add('import-row-skipped');
+    } else if (rnd.roundExcluded) {
+      tr.style.opacity = '0.78';
+    }
+
+    // 1. Round # + Edited / Skipped / Excluded Badges
     const tdRound = document.createElement('td');
     tdRound.className = 'num';
+    tdRound.style.whiteSpace = 'nowrap';
     const rStrong = document.createElement('strong');
     rStrong.textContent = `Round ${rnd.roundNumber}`;
     const rRef = document.createElement('code');
@@ -1807,24 +2726,58 @@ function buildBlockRoundsSection(blk, blockReport, selectedStudent) {
     rRef.textContent = rnd.headerRef;
     tdRound.append(rStrong, rRef);
 
-    // 2. Date
+    const statusChipsDiv = document.createElement('div');
+    statusChipsDiv.style.display = 'flex';
+    statusChipsDiv.style.flexWrap = 'wrap';
+    statusChipsDiv.style.gap = '4px';
+    statusChipsDiv.style.marginTop = '4px';
+
+    if (rnd.isEdited || rnd.roundSkippedByAdmin) {
+      const editedChip = document.createElement('span');
+      editedChip.className = 'import-edited-chip num';
+      editedChip.textContent = rnd.roundSkippedByAdmin ? '✏️ Skipped' : '✏️ Edited';
+      statusChipsDiv.appendChild(editedChip);
+    }
+
+    if (rnd.roundExcluded && !rnd.roundSkippedByAdmin) {
+      const exclBadge = document.createElement('span');
+      exclBadge.className = 'badge badge-warning num';
+      exclBadge.textContent = 'EXCLUDED';
+      exclBadge.title = rnd.roundExclusionReason || 'Excluded by DB validation limits';
+      statusChipsDiv.appendChild(exclBadge);
+    }
+
+    if (statusChipsDiv.childNodes.length > 0) {
+      tdRound.appendChild(statusChipsDiv);
+    }
+
+    // 2. Date (consistent 3-letter month name, e.g. Sep not Sept)
     const tdDate = document.createElement('td');
     tdDate.className = 'num';
+    tdDate.style.whiteSpace = 'nowrap';
     if (rnd.dateStatus === 'ok' && rnd.dateISO) {
       const dateMain = document.createElement('div');
       dateMain.style.fontWeight = '600';
-      dateMain.textContent = rnd.dateISO;
+      dateMain.textContent = normalizeShortMonths(formatDisplayDateIST(rnd.dateISO));
       const dateSub = document.createElement('div');
       dateSub.style.fontSize = '11px';
       dateSub.style.color = 'var(--text-dim)';
-      dateSub.textContent = `${formatDisplayDateIST(rnd.dateISO)} (${rnd.dateRef})`;
+      dateSub.textContent = `${rnd.dateISO} · ${rnd.dateRef}`;
       tdDate.append(dateMain, dateSub);
+
+      if (rnd.editedFields?.roundDate) {
+        const edTag = document.createElement('span');
+        edTag.className = 'import-edited-chip';
+        edTag.style.marginTop = '2px';
+        edTag.textContent = 'Edited';
+        tdDate.appendChild(edTag);
+      }
 
       if (rComp && rComp.dateDiffers && rComp.existingRound) {
         const dbDateDiff = document.createElement('div');
         dbDateDiff.style.fontSize = '11px';
         dbDateDiff.style.color = 'var(--color-warning-text)';
-        dbDateDiff.textContent = `DB Date: ${rComp.existingRound.round_date}`;
+        dbDateDiff.textContent = `DB Date: ${normalizeShortMonths(formatDisplayDateIST(rComp.existingRound.round_date))}`;
         tdDate.appendChild(dbDateDiff);
       }
     } else {
@@ -1842,6 +2795,20 @@ function buildBlockRoundsSection(blk, blockReport, selectedStudent) {
     const typeMain = document.createElement('div');
     typeMain.textContent = rnd.summary.roundType || '—';
     tdType.appendChild(typeMain);
+    if (rnd.editedFields?.roundType) {
+      const edTag = document.createElement('span');
+      edTag.className = 'import-edited-chip';
+      edTag.style.marginTop = '2px';
+      edTag.textContent = 'Edited';
+      tdType.appendChild(edTag);
+    }
+    if (rnd.summary.roundTypeTruncated) {
+      const truncNote = document.createElement('div');
+      truncNote.style.fontSize = '11px';
+      truncNote.style.color = 'var(--color-warning-text)';
+      truncNote.textContent = 'Cut to 40 chars';
+      tdType.appendChild(truncNote);
+    }
     if (rComp && rComp.typeDiffers && rComp.existingRound) {
       const dbTypeDiff = document.createElement('div');
       dbTypeDiff.style.fontSize = '11px';
@@ -1853,15 +2820,29 @@ function buildBlockRoundsSection(blk, blockReport, selectedStudent) {
     // 4. Time Taken
     const tdTime = document.createElement('td');
     tdTime.className = 'num';
-    if (rnd.summary.timeTakenUnreadable) {
+    tdTime.style.whiteSpace = 'nowrap';
+    if (rnd.summary.timeTakenExceedsLimit) {
+      const overTime = document.createElement('span');
+      overTime.className = 'badge badge-warning num';
+      overTime.textContent = `${rnd.summary.timeTakenRaw} (> 8h → NULL)`;
+      overTime.title = `Cell ${rnd.summary.timeTakenRef} exceeds 28,800s (8h); round will be imported WITHOUT a total time`;
+      tdTime.appendChild(overTime);
+    } else if (rnd.summary.timeTakenUnreadable) {
       const badTime = document.createElement('span');
       badTime.className = 'badge badge-warning num';
-      badTime.textContent = `Unreadable: "${rnd.summary.timeTakenRaw}" (${rnd.summary.timeTakenRef})`;
+      badTime.textContent = `Unreadable: "${rnd.summary.timeTakenRaw}"`;
       tdTime.appendChild(badTime);
     } else {
       const timeMain = document.createElement('div');
       timeMain.textContent = rnd.summary.timeTakenDisplay || '—';
       tdTime.appendChild(timeMain);
+      if (rnd.editedFields?.timeTakenSeconds) {
+        const edTag = document.createElement('span');
+        edTag.className = 'import-edited-chip';
+        edTag.style.marginTop = '2px';
+        edTag.textContent = 'Edited';
+        tdTime.appendChild(edTag);
+      }
       if (rComp && rComp.timeTakenDiffers && rComp.existingRound) {
         const dbTimeDiff = document.createElement('div');
         dbTimeDiff.style.fontSize = '11px';
@@ -1874,7 +2855,17 @@ function buildBlockRoundsSection(blk, blockReport, selectedStudent) {
     // 5. DB Comparison Status
     const tdDbComp = document.createElement('td');
     tdDbComp.className = 'num';
-    if (!selectedStudent || !blockReport.seriesId || !rComp) {
+    if (rnd.roundSkippedByAdmin) {
+      const skipStatus = document.createElement('span');
+      skipStatus.className = 'badge badge-inactive';
+      skipStatus.textContent = 'Skipped by Admin';
+      tdDbComp.appendChild(skipStatus);
+    } else if (rnd.roundExcluded) {
+      const exclStatus = document.createElement('span');
+      exclStatus.className = 'badge badge-warning';
+      exclStatus.textContent = 'Excluded from Import';
+      tdDbComp.appendChild(exclStatus);
+    } else if (!selectedStudent || !blockReport.seriesId || !rComp) {
       const pendingBadge = document.createElement('span');
       pendingBadge.className = 'badge badge-inactive';
       pendingBadge.textContent = 'Select student & series';
@@ -1884,13 +2875,13 @@ function buildBlockRoundsSection(blk, blockReport, selectedStudent) {
       const cCounts = rComp.counts;
       if (rComp.roundComparisonStatus === 'new') {
         compBadge.className = 'badge badge-success num';
-        compBadge.textContent = `NEW ROUND (+${cCounts.newCells})`;
+        compBadge.textContent = `NEW ROUND (+${formatNum(cCounts.newCells)})`;
       } else if (rComp.roundComparisonStatus === 'identical') {
         compBadge.className = 'badge badge-inactive num';
-        compBadge.textContent = `IDENTICAL IN DB (${cCounts.identicalCells})`;
+        compBadge.textContent = `IDENTICAL IN DB (${formatNum(cCounts.identicalCells)})`;
       } else if (rComp.roundComparisonStatus === 'adds_cells') {
         compBadge.className = 'badge badge-success num';
-        compBadge.textContent = `EXISTING · +${cCounts.newCells} NEW`;
+        compBadge.textContent = `EXISTING · +${formatNum(cCounts.newCells)} NEW`;
       } else {
         compBadge.className = 'badge badge-warning num';
         compBadge.textContent = 'EXISTING · HAS DIFFERENCES';
@@ -1902,12 +2893,14 @@ function buildBlockRoundsSection(blk, blockReport, selectedStudent) {
       subComp.style.color = 'var(--text-dim)';
       subComp.style.marginTop = '3px';
       const detailParts = [];
-      if (cCounts.newCells > 0) detailParts.push(`${cCounts.newCells} new`);
-      if (cCounts.identicalCells > 0) detailParts.push(`${cCounts.identicalCells} identical`);
-      if (cCounts.conflictCells > 0) detailParts.push(`${cCounts.conflictCells} conflict`);
+      if (cCounts.newCells > 0) detailParts.push(`${formatNum(cCounts.newCells)} new`);
+      if (cCounts.identicalCells > 0)
+        detailParts.push(`${formatNum(cCounts.identicalCells)} identical`);
+      if (cCounts.conflictCells > 0)
+        detailParts.push(`${formatNum(cCounts.conflictCells)} conflict`);
       if (cCounts.protectedConflictCells > 0)
-        detailParts.push(`${cCounts.protectedConflictCells} protected`);
-      if (cCounts.dbOnlyCells > 0) detailParts.push(`${cCounts.dbOnlyCells} DB-only`);
+        detailParts.push(`${formatNum(cCounts.protectedConflictCells)} protected`);
+      if (cCounts.dbOnlyCells > 0) detailParts.push(`${formatNum(cCounts.dbOnlyCells)} DB-only`);
       subComp.textContent = detailParts.join(' · ') || 'No score diffs';
       tdDbComp.appendChild(subComp);
     }
@@ -1915,18 +2908,21 @@ function buildBlockRoundsSection(blk, blockReport, selectedStudent) {
     // 6. Cells OK count
     const tdCells = document.createElement('td');
     tdCells.className = 'num';
+    tdCells.style.whiteSpace = 'nowrap';
     const okSpan = document.createElement('div');
     okSpan.style.fontWeight = '600';
-    okSpan.textContent = `${rnd.computed.okCount} OK`;
+    okSpan.textContent = `${formatNum(rnd.computed.okCount)} OK`;
     const subParts = [];
-    if (rnd.computed.emptyCount > 0) subParts.push(`${rnd.computed.emptyCount} empty`);
-    if (rnd.computed.noteCount > 0) subParts.push(`${rnd.computed.noteCount} note`);
+    if (rnd.computed.emptyCount > 0) subParts.push(`${formatNum(rnd.computed.emptyCount)} empty`);
+    if (rnd.computed.noteCount > 0) subParts.push(`${formatNum(rnd.computed.noteCount)} note`);
     if (rnd.computed.unreadableCount > 0)
-      subParts.push(`${rnd.computed.unreadableCount} unreadable`);
+      subParts.push(`${formatNum(rnd.computed.unreadableCount)} unreadable`);
+    if (rnd.computed.skippedCount > 0)
+      subParts.push(`${formatNum(rnd.computed.skippedCount)} skipped`);
     const subSpan = document.createElement('div');
     subSpan.style.fontSize = '11px';
     subSpan.style.color =
-      rnd.computed.unreadableCount > 0 ? 'var(--color-danger-text)' : 'var(--text-dim)';
+      rnd.computed.unreadableCount > 0 ? 'var(--color-warning-text)' : 'var(--text-dim)';
     subSpan.textContent = subParts.join(' · ') || '0 empty';
     tdCells.append(okSpan, subSpan);
 
@@ -1935,7 +2931,7 @@ function buildBlockRoundsSection(blk, blockReport, selectedStudent) {
     const checksWrap = document.createElement('div');
     checksWrap.style.display = 'flex';
     checksWrap.style.flexWrap = 'wrap';
-    checksWrap.style.gap = '4px';
+    checksWrap.style.gap = '6px';
 
     const checkDetailBox = document.createElement('div');
     checkDetailBox.style.fontSize = '11px';
@@ -1962,16 +2958,17 @@ function buildBlockRoundsSection(blk, blockReport, selectedStudent) {
       chip.className = 'badge num';
       chip.style.cursor = 'pointer';
       chip.style.border = '1px solid var(--border-subtle)';
+      chip.style.whiteSpace = 'nowrap';
 
       if (check.status === 'OK') {
         chip.classList.add('badge-success');
-        chip.textContent = `${shortLabel}: OK (${check.computedValue})`;
+        chip.textContent = `${shortLabel}: OK (${formatNum(check.computedValue)})`;
       } else if (check.status === 'MISMATCH') {
         chip.classList.add('badge-warning');
-        const diffStr = check.diff > 0 ? `+${check.diff}` : String(check.diff);
+        const diffStr = check.diff > 0 ? `+${formatNum(check.diff)}` : formatNum(check.diff);
         chip.textContent = `${shortLabel}: MISMATCH (${diffStr})`;
         checkDetailBox.style.display = 'block';
-        checkDetailBox.textContent = `${check.label}: Sheet = ${check.sheetValue}, Computed = ${check.computedValue} (Diff: ${diffStr})`;
+        checkDetailBox.textContent = `${check.label}: Sheet = ${formatNum(check.sheetValue)}, Calculated = ${formatNum(check.computedValue)} (Diff: ${diffStr})`;
       } else if (check.status === 'INCOMPLETE') {
         chip.style.backgroundColor = 'var(--color-danger-subtle)';
         chip.style.color = 'var(--color-danger-text)';
@@ -1985,14 +2982,14 @@ function buildBlockRoundsSection(blk, blockReport, selectedStudent) {
         const diffStr =
           check.diff !== null && check.diff !== undefined
             ? check.diff > 0
-              ? `+${check.diff}`
-              : String(check.diff)
+              ? `+${formatNum(check.diff)}`
+              : formatNum(check.diff)
             : 'N/A';
         const sheetStr =
           check.sheetValue !== null && check.sheetValue !== undefined
-            ? String(check.sheetValue)
+            ? formatNum(check.sheetValue)
             : '—';
-        const text = `${check.label} (${check.status}) — Sheet: ${sheetStr} · Computed from cells: ${check.computedValue} · Diff: ${diffStr}`;
+        const text = `${check.label} (${check.status}) — Sheet: ${sheetStr} · Calculated from cells: ${formatNum(check.computedValue)} · Diff: ${diffStr}`;
         if (checkDetailBox.style.display === 'block' && checkDetailBox.textContent === text) {
           checkDetailBox.style.display = 'none';
         } else {
@@ -2021,6 +3018,7 @@ function buildBlockRoundsSection(blk, blockReport, selectedStudent) {
       for (const f of rnd.dateFlags) {
         const fb = document.createElement('span');
         fb.className = 'badge';
+        fb.style.whiteSpace = 'nowrap';
         if (f.severity === 'error') {
           fb.style.backgroundColor = 'var(--color-danger-subtle)';
           fb.style.color = 'var(--color-danger-text)';
@@ -2036,37 +3034,114 @@ function buildBlockRoundsSection(blk, blockReport, selectedStudent) {
       tdFlags.appendChild(flagWrap);
     }
 
-    // 9. Expandable Cell Drawer Toggle
+    // 9. Actions & Expandable Cell Drawer Toggle
+    //    - "Edit" button for every round
+    //    - Quick action "Fix" button when round has a date or time problem
+    //    - "Reset to sheet value" button when round is edited
+    //    - "Cells (N) ▾" button
     const tdExpand = document.createElement('td');
+    tdExpand.style.whiteSpace = 'nowrap';
+
+    const actionBtnsWrap = document.createElement('div');
+    actionBtnsWrap.style.display = 'flex';
+    actionBtnsWrap.style.flexWrap = 'wrap';
+    actionBtnsWrap.style.gap = '6px';
+    actionBtnsWrap.style.alignItems = 'center';
+
+    const hasDateProblem =
+      rnd.dateStatus !== 'ok' ||
+      rnd.dateFlags.some((f) => f.severity === 'error' || f.severity === 'warning') ||
+      Boolean(rComp && rComp.dateDiffers);
+    const hasTimeProblem =
+      Boolean(rnd.summary.timeTakenExceedsLimit) || Boolean(rnd.summary.timeTakenUnreadable);
+
+    if ((hasDateProblem || hasTimeProblem) && !rnd.roundSkippedByAdmin) {
+      const fixBtn = document.createElement('button');
+      fixBtn.type = 'button';
+      fixBtn.className = 'btn btn-primary btn-sm';
+      fixBtn.textContent = 'Fix';
+      fixBtn.title = hasDateProblem
+        ? 'Fix round date problem in preview'
+        : 'Fix round total time problem in preview';
+      fixBtn.addEventListener('click', () => {
+        openRoundEditorAndScroll(
+          blk.blockNumber,
+          rnd.roundNumber,
+          hasDateProblem ? 'date' : 'time'
+        );
+      });
+      actionBtnsWrap.appendChild(fixBtn);
+    }
+
+    const editRoundBtn = document.createElement('button');
+    editRoundBtn.type = 'button';
+    editRoundBtn.className = 'btn btn-outline btn-sm';
+    editRoundBtn.textContent = isEditorOpen ? 'Close Edit' : 'Edit';
+    editRoundBtn.addEventListener('click', () => {
+      if (isEditorOpen) {
+        activeRoundEditor = null;
+        renderCurrentPreviewState();
+      } else {
+        openRoundEditorAndScroll(blk.blockNumber, rnd.roundNumber, null);
+      }
+    });
+    actionBtnsWrap.appendChild(editRoundBtn);
+
+    if (rnd.isEdited || rnd.roundSkippedByAdmin) {
+      const resetRoundBtn = document.createElement('button');
+      resetRoundBtn.type = 'button';
+      resetRoundBtn.className = 'btn btn-outline btn-sm';
+      resetRoundBtn.textContent = 'Reset to sheet value';
+      resetRoundBtn.addEventListener('click', () => {
+        resetRoundEditToSheetValue(blk.blockNumber, rnd.roundNumber);
+      });
+      actionBtnsWrap.appendChild(resetRoundBtn);
+    }
+
     const expandBtn = document.createElement('button');
     expandBtn.type = 'button';
     expandBtn.className = 'btn btn-outline btn-sm num';
-    expandBtn.setAttribute('aria-expanded', 'false');
-    expandBtn.textContent = `Cells (${rnd.cells.length}) ▾`;
+    expandBtn.setAttribute('aria-expanded', isRoundExpanded ? 'true' : 'false');
+    expandBtn.textContent = isRoundExpanded
+      ? `Hide (${formatNum(rnd.cells.length)}) ▴`
+      : `Cells (${formatNum(rnd.cells.length)}) ▾`;
 
-    // Detail Row (initially hidden)
+    // Detail Row (persists expanded state across live recalculations via expandedRoundKeys)
     const detailTr = document.createElement('tr');
-    detailTr.style.display = 'none';
+    detailTr.style.display = isRoundExpanded ? 'table-row' : 'none';
     detailTr.style.backgroundColor = 'var(--bg-surface-subtle)';
 
     const detailTd = document.createElement('td');
-    detailTd.colSpan = 9;
+    detailTd.colSpan = colHeaders.length;
     detailTd.style.padding = 'var(--space-4)';
     detailTd.appendChild(buildRoundCellsDetailTable(rnd, blk, rComp));
     detailTr.appendChild(detailTd);
 
     expandBtn.addEventListener('click', () => {
       const isHidden = detailTr.style.display === 'none';
+      if (isHidden) {
+        expandedRoundKeys.add(roundKey);
+      } else {
+        expandedRoundKeys.delete(roundKey);
+      }
       detailTr.style.display = isHidden ? 'table-row' : 'none';
       expandBtn.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
       expandBtn.textContent = isHidden
-        ? `Hide (${rnd.cells.length}) ▴`
-        : `Cells (${rnd.cells.length}) ▾`;
+        ? `Hide (${formatNum(rnd.cells.length)}) ▴`
+        : `Cells (${formatNum(rnd.cells.length)}) ▾`;
     });
 
-    tdExpand.appendChild(expandBtn);
+    actionBtnsWrap.appendChild(expandBtn);
+    tdExpand.appendChild(actionBtnsWrap);
+
     tr.append(tdRound, tdDate, tdType, tdTime, tdDbComp, tdCells, tdChecks, tdFlags, tdExpand);
-    tbody.append(tr, detailTr);
+    tbody.appendChild(tr);
+
+    if (isEditorOpen) {
+      tbody.appendChild(buildInlineRoundEditorTr(blk, rnd, colHeaders.length));
+    }
+
+    tbody.appendChild(detailTr);
   }
 
   table.appendChild(tbody);
@@ -2077,10 +3152,237 @@ function buildBlockRoundsSection(blk, blockReport, selectedStudent) {
 }
 
 /**
- * Builds the inner per-cell inspection & database comparison table for an expanded round
+ * Builds the inline Cell Editor row (`<tr>`) for Phase 4c-2d:
+ * - Correct (`0 <= correct <= total`)
+ * - Total (`total >= 1`)
+ * - Time (`m:ss` or `h:mm:ss`, `0` to `4:00:00` / `14400`s)
+ * - Note (up to `500` characters)
+ * - "Skip this cell" checkbox
+ * - Validates with the exact database rules (`validateCellEdit`)
+ */
+function buildInlineCellEditorTr(blk, rnd, cell, colSpan) {
+  const tr = document.createElement('tr');
+  tr.id = `cell-editor-${blk.blockNumber}-${rnd.roundNumber}-${cell.rowIndex}`;
+
+  const td = document.createElement('td');
+  td.colSpan = colSpan;
+  td.style.padding = 'var(--space-3)';
+  td.style.backgroundColor = 'var(--bg-surface)';
+
+  const box = document.createElement('div');
+  box.className = 'import-inline-editor';
+
+  const headerRow = document.createElement('div');
+  headerRow.style.display = 'flex';
+  headerRow.style.justifyContent = 'space-between';
+  headerRow.style.alignItems = 'center';
+  headerRow.style.flexWrap = 'wrap';
+  headerRow.style.gap = 'var(--space-2)';
+  headerRow.style.marginBottom = 'var(--space-3)';
+
+  const title = document.createElement('strong');
+  title.style.fontSize = 'var(--text-xs)';
+  title.textContent = `Edit Cell ${cell.scoreRef} / ${cell.timeRef} — ${cell.categoryName} (Block ${blk.blockNumber} · Round ${rnd.roundNumber})`;
+
+  const origCell = cell.originalValues || {};
+  const origInfo = document.createElement('span');
+  origInfo.className = 'num';
+  origInfo.style.fontSize = '11px';
+  origInfo.style.color = 'var(--text-muted)';
+  origInfo.textContent = `Sheet raw: Score="${origCell.rawScore || ''}", Time="${origCell.rawTime || ''}"`;
+
+  headerRow.append(title, origInfo);
+  box.appendChild(headerRow);
+
+  const grid = document.createElement('div');
+  grid.className = 'import-inline-editor-grid';
+
+  // 1. Correct
+  const corrGroup = document.createElement('div');
+  corrGroup.className = 'form-group';
+  corrGroup.style.marginBottom = '0';
+  const corrLbl = document.createElement('label');
+  corrLbl.className = 'form-label';
+  corrLbl.style.fontSize = '11px';
+  corrLbl.textContent = 'Correct (0 <= correct <= total)';
+  const corrInput = document.createElement('input');
+  corrInput.type = 'number';
+  corrInput.min = '0';
+  corrInput.step = '1';
+  corrInput.className = 'form-input num';
+  corrInput.style.fontSize = 'var(--text-xs)';
+  corrInput.placeholder = 'e.g. 75';
+  corrInput.value = cell.correct !== null && cell.correct !== undefined ? String(cell.correct) : '';
+  corrGroup.append(corrLbl, corrInput);
+
+  // 2. Total
+  const totGroup = document.createElement('div');
+  totGroup.className = 'form-group';
+  totGroup.style.marginBottom = '0';
+  const totLbl = document.createElement('label');
+  totLbl.className = 'form-label';
+  totLbl.style.fontSize = '11px';
+  totLbl.textContent = 'Total (total >= 1)';
+  const totInput = document.createElement('input');
+  totInput.type = 'number';
+  totInput.min = '1';
+  totInput.step = '1';
+  totInput.className = 'form-input num';
+  totInput.style.fontSize = 'var(--text-xs)';
+  totInput.placeholder = 'e.g. 75';
+  totInput.value = cell.total !== null && cell.total !== undefined ? String(cell.total) : '';
+  totGroup.append(totLbl, totInput);
+
+  // 3. Time (m:ss or h:mm:ss, 0 to 4 hours)
+  const timeGroup = document.createElement('div');
+  timeGroup.className = 'form-group';
+  timeGroup.style.marginBottom = '0';
+  const timeLbl = document.createElement('label');
+  timeLbl.className = 'form-label';
+  timeLbl.style.fontSize = '11px';
+  timeLbl.textContent = 'Cell Time (m:ss or h:mm:ss, max 4:00:00)';
+  const timeInput = document.createElement('input');
+  timeInput.type = 'text';
+  timeInput.className = 'form-input num';
+  timeInput.style.fontSize = 'var(--text-xs)';
+  timeInput.placeholder = 'e.g. 1:15 (empty = no time)';
+  timeInput.value =
+    cell.timeSeconds !== null && cell.timeSeconds !== undefined
+      ? formatSecondsDisplay(cell.timeSeconds, false)
+      : '';
+  timeGroup.append(timeLbl, timeInput);
+
+  // 4. Note (max 500 chars)
+  const noteGroup = document.createElement('div');
+  noteGroup.className = 'form-group';
+  noteGroup.style.marginBottom = '0';
+  const noteLbl = document.createElement('label');
+  noteLbl.className = 'form-label';
+  noteLbl.style.fontSize = '11px';
+  noteLbl.textContent = 'Note (max 500 chars; leave score blank for note-only)';
+  const noteInput = document.createElement('input');
+  noteInput.type = 'text';
+  noteInput.maxLength = 500;
+  noteInput.className = 'form-input';
+  noteInput.style.fontSize = 'var(--text-xs)';
+  noteInput.placeholder = 'Optional note...';
+  noteInput.value = cell.note || '';
+  noteGroup.append(noteLbl, noteInput);
+
+  // 5. Skip this cell switch
+  const skipGroup = document.createElement('div');
+  skipGroup.className = 'form-group';
+  skipGroup.style.marginBottom = '0';
+  const skipLblTitle = document.createElement('span');
+  skipLblTitle.className = 'form-label';
+  skipLblTitle.style.fontSize = '11px';
+  skipLblTitle.style.display = 'block';
+  skipLblTitle.textContent = 'Skip Cell';
+
+  const skipCheckLbl = document.createElement('label');
+  skipCheckLbl.style.display = 'inline-flex';
+  skipCheckLbl.style.alignItems = 'center';
+  skipCheckLbl.style.gap = '6px';
+  skipCheckLbl.style.fontSize = 'var(--text-xs)';
+  skipCheckLbl.style.fontWeight = '600';
+  skipCheckLbl.style.cursor = 'pointer';
+  skipCheckLbl.style.marginTop = '8px';
+
+  const skipCb = document.createElement('input');
+  skipCb.type = 'checkbox';
+  skipCb.checked = Boolean(cell.cellSkippedByAdmin);
+
+  const skipTxt = document.createElement('span');
+  skipTxt.textContent = 'Skip this cell';
+  skipCheckLbl.append(skipCb, skipTxt);
+  skipGroup.append(skipLblTitle, skipCheckLbl);
+
+  grid.append(corrGroup, totGroup, timeGroup, noteGroup, skipGroup);
+  box.appendChild(grid);
+
+  const errBanner = document.createElement('div');
+  errBanner.className = 'banner banner-error';
+  errBanner.style.display = 'none';
+  errBanner.style.marginTop = 'var(--space-2)';
+  errBanner.style.fontSize = 'var(--text-xs)';
+  box.appendChild(errBanner);
+
+  const actionsRow = document.createElement('div');
+  actionsRow.className = 'import-inline-editor-actions';
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.className = 'btn btn-outline btn-sm';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', () => {
+    activeCellEditor = null;
+    renderCurrentPreviewState();
+  });
+
+  if (cell.isEdited || cell.cellSkippedByAdmin) {
+    const resetBtn = document.createElement('button');
+    resetBtn.type = 'button';
+    resetBtn.className = 'btn btn-outline btn-sm';
+    resetBtn.textContent = 'Reset to sheet value';
+    resetBtn.addEventListener('click', () => {
+      resetCellEditToSheetValue(blk.blockNumber, rnd.roundNumber, cell.rowIndex);
+    });
+    actionsRow.appendChild(resetBtn);
+  }
+
+  const saveBtn = document.createElement('button');
+  saveBtn.type = 'button';
+  saveBtn.className = 'btn btn-primary btn-sm';
+  saveBtn.textContent = 'Save Cell Edit';
+  saveBtn.addEventListener('click', () => {
+    errBanner.style.display = 'none';
+    const validation = validateCellEdit({
+      skip: skipCb.checked,
+      correct: corrInput.value.trim(),
+      total: totInput.value.trim(),
+      timeRaw: timeInput.value.trim(),
+      note: noteInput.value,
+    });
+
+    if (!validation.ok) {
+      errBanner.textContent = validation.error;
+      errBanner.style.display = 'block';
+      return;
+    }
+
+    const cKey = `${blk.blockNumber}-${rnd.roundNumber}-${cell.rowIndex}`;
+    if (!previewEditState.cells) previewEditState.cells = {};
+    previewEditState.cells[cKey] = {
+      skip: validation.value.skip,
+      correct: validation.value.correct,
+      total: validation.value.total,
+      timeSeconds: validation.value.timeSeconds,
+      note: validation.value.note,
+    };
+
+    activeCellEditor = null;
+    renderCurrentPreviewState();
+    showToast(
+      'success',
+      `Updated ${cell.categoryName} in Block ${blk.blockNumber} · Round ${rnd.roundNumber}.`
+    );
+  });
+
+  actionsRow.append(cancelBtn, saveBtn);
+  box.appendChild(actionsRow);
+  td.appendChild(box);
+  tr.appendChild(td);
+
+  return tr;
+}
+
+/**
+ * Builds the inner per-cell inspection, database comparison & Phase 4c-2d cell editing table
+ * for an expanded round
  */
 function buildRoundCellsDetailTable(rnd, blk, rComp) {
   const container = document.createElement('div');
+  container.className = 'table-wrapper';
 
   if (rComp && rComp.metadataDiffs && rComp.metadataDiffs.length > 0) {
     const metaDiffBanner = document.createElement('div');
@@ -2102,15 +3404,17 @@ function buildRoundCellsDetailTable(rnd, blk, rComp) {
 
   const thead = document.createElement('thead');
   const headTr = document.createElement('tr');
-  [
+  const headers = [
     'Score Ref',
     'Time Ref',
     'Category (Sheet → DB)',
-    'In CSV Sheet',
+    'In CSV / Preview',
     'Existing in Database',
     'Parse Status',
     'DB Comparison',
-  ].forEach((h) => {
+    'Cell Actions',
+  ];
+  headers.forEach((h) => {
     const th = document.createElement('th');
     th.textContent = h;
     headTr.appendChild(th);
@@ -2123,7 +3427,16 @@ function buildRoundCellsDetailTable(rnd, blk, rComp) {
 
   for (const cell of rnd.cells) {
     const cc = compByRowIndex.get(cell.rowIndex) || null;
+    const isCellEditorOpen =
+      activeCellEditor &&
+      activeCellEditor.blockNumber === blk.blockNumber &&
+      activeCellEditor.roundNumber === rnd.roundNumber &&
+      activeCellEditor.rowIndex === cell.rowIndex;
+
     const tr = document.createElement('tr');
+    if (cell.cellSkippedByAdmin) {
+      tr.classList.add('import-row-skipped');
+    }
 
     const tdSRef = document.createElement('td');
     const cS = document.createElement('code');
@@ -2147,18 +3460,33 @@ function buildRoundCellsDetailTable(rnd, blk, rComp) {
 
     const tdSheetVal = document.createElement('td');
     tdSheetVal.className = 'num';
-    if (cell.status === 'note') {
-      tdSheetVal.textContent = `Note: "${cell.note}"`;
+    const valDiv = document.createElement('div');
+    if (cell.cellSkippedByAdmin) {
+      valDiv.textContent = 'Skipped by admin';
+    } else if (cell.status === 'note') {
+      valDiv.textContent = `Note: "${cell.note}"${cell.noteTruncated ? ' (cut to 500 chars)' : ''}`;
     } else if (cell.correct !== null && cell.total !== null) {
       const timeStr =
         cell.timeSeconds !== null
           ? `, ${formatSecondsDisplay(cell.timeSeconds)} (${cell.timeSeconds}s)`
           : '';
-      tdSheetVal.textContent = `${cell.correct} / ${cell.total}${timeStr}`;
+      const noteSuffix = cell.note ? ` · Note: "${cell.note}"` : '';
+      valDiv.textContent = `${cell.correct} / ${cell.total}${timeStr}${noteSuffix}`;
     } else if (cell.status === 'unreadable') {
-      tdSheetVal.textContent = `${cell.rawScore.trim() || '—'} / ${cell.rawTime.trim() || '—'}`;
+      valDiv.textContent = `${cell.rawScore.trim() || '—'} / ${cell.rawTime.trim() || '—'}`;
     } else {
-      tdSheetVal.textContent = '— (Empty)';
+      valDiv.textContent = '— (Empty)';
+    }
+    tdSheetVal.appendChild(valDiv);
+
+    if (cell.isEdited || cell.cellSkippedByAdmin) {
+      const chipWrap = document.createElement('div');
+      chipWrap.style.marginTop = '3px';
+      const edChip = document.createElement('span');
+      edChip.className = 'import-edited-chip';
+      edChip.textContent = cell.cellSkippedByAdmin ? '✏️ Skipped' : '✏️ Edited';
+      chipWrap.appendChild(edChip);
+      tdSheetVal.appendChild(chipWrap);
     }
 
     const tdDbVal = document.createElement('td');
@@ -2188,7 +3516,10 @@ function buildRoundCellsDetailTable(rnd, blk, rComp) {
 
     const tdParseStatus = document.createElement('td');
     const stBadge = document.createElement('span');
-    if (cell.status === 'ok') {
+    if (cell.cellSkippedByAdmin) {
+      stBadge.className = 'badge badge-inactive';
+      stBadge.textContent = 'Skipped by Admin';
+    } else if (cell.status === 'ok') {
       stBadge.className = 'badge badge-success';
       stBadge.textContent = 'OK';
     } else if (cell.status === 'empty') {
@@ -2198,16 +3529,14 @@ function buildRoundCellsDetailTable(rnd, blk, rComp) {
       stBadge.className = 'badge badge-inactive';
       stBadge.textContent = 'Surprise Note';
     } else {
-      stBadge.className = 'badge';
-      stBadge.style.backgroundColor = 'var(--color-danger-subtle)';
-      stBadge.style.color = 'var(--color-danger-text)';
-      stBadge.textContent = cell.reason || 'Unreadable';
+      stBadge.className = 'badge badge-warning';
+      stBadge.textContent = cell.reason || 'Unreadable (Skipped)';
     }
     tdParseStatus.appendChild(stBadge);
 
     const tdCompStatus = document.createElement('td');
     const cmpBadge = document.createElement('span');
-    const cmpStatus = cc ? cc.comparisonStatus : 'empty';
+    const cmpStatus = cell.cellSkippedByAdmin ? 'skipped' : cc ? cc.comparisonStatus : 'empty';
     if (cmpStatus === 'new') {
       cmpBadge.className = 'badge badge-success';
       cmpBadge.textContent = 'New Score (Will Insert)';
@@ -2227,23 +3556,102 @@ function buildRoundCellsDetailTable(rnd, blk, rComp) {
       cmpBadge.textContent = 'In DB Only (Kept)';
     } else if (cmpStatus === 'skipped') {
       cmpBadge.className = 'badge badge-inactive';
-      cmpBadge.textContent = 'Category Skipped';
+      cmpBadge.textContent = cell.cellSkippedByAdmin ? 'Cell Skipped' : 'Category Skipped';
     } else if (cmpStatus === 'unresolved_category') {
       cmpBadge.className = 'badge badge-warning';
       cmpBadge.textContent = 'Unresolved Category';
     } else if (cmpStatus === 'unreadable') {
-      cmpBadge.className = 'badge';
-      cmpBadge.style.backgroundColor = 'var(--color-danger-subtle)';
-      cmpBadge.style.color = 'var(--color-danger-text)';
-      cmpBadge.textContent = 'Blocked (Unreadable)';
+      cmpBadge.className = 'badge badge-warning';
+      cmpBadge.textContent = 'Skipped (Unreadable)';
     } else {
       cmpBadge.className = 'badge badge-inactive';
       cmpBadge.textContent = '—';
     }
     tdCompStatus.appendChild(cmpBadge);
 
-    tr.append(tdSRef, tdTRef, tdCat, tdSheetVal, tdDbVal, tdParseStatus, tdCompStatus);
+    // 8. Cell Actions ("Edit", "Skip this cell", and "Reset to sheet value")
+    const tdCellActions = document.createElement('td');
+    tdCellActions.style.whiteSpace = 'nowrap';
+    const cellBtnWrap = document.createElement('div');
+    cellBtnWrap.style.display = 'flex';
+    cellBtnWrap.style.flexWrap = 'wrap';
+    cellBtnWrap.style.gap = '6px';
+    cellBtnWrap.style.alignItems = 'center';
+
+    const editCellBtn = document.createElement('button');
+    editCellBtn.type = 'button';
+    editCellBtn.className =
+      cell.status === 'unreadable' ? 'btn btn-primary btn-sm' : 'btn btn-outline btn-sm';
+    editCellBtn.style.padding = '2px 8px';
+    editCellBtn.style.minHeight = '26px';
+    editCellBtn.style.fontSize = '11px';
+    editCellBtn.textContent = isCellEditorOpen
+      ? 'Close'
+      : cell.status === 'unreadable'
+        ? 'Edit / Fix'
+        : 'Edit';
+    editCellBtn.addEventListener('click', () => {
+      if (isCellEditorOpen) {
+        activeCellEditor = null;
+        renderCurrentPreviewState();
+      } else {
+        openCellEditorAndScroll(blk.blockNumber, rnd.roundNumber, cell.rowIndex);
+      }
+    });
+    cellBtnWrap.appendChild(editCellBtn);
+
+    const skipCellBtn = document.createElement('button');
+    skipCellBtn.type = 'button';
+    skipCellBtn.className = 'btn btn-outline btn-sm';
+    skipCellBtn.style.padding = '2px 8px';
+    skipCellBtn.style.minHeight = '26px';
+    skipCellBtn.style.fontSize = '11px';
+    skipCellBtn.textContent = cell.cellSkippedByAdmin ? 'Unskip cell' : 'Skip this cell';
+    skipCellBtn.addEventListener('click', () => {
+      const cKey = `${blk.blockNumber}-${rnd.roundNumber}-${cell.rowIndex}`;
+      if (!previewEditState.cells) previewEditState.cells = {};
+      if (cell.cellSkippedByAdmin) {
+        delete previewEditState.cells[cKey];
+      } else {
+        previewEditState.cells[cKey] = {
+          skip: true,
+        };
+      }
+      renderCurrentPreviewState();
+    });
+    cellBtnWrap.appendChild(skipCellBtn);
+
+    if (cell.isEdited || cell.cellSkippedByAdmin) {
+      const resetCellBtn = document.createElement('button');
+      resetCellBtn.type = 'button';
+      resetCellBtn.className = 'btn btn-outline btn-sm';
+      resetCellBtn.style.padding = '2px 8px';
+      resetCellBtn.style.minHeight = '26px';
+      resetCellBtn.style.fontSize = '11px';
+      resetCellBtn.textContent = 'Reset to sheet value';
+      resetCellBtn.addEventListener('click', () => {
+        resetCellEditToSheetValue(blk.blockNumber, rnd.roundNumber, cell.rowIndex);
+      });
+      cellBtnWrap.appendChild(resetCellBtn);
+    }
+
+    tdCellActions.appendChild(cellBtnWrap);
+
+    tr.append(
+      tdSRef,
+      tdTRef,
+      tdCat,
+      tdSheetVal,
+      tdDbVal,
+      tdParseStatus,
+      tdCompStatus,
+      tdCellActions
+    );
     tbody.appendChild(tr);
+
+    if (isCellEditorOpen) {
+      tbody.appendChild(buildInlineCellEditorTr(blk, rnd, cell, headers.length));
+    }
   }
 
   // Append any DB-only extra results (categories in DB for this round that are not in the CSV block)
@@ -2269,8 +3677,10 @@ function buildRoundCellsDetailTable(rnd, blk, rComp) {
       b.className = 'badge badge-inactive';
       b.textContent = 'In DB Only (Kept)';
       tdComp.appendChild(b);
+      const tdAct = document.createElement('td');
+      tdAct.textContent = '—';
 
-      tr.append(tdSRef, tdTRef, tdCat, tdSheet, tdDb, tdParse, tdComp);
+      tr.append(tdSRef, tdTRef, tdCat, tdSheet, tdDb, tdParse, tdComp, tdAct);
       tbody.appendChild(tr);
     }
   }
@@ -2309,7 +3719,10 @@ function buildRoundCellsDetailTable(rnd, blk, rComp) {
     const tdStatus = document.createElement('td');
     tdStatus.textContent = 'Ignored (excluded from round sum)';
 
-    tr.append(tdRef, tdDash, tdCat, tdRawS, tdDb, tdParsed, tdStatus);
+    const tdAct = document.createElement('td');
+    tdAct.textContent = '—';
+
+    tr.append(tdRef, tdDash, tdCat, tdRawS, tdDb, tdParsed, tdStatus, tdAct);
     tbody.appendChild(tr);
   }
 
@@ -2319,13 +3732,185 @@ function buildRoundCellsDetailTable(rnd, blk, rComp) {
 }
 
 /**
- * Updates the bottom Step 3 readiness indicator and Import button state
+ * Renders the Phase 4c-2d Record of Edits ("N changes made in this preview" with an expandable list
+ * and individual / bulk reset controls) before the Import button in Step 3.
+ */
+function renderPreviewEditsRecordBox(previewState) {
+  const editsBox = document.getElementById('import-edits-record-box');
+  if (!editsBox) return;
+  editsBox.replaceChildren();
+
+  const editsList = previewState?.editsList || [];
+  if (editsList.length === 0) {
+    editsBox.style.display = 'none';
+    return;
+  }
+
+  editsBox.style.display = 'block';
+
+  const details = document.createElement('details');
+  details.className = 'import-edits-details';
+  details.open = true;
+
+  const summary = document.createElement('summary');
+  summary.style.display = 'flex';
+  summary.style.justifyContent = 'space-between';
+  summary.style.alignItems = 'center';
+  summary.style.flexWrap = 'wrap';
+  summary.style.gap = 'var(--space-2)';
+
+  const sumTitle = document.createElement('span');
+  sumTitle.className = 'num';
+  sumTitle.textContent = `✏️ ${formatNum(editsList.length)} change${editsList.length === 1 ? '' : 's'} made in this preview`;
+
+  const resetAllBtn = document.createElement('button');
+  resetAllBtn.type = 'button';
+  resetAllBtn.className = 'btn btn-outline btn-sm';
+  resetAllBtn.style.padding = '2px 8px';
+  resetAllBtn.style.minHeight = '24px';
+  resetAllBtn.style.fontSize = '11px';
+  resetAllBtn.textContent = 'Reset all to sheet values';
+  resetAllBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resetAllPreviewEditsToSheetValues();
+  });
+
+  summary.append(sumTitle, resetAllBtn);
+  details.appendChild(summary);
+
+  const ul = document.createElement('ul');
+  ul.className = 'import-edits-list num';
+
+  for (const edit of editsList) {
+    const li = document.createElement('li');
+
+    const textSpan = document.createElement('span');
+    const origStr =
+      edit.original_value === null || edit.original_value === undefined || edit.original_value === ''
+        ? '(empty)'
+        : String(edit.original_value);
+    const newStr =
+      edit.new_value === null || edit.new_value === undefined || edit.new_value === ''
+        ? '(empty)'
+        : String(edit.new_value);
+    const skipTag = edit.skipped ? ' [Skipped]' : '';
+    textSpan.textContent = `Block ${edit.block_number} · Round ${edit.round_number} (${edit.series}) — ${edit.field}: ${origStr} → ${newStr}${skipTag}`;
+
+    const itemResetBtn = document.createElement('button');
+    itemResetBtn.type = 'button';
+    itemResetBtn.className = 'btn btn-outline btn-sm';
+    itemResetBtn.style.padding = '1px 6px';
+    itemResetBtn.style.minHeight = '22px';
+    itemResetBtn.style.fontSize = '11px';
+    itemResetBtn.textContent = 'Reset to sheet value';
+    itemResetBtn.addEventListener('click', () => {
+      if (edit.scope === 'cell' && edit.row_index !== null && edit.row_index !== undefined) {
+        resetCellEditToSheetValue(edit.block_number, edit.round_number, edit.row_index);
+      } else {
+        resetRoundEditToSheetValue(edit.block_number, edit.round_number);
+      }
+    });
+
+    li.append(textSpan, itemResetBtn);
+    ul.appendChild(li);
+  }
+
+  details.appendChild(ul);
+  editsBox.appendChild(details);
+}
+
+/**
+ * Updates the bottom Step 3 readiness indicator, Record of Edits box, Acknowledgments & Excluded Rounds summary box,
+ * Pre-flight `validatePayload` problems box, and Import button state
  */
 function renderReadinessAndActionState(previewState, executionPlan, selectedStudent) {
   const statusEl = document.getElementById('import-readiness-status');
   const hintEl = document.getElementById('import-action-hint');
   const importBtn = document.getElementById('btn-import-execute');
+  const ackBox = document.getElementById('import-acknowledgments-box');
+  const payloadBox = document.getElementById('import-payload-validation-box');
   if (!statusEl || !importBtn) return;
+
+  renderPreviewEditsRecordBox(previewState);
+
+  if (ackBox) {
+    ackBox.replaceChildren();
+    const acks = executionPlan?.acknowledgments || [];
+    const excluded = executionPlan?.excludedRounds || [];
+    if (acks.length > 0 || excluded.length > 0) {
+      ackBox.style.display = 'block';
+      const ackTitle = document.createElement('div');
+      ackTitle.style.fontWeight = '700';
+      ackTitle.style.fontSize = 'var(--text-xs)';
+      ackTitle.style.marginBottom = '6px';
+      ackTitle.textContent = `Acknowledgment List (${formatNum(acks.length)} group${acks.length === 1 ? '' : 's'}${excluded.length > 0 ? `, ${formatNum(excluded.length)} excluded round${excluded.length === 1 ? '' : 's'}` : ''}):`;
+      ackBox.appendChild(ackTitle);
+
+      const ul = document.createElement('ul');
+      ul.style.margin = '0';
+      ul.style.paddingLeft = '18px';
+      ul.style.fontSize = 'var(--text-xs)';
+      ul.style.display = 'flex';
+      ul.style.flexDirection = 'column';
+      ul.style.gap = '4px';
+
+      for (const ack of acks) {
+        const li = document.createElement('li');
+        li.textContent = `${ack.label} (${formatNum(ack.count)})`;
+        if (Array.isArray(ack.items) && ack.items.length > 0) {
+          const detailSpan = document.createElement('div');
+          detailSpan.style.color = 'var(--text-muted)';
+          detailSpan.style.fontSize = '11px';
+          detailSpan.textContent = ack.items.slice(0, 3).join(' · ');
+          li.appendChild(detailSpan);
+        }
+        ul.appendChild(li);
+      }
+
+      if (excluded.length > 0) {
+        const liEx = document.createElement('li');
+        liEx.textContent =
+          `Excluded rounds not sent to database (${formatNum(excluded.length)}): ` +
+          excluded
+            .map((er) => `Block ${er.blockNumber} Round ${er.roundNumber} (${er.reason})`)
+            .join('; ');
+        ul.appendChild(liEx);
+      }
+
+      ackBox.appendChild(ul);
+    } else {
+      ackBox.style.display = 'none';
+    }
+  }
+
+  if (payloadBox) {
+    payloadBox.replaceChildren();
+    const problems = executionPlan?.payloadProblems || [];
+    if (problems.length > 0) {
+      payloadBox.style.display = 'block';
+      const pTitle = document.createElement('div');
+      pTitle.style.fontWeight = '700';
+      pTitle.style.fontSize = 'var(--text-xs)';
+      pTitle.style.marginBottom = '4px';
+      pTitle.textContent = `Pre-flight Payload Validation Blocked Import (${formatNum(problems.length)} problem${problems.length === 1 ? '' : 's'}):`;
+      payloadBox.appendChild(pTitle);
+
+      const pList = document.createElement('ul');
+      pList.style.margin = '0';
+      pList.style.paddingLeft = '18px';
+      pList.style.fontSize = 'var(--text-xs)';
+      for (const prob of problems) {
+        const li = document.createElement('li');
+        li.className = 'num';
+        li.textContent = prob.message;
+        pList.appendChild(li);
+      }
+      payloadBox.appendChild(pList);
+    } else {
+      payloadBox.style.display = 'none';
+    }
+  }
 
   const isReady = Boolean(executionPlan && executionPlan.readyToImport && !isImporting);
 
@@ -2334,7 +3919,7 @@ function renderReadinessAndActionState(previewState, executionPlan, selectedStud
     statusEl.className = 'badge num';
     statusEl.style.backgroundColor = 'var(--color-danger-subtle)';
     statusEl.style.color = 'var(--color-danger-text)';
-    statusEl.textContent = `${count} Blocking Issue${count === 1 ? '' : 's'} Remaining`;
+    statusEl.textContent = `${formatNum(count)} Blocking Issue${count === 1 ? '' : 's'} Remaining`;
 
     if (hintEl) {
       hintEl.textContent =
@@ -2350,9 +3935,9 @@ function renderReadinessAndActionState(previewState, executionPlan, selectedStud
     statusEl.className = 'badge badge-success num';
     statusEl.style.backgroundColor = '';
     statusEl.style.color = '';
-    statusEl.textContent = `✓ Ready to Import (${executionPlan.totalRounds} round${
+    statusEl.textContent = `✓ Ready to Import (${formatNum(executionPlan.totalRounds)} round${
       executionPlan.totalRounds === 1 ? '' : 's'
-    } · ${executionPlan.rowsFound} score cell${executionPlan.rowsFound === 1 ? '' : 's'})`;
+    } · ${formatNum(executionPlan.rowsFound)} score cell${executionPlan.rowsFound === 1 ? '' : 's'})`;
 
     if (hintEl && selectedStudent) {
       hintEl.textContent = `Ready to save import for ${selectedStudent.full_name} (${selectedStudent.student_code}).`;
@@ -2360,7 +3945,7 @@ function renderReadinessAndActionState(previewState, executionPlan, selectedStud
 
     importBtn.disabled = false;
     importBtn.removeAttribute('aria-disabled');
-    importBtn.textContent = `Import Score Sheet (${executionPlan.totalRounds} Rounds)`;
+    importBtn.textContent = `Import Score Sheet (${formatNum(executionPlan.totalRounds)} Rounds)`;
   }
 }
 
@@ -2387,6 +3972,8 @@ function openConfirmImportModal(executionPlan) {
     const row = document.createElement('div');
     row.style.display = 'flex';
     row.style.justifyContent = 'space-between';
+    row.style.alignItems = 'flex-start';
+    row.style.flexWrap = 'wrap';
     row.style.gap = 'var(--space-2)';
     const lSpan = document.createElement('span');
     lSpan.style.color = 'var(--text-muted)';
@@ -2408,13 +3995,25 @@ function openConfirmImportModal(executionPlan) {
   addSummaryLine(
     'Blocks & Series:',
     executionPlan.blockPlans
-      .map((bp) => `Block ${bp.blockNumber} → ${bp.seriesName} (${bp.rounds.length} rounds)`)
+      .map(
+        (bp) =>
+          `Block ${bp.blockNumber} → ${bp.seriesName} (${formatNum(bp.rounds.length)} rounds)`
+      )
       .join(' · ')
   );
   addSummaryLine(
     'Total Rounds & Cells:',
-    `${executionPlan.totalRounds} rounds · ${executionPlan.rowsFound} score cells`
+    `${formatNum(executionPlan.totalRounds)} rounds · ${formatNum(executionPlan.rowsFound)} score cells`
   );
+
+  const editsCount = Array.isArray(executionPlan.edits) ? executionPlan.edits.length : 0;
+  if (editsCount > 0) {
+    addSummaryLine(
+      'Preview Edits Applied:',
+      `${formatNum(editsCount)} change${editsCount === 1 ? '' : 's'} (recorded in batch summary)`
+    );
+  }
+
   addSummaryLine(
     'Mark Verified (p_mark_verified):',
     executionPlan.markVerified ? 'Yes (🔒 Verified)' : 'No (Unverified)'
@@ -2455,7 +4054,37 @@ function openConfirmImportModal(executionPlan) {
 
   bodyEl.appendChild(summaryBox);
 
-  // If student name in file differs from selected student, show warning & required confirmation checkbox
+  const acks = executionPlan.acknowledgments || [];
+  const excluded = executionPlan.excludedRounds || [];
+  if (acks.length > 0 || excluded.length > 0) {
+    const ackModalBox = document.createElement('div');
+    ackModalBox.className = 'banner banner-warning';
+    ackModalBox.style.marginBottom = 'var(--space-3)';
+    ackModalBox.style.fontSize = 'var(--text-xs)';
+
+    const ackHeader = document.createElement('strong');
+    ackHeader.style.display = 'block';
+    ackHeader.style.marginBottom = '4px';
+    ackHeader.textContent = `Acknowledgments & Adjustments (${formatNum(acks.length)} group${acks.length === 1 ? '' : 's'}):`;
+    ackModalBox.appendChild(ackHeader);
+
+    const ackUl = document.createElement('ul');
+    ackUl.style.margin = '0';
+    ackUl.style.paddingLeft = '18px';
+    for (const ack of acks) {
+      const li = document.createElement('li');
+      li.textContent = `${ack.label} (${formatNum(ack.count)})`;
+      ackUl.appendChild(li);
+    }
+    for (const ex of excluded) {
+      const li = document.createElement('li');
+      li.textContent = `Excluded: Block ${ex.blockNumber} Round ${ex.roundNumber} (${ex.reason})`;
+      ackUl.appendChild(li);
+    }
+    ackModalBox.appendChild(ackUl);
+    bodyEl.appendChild(ackModalBox);
+  }
+
   if (executionPlan.studentNameMismatch) {
     const warnBox = document.createElement('div');
     warnBox.className = 'banner banner-warning';
@@ -2500,8 +4129,95 @@ function openConfirmImportModal(executionPlan) {
 }
 
 /**
- * Executes the planned import strictly using the Phase 4c-2b database RPCs:
+ * Renders structured failure message with:
+ * 1. Exact database message
+ * 2. Plain-words explanation (nothing from the failing call was saved, an "Open" batch with 0 rows
+ *    may appear in the history and can be undone with a reason, and running the same import again is safe)
+ * 3. Expandable "Technical details" section with: which step failed, the series, the round numbers
+ *    in that call, and for the first 3 rounds of that call their round_number, round_date,
+ *    round_type, time_taken_seconds and number of cells (no secret or key).
+ */
+function renderImportFailureBanner(progressBanner, dbErrorMessage, techContext) {
+  if (!progressBanner) return;
+  progressBanner.style.display = 'block';
+  progressBanner.className = 'banner banner-error';
+  progressBanner.replaceChildren();
+
+  const exactLine = document.createElement('div');
+  exactLine.style.fontWeight = '700';
+  exactLine.style.fontSize = 'var(--text-sm)';
+  exactLine.textContent = `Import failed: ${dbErrorMessage}`;
+  progressBanner.appendChild(exactLine);
+
+  const plainWords = document.createElement('p');
+  plainWords.style.fontSize = 'var(--text-xs)';
+  plainWords.style.marginTop = '6px';
+  plainWords.style.marginBottom = '0';
+  plainWords.style.lineHeight = '1.45';
+  plainWords.textContent =
+    'What happened: Nothing from the failing call was saved. An "Open" batch with 0 rows may appear in the Import History below and can be undone with a reason. Running the same import again is safe.';
+  progressBanner.appendChild(plainWords);
+
+  if (techContext) {
+    const detailsEl = document.createElement('details');
+    detailsEl.className = 'import-tech-details';
+
+    const summaryEl = document.createElement('summary');
+    summaryEl.textContent = 'Technical details';
+    detailsEl.appendChild(summaryEl);
+
+    const bodyDiv = document.createElement('div');
+    bodyDiv.style.marginTop = 'var(--space-2)';
+    bodyDiv.style.display = 'flex';
+    bodyDiv.style.flexDirection = 'column';
+    bodyDiv.style.gap = '4px';
+    bodyDiv.className = 'num';
+
+    const addTechLine = (label, val) => {
+      const line = document.createElement('div');
+      const strong = document.createElement('strong');
+      strong.textContent = `${label}: `;
+      const span = document.createElement('span');
+      span.textContent = val;
+      line.append(strong, span);
+      bodyDiv.appendChild(line);
+    };
+
+    addTechLine('Failed step', techContext.step || 'Unknown step');
+    addTechLine('Simulator series', techContext.series || 'N/A');
+
+    const roundNums = Array.isArray(techContext.roundNumbers) ? techContext.roundNumbers : [];
+    addTechLine(
+      'Round numbers in call',
+      roundNums.length > 0 ? roundNums.join(', ') : 'None'
+    );
+
+    if (Array.isArray(techContext.firstThreeRounds) && techContext.firstThreeRounds.length > 0) {
+      const sampleHeader = document.createElement('div');
+      sampleHeader.style.fontWeight = '700';
+      sampleHeader.style.marginTop = '4px';
+      sampleHeader.textContent = `First ${techContext.firstThreeRounds.length} round(s) in call:`;
+      bodyDiv.appendChild(sampleHeader);
+
+      for (const r of techContext.firstThreeRounds) {
+        const rLine = document.createElement('div');
+        rLine.style.paddingLeft = '8px';
+        rLine.textContent = `• round_number: ${r.round_number}, round_date: ${r.round_date}, round_type: ${r.round_type ?? 'null'}, time_taken_seconds: ${r.time_taken_seconds ?? 'null'}, cells: ${r.cellsCount}`;
+        bodyDiv.appendChild(rLine);
+      }
+    }
+
+    detailsEl.appendChild(bodyDiv);
+    progressBanner.appendChild(detailsEl);
+  }
+}
+
+/**
+ * Executes the planned import strictly using the Phase 4c-2b/2c/2d database RPCs:
+ * 0. Runs `validatePayload(payload)` on every planned chunk BEFORE calling the database.
+ *    If any problem is returned, does not call the database and shows the problem list.
  * 1. `admin_start_import(p_student, p_file_name, p_name_in_file, p_mark_verified, p_rows_found, p_summary)`
+ *    (with `p_summary.edits` containing up to 500 preview edits + count)
  * 2. `admin_import_ensure_category(p_batch, p_series, p_category, p_new_name)` + `category_aliases` upsert
  * 3. `admin_import_rounds(p_batch, p_series, p_rounds, p_on_date_conflict)` in chunks (<=100 rounds, <=3000 cells)
  * 4. `admin_finish_import(p_batch)`
@@ -2509,19 +4225,63 @@ function openConfirmImportModal(executionPlan) {
 async function executePlannedImport(executionPlan) {
   if (!executionPlan || !executionPlan.readyToImport || isImporting) return;
 
+  const progressBanner = document.getElementById('import-progress-banner');
+  const payloadBox = document.getElementById('import-payload-validation-box');
+
+  // STEP 0: Pre-flight `validatePayload(payload)` check BEFORE any database RPC call
+  const preFlightProblems = [];
+  for (const bp of executionPlan.blockPlans || []) {
+    const previewChunks = Array.isArray(bp.roundChunks) ? bp.roundChunks : [];
+    for (const chunk of previewChunks) {
+      const probs = validatePayload(chunk, { todayIST: todayIST || getISTDateString(new Date()) });
+      for (const p of probs) {
+        preFlightProblems.push({
+          ...p,
+          blockNumber: bp.blockNumber,
+        });
+      }
+    }
+  }
+
+  if (preFlightProblems.length > 0) {
+    if (payloadBox) {
+      payloadBox.replaceChildren();
+      payloadBox.style.display = 'block';
+      const title = document.createElement('div');
+      title.style.fontWeight = '700';
+      title.style.fontSize = 'var(--text-xs)';
+      title.style.marginBottom = '4px';
+      title.textContent = `Pre-flight validatePayload found ${formatNum(preFlightProblems.length)} problem${preFlightProblems.length === 1 ? '' : 's'} — database was NOT called:`;
+      payloadBox.appendChild(title);
+
+      const ul = document.createElement('ul');
+      ul.style.margin = '0';
+      ul.style.paddingLeft = '18px';
+      ul.style.fontSize = 'var(--text-xs)';
+      for (const prob of preFlightProblems) {
+        const li = document.createElement('li');
+        li.className = 'num';
+        li.textContent = `Block ${prob.blockNumber} · Round ${prob.roundNumber ?? 'N/A'} · ${prob.field}: ${JSON.stringify(prob.value)} (${prob.message})`;
+        ul.appendChild(li);
+      }
+      payloadBox.appendChild(ul);
+    }
+    showToast('error', 'Import blocked by pre-flight payload validation.');
+    return;
+  }
+
   isImporting = true;
   const importBtn = document.getElementById('btn-import-execute');
-  const progressBanner = document.getElementById('import-progress-banner');
 
   if (importBtn) {
     importBtn.disabled = true;
     importBtn.textContent = 'Importing...';
   }
 
-  const updateProgress = (msg, isError = false) => {
+  const updateProgress = (msg) => {
     if (!progressBanner) return;
     progressBanner.style.display = 'block';
-    progressBanner.className = isError ? 'banner banner-error' : 'banner banner-info';
+    progressBanner.className = 'banner banner-info';
     progressBanner.textContent = msg;
   };
 
@@ -2532,6 +4292,17 @@ async function executePlannedImport(executionPlan) {
     rounds_skipped: 0,
     cells_inserted: 0,
     cells_skipped: 0,
+  };
+
+  const editsAppliedCount = Array.isArray(executionPlan.edits)
+    ? executionPlan.edits.length
+    : 0;
+
+  let currentTechContext = {
+    step: 'Step 1/4: admin_start_import',
+    series: executionPlan.blockPlans.map((bp) => bp.seriesName).join(', '),
+    roundNumbers: [],
+    firstThreeRounds: [],
   };
 
   try {
@@ -2570,8 +4341,21 @@ async function executePlannedImport(executionPlan) {
 
       // 2a. Ensure categories for this block (`admin_import_ensure_category`)
       if (bp.categoriesToEnsure.length > 0) {
+        currentTechContext = {
+          step: `Step 2/4: admin_import_ensure_category (Block ${bp.blockNumber})`,
+          series: `${bp.seriesName} (${bp.seriesId})`,
+          roundNumbers: bp.rounds.map((r) => r.round_number),
+          firstThreeRounds: bp.rounds.slice(0, 3).map((r) => ({
+            round_number: r.round_number,
+            round_date: r.round_date,
+            round_type: r.round_type,
+            time_taken_seconds: r.time_taken_seconds,
+            cellsCount: Array.isArray(r.cells) ? r.cells.length : 0,
+          })),
+        };
+
         updateProgress(
-          `Step 2/4: Ensuring ${bp.categoriesToEnsure.length} categor${
+          `Step 2/4: Ensuring ${formatNum(bp.categoriesToEnsure.length)} categor${
             bp.categoriesToEnsure.length === 1 ? 'y' : 'ies'
           } for Block ${bp.blockNumber} (${bp.seriesName})...`
         );
@@ -2630,15 +4414,40 @@ async function executePlannedImport(executionPlan) {
         }
       }
 
-      // 3. Materialize round chunks (1..100 rounds and <= 3000 cells per call) and call `admin_import_rounds`
+      // 3. Materialize round chunks (1..100 rounds and <= 3000 cells per call), validatePayload, and call `admin_import_rounds`
       const roundChunks = materializeBlockRoundChunks(bp, ensuredCategoryByRowIndex);
 
       for (let cIdx = 0; cIdx < roundChunks.length; cIdx++) {
         const chunk = roundChunks[cIdx];
+        currentTechContext = {
+          step: `Step 3/4: admin_import_rounds (Block ${bp.blockNumber}, call ${cIdx + 1} of ${roundChunks.length})`,
+          series: `${bp.seriesName} (${bp.seriesId})`,
+          roundNumbers: chunk.map((r) => r.round_number),
+          firstThreeRounds: chunk.slice(0, 3).map((r) => ({
+            round_number: r.round_number,
+            round_date: r.round_date,
+            round_type: r.round_type,
+            time_taken_seconds: r.time_taken_seconds,
+            cellsCount: Array.isArray(r.cells) ? r.cells.length : 0,
+          })),
+        };
+
+        // Run validatePayload on the materialized chunk right before sending to DB
+        const chunkProblems = validatePayload(chunk, {
+          todayIST: todayIST || getISTDateString(new Date()),
+        });
+        if (chunkProblems.length > 0) {
+          throw new Error(
+            `Payload validation failed before calling admin_import_rounds: ${chunkProblems
+              .map((p) => p.message)
+              .join('; ')}`
+          );
+        }
+
         updateProgress(
-          `Step 3/4: Importing Block ${bp.blockNumber} (${bp.seriesName}) — chunk ${cIdx + 1} of ${
+          `Step 3/4: Importing Block ${bp.blockNumber} (${bp.seriesName}) — call ${cIdx + 1} of ${
             roundChunks.length
-          } (${chunk.length} round${chunk.length === 1 ? '' : 's'})...`
+          } (${formatNum(chunk.length)} round${chunk.length === 1 ? '' : 's'})...`
         );
 
         const roundsParams = {
@@ -2669,6 +4478,12 @@ async function executePlannedImport(executionPlan) {
     }
 
     // STEP 4: Finish import batch (`admin_finish_import`)
+    currentTechContext = {
+      step: 'Step 4/4: admin_finish_import',
+      series: executionPlan.blockPlans.map((bp) => bp.seriesName).join(', '),
+      roundNumbers: [],
+      firstThreeRounds: [],
+    };
     updateProgress('Step 4/4: Finalizing import batch...');
     if (useLiveSupabase) {
       const { error: finErr } = await supabase.rpc('admin_finish_import', {
@@ -2683,9 +4498,20 @@ async function executePlannedImport(executionPlan) {
       progressBanner.style.display = 'none';
     }
 
+    // Clear unsaved preview edits once saved to the database
+    previewEditState = createEmptyEditState();
+    activeRoundEditor = null;
+    activeCellEditor = null;
+    hideUnsavedEditsWarning();
+
+    const editsToastPart =
+      editsAppliedCount > 0
+        ? ` (${formatNum(editsAppliedCount)} preview edit${editsAppliedCount === 1 ? '' : 's'} applied)`
+        : '';
+
     showToast(
       'success',
-      `Import complete: ${cumulativeTotals.rounds_created} rounds created, ${cumulativeTotals.rounds_merged} merged, ${cumulativeTotals.cells_inserted} scores inserted.`
+      `Import complete: ${formatNum(cumulativeTotals.rounds_created)} rounds created, ${formatNum(cumulativeTotals.rounds_merged)} merged, ${formatNum(cumulativeTotals.cells_inserted)} scores inserted${editsToastPart}.`
     );
 
     renderImportResultBanner({
@@ -2696,6 +4522,7 @@ async function executePlannedImport(executionPlan) {
       studentCode: executionPlan.studentCode,
       fileName: executionPlan.fileName,
       totals: cumulativeTotals,
+      editsAppliedCount,
     });
 
     // Reload reference data (new categories/series links/aliases), student rounds/results, preview, and history
@@ -2706,12 +4533,12 @@ async function executePlannedImport(executionPlan) {
   } catch (err) {
     console.error('Import failed:', err);
     const readableMsg = err.message || 'An unexpected error occurred during import.';
-    updateProgress(`Import failed: ${readableMsg}`, true);
+    renderImportFailureBanner(progressBanner, readableMsg, currentTechContext);
     showToast('error', `Import failed: ${readableMsg}`);
     await loadImportBatches();
   } finally {
     isImporting = false;
-    if (currentParsedResult && currentParsedResult.ok) {
+    if (currentPreviewState && currentExecutionPlan) {
       renderReadinessAndActionState(
         currentPreviewState,
         currentExecutionPlan,
@@ -2722,48 +4549,71 @@ async function executePlannedImport(executionPlan) {
 }
 
 /**
- * Renders the top result banner after an Import or Undo completes
+ * Renders the top operation result banner (`#import-operation-result-banner`) after an import or undo,
+ * including how many preview edits were applied (Phase 4c-2d).
  */
-function renderImportResultBanner(info) {
+function renderImportResultBanner(result) {
   const banner = document.getElementById('import-operation-result-banner');
   if (!banner) return;
   banner.replaceChildren();
   banner.style.display = 'block';
 
-  const topRow = document.createElement('div');
-  topRow.style.display = 'flex';
-  topRow.style.justifyContent = 'space-between';
-  topRow.style.alignItems = 'flex-start';
-  topRow.style.flexWrap = 'wrap';
-  topRow.style.gap = 'var(--space-3)';
+  const headerRow = document.createElement('div');
+  headerRow.style.display = 'flex';
+  headerRow.style.justifyContent = 'space-between';
+  headerRow.style.alignItems = 'flex-start';
+  headerRow.style.flexWrap = 'wrap';
+  headerRow.style.gap = 'var(--space-3)';
 
   const left = document.createElement('div');
-  const title = document.createElement('h3');
+  const title = document.createElement('h2');
   title.style.fontSize = 'var(--text-base)';
   title.style.marginBottom = '4px';
 
-  const details = document.createElement('div');
-  details.style.fontSize = 'var(--text-sm)';
-  details.style.color = 'var(--text-main)';
-  details.className = 'num';
+  const countsRow = document.createElement('div');
+  countsRow.style.display = 'flex';
+  countsRow.style.flexWrap = 'wrap';
+  countsRow.style.gap = 'var(--space-2)';
+  countsRow.style.marginTop = 'var(--space-2)';
 
-  if (info.type === 'import_success') {
-    const t = info.totals;
-    title.textContent = `✓ Import Saved for ${info.studentName} (${info.studentCode})`;
-    details.textContent = `File "${info.fileName}" — Rounds: ${t.rounds_created} created, ${t.rounds_merged} merged, ${t.rounds_skipped} skipped · Cells: ${t.cells_inserted} inserted, ${t.cells_skipped} skipped (existing kept).`;
+  const makeCountChip = (label, count, badgeClass = 'badge-inactive') => {
+    const span = document.createElement('span');
+    span.className = `badge ${badgeClass} num`;
+    span.textContent = `${label}: ${formatNum(count)}`;
+    return span;
+  };
+
+  if (result.type === 'import_success') {
+    const editsCount = Number(result.editsAppliedCount || 0);
+    const editsSuffix =
+      editsCount > 0
+        ? ` · ${formatNum(editsCount)} preview edit${editsCount === 1 ? '' : 's'} applied`
+        : '';
+    title.textContent = `✓ Import Saved for ${result.studentName} (${result.studentCode}) — ${result.fileName}${editsSuffix}`;
+    const t = result.totals;
+    countsRow.append(
+      makeCountChip('Rounds Created', t.rounds_created, 'badge-success'),
+      makeCountChip('Rounds Merged', t.rounds_merged, 'badge-success'),
+      makeCountChip('Rounds Skipped', t.rounds_skipped, 'badge-inactive'),
+      makeCountChip('Scores Inserted', t.cells_inserted, 'badge-success'),
+      makeCountChip('Scores Skipped (Existing Kept)', t.cells_skipped, 'badge-inactive'),
+      makeCountChip(
+        'Edits Applied in Preview',
+        editsCount,
+        editsCount > 0 ? 'badge-warning' : 'badge-inactive'
+      )
+    );
   } else {
-    const u = info.undoTotals;
-    title.textContent = '↩ Import Batch Undone';
-    details.textContent = `Batch undone (${info.reason}) — ${u.results_deleted} score${
-      u.results_deleted === 1 ? '' : 's'
-    } deleted, ${u.results_kept} score${
-      u.results_kept === 1 ? '' : 's'
-    } kept (corrected/verified), ${u.rounds_deleted} round${
-      u.rounds_deleted === 1 ? '' : 's'
-    } deleted.`;
+    title.textContent = `↩ Import Batch Undone (Reason: "${result.reason}")`;
+    const u = result.undoTotals;
+    countsRow.append(
+      makeCountChip('Scores Deleted', u.results_deleted, 'badge-warning'),
+      makeCountChip('Protected Scores Kept', u.results_kept, 'badge-success'),
+      makeCountChip('Empty Rounds Deleted', u.rounds_deleted, 'badge-warning')
+    );
   }
 
-  left.append(title, details);
+  left.append(title, countsRow);
 
   const actions = document.createElement('div');
   actions.style.display = 'flex';
@@ -2771,34 +4621,29 @@ function renderImportResultBanner(info) {
   actions.style.alignItems = 'center';
   actions.style.flexWrap = 'wrap';
 
-  if (info.studentId) {
-    const detailLink = document.createElement('a');
-    detailLink.href = `/pages/student-detail.html?id=${encodeURIComponent(info.studentId)}`;
-    detailLink.className = 'btn btn-outline btn-sm';
-    detailLink.textContent = 'View Student Score Sheet';
-
-    const reviewLink = document.createElement('a');
-    reviewLink.href = `/pages/review.html?studentId=${encodeURIComponent(info.studentId)}`;
-    reviewLink.className = 'btn btn-outline btn-sm';
-    reviewLink.textContent = 'Review Student Entries';
-
-    actions.append(detailLink, reviewLink);
+  if (result.studentId) {
+    const stuLink = document.createElement('a');
+    stuLink.className = 'btn btn-primary btn-sm';
+    stuLink.href = `/pages/student-detail.html?id=${encodeURIComponent(result.studentId)}`;
+    stuLink.textContent = 'View Student Detail →';
+    actions.appendChild(stuLink);
   }
 
-  if (info.type === 'import_success' && info.batchId) {
-    const undoBtn = document.createElement('button');
-    undoBtn.type = 'button';
-    undoBtn.className = 'btn btn-outline btn-sm';
-    undoBtn.textContent = '↩ Undo This Import';
-    undoBtn.addEventListener('click', () => {
-      openUndoImportModal({
-        id: info.batchId,
-        studentName: info.studentName,
-        studentCode: info.studentCode,
-        fileName: info.fileName,
-      });
+  if (result.type === 'import_success' && result.batchId) {
+    const undoNowBtn = document.createElement('button');
+    undoNowBtn.type = 'button';
+    undoNowBtn.className = 'btn btn-outline btn-sm';
+    undoNowBtn.textContent = 'Undo This Import';
+    undoNowBtn.addEventListener('click', () => {
+      const batchObj = importBatches.find((b) => b.id === result.batchId) || {
+        id: result.batchId,
+        fileName: result.fileName,
+        studentName: result.studentName,
+        studentCode: result.studentCode,
+      };
+      openUndoImportModal(batchObj);
     });
-    actions.appendChild(undoBtn);
+    actions.appendChild(undoNowBtn);
   }
 
   const dismissBtn = document.createElement('button');
@@ -2810,112 +4655,39 @@ function renderImportResultBanner(info) {
   });
   actions.appendChild(dismissBtn);
 
-  topRow.append(left, actions);
-  banner.appendChild(topRow);
+  headerRow.append(left, actions);
+  banner.appendChild(headerRow);
+  banner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 /**
- * Normalizes a raw `import_batches` row so all column variants render cleanly
- */
-function normalizeImportBatchRow(row, studentsById) {
-  const stu = row.student_id ? studentsById.get(row.student_id) || null : null;
-  const summaryObj = row.summary && typeof row.summary === 'object' ? row.summary : {};
-  const isUndone = Boolean(row.status === 'undone' || row.undone_at);
-  const isFinished = Boolean(
-    row.status === 'completed' || row.status === 'finished' || row.finished_at
-  );
-
-  return {
-    id: row.id,
-    studentId: row.student_id || null,
-    studentName: stu ? stu.full_name : row.student_name || 'Student',
-    studentCode: stu ? stu.student_code : row.student_code || '—',
-    fileName: row.file_name || 'scoresheet.csv',
-    nameInFile: row.name_in_file || summaryObj.name_in_file || null,
-    markVerified: Boolean(row.mark_verified ?? summaryObj.mark_verified),
-    rowsFound: Number(row.rows_found ?? summaryObj.planned_cells ?? 0),
-    roundsCreated: Number(row.rounds_created ?? summaryObj.rounds_created ?? 0),
-    roundsMerged: Number(row.rounds_merged ?? summaryObj.rounds_merged ?? 0),
-    roundsSkipped: Number(row.rounds_skipped ?? summaryObj.rounds_skipped ?? 0),
-    cellsInserted: Number(
-      row.cells_inserted ?? row.results_inserted ?? summaryObj.cells_inserted ?? 0
-    ),
-    cellsSkipped: Number(
-      row.cells_skipped ?? row.results_skipped ?? summaryObj.cells_skipped ?? 0
-    ),
-    createdAt: row.created_at || row.started_at || row.imported_at || null,
-    finishedAt: row.finished_at || row.completed_at || null,
-    isUndone,
-    isFinished,
-    undoneAt: row.undone_at || null,
-    undoReason: row.undo_reason || null,
-    resultsDeleted:
-      row.results_deleted !== undefined && row.results_deleted !== null
-        ? Number(row.results_deleted)
-        : null,
-    resultsKept:
-      row.results_kept !== undefined && row.results_kept !== null
-        ? Number(row.results_kept)
-        : null,
-    roundsDeleted:
-      row.rounds_deleted !== undefined && row.rounds_deleted !== null
-        ? Number(row.rounds_deleted)
-        : null,
-  };
-}
-
-/**
- * Formats an ISO timestamp into Indian time (`Asia/Kolkata`) display string
- */
-function formatDateTimeIST(isoString) {
-  if (!isoString) return '—';
-  try {
-    const d = new Date(isoString);
-    if (Number.isNaN(d.getTime())) return String(isoString);
-    const datePart = getISTDateString(d);
-    const timePart = d.toLocaleTimeString('en-IN', {
-      timeZone: 'Asia/Kolkata',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true,
-    });
-    return `${formatDisplayDateIST(datePart)} · ${timePart}`;
-  } catch {
-    return String(isoString);
-  }
-}
-
-/**
- * Renders the Import History & Undo table (`import_batches`)
+ * Renders the Import History & Undo table (`import_batches`), including Phase 4c-2d
+ * "N values adjusted in preview" and an expandable list of recorded edits from `batch.summary.edits`.
  */
 function renderImportHistoryTable() {
   const container = document.getElementById('import-history-container');
   if (!container) return;
   container.replaceChildren();
 
-  const filterMode = document.getElementById('import-history-filter')?.value || 'all';
+  const filterSelect = document.getElementById('import-history-filter');
+  const filterMode = filterSelect ? filterSelect.value : 'all';
   const selectedStudent = getSelectedStudent();
-  const studentsById = new Map(allStudents.map((s) => [s.id, s]));
 
-  let rows = importBatches.map((b) => normalizeImportBatchRow(b, studentsById));
+  let list = [...importBatches];
   if (filterMode === 'selected' && selectedStudent) {
-    rows = rows.filter((r) => r.studentId === selectedStudent.id);
+    list = list.filter((b) => b.student_id === selectedStudent.id);
   }
 
-  if (rows.length === 0) {
+  if (list.length === 0) {
     const empty = document.createElement('div');
-    empty.className = 'empty-state';
     empty.style.padding = 'var(--space-6)';
     empty.style.textAlign = 'center';
-    const p = document.createElement('p');
-    p.style.fontSize = 'var(--text-sm)';
-    p.style.color = 'var(--text-muted)';
-    p.style.margin = '0';
-    p.textContent =
+    empty.style.color = 'var(--text-muted)';
+    empty.style.fontSize = 'var(--text-xs)';
+    empty.textContent =
       filterMode === 'selected' && selectedStudent
         ? `No import batches recorded yet for ${selectedStudent.full_name} (${selectedStudent.student_code}).`
-        : 'No CSV import batches have been saved yet.';
-    empty.appendChild(p);
+        : 'No CSV import batches recorded yet.';
     container.appendChild(empty);
     return;
   }
@@ -2935,8 +4707,8 @@ function renderImportHistoryTable() {
     'Student',
     'CSV File & Sheet Name',
     'Verified',
-    'Import Summary',
-    'Status',
+    'Rows (Imported / Found)',
+    'Status & Undo Info',
     'Action',
   ].forEach((lbl) => {
     const th = document.createElement('th');
@@ -2948,111 +4720,147 @@ function renderImportHistoryTable() {
 
   const tbody = document.createElement('tbody');
 
-  for (const batch of rows) {
+  for (const batch of list) {
     const tr = document.createElement('tr');
 
-    // 1. Imported At (IST)
+    // 1. Imported At
     const tdDate = document.createElement('td');
     tdDate.className = 'num';
     tdDate.style.fontSize = 'var(--text-xs)';
-    tdDate.textContent = formatDateTimeIST(batch.createdAt);
+    tdDate.style.whiteSpace = 'nowrap';
+    if (batch.importedAt) {
+      const dateStr = String(batch.importedAt).slice(0, 10);
+      tdDate.textContent = normalizeShortMonths(formatDisplayDateIST(dateStr));
+    } else {
+      tdDate.textContent = '—';
+    }
 
     // 2. Student
     const tdStu = document.createElement('td');
-    if (batch.studentId) {
-      const stuLink = document.createElement('a');
-      stuLink.href = `/pages/student-detail.html?id=${encodeURIComponent(batch.studentId)}`;
-      stuLink.style.fontWeight = '600';
-      stuLink.style.color = 'var(--color-primary)';
-      stuLink.style.textDecoration = 'none';
-      stuLink.textContent = batch.studentName;
-      tdStu.appendChild(stuLink);
-    } else {
-      const stuSpan = document.createElement('strong');
-      stuSpan.textContent = batch.studentName;
-      tdStu.appendChild(stuSpan);
-    }
+    const stuStrong = document.createElement('div');
+    stuStrong.style.fontWeight = '600';
+    stuStrong.textContent = batch.studentName || 'Student';
     const stuSub = document.createElement('div');
     stuSub.style.fontSize = '11px';
     stuSub.style.color = 'var(--text-dim)';
     stuSub.className = 'num';
-    stuSub.textContent = batch.studentCode;
-    tdStu.appendChild(stuSub);
+    stuSub.textContent = batch.studentCode || batch.student_id || '—';
+    tdStu.append(stuStrong, stuSub);
 
-    // 3. CSV File & Name in File
+    // 3. File & Name in File + Phase 4c-2d "N values adjusted in preview" expandable list
     const tdFile = document.createElement('td');
     const fMain = document.createElement('div');
     fMain.style.fontWeight = '600';
-    fMain.style.fontSize = 'var(--text-xs)';
-    fMain.textContent = batch.fileName;
+    fMain.textContent = batch.fileName || 'scoresheet.csv';
     const fSub = document.createElement('div');
     fSub.style.fontSize = '11px';
     fSub.style.color = 'var(--text-muted)';
     fSub.textContent = batch.nameInFile
-      ? `In sheet: "${batch.nameInFile}" (${batch.rowsFound} cells)`
-      : `${batch.rowsFound} cells found`;
+      ? `Sheet name: "${batch.nameInFile}"`
+      : 'No student name in sheet';
     tdFile.append(fMain, fSub);
 
-    // 4. Verified Flag
+    const summaryObj =
+      batch.summary && typeof batch.summary === 'object' ? batch.summary : {};
+    const recordedEdits = Array.isArray(summaryObj.edits) ? summaryObj.edits : [];
+    const totalEditsCount =
+      typeof summaryObj.edits_count === 'number'
+        ? summaryObj.edits_count
+        : recordedEdits.length;
+
+    if (totalEditsCount > 0) {
+      const editsDetails = document.createElement('details');
+      editsDetails.className = 'import-edits-details';
+      editsDetails.style.marginTop = '6px';
+
+      const editsSummary = document.createElement('summary');
+      editsSummary.className = 'num';
+      editsSummary.style.fontSize = '11px';
+      editsSummary.style.color = 'var(--color-primary-text)';
+      editsSummary.textContent = `✏️ ${formatNum(totalEditsCount)} value${totalEditsCount === 1 ? '' : 's'} adjusted in preview`;
+      editsDetails.appendChild(editsSummary);
+
+      const editsUl = document.createElement('ul');
+      editsUl.className = 'import-edits-list num';
+      editsUl.style.fontSize = '11px';
+
+      for (const ed of recordedEdits) {
+        const li = document.createElement('li');
+        const origStr =
+          ed.original_value === null || ed.original_value === undefined || ed.original_value === ''
+            ? '(empty)'
+            : String(ed.original_value);
+        const newStr =
+          ed.new_value === null || ed.new_value === undefined || ed.new_value === ''
+            ? '(empty)'
+            : String(ed.new_value);
+        const skipSuffix = ed.skipped ? ' [Skipped]' : '';
+        li.textContent = `Round ${ed.round_number} (${ed.series || 'Series'}) · ${ed.field}: ${origStr} → ${newStr}${skipSuffix}`;
+        editsUl.appendChild(li);
+      }
+
+      if (totalEditsCount > recordedEdits.length) {
+        const moreLi = document.createElement('li');
+        moreLi.style.color = 'var(--text-muted)';
+        moreLi.textContent = `...and ${formatNum(totalEditsCount - recordedEdits.length)} more adjustment(s).`;
+        editsUl.appendChild(moreLi);
+      }
+
+      editsDetails.appendChild(editsUl);
+      tdFile.appendChild(editsDetails);
+    }
+
+    // 4. Mark Verified
     const tdVer = document.createElement('td');
     const verBadge = document.createElement('span');
-    verBadge.className = batch.markVerified ? 'badge badge-success' : 'badge badge-inactive';
+    verBadge.className = `badge ${batch.markVerified ? 'badge-success' : 'badge-inactive'}`;
     verBadge.textContent = batch.markVerified ? '🔒 Verified' : 'Unverified';
     tdVer.appendChild(verBadge);
 
-    // 5. Import Summary
-    const tdSum = document.createElement('td');
-    tdSum.className = 'num';
-    tdSum.style.fontSize = 'var(--text-xs)';
-    const rLine = document.createElement('div');
-    rLine.textContent = `Rounds: +${batch.roundsCreated} created · ${batch.roundsMerged} merged · ${batch.roundsSkipped} skipped`;
-    const cLine = document.createElement('div');
-    cLine.style.color = 'var(--text-muted)';
-    cLine.style.fontSize = '11px';
-    cLine.textContent = `Cells: +${batch.cellsInserted} inserted · ${batch.cellsSkipped} skipped`;
-    tdSum.append(rLine, cLine);
+    // 5. Rows (Imported / Found)
+    const tdRows = document.createElement('td');
+    tdRows.className = 'num';
+    tdRows.style.whiteSpace = 'nowrap';
+    const impText =
+      batch.rowsImported !== null && batch.rowsImported !== undefined
+        ? formatNum(batch.rowsImported)
+        : '0 (Open)';
+    tdRows.textContent = `${impText} / ${formatNum(batch.rowsFound)}`;
 
-    // 6. Status
+    // 6. Status & Undo Info
     const tdStatus = document.createElement('td');
-    const stBadge = document.createElement('span');
-    if (batch.isUndone) {
-      stBadge.className = 'badge badge-inactive';
-      stBadge.textContent = '↩ Undone';
-      tdStatus.appendChild(stBadge);
-
+    if (batch.undoneAt) {
+      const uBadge = document.createElement('span');
+      uBadge.className = 'badge badge-warning';
+      uBadge.textContent = 'Undone';
+      tdStatus.appendChild(uBadge);
       if (batch.undoReason) {
-        const reasonDiv = document.createElement('div');
-        reasonDiv.style.fontSize = '11px';
-        reasonDiv.style.color = 'var(--text-muted)';
-        reasonDiv.style.marginTop = '3px';
-        reasonDiv.textContent = `Reason: "${batch.undoReason}"`;
-        tdStatus.appendChild(reasonDiv);
+        const rDiv = document.createElement('div');
+        rDiv.style.fontSize = '11px';
+        rDiv.style.color = 'var(--text-muted)';
+        rDiv.style.marginTop = '2px';
+        rDiv.textContent = `Reason: "${batch.undoReason}"`;
+        tdStatus.appendChild(rDiv);
       }
-      if (batch.resultsDeleted !== null) {
-        const countsDiv = document.createElement('div');
-        countsDiv.style.fontSize = '11px';
-        countsDiv.style.color = 'var(--text-dim)';
-        countsDiv.className = 'num';
-        countsDiv.textContent = `${batch.resultsDeleted} del · ${batch.resultsKept ?? 0} kept · ${batch.roundsDeleted ?? 0} rounds del`;
-        tdStatus.appendChild(countsDiv);
-      }
-    } else if (batch.isFinished) {
-      stBadge.className = 'badge badge-success';
-      stBadge.textContent = '✓ Completed';
-      tdStatus.appendChild(stBadge);
+    } else if (batch.rowsImported === null || batch.rowsImported === undefined) {
+      const openBadge = document.createElement('span');
+      openBadge.className = 'badge badge-warning';
+      openBadge.textContent = 'Open (Unfinished — 0 rows saved)';
+      tdStatus.appendChild(openBadge);
     } else {
-      stBadge.className = 'badge badge-warning';
-      stBadge.textContent = 'In Progress / Partial';
-      tdStatus.appendChild(stBadge);
+      const aBadge = document.createElement('span');
+      aBadge.className = 'badge badge-success';
+      aBadge.textContent = 'Completed';
+      tdStatus.appendChild(aBadge);
     }
 
     // 7. Action (Undo)
     const tdAction = document.createElement('td');
-    if (!batch.isUndone) {
+    if (!batch.undoneAt) {
       const undoBtn = document.createElement('button');
       undoBtn.type = 'button';
       undoBtn.className = 'btn btn-outline btn-sm';
-      undoBtn.textContent = '↩ Undo';
+      undoBtn.textContent = 'Undo';
       undoBtn.addEventListener('click', () => {
         openUndoImportModal(batch);
       });
@@ -3065,7 +4873,7 @@ function renderImportHistoryTable() {
       tdAction.appendChild(doneSpan);
     }
 
-    tr.append(tdDate, tdStu, tdFile, tdVer, tdSum, tdStatus, tdAction);
+    tr.append(tdDate, tdStu, tdFile, tdVer, tdRows, tdStatus, tdAction);
     tbody.appendChild(tr);
   }
 
@@ -3189,7 +4997,8 @@ function renderCategoryAliasesList() {
     const empty = document.createElement('div');
     empty.style.fontSize = 'var(--text-xs)';
     empty.style.color = 'var(--text-muted)';
-    empty.textContent = 'No custom database aliases saved yet. Built-in aliases ("calender", "timeelapse") are always active.';
+    empty.textContent =
+      'No custom database aliases saved yet. Built-in aliases ("calender", "timeelapse") are always active.';
     container.appendChild(empty);
     return;
   }
@@ -3300,6 +5109,11 @@ function resetImportWorkflow() {
   currentPreviewState = null;
   currentExecutionPlan = null;
   blockUiState = {};
+  previewEditState = createEmptyEditState();
+  expandedRoundKeys = new Set();
+  activeRoundEditor = null;
+  activeCellEditor = null;
+  hideUnsavedEditsWarning();
 
   const fileInput = document.getElementById('import-csv-file');
   if (fileInput) fileInput.value = '';

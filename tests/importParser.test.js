@@ -288,3 +288,125 @@ test('Mixed date formats (21/8/26 and 8/21/26) trigger error in Auto mode and ma
   assert.equal(ddmmRes.blocks[0].rounds[0].dateISO, '2026-08-21');
   assert.equal(ddmmRes.blocks[0].rounds[1].dateStatus, 'unreadable');
 });
+
+test('Phase 4c-2c: Time Taken of 59:23:00 gives warning and null total time; 8:00:00 is accepted and 8:00:01 is not', () => {
+  const csv = [
+    'INDEX,Category,Round 1,,Round 2,,Round 14,',
+    ',,10/08/26,,11/08/26,,12/08/26,',
+    ',,Score,Time,Score,Time,Score,Time',
+    '1,ADD,80/85,1:10,82/85,1:12,84/85,1:05',
+    ',Time Taken,8:00:00,,8:00:01,,59:23:00,',
+  ].join('\n');
+
+  const res = parseScoreSheetCsv(csv, {
+    roundCategories: MOCK_DB_ROUND_CATEGORIES,
+    todayIST: '2026-10-18',
+  });
+
+  assert.equal(res.ok, true);
+  const [r1, r2, r14] = res.blocks[0].rounds;
+
+  // 8:00:00 (28,800s) is accepted
+  assert.equal(r1.summary.timeTakenSeconds, 28800);
+  assert.ok(!r1.summary.timeTakenOverLimit);
+
+  // 8:00:01 (28,801s) is over limit -> null seconds + warning
+  assert.equal(r2.summary.timeTakenSeconds, null);
+  assert.equal(r2.summary.timeTakenOverLimit, true);
+
+  // 59:23:00 is over limit -> null seconds + warning and does NOT exclude the round
+  assert.equal(r14.summary.timeTakenSeconds, null);
+  assert.equal(r14.summary.timeTakenOverLimit, true);
+  assert.equal(r14.excluded, false);
+
+  const warn14 = res.needsAttention.find(
+    (w) => w.type === 'time_taken_over_limit' && w.roundNumber === 14
+  );
+  assert.ok(warn14);
+  assert.equal(warn14.severity, 'warning');
+  assert.equal(
+    warn14.message,
+    `Total time 59:23:00 at ${r14.summary.timeTakenRef} is more than 8 hours: the round will be imported WITHOUT a total time`
+  );
+});
+
+test('Phase 4c-2c: Cell time 4:00:00 is accepted and 4:00:01 is unreadable', () => {
+  const okTime = parseTimeCell('4:00:00');
+  assert.equal(okTime.status, 'ok');
+  assert.equal(okTime.seconds, 14400);
+
+  const overTime = parseTimeCell('4:00:01');
+  assert.equal(overTime.status, 'unreadable');
+  assert.equal(overTime.seconds, null);
+  assert.match(overTime.reason, /more than 4 hours/i);
+});
+
+test('Phase 4c-2c: Round dates after today_ist() and before 2020-01-01 are excluded; round type > 40 chars and note > 500 chars are cut with warnings', () => {
+  const type41 = 'A'.repeat(41);
+  const note505 = 'N'.repeat(505);
+  const csv = [
+    'INDEX,Category,Round 1,,Round 2,,Round 3,',
+    ',,31/12/2019,,19/10/2026,,15/08/2026,',
+    ',,Score,Time,Score,Time,Score,Time',
+    `1,ADD,70/75,1:10,72/75,1:10,75/75,1:10`,
+    `2,Surprise Task,,,${note505},,${note505},`,
+    `,Round Type,Category wise,,Flat Round,,${type41},`,
+  ].join('\n');
+
+  const res = parseScoreSheetCsv(csv, {
+    roundCategories: MOCK_DB_ROUND_CATEGORIES,
+    todayIST: '2026-10-18',
+  });
+
+  assert.equal(res.ok, true);
+  const [rBefore2020, rAfterToday, rValid] = res.blocks[0].rounds;
+
+  assert.equal(rBefore2020.dateISO, '2019-12-31');
+  assert.equal(rBefore2020.excluded, true);
+
+  assert.equal(rAfterToday.dateISO, '2026-10-19');
+  assert.equal(rAfterToday.excluded, true);
+
+  assert.equal(rValid.dateISO, '2026-08-15');
+  assert.equal(rValid.excluded, false);
+  assert.equal(rValid.summary.roundType.length, 40);
+  assert.equal(rValid.summary.roundTypeTruncated, true);
+  assert.equal(rValid.cells[1].note.length, 500);
+
+  assert.ok(res.needsAttention.some((w) => w.type === 'round_type_truncated'));
+  assert.ok(res.needsAttention.some((w) => w.type === 'note_truncated'));
+});
+
+test('Phase 4c-2c: Strict Marks TO BE CORRECTED check flags sheet 177 vs calculated 178, and duplicate dates 25 Jul 2026 & 16 Aug 2026 emit two info lines', () => {
+  const csv = [
+    'INDEX,Category,Round 1,,,INDEX,Category,Round 10,,Round 11,,Round 20,,Round 21,,Round 26,',
+    ',,10/08/26,,,,,25/07/26,,25/07/2026,,16/08/26,,16/08/26,,20/08/26,',
+    ',,Score,Time,,,,Score,Time,Score,Time,Score,Time,Score,Time,Score,Time',
+    '1,ADD,80/85,1:10,,1,ADD,80/90,1:10,82/90,1:10,85/90,1:10,84/90,1:10,822/1000,2:00',
+    ',Final Score,80,,,,Final Score,80,,82,,85,,84,,823,',
+    ',Total Attempt,85,,,,Total Attempt,90,,90,,90,,90,,1000,',
+    ',Marks TO BE CORRECTED,5,,,,Marks TO BE CORRECTED,10,,8,,5,,6,,177,',
+  ].join('\n');
+
+  const res = parseScoreSheetCsv(csv, {
+    roundCategories: MOCK_DB_ROUND_CATEGORIES,
+    todayIST: '2026-10-18',
+  });
+
+  assert.equal(res.ok, true);
+  const blk2 = res.blocks[1];
+  const r26 = blk2.rounds.find((r) => r.roundNumber === 26);
+  assert.ok(r26);
+  // Sheet Final Score=823, Sheet Total Attempt=1000 (1000-823=177), Sheet Marks=177, but calculated sum(total)-sum(correct) = 1000-822 = 178
+  assert.equal(r26.crossChecks.marksToBeCorrected.status, 'MISMATCH');
+  assert.equal(r26.crossChecks.marksToBeCorrected.sheetValue, 177);
+  assert.equal(r26.crossChecks.marksToBeCorrected.computedValue, 178);
+
+  const dupInfos = res.needsAttention.filter(
+    (item) => item.type === 'duplicate_date' && item.blockNumber === 2
+  );
+  assert.equal(dupInfos.length, 2);
+  assert.ok(dupInfos.some((i) => i.message.includes('25 Jul 2026')));
+  assert.ok(dupInfos.some((i) => i.message.includes('16 Aug 2026')));
+});
+

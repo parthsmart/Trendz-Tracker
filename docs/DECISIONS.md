@@ -369,3 +369,47 @@ Every meaningful technical and architectural decision made for **Trendz Tracker*
      - **Why**: Comparing CSV rounds by `(student_id, series_id, round_number)` against `student_rounds` and `results` classifies every round (`new`, `identical`, `adds_cells`, `conflict`) and every cell (`new`, `identical`, `conflict`, `protected_conflict`, `db_only`), ensuring teacher-verified (`verified`) and teacher-corrected (`corrected_at`) scores are flagged as protected and never silently overwritten.
 - **Rejected Options**: Modifying `js/importParser.js` for database comparison logic (kept isolated in `js/importResolver.js` and tested via `node:test`), auto-confirming suggested series without admin review, or allowing two blocks in the same sheet to target the same simulator series.
 
+---
+
+### ADR-026: CSV Import Part 2B — Import Execution Plan, Non-Overwriting Merge, Batch History & Undo (Phase 4c-2b)
+- **Date**: 2026-10-18
+- **Context**: Once an administrator previews a multi-block score sheet, resolves categories, and confirms simulator series, the application must import rounds and cells safely into Supabase (`student_rounds`, `results`, `import_batches`) with full traceability and one-click undo capability.
+- **Decisions & Rationale**:
+  1. *Batch Lifecycle (`admin_start_import_batch` -> `admin_import_rounds` -> `admin_finish_import_batch`)*:
+     - **Why**: Wrapping every import run in an `import_batches` record stamps all newly created `student_rounds` and `results` rows with `import_batch_id`. This allows `admin_undo_import_batch(p_batch_id, p_reason)` to cleanly delete only rows created by that specific batch without disturbing earlier or teacher-verified data.
+  2. *Non-Overwriting Merge Policy (`ON CONFLICT DO NOTHING`)*:
+     - **Why**: Re-running an import or importing overlapping sheets must never overwrite existing scores or teacher-verified/corrected records. Only `new` cells are included in the `admin_import_rounds` payload; existing identical, conflicting, and protected rows are left untouched.
+  3. *Chunking per Call (`<= 100` rounds and `<= 3000` cells)*:
+     - **Why**: Splitting large blocks into bounded chunks (`chunkRoundsForImport`) respects database RPC payload limits and keeps each transaction fast and reliable.
+
+---
+
+### ADR-027: Mirroring Database Validation Limits in the Import Preview and Pre-Flight Plan (Phase 4c-2c)
+- **Date**: 2026-10-19
+- **Context**: When importing a real student tracking sheet, `admin_import_rounds` rejected the entire RPC call with `"Some rounds are not valid (number, date, type or total time). Nothing was imported."` The root cause was that Block 2 Round 14 had a `Time Taken` of `"59:23:00"` (`213,780` seconds, ~59 hours) at cell `DV31` due to a spreadsheet formula/entry typo, whereas the PostgreSQL RPC `admin_import_rounds` enforces `time_taken_seconds IS NULL OR (time_taken_seconds >= 0 AND time_taken_seconds <= 28800)` (8 hours max) and aborts the entire transaction if any single round or cell violates a database constraint.
+- **Options Considered**:
+  1. *Relaxing the PostgreSQL constraints in `admin_import_rounds`*: Rejected because database constraints are the final integrity barrier against corrupt data (e.g. a 59-hour round duration is not a real abacus practice session duration), and database functions/SQL must not be changed.
+  2. *Letting the database RPC fail and asking the admin to edit the CSV file manually*: Rejected because an atomic batch failure aborts all 70+ valid rounds in the block over a single typo in one cell, creating friction and leaving an empty `"Open"` batch in history.
+  3. *Mirroring exact database limits in `js/importParser.js` and `js/importPlan.js`, sanitizing/excluding out-of-range items during preview, and running a pre-flight `validatePayload(payload)` check before any RPC call*:
+     - **Round limits mirrored**:
+       - `round_number`: integer `1..100000` (outside range -> round excluded).
+       - `round_date`: `YYYY-MM-DD` between `2020-01-01` and `today_ist()` (outside range or unreadable -> round excluded).
+       - `round_type`: max `40` characters (longer -> truncated to `40` characters with a warning).
+       - `time_taken_seconds`: `null` or `0..28800` (8 hours). Above `28,800` seconds -> emits warning `"Total time <text> at <cell> is more than 8 hours: the round will be imported WITHOUT a total time"`, adds a count to the Step 3 acknowledgment list, and sets `time_taken_seconds = null` in the payload so the round's scores still import cleanly.
+       - Call size: max `100` rounds and `3,000` cells per `admin_import_rounds` call (`chunkRoundsForImport`).
+     - **Cell limits mirrored**:
+       - Either `correct` and `total` both present with `0 <= correct <= total` and `total >= 1`, or both absent with a non-empty `note`.
+       - `note`: max `500` characters (longer -> truncated to `500` characters with a warning).
+       - `time_seconds`: `null` or `0..14400` (4 hours). Above `14,400` seconds -> cell marked `unreadable` (not imported) with a warning.
+       - Category uniqueness: each `category_id` at most once per round.
+     - **Pre-flight `validatePayload(payload)`**:
+       - Executed on every chunk before any database RPC (`admin_start_import_batch` / `admin_import_rounds`) is called. If any rule is broken, returns structured problems naming `{ roundNumber, field, value, message }` and blocks the database call before any open batch is created.
+- **Choice**: Option 3 — Mirror all database limits in pure functions (`js/importParser.js`, `js/importPlan.js`) with graceful degradation (nullify `>8h` total time, mark `>4h` cell time unreadable, truncate `>40` round type and `>500` note, exclude invalid rounds) plus pre-flight `validatePayload(payload)` verification and expandable technical error diagnostics.
+- **Reason**:
+  - **Prevents Atomic Batch Failures**: Because `admin_import_rounds` validates the entire JSON array atomically and rolls back all rounds if even one field is out of bounds, catching and sanitizing or excluding offending values in the browser preview ensures valid rounds import smoothly without requiring manual CSV editing.
+  - **Transparency & Auditability**: Every automatic adjustment (such as importing Round 14 without total time when `DV31` is `59:23:00`, or excluding a round with a date before `2020-01-01`) is surfaced in the "Needs Attention" panel, the per-round table, and the Step 3 acknowledgment checklist before the teacher clicks **Import**.
+  - **Defense in Depth**: Running `validatePayload(payload)` immediately prior to database submission guarantees that even if UI state is manipulated, no invalid payload is ever sent over the network, and no orphan `"Open"` batch is created when a pre-flight check fails.
+- **Trade-off**: Validation constants (`28800`, `14400`, `40`, `500`, `100`, `3000`, `2020-01-01`) must be kept in sync with the PostgreSQL `admin_import_rounds` function definition.
+- **Rejected Options**: Altering SQL constraints, failing the whole import on a single >8h total time cell, or silently dropping values without warning the administrator.
+
+

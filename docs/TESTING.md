@@ -711,7 +711,49 @@ This document contains step-by-step test scenarios to verify security boundaries
      - Inspect the **Comparison with Existing Database Records** summary panel and the **DB Comparison** column in each block's round table.
      - Expand **Cells (5) ▾** on rounds in Block 1 and Block 2: verify side-by-side `In CSV Sheet` vs `Existing in Database` values, including `Identical in DB`, `New Score`, `Conflict (score, time)`, `Protected (🔒 Verified — Keep DB)`, `Protected (✏️ Corrected — Keep DB)`, and `In DB Only (Kept)`.
      - Switch student in Step 1 to **Ananya Iyer (`STU104`)** -> verify all 5 rounds across both blocks update immediately to `NEW ROUND`.
-     - Confirm the **Import** button remains `disabled` throughout (`"Import is added in the next step"`).
+
+---
+
+### Test Case 35: Admin CSV Import Part 2B & 2C — Database Limit Mirroring, `validatePayload`, UI Polish, and Import / Undo Flow
+- **Objective**: Verify that the import preview and execution plan mirror all PostgreSQL `admin_import_rounds` limits (`round_number 1..100000`, `round_date 2020-01-01..today_ist()`, `round_type <= 40 chars`, `time_taken_seconds 0..28800`, `cell time_seconds 0..14400`, `note <= 500 chars`, `<= 100 rounds` and `<= 3000 cells` per call), verify the Phase 4c-2c UI polish, and test importing and undoing a batch.
+- **Part A — Automated Node Test Suite**:
+  1. Run `node --test tests/*.test.js` in the terminal.
+  2. **Expected Result**: All 24 unit tests across `tests/importParser.test.js`, `tests/importPlan.test.js`, and `tests/importResolver.test.js` pass (`0 fail`), verifying:
+     - `Time Taken` of `59:23:00` (`213,780s`) emits a warning (`"Total time 59:23:00 at <cell> is more than 8 hours: the round will be imported WITHOUT a total time"`), sets `time_taken_seconds = null` in the payload, increments `overMaxTimeTakenRoundsCount` in acknowledgments, does not exclude the round, and passes `validatePayload(payload)`.
+     - Exactly `8:00:00` (`28,800s`) is accepted; `8:00:01` (`28,801s`) is flagged and nullified.
+     - Cell time `4:00:00` (`14,400s`) is accepted; `4:00:01` (`14,401s`) is marked `unreadable` (not imported).
+     - Round dates after `today_ist()` or before `2020-01-01` exclude that round (`excluded = true`, `exclusionReason`) without failing the rest of the sheet.
+     - `round_type` of 41 characters is truncated to 40 characters with a warning; `note` > 500 characters is truncated to 500 characters with a warning.
+     - `Marks TO BE CORRECTED` check uses strict `Total Attempt - Final Score` (`calculatedMarksToBeCorrected = sumTotal - sumCorrect`), flagging Round 26 in Block 2 where sheet is `177` and calculated is `178`.
+     - Duplicate dates within a block (`25 Jul 2026` and `16 Aug 2026`) emit two info lines (`25 Jul 2026` and `16 Aug 2026`) in chronological order.
+     - `validatePayload(payload)` returns structured problems naming `{ roundNumber, field, value, message }` for each broken rule.
+     - `chunkRoundsForImport` splits `101` rounds into 2 valid calls (`100` + `1`) and splits `> 3,000` cells into valid calls.
+- **Part B — Browser UI Polish & Import Verification (`/pages/import.html`)**:
+  1. Log in as Admin (`ADMIN01` / `admin123`) and navigate to **Setup ▾ → Import** (`/pages/import.html`).
+  2. **Spacing & Unified Student Picker**:
+     - Verify there is normal vertical spacing (`24px`) between the top navigation bar and the first card so the card is not cut off.
+     - Click the unified **Student** control (`#import-student-picker-trigger`): verify a single searchable dropdown opens with a search input and student rows, and selecting **Aarav Sharma (`STU101`)** clearly displays their name, code badge (`STU101`), and level in the trigger button.
+  3. **Load Sample CSV & Inspect Needs Attention**:
+     - Click **Load Sample 2-Block CSV** (or select your `.csv` sheet).
+     - In the **Needs Attention** card:
+       - Verify the heading badge shows exact severity counts matching the rows (e.g. `"5 warnings, 1 info"`).
+       - Verify rows are grouped by severity (`Blocking Errors`, `Warnings`, `Info`).
+       - Verify info rows are hidden by default behind a **"Show N info lines"** toggle button; click the toggle to reveal/hide info rows.
+       - Verify each row places the severity badge (`ERROR`, `WARN`, `INFO`), the `Block X · Round Y` chip, and the cell coordinate chip (e.g. `E5`, `O10`, `DV31`) on the left, with the message text left-aligned immediately after them (and wrapping cleanly underneath on narrow screens) without repeating the cell coordinate in the sentence.
+  4. **Inspect Summary Cards**:
+     - Verify metric columns stack a small uppercase label above the large number and a short unit beneath (so `"2 Blocks"` and `"72 Rounds"` never wrap awkwardly mid-phrase).
+     - Verify all numbers use thousands separators (e.g. `1,677`) and all short month names use 3-letter format (`Sep`, never `Sept`).
+  5. **Confirm Series, Map Unmatched Category & Execute Import**:
+     - Click **Confirm Series** on Block 1 (`Old simulator`) and Block 2 (`New simulator`).
+     - In Block 1 Category Resolution, resolve `"Currency"` (e.g. map to `Currency` or `Create "Currency" as an inactive round category & link to series`).
+     - Scroll to Step 3: inspect the **Acknowledgments & Excluded Rounds** summary box, confirm `validatePayload` reports 0 problems, and click **Import**.
+     - In the Confirmation Modal (`#import-confirm-modal`), review the exact numbers and click **Confirm & Import Now**.
+     - Verify the green **Import Completed Successfully** banner displays rounds created, existing rounds merged, scores inserted, and existing scores kept.
+  6. **Verify Import History & Undo**:
+     - Scroll to **Recent Imports (`import_batches`)** at the bottom of `/pages/import.html`.
+     - Verify the completed batch row shows `✓ Completed`, student name, blocks, rounds/scores created, and an **Undo Import** button (and if any batch failed mid-flight, it shows `Open` with `0` rows).
+     - Click **Undo Import**, enter a reason of at least 3 characters (e.g. `"Testing Phase 4c-2c undo flow"`), and click **Confirm Undo**.
+     - Verify the batch status updates to `↩ Undone` with the undo timestamp and reason.
 
 
 

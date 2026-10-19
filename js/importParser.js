@@ -676,7 +676,7 @@ export function parseScoreSheetCsv(csvText, options = {}) {
 
   // 5. Find the first category row below headerRowIdx
   // Rows between headerRowIdx + 1 and firstCategoryRowIdx - 1 are the Date / Score-Time sub-header rows.
-  const dateRegex = /(\d{1,2})\s*[/.-]\s*(\d{1,2})\s*[/.-]\s*(\d{2,4})/;
+  const dateRegex = /(\d{1,2})\s*[/.-]+\s*(\d{1,2})\s*[/.-]+\s*(\d{2,4})/;
   let firstCategoryRowIdx = -1;
 
   for (let r = headerRowIdx + 1; r < grid.length; r++) {
@@ -691,7 +691,7 @@ export function parseScoreSheetCsv(csvText, options = {}) {
         if (/^score$/i.test(scText) || /^time$/i.test(tmText)) {
           isScoreLabelRow = true;
         }
-        if (dateRegex.test(scText)) {
+        if (dateRegex.test(scText) || dateRegex.test(tmText)) {
           hasDateInScoreCol = true;
         }
       }
@@ -741,17 +741,25 @@ export function parseScoreSheetCsv(csvText, options = {}) {
       let dateMatch = null;
 
       for (let r = headerRowIdx + 1; r < firstCategoryRowIdx; r++) {
-        const cellVal = String(grid[r][cand.scoreCol] ?? '').trim();
+        let cellVal = String(grid[r][cand.scoreCol] ?? '').trim();
+        let usedCol = cand.scoreCol;
+        if ((!cellVal || /^score$/i.test(cellVal)) && hasDedicatedTimeCol) {
+          const fallbackVal = String(grid[r][cand.timeCol] ?? '').trim();
+          if (fallbackVal && !/^time$/i.test(fallbackVal) && dateRegex.test(fallbackVal)) {
+            cellVal = fallbackVal;
+            usedCol = cand.timeCol;
+          }
+        }
         if (!cellVal || /^score$/i.test(cellVal)) continue;
         const m = cellVal.match(dateRegex);
         if (m) {
           rawDateCell = cellVal;
-          dateRef = cellRef(r, cand.scoreCol);
+          dateRef = cellRef(r, usedCol);
           dateMatch = m;
           break;
         } else if (!rawDateCell && !isEmptyOrPlaceholderCell(cellVal)) {
           rawDateCell = cellVal;
-          dateRef = cellRef(r, cand.scoreCol);
+          dateRef = cellRef(r, usedCol);
         }
       }
 
@@ -1554,7 +1562,7 @@ export function parseScoreSheetCsv(csvText, options = {}) {
           sheetValue: rnd.crossChecks.marksToBeCorrected.sheetValue,
           computedValue: rnd.crossChecks.marksToBeCorrected.computedValue,
           diff: rnd.crossChecks.marksToBeCorrected.diff,
-          message: `Block ${blk.blockNumber} · Round ${rnd.roundNumber}: Marks TO BE CORRECTED MISMATCH at ${rnd.summary.marksToBeCorrectedRef || 'summary'} (Sheet: ${rnd.crossChecks.marksToBeCorrected.sheetValue}, Expected: ${rnd.crossChecks.marksToBeCorrected.computedValue}, Diff: ${formatDiff(rnd.crossChecks.marksToBeCorrected.diff)}).`,
+          message: `Block ${blk.blockNumber} · Round ${rnd.roundNumber}: Marks TO BE CORRECTED MISMATCH at ${rnd.summary.marksToBeCorrectedRef || 'summary'} (Sheet: ${rnd.crossChecks.marksToBeCorrected.sheetValue}, Calculated: ${rnd.crossChecks.marksToBeCorrected.computedValue}, Diff: ${formatDiff(rnd.crossChecks.marksToBeCorrected.diff)}).`,
         });
       }
     }
