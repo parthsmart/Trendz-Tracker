@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Data Backup &amp; Export - Trendz Tracker</title>
+    <meta name="description" content="Nightly Google Sheet backup monitor, on-demand incremental backup runner, and full-database ZIP export." />
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- Top Bar Contract: 3-Zone Navigation -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <!-- Zone 1: Wordmark & Brand -->
+          <a href="/pages/admin.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <!-- Mobile Menu Toggle -->
+          <button type="button" class="mobile-menu-btn" id="btn-mobile-menu" aria-label="Toggle Navigation" aria-expanded="false">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+
+          <!-- Zone 2: Navigation Links -->
+          <nav class="nav-zone" id="admin-nav-zone" aria-label="Admin Navigation">
+            <a href="/pages/admin.html" class="nav-link">Overview</a>
+            <a href="/pages/review.html" class="nav-link">Review</a>
+            <a href="/pages/students.html" class="nav-link">Students</a>
+            <a href="/pages/attendance.html" class="nav-link">Attendance</a>
+            <a href="/pages/weekly-tests.html" class="nav-link">Weekly Tests</a>
+            <a href="/pages/leaderboard.html" class="nav-link">Leaderboard</a>
+            <a href="/pages/monthly-report.html" class="nav-link">Monthly Report</a>
+
+            <!-- Setup Dropdown -->
+            <div class="nav-dropdown active">
+              <button type="button" class="nav-link nav-dropdown-toggle active" id="btn-setup-dropdown" aria-expanded="false" aria-haspopup="true">
+                Setup <span style="font-size: 10px; margin-left: 2px;">▾</span>
+              </button>
+              <div class="nav-dropdown-menu" id="setup-dropdown-menu" role="menu">
+                <a href="/pages/todos.html" class="dropdown-item" role="menuitem">Daily To-Do</a>
+                <a href="/pages/resources.html" class="dropdown-item" role="menuitem">Resources</a>
+                <a href="/pages/categories.html" class="dropdown-item" role="menuitem">Categories</a>
+                <a href="/pages/rounds.html" class="dropdown-item" role="menuitem">Rounds</a>
+                <a href="/pages/targets.html" class="dropdown-item" role="menuitem">Targets</a>
+                <a href="/pages/competition.html" class="dropdown-item" role="menuitem">Competition</a>
+                <a href="/pages/import.html" class="dropdown-item" role="menuitem">Import</a>
+                <a href="/pages/backup.html" class="dropdown-item active" role="menuitem" aria-current="page">Backup</a>
+              </div>
+            </div>
+          </nav>
+
+          <!-- Zone 3: User Details & Logout Action -->
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Admin</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-role" style="color: var(--text-muted);">Teacher</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Page Content -->
+      <main class="main-content">
+        <div class="container">
+          <!-- Demo Mode Banner Placeholder -->
+          <div id="config-banner-placeholder"></div>
+
+          <!-- Staleness Warning Banner (> 2 days old or never run) -->
+          <div
+            id="backup-staleness-banner"
+            style="display: none; background: var(--color-warning-subtle); border: 1px solid #fde68a; border-left: 4px solid var(--color-warning); border-radius: var(--radius-md); padding: var(--space-4); margin-bottom: var(--space-6);"
+            role="status"
+          >
+            <div style="font-weight: 700; color: var(--color-warning-text); margin-bottom: 4px;" id="backup-staleness-title">
+              ⚠️ Backup Attention Needed
+            </div>
+            <div style="font-size: var(--text-sm); color: var(--text-main);" id="backup-staleness-message">
+              No recent Google Sheet backup has been completed.
+            </div>
+          </div>
+
+          <!-- Page Heading -->
+          <div class="section-header-row" style="margin-bottom: var(--space-6);">
+            <div>
+              <h1>Data Backup &amp; Full Export</h1>
+              <p style="font-size: var(--text-sm);">
+                Nightly incremental Google Sheet backup (12 snapshot tables + 6 append tables) and manual full-database CSV ZIP archive download.
+              </p>
+            </div>
+            <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
+              <a
+                href="#"
+                id="link-open-backup-sheet"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="btn btn-outline btn-sm"
+                style="display: none;"
+              >
+                Open backup sheet ↗
+              </a>
+              <button type="button" id="btn-refresh-backup-status" class="btn btn-outline btn-sm">
+                ↻ Refresh Status
+              </button>
+            </div>
+          </div>
+
+          <!-- Summary Status Cards (4 Cards) -->
+          <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin-bottom: var(--space-6);">
+            <div class="stat-card">
+              <span class="stat-label">Google Sheet Backup Configured</span>
+              <span class="stat-value" id="stat-backup-configured">—</span>
+              <span style="font-size: var(--text-xs); color: var(--text-muted);" id="stat-backup-configured-sub">
+                Checks service account &amp; sheet ID
+              </span>
+            </div>
+
+            <div class="stat-card">
+              <span class="stat-label">Last Successful Google Backup (IST)</span>
+              <span class="stat-value num" id="stat-last-google-backup" style="font-size: var(--text-lg);">—</span>
+              <span style="font-size: var(--text-xs); color: var(--text-muted);" id="stat-last-google-backup-sub">
+                Scheduled nightly at ~2:00 AM IST
+              </span>
+            </div>
+
+            <div class="stat-card">
+              <span class="stat-label">Last Manual ZIP Export (IST)</span>
+              <span class="stat-value num" id="stat-last-zip-export" style="font-size: var(--text-lg);">—</span>
+              <span style="font-size: var(--text-xs); color: var(--text-muted);">
+                18 CSV files + README.txt
+              </span>
+            </div>
+
+            <div class="stat-card">
+              <span class="stat-label">Spreadsheet Cell Capacity</span>
+              <span class="stat-value num" id="stat-cells-written" style="font-size: var(--text-lg);">—</span>
+              <div style="width: 100%; height: 8px; background: var(--border-subtle); border-radius: 4px; overflow: hidden; margin-top: 6px;">
+                <div
+                  id="cells-capacity-bar"
+                  style="width: 0%; height: 100%; background: var(--color-primary); transition: width 0.25s ease;"
+                ></div>
+              </div>
+              <span style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 4px;" id="stat-cells-sub" class="num">
+                0 of 10,000,000 cells (0.0%)
+              </span>
+            </div>
+          </div>
+
+          <!-- Actions & Live Progress Card -->
+          <div class="card" style="padding: var(--space-5); margin-bottom: var(--space-6);">
+            <div class="section-header-row" style="margin-bottom: var(--space-3); flex-wrap: wrap; gap: var(--space-3);">
+              <div>
+                <h2 style="font-size: var(--text-lg); margin-bottom: 2px;">Backup &amp; Export Actions</h2>
+                <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 0;">
+                  Run an on-demand Google Sheet backup pass (8-second passes with automatic continuation) or download all 18 tables as a local ZIP of CSV files.
+                </p>
+              </div>
+              <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
+                <button type="button" id="btn-run-google-backup" class="btn btn-primary btn-sm">
+                  ☁️ Back up to Google Sheet now
+                </button>
+                <button
+                  type="button"
+                  id="btn-cancel-google-backup"
+                  class="btn btn-outline btn-sm"
+                  style="display: none; color: var(--color-danger); border-color: var(--color-danger);"
+                >
+                  ✕ Cancel
+                </button>
+                <button type="button" id="btn-download-zip" class="btn btn-outline btn-sm">
+                  📦 Download all data (ZIP)
+                </button>
+              </div>
+            </div>
+
+            <!-- Live Progress Bar (shown during Sheet Backup passes or ZIP export) -->
+            <div
+              id="backup-progress-panel"
+              style="display: none; background: var(--bg-subtle); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: var(--space-4); margin-top: var(--space-3);"
+            >
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2);">
+                <strong id="backup-progress-title" style="font-size: var(--text-sm); color: var(--text-main);">
+                  Running backup...
+                </strong>
+                <span id="backup-progress-detail" class="num" style="font-size: var(--text-xs); color: var(--text-muted);">
+                  Pass 1
+                </span>
+              </div>
+              <div style="width: 100%; height: 10px; background: var(--border-subtle); border-radius: 5px; overflow: hidden;">
+                <div
+                  id="backup-progress-bar"
+                  style="width: 10%; height: 100%; background: var(--color-primary); transition: width 0.25s ease;"
+                ></div>
+              </div>
+            </div>
+
+            <!-- Action Result / Error Banner -->
+            <div
+              id="backup-action-alert"
+              style="display: none; margin-top: var(--space-3); padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); font-size: var(--text-sm);"
+              role="alert"
+            ></div>
+          </div>
+
+          <!-- Per-Table Status Table (18 Tables) -->
+          <div class="card" style="padding: var(--space-5); margin-bottom: var(--space-6);">
+            <div class="section-header-row" style="margin-bottom: var(--space-3);">
+              <div>
+                <h2 style="font-size: var(--text-lg); margin-bottom: 2px;">Table Backup Status (18 Tables)</h2>
+                <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 0;">
+                  12 snapshot tables (rewritten each run) and 6 append tables (incremental keyset paging with a 1-minute safe horizon).
+                </p>
+              </div>
+            </div>
+
+            <div class="table-container">
+              <div class="table-scroll">
+                <table class="data-table" aria-label="Per-Table Backup Status">
+                  <thead>
+                    <tr>
+                      <th>Table Name</th>
+                      <th>Mode</th>
+                      <th class="num" style="text-align: right;">Rows Waiting</th>
+                      <th class="num" style="text-align: right;">Rows Written</th>
+                      <th class="num" style="text-align: right;">Cells Written</th>
+                      <th>Last Run (IST)</th>
+                      <th>Last Error / Note</th>
+                    </tr>
+                  </thead>
+                  <tbody id="backup-tables-tbody">
+                    <tr>
+                      <td colspan="7" style="text-align: center; padding: var(--space-6); color: var(--text-muted);">
+                        Loading table backup state...
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Recent Backup Runs Table (Last 10 Runs) -->
+          <div class="card" style="padding: var(--space-5);">
+            <div class="section-header-row" style="margin-bottom: var(--space-3);">
+              <div>
+                <h2 style="font-size: var(--text-lg); margin-bottom: 2px;">Recent Backup &amp; Export Runs (Last 10)</h2>
+                <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 0;">
+                  Audit history of scheduled cron backups, manual Google Sheet passes, and manual ZIP downloads.
+                </p>
+              </div>
+            </div>
+
+            <div class="table-container">
+              <div class="table-scroll">
+                <table class="data-table" aria-label="Recent Backup Runs">
+                  <thead>
+                    <tr>
+                      <th>Started (IST)</th>
+                      <th>Finished (IST)</th>
+                      <th>Kind</th>
+                      <th>Status</th>
+                      <th class="num" style="text-align: right;">Rows Written</th>
+                      <th>Error / Summary</th>
+                    </tr>
+                  </thead>
+                  <tbody id="backup-runs-tbody">
+                    <tr>
+                      <td colspan="6" style="text-align: center; padding: var(--space-6); color: var(--text-muted);">
+                        Loading backup run history...
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- Footer -->
+      <footer class="app-footer">
+        <div class="container footer-inner">
+          <span>Trendz Abacus Promoter &middot; Data Backup &amp; Export</span>
+          <span>Strict Row Level Security Active</span>
+        </div>
+      </footer>
+    </div>
+
+    <script type="module" src="/js/backup.js"></script>
+  </body>
+</html>

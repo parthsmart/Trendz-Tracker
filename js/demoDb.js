@@ -2694,7 +2694,12 @@ export const DemoDB = {
       ],
       weekly_tests: [
         { date: '2026-10-18', title: 'Weekly Assessment #14 (Speed Basics)', scores: 7 }
-      ]
+      ],
+      backup: {
+        last_google_at: '2026-10-18T20:30:12.000Z',
+        last_export_at: '2026-10-17T14:15:00.000Z',
+        days_since_backup: 1
+      }
     };
   },
 
@@ -2896,6 +2901,165 @@ export const DemoDB = {
         { title: 'Weekly Assessment #12 (Mixed Drills)', date: '2026-10-04', category: '1d4r', correct: 18, total: 20, time_seconds: 102 }
       ]
     };
+  },
+
+  // ==================== PHASE 5c: BACKUP & EXPORT DEMO FIXTURES ====================
+  getBackupTableRows(tableName) {
+    initDemoStorage();
+    switch (tableName) {
+      case 'profiles':
+        return this.getStudents();
+      case 'round_series':
+        return JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_ROUND_SERIES) || '[]');
+      case 'categories':
+        return this.getCategories();
+      case 'category_series':
+        return JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_CATEGORY_SERIES) || '[]');
+      case 'basics_thresholds':
+        return this.getBasicsThresholds();
+      case 'daily_tasks':
+        return this.getTodos();
+      case 'resources':
+        return this.getResources();
+      case 'competition_settings':
+        return this.getCompetitionSettings();
+      case 'category_aliases':
+        return JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_CATEGORY_ALIASES) || '[]');
+      case 'attendance_sessions':
+        return this.getSessions();
+      case 'weekly_tests':
+        return this.getWeeklyTests();
+      case 'import_batches':
+        return JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_IMPORT_BATCHES) || '[]');
+      case 'student_rounds':
+        return JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_STUDENT_ROUNDS) || '[]');
+      case 'results':
+        return this.getResults();
+      case 'weekly_test_scores':
+        return JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_SCORES) || '[]');
+      case 'attendance':
+        return JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_ATTENDANCE) || '[]');
+      case 'activity_results':
+        return [];
+      case 'result_audit':
+        return JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_AUDIT) || '[]');
+      default:
+        return [];
+    }
+  },
+
+  getBackupStatus() {
+    initDemoStorage();
+    const runsKey = 'trendz_demo_backup_runs_v1';
+    let runs = JSON.parse(localStorage.getItem(runsKey) || 'null');
+    if (!Array.isArray(runs)) {
+      runs = [
+        {
+          id: 'brun-demo-1',
+          kind: 'cron',
+          status: 'done',
+          started_at: '2026-10-18T20:30:01.000Z',
+          finished_at: '2026-10-18T20:30:06.000Z',
+          rows_written: 186,
+          tables: { profiles: { mode: 'snapshot', rows: 5 }, results: { mode: 'append', rows_appended: 42 } },
+          error: null,
+          created_by: null
+        },
+        {
+          id: 'brun-demo-2',
+          kind: 'export',
+          status: 'done',
+          started_at: '2026-10-17T14:15:00.000Z',
+          finished_at: '2026-10-17T14:15:02.000Z',
+          rows_written: 144,
+          tables: { profiles: 5, results: 98 },
+          error: null,
+          created_by: 'usr-admin-1'
+        }
+      ];
+      localStorage.setItem(runsKey, JSON.stringify(runs));
+    }
+
+    const tableNames = [
+      { name: 'profiles', mode: 'snapshot' },
+      { name: 'round_series', mode: 'snapshot' },
+      { name: 'categories', mode: 'snapshot' },
+      { name: 'category_series', mode: 'snapshot' },
+      { name: 'basics_thresholds', mode: 'snapshot' },
+      { name: 'daily_tasks', mode: 'snapshot' },
+      { name: 'resources', mode: 'snapshot' },
+      { name: 'competition_settings', mode: 'snapshot' },
+      { name: 'category_aliases', mode: 'snapshot' },
+      { name: 'attendance_sessions', mode: 'snapshot' },
+      { name: 'weekly_tests', mode: 'snapshot' },
+      { name: 'import_batches', mode: 'snapshot' },
+      { name: 'student_rounds', mode: 'append', cursor_column: 'updated_at' },
+      { name: 'results', mode: 'append', cursor_column: 'updated_at' },
+      { name: 'weekly_test_scores', mode: 'append', cursor_column: 'updated_at' },
+      { name: 'attendance', mode: 'append', cursor_column: 'updated_at' },
+      { name: 'activity_results', mode: 'append', cursor_column: 'updated_at' },
+      { name: 'result_audit', mode: 'append', cursor_column: 'changed_at' }
+    ];
+
+    let totalCells = 0;
+    const tables = tableNames.map(t => {
+      const rows = this.getBackupTableRows(t.name);
+      const colCount = rows.length > 0 ? Object.keys(rows[0]).length : 5;
+      const cells = (rows.length + 1) * colCount;
+      totalCells += cells;
+      return {
+        table_name: t.name,
+        mode: t.mode,
+        cursor_column: t.cursor_column || null,
+        cursor_value: t.mode === 'append' ? '2026-10-18T20:29:00.000000+00:00' : null,
+        cursor_id: null,
+        rows_waiting: 0,
+        rows_written: rows.length,
+        cells_written: cells,
+        last_run_at: '2026-10-18T20:30:06.000Z',
+        last_error: null
+      };
+    });
+
+    const lastGoogle = runs.find(r => (r.kind === 'cron' || r.kind === 'manual') && r.status === 'done');
+    const lastExport = runs.find(r => r.kind === 'export' && r.status === 'done');
+
+    return {
+      ok: true,
+      configured: false,
+      sheetUrl: null,
+      lastSuccessAt: lastGoogle?.finished_at || null,
+      lastExportAt: lastExport?.finished_at || null,
+      totalCellsWritten: totalCells,
+      cellLimit: 10000000,
+      cellWarnRatio: 0.7,
+      tables,
+      runs: runs.slice(0, 10)
+    };
+  },
+
+  logBackupExport(p_rows = 0, p_tables = {}) {
+    if (!isDemoMode()) {
+      throw new Error('Action blocked: Demo mode cannot mutate live database.');
+    }
+    const status = this.getBackupStatus();
+    const runsKey = 'trendz_demo_backup_runs_v1';
+    const nowIso = new Date().toISOString();
+    const newRun = {
+      id: `brun-exp-${Date.now()}`,
+      kind: 'export',
+      status: 'done',
+      started_at: nowIso,
+      finished_at: nowIso,
+      rows_written: Number(p_rows) || 0,
+      tables: p_tables || {},
+      error: null,
+      created_by: 'usr-admin-1'
+    };
+    const updated = [newRun, ...(status.runs || [])].slice(0, 20);
+    localStorage.setItem(runsKey, JSON.stringify(updated));
+    return newRun;
   }
 };
+
 

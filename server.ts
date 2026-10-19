@@ -11,6 +11,7 @@ import createStudentHandler from './api/create-student.js';
 import resetPasswordHandler from './api/reset-password.js';
 import supabaseProxyHandler from './api/supabase-proxy.js';
 import weeklyReportHandler from './api/weekly-report.js';
+import backupHandler from './api/backup.js';
 import { getSupabaseServerConfig } from './api/_configHelper.js';
 
 dotenv.config();
@@ -51,6 +52,10 @@ app.all('/api/supabase-proxy', (req, res) => {
 
 app.all('/api/weekly-report', (req, res) => {
   return weeklyReportHandler(req, res);
+});
+
+app.all('/api/backup', (req, res) => {
+  return backupHandler(req, res);
 });
 
 async function startServer() {

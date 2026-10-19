@@ -283,6 +283,54 @@ async function buildWeeklyReportDataFromAdminSession(callerClient) {
 }
 
 /**
+ * Queries latest completed Google backup and manual export timestamps from `backup_runs`
+ * when not already embedded in `weekly_report_data()`.
+ */
+async function attachBackupSummaryIfMissing(client, reportData) {
+  if (!reportData || typeof reportData !== 'object' || reportData.backup) {
+    return reportData;
+  }
+  try {
+    const [googleRes, exportRes] = await Promise.all([
+      client
+        .from('backup_runs')
+        .select('finished_at, started_at')
+        .in('kind', ['cron', 'manual'])
+        .eq('status', 'done')
+        .order('finished_at', { ascending: false })
+        .limit(1),
+      client
+        .from('backup_runs')
+        .select('finished_at, started_at')
+        .eq('kind', 'export')
+        .eq('status', 'done')
+        .order('finished_at', { ascending: false })
+        .limit(1),
+    ]);
+    const lastGoogleAt = googleRes?.data?.[0]?.finished_at || googleRes?.data?.[0]?.started_at || null;
+    const lastExportAt = exportRes?.data?.[0]?.finished_at || exportRes?.data?.[0]?.started_at || null;
+    const latestAny = [lastGoogleAt, lastExportAt]
+      .filter(Boolean)
+      .sort()
+      .pop() || null;
+    const daysSinceBackup = latestAny
+      ? Math.max(0, Math.floor((Date.now() - new Date(latestAny).getTime()) / 86400000))
+      : null;
+
+    return {
+      ...reportData,
+      backup: {
+        last_google_at: lastGoogleAt,
+        last_export_at: lastExportAt,
+        days_since_backup: daysSinceBackup,
+      },
+    };
+  } catch {
+    return reportData;
+  }
+}
+
+/**
  * Fetches weekly report data using the Supabase service-role client,
  * or falls back to the verified admin caller client when SUPABASE_SERVICE_ROLE_KEY is not configured.
  */
@@ -294,13 +342,14 @@ async function fetchWeeklyReportData(supabase, callerClient = null) {
 
   const { data, error } = await clientToTry.rpc('weekly_report_data');
   if (!error && data && typeof data === 'object') {
-    return data;
+    return attachBackupSummaryIfMissing(clientToTry, data);
   }
 
   // If weekly_report_data requires service_role and we have an authenticated admin callerClient,
   // assemble the report from the admin-authorized SQL RPCs.
   if (callerClient) {
-    return buildWeeklyReportDataFromAdminSession(callerClient);
+    const fallbackData = await buildWeeklyReportDataFromAdminSession(callerClient);
+    return attachBackupSummaryIfMissing(callerClient, fallbackData);
   }
 
   if (error) {

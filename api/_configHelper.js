@@ -116,7 +116,7 @@ export function getEmailReportConfig(env = process.env) {
 }
 
 /**
- * Reads and validates CRON_SECRET for scheduled GET /api/weekly-report runs.
+ * Reads and validates CRON_SECRET for scheduled GET /api/weekly-report and GET /api/backup runs.
  * Never falls back to any hardcoded value.
  */
 export function getCronSecret(env = process.env) {
@@ -126,4 +126,65 @@ export function getCronSecret(env = process.env) {
   }
   return rawSecret;
 }
+
+/**
+ * Validates and extracts Google Service Account credentials and Backup Sheet ID.
+ * Never logs or includes the key or JSON content in error messages.
+ * Never falls back to any default values.
+ */
+export function getGoogleBackupConfig(env = process.env) {
+  const rawJson = (env.GOOGLE_SERVICE_ACCOUNT_JSON || '').trim();
+  const rawSheetId = (env.BACKUP_SHEET_ID || '').trim();
+
+  if (isPlaceholder(rawJson)) {
+    throw new Error('Backup configuration error: GOOGLE_SERVICE_ACCOUNT_JSON must be configured in environment variables.');
+  }
+
+  if (isPlaceholder(rawSheetId)) {
+    throw new Error('Backup configuration error: BACKUP_SHEET_ID must be configured in environment variables.');
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(rawJson);
+  } catch {
+    throw new Error('Backup configuration error: GOOGLE_SERVICE_ACCOUNT_JSON is not valid JSON.');
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('Backup configuration error: GOOGLE_SERVICE_ACCOUNT_JSON must be a JSON object.');
+  }
+
+  const clientEmail = typeof parsed.client_email === 'string' ? parsed.client_email.trim() : '';
+  const rawPrivateKey = typeof parsed.private_key === 'string' ? parsed.private_key.trim() : '';
+
+  if (isPlaceholder(clientEmail) || !clientEmail.includes('@')) {
+    throw new Error('Backup configuration error: GOOGLE_SERVICE_ACCOUNT_JSON must contain a valid client_email.');
+  }
+
+  if (isPlaceholder(rawPrivateKey) || !rawPrivateKey.includes('PRIVATE KEY')) {
+    throw new Error('Backup configuration error: GOOGLE_SERVICE_ACCOUNT_JSON must contain a valid PEM private_key.');
+  }
+
+  const privateKey = rawPrivateKey.replace(/\\n/g, '\n');
+
+  return {
+    clientEmail,
+    privateKey,
+    sheetId: rawSheetId,
+  };
+}
+
+/**
+ * Checks whether both GOOGLE_SERVICE_ACCOUNT_JSON and BACKUP_SHEET_ID are validly configured.
+ */
+export function hasGoogleBackupConfig(env = process.env) {
+  try {
+    getGoogleBackupConfig(env);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 

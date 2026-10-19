@@ -287,6 +287,31 @@ export function buildWeeklyEmail(data = {}) {
       textLines.push(`- ${dateStr} — ${title}: ${scores} score${scores === 1 ? '' : 's'} recorded`);
     });
   }
+  textLines.push('');
+
+  // 7. Backup status
+  const backupInfo = safeData.backup && typeof safeData.backup === 'object' ? safeData.backup : null;
+  const lastGoogleAt = backupInfo?.last_google_at || backupInfo?.last_run_at || null;
+  const lastExportAt = backupInfo?.last_export_at || null;
+  const daysSinceBackup =
+    backupInfo?.days_since_backup !== undefined && backupInfo?.days_since_backup !== null
+      ? Number(backupInfo.days_since_backup)
+      : null;
+
+  textLines.push('BACKUP');
+  if (!lastGoogleAt && !lastExportAt) {
+    textLines.push('- Warning: Backup is not set up yet (no Google Sheet backup or manual ZIP export recorded).');
+  } else {
+    textLines.push(
+      `- Last Google Sheet backup: ${lastGoogleAt ? formatReportDateIST(lastGoogleAt) : 'Never'}`
+    );
+    textLines.push(
+      `- Last manual ZIP export: ${lastExportAt ? formatReportDateIST(lastExportAt) : 'Never'}`
+    );
+    if (daysSinceBackup !== null && Number.isFinite(daysSinceBackup) && daysSinceBackup > 3) {
+      textLines.push(`- Warning: Last completed backup was ${daysSinceBackup} days ago.`);
+    }
+  }
 
   const text = textLines.join('\n');
 
@@ -480,8 +505,26 @@ export function buildWeeklyEmail(data = {}) {
 
     <!-- 6. Weekly Tests This Week -->
     <h2 style="margin: 0 0 10px 0; font-size: 16px; color: #0f172a; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;">Weekly tests this week</h2>
-    <div>
+    <div style="margin-bottom: 24px;">
       ${weeklyTestsHtml}
+    </div>
+
+    <!-- 7. Backup -->
+    <h2 style="margin: 0 0 10px 0; font-size: 16px; color: #0f172a; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;">Backup</h2>
+    <div>
+      ${
+        !lastGoogleAt && !lastExportAt
+          ? `<p style="margin: 0; color: #b45309; font-size: 14px;"><strong>Warning:</strong> Backup is not set up yet (no Google Sheet backup or manual ZIP export recorded).</p>`
+          : `<p style="margin: 0; color: #1e293b; font-size: 14px; line-height: 1.6;">
+              Last Google Sheet backup: <strong>${escapeHtml(lastGoogleAt ? formatReportDateIST(lastGoogleAt) : 'Never')}</strong>
+              &middot; Last manual ZIP export: <strong>${escapeHtml(lastExportAt ? formatReportDateIST(lastExportAt) : 'Never')}</strong>
+              ${
+                daysSinceBackup !== null && Number.isFinite(daysSinceBackup) && daysSinceBackup > 3
+                  ? `<br /><span style="color: #b45309;"><strong>Warning:</strong> Last completed backup was ${daysSinceBackup} days ago.</span>`
+                  : ''
+              }
+            </p>`
+      }
     </div>
   </div>
 </body>
