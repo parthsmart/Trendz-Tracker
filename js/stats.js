@@ -37,32 +37,40 @@ export function getISTDateString(dateVal) {
   }
 }
 
+const SHORT_MONTHS_3 = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
 /**
- * Formats a date into human-friendly Indian time display, e.g. "17 Oct 2026".
- * 
+ * Formats a date into human-friendly Indian time display with consistent 3-letter month names
+ * (e.g. "17 Oct 2026", "15 Sep 2026" — never "Sept").
+ *
  * @param {string|Date} dateVal
  * @returns {string}
  */
 export function formatDisplayDateIST(dateVal) {
   if (!dateVal) return '—';
   try {
-    let d;
-    if (typeof dateVal === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateVal.trim())) {
-      const [year, month, day] = dateVal.trim().split('-').map(Number);
-      // Treat as IST noon to avoid timezone rolling
-      d = new Date(Date.UTC(year, month - 1, day, 6, 30, 0));
-    } else {
-      d = new Date(dateVal);
+    const iso = getISTDateString(dateVal);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+      const [year, month, day] = iso.split('-').map(Number);
+      const monthName = SHORT_MONTHS_3[month - 1];
+      if (monthName) {
+        return `${day} ${monthName} ${year}`;
+      }
     }
-
-    if (isNaN(d.getTime())) return String(dateVal);
-
-    return new Intl.DateTimeFormat('en-IN', {
-      timeZone: 'Asia/Kolkata',
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric'
-    }).format(d);
+    return String(dateVal);
   } catch {
     return String(dateVal);
   }

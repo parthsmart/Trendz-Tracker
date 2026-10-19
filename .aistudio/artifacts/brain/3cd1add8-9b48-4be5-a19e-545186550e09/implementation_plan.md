@@ -1,189 +1,127 @@
-# Phase 4c-1: Admin CSV Score Sheet Import (Part 1 — Read-Only Preview & Parser)
+# Trendz Tracker — Phase 4c-2c: Import Validation Limits, Diagnostics & UI Polish
 
-This phase introduces a read-only CSV score sheet parser and interactive preview console (`/pages/import.html`) for administrators, enabling them to inspect historical multi-block student competition sheets, verify automatic date/score/time cross-checks, and configure category mappings entirely in the browser before any database write logic is introduced in Part 2.
+This plan closes the validation gap between the browser CSV preview and the PostgreSQL `admin_import_rounds` RPC limits, fixes three unreported diagnostics found on the real two-block student sheet, adds pre-flight payload validation and rich error diagnostics, and polishes the Import page layout and controls.
 
 ---
 
-## User Review & Critical Decisions
+## Diagnostic Report: Why the 3 Sample Sheet Items Were Missing
 
 > [!IMPORTANT]
-> **Strict Read-Only Guarantee (Part 1 Scope)**
-> - **Zero Database Mutations**: This step performs **no** `INSERT`, `UPDATE`, `DELETE`, or write RPC calls. It does not create categories or save rounds/results.
-> - **Read-Only Queries Only**: The page reads only `profiles` (`role = 'student'`) for student selection, `categories` (`section = 'round'`, both active and inactive) for category matching, and `today_ist()` for Indian Standard Time future-date validation. It does **not** query existing `rounds` or `results`.
-> - **Client-Side Parsing Only**: CSV files (up to 2 MB) are read via `FileReader` in the browser and never uploaded to a server.
-> - **XSS Prevention via `textContent`**: Every string originating from the CSV file (student names, level labels, category names, round headers, cell text, notes, and stray values) is rendered strictly using `textContent` and DOM node construction—never `innerHTML`.
+> Below are the exact root causes found in the current code for the three items in Section 3 of your request:
+
+1. **Two info lines: two rounds share a date in Block 2 (`25 Jul 2026` and `16 Aug 2026`) — MISSING from Needs Attention**
+   - **Why**: In the parser's duplicate-date check (`byDate` loop), when multiple rounds in the same block shared an ISO date, the parser pushed the `duplicate_date` flag into `blk.dateInfos` and each round's `dateFlags`, **but omitted `needsAttention.push(...)`**. As a result, the info lines never reached the top Needs Attention list.
+2. **Round 26 in Block 2 failing the Marks check (`sheet 177, calculated 178`) — MISSING (falsely marked OK)**
+   - **Why**: In `evaluateMarksCrossCheck`, the check computed both `diff = computedMarks - sheetValue` (`178 - 177 = +1`) and `sheetDiff = (sheetTotalAttempt - sheetFinalScore) - sheetValue`, and marked the check `OK` if **either** `diff === 0 || sheetDiff === 0`. Because Round 26's sheet summary rows had `Total Attempt - Final Score = 177`, `sheetDiff === 0` masked the 1-mark discrepancy against the actual cell sum (`sum(total) - sum(correct) = 178`). Changing the check to compare strictly against `computedMarks` (`sum(total) - sum(correct)`) reports the mismatch (`sheet 177, calculated 178`).
+3. **Time Taken warning for Block 2 Round 14 (cell `DV31`, `"59:23:00"`) — MISSING**
+   - **Why**: `parseTimeCell("59:23:00")` accepted any non-negative `h:mm:ss` (`213,780` seconds) without checking the database's `0..28800` second (8-hour) limit on `student_rounds.time_taken_seconds`. It passed through as a normal number and caused `admin_import_rounds` to abort the entire batch.
 
 ---
 
 ## 1. Overview & Core Concept
 
-### What It Does
-1. **Step 1 — Student & File Selection (`/pages/import.html`)**:
-   - Searchable student picker (by student name or student code/ID).
-   - `.csv` file selector enforcing a `.csv` extension/MIME check and a maximum file size of **2 MB** (`2,097,152` bytes), displaying the explicit notice: *"The file is read in your browser and is not uploaded."*
-   - Date format selector: **Auto (default)**, **DD/MM**, or **MM/DD**.
-   - In Demo Mode (`localhost` and `*.run.app` when Supabase is unconfigured), provides a one-click **"Load Sample Fixture Preview"** button using the synthetic multi-block test fixture.
-2. **Hand-Written CSV & Multi-Block Sheet Parser (`js/importParser.js`)**:
-   - Pure JavaScript module with zero DOM dependencies and zero `import.meta.env` references so it runs identically in browser ES modules and `node --test`.
-   - Parses raw CSV text handling UTF-8 BOM, CRLF/LF line endings, quoted fields, escaped quotes (`""`), commas and newlines inside quotes, and ragged rows padded to the widest row plus spare columns.
-   - Dynamically locates side-by-side blocks by scanning for the header row containing `Category` cells (case-insensitive) and `Round <N>` columns (`/^round\s*(\d+)$/i`), without hard-coding row or column indices.
-3. **Step 2 — Interactive Diagnostic Preview**:
-   - **"Needs Attention" Triage Panel**: Consolidated top-level alert list grouping every cross-check mismatch, date error/warning, stray cell value, and unreadable score/time cell by block and round, complete with spreadsheet coordinate badges (e.g., `O10`) and raw text.
-   - **Overview Summary Cards**: Blocks detected, rounds per block, date range per block, total cells (`ok`, `empty`, `unreadable`, `stray`), file student name vs. selected student comparison (non-blocking warning if different), level labels seen, and resolved date format.
-   - **Per-Block Inspector**:
-     - Series name text input (defaults to `"Block 1 (left)"`, `"Block 2"`, etc.) and non-assigned block label hints (e.g., `"NEW SIMULATOR"`).
-     - Interactive Category Mapping table for unmatched categories (*Map to existing round category*, *"Create as a new historical category" (inactive)*, or *"Skip this category"*) plus an informational list of database round categories absent from the block.
-     - Round-by-round verification table displaying Round #, Date, Round Type, Time Taken (`h:mm:ss` or `—`), cells OK count, interactive Cross-Check Chips (*Final Score*, *Total Attempt*, *Marks*) that reveal sheet vs. computed sums and differences on tap/click, Date Flags, and expandable row details showing every cell's coordinate (`A1`–`EX99`), raw text, parsed values, and status reason.
-   - **Action Bar**: Disabled **"Import"** button (`"Import is added in the next step"`) and an active **"Start over"** button to reset the workflow.
+- **What It Does**:
+  1. Mirrors every PostgreSQL limit of `admin_import_rounds` inside the pure parser and planner so invalid or out-of-range values are caught, sanitized, or excluded during preview—before any database call is made.
+  2. Runs a pure pre-flight `validatePayload(payload)` check before calling the database; if any rule is violated, the database is not called and the exact list of `(round_number, field, value)` problems is displayed.
+  3. Provides actionable failure recovery if a database RPC ever fails: displays the exact database message, plain-language reassurance (nothing from the failing call was saved, an `"Open"` batch with `0` rows may appear in history and can be undone with a reason, and re-running is safe), and an expandable **Technical details** panel (failing step, series, round numbers in that call, and the first 3 rounds' metadata without any secrets or keys).
+  4. Polishes the Import page UI using the existing design tokens and shared components so scannability, number formatting, chip alignment, student selection, and mobile responsiveness are clean.
 
 ---
 
 ## 2. User Experience & Visual Design
 
-### Layout & Visual Architecture
-- **Aesthetic & Tokens**: Uses only the existing CSS custom properties in `/css/variables.css` and shared layout classes in `/css/style.css` (consistent with *Overview*, *Review*, *Targets*, and *Weekly Tests*).
-- **Navigation Integration**: Adds `Import` to the **Setup** dropdown menu across all admin pages (`admin.html`, `review.html`, `students.html`, `attendance.html`, `weekly-tests.html`, `todos.html`, `resources.html`, `categories.html`, `rounds.html`, `targets.html`, `student-detail.html`, and `import.html`).
-- **Tabular Alignment**: All spreadsheet coordinates (`O10`), round numbers, dates (`YYYY-MM-DD`), scores (`75/75`), times (`01:08:37`), and cross-check deltas use `tabular-nums` (`.num`) for vertical alignment.
+### UI Polish & Layout Improvements (Section 4)
 
-### Preview Screen Structure
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ Top Bar: 🧮 Trendz Tracker │ Overview Review Students ... [Setup ▾ -> Import]│
-├──────────────────────────────────────────────────────────────────────────────┤
-│ Step 1: Select Student, CSV File (Max 2 MB) & Date Format (Auto/DD-MM/MM-DD) │
-│ 🔒 "The file is read in your browser and is not uploaded."                   │
-├──────────────────────────────────────────────────────────────────────────────┤
-│ ⚠️ NEEDS ATTENTION (Grouped by Block & Round)                                │
-│ • Block 2 · Round 1: Final Score MISMATCH (Sheet: 250, Sum: 255, Diff: +5)   │
-│ • Block 2 · Stray value at O10: "94/231" (not in a category row — ignored)   │
-│ • Block 1: Unmatched categories ("Calender" → matched via alias; etc.)       │
-├──────────────────┬──────────────────┬───────────────────┬────────────────────┤
-│ Blocks & Rounds  │ Date Ranges      │ Cell Status Breakdown│ Student & Format│
-│ 2 Blocks (2, 3)  │ Aug 17 – Aug 21  │ 22 OK · 3 Empty · 1 Stray│ TEST STUDENT│
-├──────────────────┴──────────────────┴───────────────────┴────────────────────┤
-│ BLOCK 1                                                                      │
-│ Series Name: [ Block 1 (left)      ]   Hints in header: (none)               │
-│ Category Mapping: ADD ✓, SUB ✓, Calender → Calendar (alias) ✓, ...           │
-│ Absent DB Categories (Info): Currency, Missing Figures, ...                  │
-│ ┌─────────┬────────────┬────────────┬──────────┬────────┬──────────────────┐ │
-│ │ Round # │ Date       │ Round Type │ Time     │ Cells  │ Cross-Checks     │ │
-│ ├─────────┼────────────┼────────────┼──────────┼────────┼──────────────────┤ │
-│ │ Round 2 │ 2026-08-21 │ Flat Round │ 01:08:37 │ 4 OK   │ [Score✓][Att✓]...│ │
-│ │   └─ ▶ Expand 5 cells (D5: 75/75, D6: 89/89, D9: ...... empty, ...)      │ │
-│ └─────────┴────────────┴────────────┴──────────┴────────┴──────────────────┘ │
-├──────────────────────────────────────────────────────────────────────────────┤
-│ [Start over]                     [Import (Import is added in the next step)] │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
+- **Top Nav Spacing**:
+  - Add standard vertical spacing (`margin-top: var(--space-6)`) between the top navigation bar and the first card / banner on the Import page so the card is never flush or clipped against the sticky header.
+- **Single-Control Searchable Student Picker**:
+  - Replace the stacked separate `<input>` + `<select>` pair in Step 1 with a single unified combobox picker: a button/input control that clearly displays the currently selected student (`Name (CODE) · Level`) with a "Change / Clear" affordance, and opens a searchable dropdown list filtering by student name or ID in real time.
+- **Summary Cards**:
+  - Prevent awkward line breaks like `"2 Blocks · 72 / Rounds"` by structuring each stat card with a top label, a prominent tabular numeral (`font-variant-numeric: tabular-nums`, `white-space: nowrap`), and a concise unit subtitle beneath.
+  - Format all large integer counts with thousands separators (`1,677` via `toLocaleString('en-IN')`).
+  - Format all dates with consistent 3-letter month abbreviations (`Jan`, `Feb`, `Mar`, `Apr`, `May`, `Jun`, `Jul`, `Aug`, `Sep`, `Oct`, `Nov`, `Dec`—never `Sept`).
+- **"Needs Attention" Triage Panel**:
+  - **Left-Aligned Row Layout**: Place the severity badge, the `Block X · Round Y` chip, and the cell coordinate chip (`DV31`) on the left, followed immediately by left-aligned message text (wrapping cleanly below the chips on narrow screens instead of right-aligning against the far edge).
+  - **No Redundant Cell Reference**: Strip duplicate cell coordinates from the sentence text when the cell coordinate chip is already shown on the row.
+  - **Exact Heading Counts & Severity Grouping**: Group items in order of severity (`Blocking Errors`, `Warnings`, `Info`) and make the section heading state the exact breakdown (e.g., `"Needs attention (5 warnings, 2 info)"`).
+  - **Show Info Lines Toggle**: Add an interactive `"Show info lines (N)"` toggle button so admins can show or hide informational items cleanly.
+  - **Acknowledgment Summary List**: Group and count warnings that alter or exclude data on import (such as rounds whose `Time Taken > 8 hours` will be imported with `time_taken_seconds = null`, truncated `round_type` or `note` values, or excluded rounds) so the admin sees the exact count before importing.
+- **Additional Page-Wide Polish (Series Bar, Category Mapping, Round Table, Modal, History)**:
+  - **Series-per-Block Control Bar**: Keep the block metadata chips (`Rounds 1–50`, date range, file hint) left-aligned with `white-space: nowrap` on ranges, and keep the series dropdown + Confirm button aligned with consistent `gap: var(--space-3)`.
+  - **Category Mapping Table**: Prevent category resolution dropdowns from cramping on narrow screens (`min-width: 220px`) and keep status badges single-line (`white-space: nowrap`).
+  - **Round Summary Table & Expandable Cell Drawer**: Wrap tables in horizontal scroll containers (`overflow-x: auto; -webkit-overflow-scrolling: touch`), right-align numeric score/attempt/marks columns with `tabular-nums`, and prevent button crowding in the action column.
+  - **Confirm Import Modal & Import History Table**: Format all counts with thousands separators, use consistent 3-letter month dates (`Sep`), add spacing between action buttons, and handle `"Open"` batches with `0` rows clearly in the history status column (allowing Undo with a reason).
 
 ---
 
-## 3. Key Product Decisions & Trade-Offs
+## 3. Key Product Decisions & Alternatives Considered
 
-### Decision 1: Separating the Read-Only Preview (4c-1) from Database Saving (4c-2)
-- **Chosen Approach**: Build and verify the complete CSV parser, coordinate tracker, cross-check math, and category mapping UI as a strictly read-only preview first.
-- **Why**: Historical competition spreadsheets contain human data-entry quirks—typos in category names (`"Calender"`), stray values below category rows (`94/231` at `O10`), hand-calculated `Final Score` arithmetic mistakes (`250` written instead of `255`), and mixed date formats. Separating preview from persistence lets admins inspect every anomaly and verify parser accuracy with zero risk of polluting production tables.
-- **Alternatives Considered**: One-step upload-and-insert with rollback on error. Rejected because silent arithmetic mismatches or unmapped categories require human judgment before committing.
+### Decision 1: Mirroring Database Constraints in Pure Preview & Planner Functions
+- **Chosen Approach**: Enforce all PostgreSQL `admin_import_rounds` rules inside `parseScoreSheetCsv` (`js/importParser.js`) and `buildImportExecutionPlan` / `validatePayload` (`js/importPlan.js`):
+  - **Time Taken > 28,800s (8h)**: Emit warning `"Total time <text> at <cell> is more than 8 hours: the round will be imported WITHOUT a total time"`, include in the acknowledgment summary with its count, and set `time_taken_seconds = null` in the planned payload (8:00:00 = `28800` is accepted; 8:00:01 = `28801` triggers the warning and nullification).
+  - **Cell Time > 14,400s (4h)**: Mark the cell `unreadable` (`"Cell time <text> exceeds 4 hours (14,400s)"`) so it is not imported (4:00:00 = `14400` is accepted; 4:00:01 = `14401` is unreadable).
+  - **Round Type > 40 chars**: Truncate to 40 characters with a warning.
+  - **Surprise Task / Cell Note > 500 chars**: Truncate to 500 characters with a warning.
+  - **Other Round Limit Violations** (`round_number` outside `1..100000`, `round_date` missing or outside `2020-01-01..today_ist()`, or duplicate category within a round): Exclude that specific round from the import payload and list it as **Excluded** in the preview and acknowledgment list rather than aborting the entire sheet.
+- **Why**: PostgreSQL rejects the entire `admin_import_rounds` call if even one round or cell violates a check constraint. Catching and handling these in pure JS lets the admin see every adjustment upfront and import valid rounds safely.
+- **Alternatives Considered**:
+  - *Alternative A — Let the database fail and parse the SQL error string*: Rejected because PostgreSQL constraint errors do not identify which spreadsheet cell (e.g., `DV31`) or round number caused the failure, and abort the entire 100-round chunk.
+  - *Alternative B — Silently drop out-of-range values without warning*: Rejected because admins must know when a round's total time is cleared to `null` or when a round is excluded.
 
-### Decision 2: Dynamic Header & Block Detection Instead of Fixed Column Indices
-- **Chosen Approach**: Scan rows dynamically to locate the header row containing `Category` cells, partition the sheet horizontally into blocks bounded by each `Category` column (and its left-adjacent `INDEX` column), and discover `Round <N>` pairs (`scoreCol`, `timeCol = scoreCol + 1`) within each block.
-- **Why**: Real student tracking sheets evolve over time—new simulator blocks are pasted side-by-side with varying column gaps, older blocks have different category rows than newer blocks, and extra blank columns or placeholder headers (`Round0`) appear unpredictably. Hard-coding column letters or row numbers would break on every variation.
-- **Alternatives Considered**: Requiring admins to reformat sheets into a rigid single-table template before import. Rejected because reformatting hundreds of historical rounds manually is error-prone and defeats the purpose of importing existing sheets.
+### Decision 2: Pre-Flight `validatePayload(payload)` Gate Before Any Database Call
+- **Chosen Approach**: Before calling `admin_start_import` or `admin_import_rounds`, run `validatePayload(payload, { todayIST })` on every planned chunk. It verifies chunk size (`1..100` rounds, `<= 3000` cells), round fields (`round_number`, `round_date`, `round_type`, `time_taken_seconds`), and cell fields (`correct`/`total`/`note`, `time_seconds`, unique `category_id` per round), returning `{ valid, problems: [{ blockNumber, chunkIndex, round_number, field, value, message }] }`. If `problems.length > 0`, block the database call and render the problem list.
+- **Why**: Acts as a defense-in-depth contract test in the browser so no malformed JSON payload can ever create an orphan open batch in the database.
+- **Alternatives Considered**:
+  - *Relying only on parser checks*: Rejected because category mapping or chunk assembly happens after initial CSV parsing; a final pre-flight check on the exact RPC payload guarantees zero drift.
 
-### Decision 3: Identifying Rounds by `(block, roundNumber)` Instead of `roundNumber` Alone
-- **Chosen Approach**: Treat every round as scoped to its parent block `(blockIndex, roundNumber)`, paired with a user-editable block series name (e.g., `"Block 1 (left)"`, `"Block 2"`).
-- **Why**: When a student transitions to a new simulator or sheet block, their round counter restarts at `Round 1`. Identifying rounds globally by number alone would cause `Round 1` and `Round 2` in Block 2 to collide with or overwrite `Round 1` and `Round 2` in Block 1.
+### Decision 3: Single Unified Combobox for Student Selection
+- **Chosen Approach**: A single custom searchable picker component (button trigger showing the selected student + dropdown panel with a search input and keyboard/click selectable student rows) backed by the hidden student ID value.
+- **Why**: Eliminates the confusing UX of an empty search input sitting above a separate native `<select>` where typing filters the `<select>` without opening it.
+- **Alternatives Considered**:
+  - *HTML `<input list="...">` datalist*: Rejected because browser `<datalist>` styling is inconsistent, cannot cleanly separate `student_id` UUID values from display labels, and behaves poorly on mobile Safari/Chrome.
 
 ---
 
-## 4. Technical Architecture & Data Strategy
+## 4. Technical Architecture & Data Flow
 
-### System & Data Flow Diagram
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         /pages/import.html                              │
-│   Step 1: Student Picker + .csv Input (≤2MB) + Date Format Selector     │
-└───────────────────────────────────┬─────────────────────────────────────┘
-                                    │ FileReader.readAsText()
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                       js/import.js (UI Controller)                      │
-│  • Reads profiles (role='student'), categories (section='round'),       │
-│    and today_ist() via Supabase (or js/demoDb.js in Demo Mode)          │
-│  • Invokes parseScoreSheetCsv(csvText, { roundCategories, ... })        │
-│  • Renders DOM nodes strictly via document.createElement & textContent  │
-└───────────────────────────────────┬─────────────────────────────────────┘
-                                    │ Pure Data Call
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                 js/importParser.js (Pure Node/Browser ES)               │
-│  1. parseCsvGrid(text)        -> Ragged-padded 2D array, BOM/quote-safe │
-│  2. colLabel(colIdx)          -> 0='A', 25='Z', 26='AA', 153='EX'       │
-│  3. Detect Header & Blocks    -> Split by 'Category' cols; find Round N │
-│  4. Resolve Dates             -> Auto DD/MM vs MM/DD, mixed check       │
-│  5. Parse Category & Summary  -> Score ratios, m:ss / h:mm:ss, stray    │
-│  6. Run Per-Round CrossChecks -> Sum(correct) vs Final, Sum(total) vs   │
-│                                  Attempt, (Attempt - Final) vs Marks    │
-│  7. Run Per-Block Date Checks -> Chronology, duplicates, >today_ist,    │
-│                                  <2020-01-01, missing/unreadable        │
-└─────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────┐
+│                        1. CSV PARSER (js/importParser.js)                  │
+│  • Detects blocks, headers, categories, rounds, dates, cells & summaries   │
+│  • Enforces cell time <= 14,400s (4:00:01 -> unreadable cell)              │
+│  • Flags Time Taken > 28,800s (8:00:01 -> warning + null on import)        │
+│  • Truncates round_type > 40 chars & note > 500 chars with warnings        │
+│  • Emits duplicate-date info lines & strict Marks TO BE CORRECTED check    │
+└───────────────────────────────────────┬────────────────────────────────────┘
+                                        │
+                                        ▼
+┌────────────────────────────────────────────────────────────────────────────┐
+│                   2. PLANNER & VALIDATOR (js/importPlan.js)                │
+│  • Resolves series per block, category mappings, and DB comparison         │
+│  • Excludes rounds outside date range [2020-01-01 .. today_ist()]          │
+│    or round_number outside [1 .. 100000] (listed as Excluded)              │
+│  • Nullifies time_taken_seconds > 28,800 in planned payload                │
+│  • Chunks into <= 100 rounds & <= 3,000 cells per RPC call                 │
+│  • Runs validatePayload(payload) returning { round_number, field, value }  │
+└───────────────────────────────────────┬────────────────────────────────────┘
+                                        │
+                                        ▼
+┌────────────────────────────────────────────────────────────────────────────┐
+│                     3. IMPORT UI & RPC RUNNER (js/import.js)               │
+│  • Unified Student Picker, formatted stat cards (1,677 · Sep),             │
+│    grouped Needs Attention with left-aligned text & "Show info lines"      │
+│  • Pre-flight check: if validatePayload finds issues, halts before DB      │
+│  • On DB RPC error: shows exact DB error, plain-English safety note,       │
+│    and expandable "Technical details" (step, series, rounds, first 3)      │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Parser Specification & Edge-Case Rules (`js/importParser.js`)
-
-1. **Spreadsheet Coordinates (`colLabel(index)`)**:
-   - Converts 0-based column index to base-26 spreadsheet letters (`0 → A`, `25 → Z`, `26 → AA`, `153 → EX`). Combined with 1-based row index (`rowIdx + 1`) to form cell references like `O10`.
-
-2. **Header, Block & Metadata Discovery**:
-   - **Header Row**: The row containing one or more cells whose trimmed text equals `"Category"` (case-insensitive). If none exists, returns `{ error: 'Layout not recognised: no "Category" header found.' }`.
-   - **Block Boundaries**: Each `"Category"` cell at column $c$ starts a block. Its `indexCol` is $c - 1$ (if $c > 0$). The block spans from column $c$ up to `nextBlock.categoryColumn - 2` (just before the next block's `INDEX` column) or the right edge of the grid.
-   - **Top Metadata Rows (above Header Row)**:
-     - Cells starting with `"Name"` (case-insensitive): strip leading `"Name"`, dashes (`-`, `—`), colons (`:`), and whitespace. If multiple name cells exist and differ (case-insensitive), emit a global warning with both names and their cell references.
-     - Cells matching `/^junior/i`: recorded in `levelLabels`.
-     - Other non-empty cells in the top rows (not starting with `"Name"`, not matching `/^junior/i`, e.g., `"NEW SIMULATOR"`): collected as `labelHints` with their cell reference, never auto-assigned as the block's series name.
-   - **Round Columns**: Within each block's header row, cells matching `/^round\s*(\d+)$/i` define a round column pair (`scoreCol = col`, `timeCol = col + 1`).
-     - Placeholder rounds like `Round0` (or any round header that has **no date** and **no scores/times** in any row below) are ignored and reported as an informational message in `warnings` / `globalWarnings` (with cell reference).
-     - If no valid round headers exist in any block, returns `{ error: 'Layout not recognised: no round headers found.' }`.
-
-3. **Date Detection & Block Chronology**:
-   - Scans rows between the header row and the Score-label row / first category row in each round's `scoreCol` using `/(\d{1,2})\s*[/.-]\s*(\d{1,2})\s*[/.-]\s*(\d{2,4})/` (allowing prefixes like `"Date-"` or `"Date -"`). Two-digit years map to `2000 + yy`.
-   - **Auto Format Resolution**: Inspects all raw date triples across the sheet:
-     - Any first number $> 12 \implies$ `DD/MM`.
-     - Any second number $> 12 \implies$ `MM/DD`.
-     - If both occur across the file $\implies$ global error `"dates are mixed"` (with offending cell references).
-     - If neither $> 12$ (ambiguous) $\implies$ defaults to `DD/MM` with a global warning.
-     - Admin explicit override (`DD/MM` or `MM/DD`) supersedes Auto; any date whose resulting month is outside `1..12` or day is invalid for that month/year is marked unreadable for that round.
-   - **Per-Block Date Checks** (sorted ascending by `roundNumber`):
-     - **Blocked (Error)**: Missing date, unreadable date, or `dateISO > todayIST`.
-     - **Warning**: Later `roundNumber` has an earlier `dateISO` than a preceding round (lists the conflicting rounds and dates).
-     - **Warning**: `dateISO < '2020-01-01'`.
-     - **Info**: Two or more rounds in the same block share the exact same `dateISO`.
-
-4. **Category Matching, Cell Reading & Stray Detection**:
-   - **Summary Row Recognition**: A row below the Score-label row is a summary row for a block if its `Category` cell (`c`) or `INDEX` cell (`c - 1`) matches `/round\s*type|time\s*taken|final\s*score|total\s*attempt|marks\s*to\s*be\s*corrected/i`.
-   - **Category Rows**: Rows below the Score-label row where the block's `Category` cell is non-empty and not a summary label. If no category rows exist, returns `{ error: 'Layout not recognised: no category rows found.' }`.
-   - **Category Matching (Per Block)**: Normalized key = `name.toLowerCase().replace(/\s+/g, '')`. Built-in aliases map `"calender" → "calendar"` and `"timeelapse" → "timeelapsed"`. Matched against the passed database `round` categories by normalized key.
-   - **Stray Values**: In any row below the Score-label row that is neither a category row nor a summary row for that block (for example, row 10 below `Surprise Task` in Block 2), any non-empty cell in a round's `scoreCol` or `timeCol` (that isn't purely dots/dashes/spaces) is reported as a `"stray value"` warning with its exact sheet reference (e.g., `O10` with `"94/231"`) and excluded from round totals.
-   - **Score & Time Cells**:
-     - Empty or only dots/dashes/spaces (`/^[.\-\s]*$/`) $\implies$ `status: 'empty'` (skipped silently; if `timeCol` has a value while `scoreCol` is empty, emit a warning `"Time without a score"` at `timeRef`).
-     - Ratio `/^(\d+)\s*\/\s*(\d+)$/` $\implies$ parse `correct` and `total`. If `total === 0` or `correct > total`, mark `status: 'unreadable'` with reason.
-     - **Surprise Task (`/^surprise\s*task$/i`)**: If it matches a ratio (`379/384`), treat as a normal `status: 'ok'` score and include in cross-check sums. If it contains other non-empty text (not just dots/dashes/spaces), store as `status: 'note'` with `note: rawText` and no numbers.
-     - **Time Cell (`timeCol`)**:
-       - `m:ss` or `mm:ss` (`/^\d{1,2}:\d{2}$/` with seconds $< 60$) $\implies$ `minutes * 60 + seconds`.
-       - `h:mm:ss` (`/^\d{1,2}:\d{2}:\d{2}$/` with minutes $< 60$, seconds $< 60$) $\implies$ `hours * 3600 + minutes * 60 + seconds`.
-       - Plain numbers (e.g., `"75"`) or any other non-empty text $\implies$ unreadable time warning with sheet reference (never guessed).
-
-5. **Summary Rows & Cross-Checks**:
-   - **Round Type**: Stored as trimmed text.
-   - **Time Taken**: Parsed from `h:mm:ss` or `m:ss` into seconds; text matching `/without\s*time/i` sets `timeTakenSeconds = null` (`withoutTime: true`) with no warning; any other non-empty text emits an unreadable summary warning.
-   - **Final Score, Total Attempt, Marks TO BE CORRECTED**: Parsed as integers (unreadable non-integer text emits a warning).
-   - **Three Cross-Checks per Round** (summing across all categories in the block, including numeric Surprise Task ratios):
-     1. `sum(correct)` vs `Final Score`
-     2. `sum(total)` vs `Total Attempt`
-     3. `(Total Attempt - Final Score)` vs `Marks TO BE CORRECTED` (evaluated against the sheet's Final Score & Total Attempt when present, or computed sums if sheet values are absent).
-     - If the round has any `unreadable` cell (or unreadable summary integer for that check), the check status is `INCOMPLETE`.
-     - Otherwise, if the summary value is missing, status is `NOT PRESENT`; if equal, `OK`; if different, `MISMATCH` recording `sheetValue`, `computedValue`, and `diff`.
-
-### Automated Unit Testing (`tests/importParser.test.js`)
-- Executed via `node --test tests/importParser.test.js`.
-- Verifies the exact synthetic 2-block fixture from the specification plus all required edge cases (`"75"` time unreadable, `"95/90"` score unreadable, quoted fields with commas/newlines, missing round headers error, out-of-order round dates warning, duplicate dates info, mixed `21/8/26` + `8/21/26` error, and `colLabel(0) = 'A'`, `colLabel(26) = 'AA'`, `colLabel(153) = 'EX'`).
+### Verification & Test Plan (`node:test`)
+- `59:23:00` Time Taken produces a warning, sets `time_taken_seconds = null` in the planned payload, and does not block the round.
+- `8:00:00` (`28,800s`) Time Taken is accepted as `28800`; `8:00:01` (`28,801s`) triggers the >8h warning and nullifies `time_taken_seconds`.
+- Cell time `4:00:00` (`14,400s`) is accepted; `4:00:01` (`14,401s`) is marked `unreadable`.
+- Round dates after `today_ist()` and before `2020-01-01` are excluded from the import payload and listed as excluded.
+- A `round_type` of 41 characters is truncated to 40 characters with a warning; a `note` of 501 characters is truncated to 500 characters with a warning.
+- `validatePayload` catches and names the exact `round_number`, `field`, and `value` for every broken rule.
+- A 101-round block is split into 2 valid chunks (`100` rounds + `1` round).
+- Duplicate dates in a block emit `info` items in `needsAttention`, and `evaluateMarksCrossCheck` reports `MISMATCH` when `sheetValue (177) !== sum(total) - sum(correct) (178)`.

@@ -200,17 +200,31 @@ export function isEmptyOrPlaceholderCell(raw) {
 }
 
 /**
- * Parses a category Time cell.
+ * Database constraint constants mirrored from PostgreSQL `admin_import_rounds`.
+ */
+export const MAX_ROUND_NUMBER = 100000;
+export const MIN_ROUND_DATE_ISO = '2020-01-01';
+export const MAX_ROUND_TYPE_LENGTH = 40;
+export const MAX_ROUND_TOTAL_TIME_SECONDS = 28800; // 8 hours (8:00:00)
+export const MAX_CELL_TIME_SECONDS = 14400; // 4 hours (4:00:00)
+export const MAX_NOTE_LENGTH = 500;
+
+/**
+ * Parses a category Time cell (or summary Time Taken cell when options.maxSeconds = Infinity).
  * Accepted formats:
  * - Empty or dots/dashes/spaces -> status: 'empty', seconds: null
  * - m:ss or mm:ss (seconds < 60) -> status: 'ok', seconds: mins * 60 + secs
  * - h:mm:ss (minutes < 60, seconds < 60) -> status: 'ok', seconds: hrs * 3600 + mins * 60 + secs
+ * - Cell times above `maxSeconds` (default 14400 = 4 hours) -> status: 'unreadable'
  * - Plain numbers (e.g. "75") or anything else -> status: 'unreadable' (never guessed)
  *
  * @param {string} rawTime
+ * @param {{ maxSeconds?: number }} [options={}]
  * @returns {{ status: 'empty'|'ok'|'unreadable', seconds: number|null, raw: string, reason: string|null }}
  */
-export function parseTimeCell(rawTime) {
+export function parseTimeCell(rawTime, options = {}) {
+  const maxSeconds =
+    options && options.maxSeconds !== undefined ? options.maxSeconds : MAX_CELL_TIME_SECONDS;
   const raw = String(rawTime ?? '');
   if (isEmptyOrPlaceholderCell(raw)) {
     return { status: 'empty', seconds: null, raw, reason: null };
@@ -218,8 +232,8 @@ export function parseTimeCell(rawTime) {
 
   const trimmed = raw.trim();
 
-  // Match m:ss or mm:ss
-  const mmss = trimmed.match(/^(\d{1,2}):(\d{2})$/);
+  // Match m:ss or mm:ss (or mmm:ss)
+  const mmss = trimmed.match(/^(\d{1,3}):(\d{2})$/);
   if (mmss) {
     const mins = parseInt(mmss[1], 10);
     const secs = parseInt(mmss[2], 10);
@@ -231,11 +245,20 @@ export function parseTimeCell(rawTime) {
         reason: `Invalid seconds in time "${trimmed}" (must be 00–59)`,
       };
     }
-    return { status: 'ok', seconds: mins * 60 + secs, raw, reason: null };
+    const totalSeconds = mins * 60 + secs;
+    if (totalSeconds > maxSeconds) {
+      return {
+        status: 'unreadable',
+        seconds: null,
+        raw,
+        reason: `Cell time "${trimmed}" is more than 4 hours (max 4:00:00)`,
+      };
+    }
+    return { status: 'ok', seconds: totalSeconds, raw, reason: null };
   }
 
-  // Match h:mm:ss
-  const hhmmss = trimmed.match(/^(\d{1,2}):(\d{2}):(\d{2})$/);
+  // Match h:mm:ss (or hhh:mm:ss)
+  const hhmmss = trimmed.match(/^(\d{1,4}):(\d{2}):(\d{2})$/);
   if (hhmmss) {
     const hrs = parseInt(hhmmss[1], 10);
     const mins = parseInt(hhmmss[2], 10);
@@ -248,9 +271,18 @@ export function parseTimeCell(rawTime) {
         reason: `Invalid minutes/seconds in time "${trimmed}" (must be 00–59)`,
       };
     }
+    const totalSeconds = hrs * 3600 + mins * 60 + secs;
+    if (totalSeconds > maxSeconds) {
+      return {
+        status: 'unreadable',
+        seconds: null,
+        raw,
+        reason: `Cell time "${trimmed}" is more than 4 hours (max 4:00:00)`,
+      };
+    }
     return {
       status: 'ok',
-      seconds: hrs * 3600 + mins * 60 + secs,
+      seconds: totalSeconds,
       raw,
       reason: null,
     };
@@ -334,6 +366,17 @@ export function parseScoreCell(rawScore, isSurpriseTask = false) {
   }
 
   if (isSurpriseTask) {
+    if (trimmed.length > MAX_NOTE_LENGTH) {
+      return {
+        status: 'note',
+        correct: null,
+        total: null,
+        note: trimmed.slice(0, MAX_NOTE_LENGTH),
+        noteTruncated: true,
+        originalNoteLength: trimmed.length,
+        reason: null,
+      };
+    }
     return {
       status: 'note',
       correct: null,
@@ -865,16 +908,38 @@ export function parseScoreSheetCsv(csvText, options = {}) {
     }
   }
 
-  // 8. Resolve each round's date and run per-block date checks
+  // 8. Resolve each round's date and run per-block date & round-number checks
   for (const blk of rawBlocks) {
     for (const rnd of blk.rounds) {
+      rnd.excluded = false;
+      rnd.exclusionReason = null;
+
+      if (
+        !Number.isInteger(rnd.roundNumber) ||
+        rnd.roundNumber < 1 ||
+        rnd.roundNumber > MAX_ROUND_NUMBER
+      ) {
+        rnd.excluded = true;
+        rnd.exclusionReason = `Round number ${rnd.roundNumber} is outside 1..100,000`;
+        needsAttention.push({
+          severity: 'warning',
+          type: 'round_excluded',
+          blockNumber: blk.blockNumber,
+          roundNumber: rnd.roundNumber,
+          ref: rnd.headerRef,
+          message: `Block ${blk.blockNumber} · Round ${rnd.roundNumber}: Round number ${rnd.roundNumber} at ${rnd.headerRef} is outside 1..100,000 (excluded from import).`,
+        });
+      }
+
       if (!rnd.rawDate) {
         rnd.dateStatus = 'missing';
         rnd.dateError = 'Missing date';
+        rnd.excluded = true;
+        rnd.exclusionReason = `Missing round date at ${rnd.dateRef}`;
         const flag = {
           severity: 'error',
           code: 'missing_date',
-          message: `Block ${blk.blockNumber} · Round ${rnd.roundNumber}: Missing date at ${rnd.dateRef}.`,
+          message: `Block ${blk.blockNumber} · Round ${rnd.roundNumber}: Missing date at ${rnd.dateRef} (excluded from import).`,
         };
         rnd.dateFlags.push(flag);
         blk.dateErrors.push(flag);
@@ -884,15 +949,18 @@ export function parseScoreSheetCsv(csvText, options = {}) {
           blockNumber: blk.blockNumber,
           roundNumber: rnd.roundNumber,
           ref: rnd.dateRef,
+          excluded: true,
           message: flag.message,
         });
       } else if (!rnd.dateTriple) {
         rnd.dateStatus = 'unreadable';
         rnd.dateError = `Unreadable date "${rnd.rawDate}"`;
+        rnd.excluded = true;
+        rnd.exclusionReason = `Unreadable date "${rnd.rawDate}" at ${rnd.dateRef}`;
         const flag = {
           severity: 'error',
           code: 'unreadable_date',
-          message: `Block ${blk.blockNumber} · Round ${rnd.roundNumber}: Unreadable date "${rnd.rawDate}" at ${rnd.dateRef}.`,
+          message: `Block ${blk.blockNumber} · Round ${rnd.roundNumber}: Unreadable date "${rnd.rawDate}" at ${rnd.dateRef} (excluded from import).`,
         };
         rnd.dateFlags.push(flag);
         blk.dateErrors.push(flag);
@@ -902,6 +970,7 @@ export function parseScoreSheetCsv(csvText, options = {}) {
           blockNumber: blk.blockNumber,
           roundNumber: rnd.roundNumber,
           ref: rnd.dateRef,
+          excluded: true,
           message: flag.message,
         });
       } else {
@@ -913,10 +982,12 @@ export function parseScoreSheetCsv(csvText, options = {}) {
         if (!iso) {
           rnd.dateStatus = 'unreadable';
           rnd.dateError = `Impossible calendar date "${rnd.rawDate}" under ${resolvedDateFormat}`;
+          rnd.excluded = true;
+          rnd.exclusionReason = rnd.dateError;
           const flag = {
             severity: 'error',
             code: 'unreadable_date',
-            message: `Block ${blk.blockNumber} · Round ${rnd.roundNumber}: Unreadable/impossible date "${rnd.rawDate}" (${resolvedDateFormat}) at ${rnd.dateRef}.`,
+            message: `Block ${blk.blockNumber} · Round ${rnd.roundNumber}: Unreadable/impossible date "${rnd.rawDate}" (${resolvedDateFormat}) at ${rnd.dateRef} (excluded from import).`,
           };
           rnd.dateFlags.push(flag);
           blk.dateErrors.push(flag);
@@ -926,6 +997,7 @@ export function parseScoreSheetCsv(csvText, options = {}) {
             blockNumber: blk.blockNumber,
             roundNumber: rnd.roundNumber,
             ref: rnd.dateRef,
+            excluded: true,
             message: flag.message,
           });
         } else {
@@ -934,10 +1006,12 @@ export function parseScoreSheetCsv(csvText, options = {}) {
 
           // Check future date against today_ist()
           if (todayIST && iso > todayIST) {
+            rnd.excluded = true;
+            rnd.exclusionReason = `Future date ${iso} (after today ${todayIST})`;
             const flag = {
               severity: 'error',
               code: 'future_date',
-              message: `Block ${blk.blockNumber} · Round ${rnd.roundNumber}: Future date ${iso} at ${rnd.dateRef} (after today ${todayIST}).`,
+              message: `Block ${blk.blockNumber} · Round ${rnd.roundNumber}: Future date ${iso} at ${rnd.dateRef} (after today ${todayIST} — excluded from import).`,
             };
             rnd.dateFlags.push(flag);
             blk.dateErrors.push(flag);
@@ -947,16 +1021,19 @@ export function parseScoreSheetCsv(csvText, options = {}) {
               blockNumber: blk.blockNumber,
               roundNumber: rnd.roundNumber,
               ref: rnd.dateRef,
+              excluded: true,
               message: flag.message,
             });
           }
 
           // Check date before 2020-01-01
-          if (iso < '2020-01-01') {
+          if (iso < MIN_ROUND_DATE_ISO) {
+            rnd.excluded = true;
+            rnd.exclusionReason = `Date ${iso} is before ${MIN_ROUND_DATE_ISO}`;
             const flag = {
               severity: 'warning',
               code: 'before_2020',
-              message: `Block ${blk.blockNumber} · Round ${rnd.roundNumber}: Date ${iso} at ${rnd.dateRef} is before 2020.`,
+              message: `Block ${blk.blockNumber} · Round ${rnd.roundNumber}: Date ${iso} at ${rnd.dateRef} is before 2020 (excluded from import).`,
             };
             rnd.dateFlags.push(flag);
             blk.dateWarnings.push(flag);
@@ -966,6 +1043,7 @@ export function parseScoreSheetCsv(csvText, options = {}) {
               blockNumber: blk.blockNumber,
               roundNumber: rnd.roundNumber,
               ref: rnd.dateRef,
+              excluded: true,
               message: flag.message,
             });
           }
@@ -1004,13 +1082,27 @@ export function parseScoreSheetCsv(csvText, options = {}) {
       if (!byDate.has(r.dateISO)) byDate.set(r.dateISO, []);
       byDate.get(r.dateISO).push(r);
     }
+    const shortMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     for (const [iso, group] of byDate.entries()) {
       if (group.length > 1) {
+        const [yStr, mStr, dStr] = iso.split('-');
+        const humanDate = `${parseInt(dStr, 10)} ${shortMonths[parseInt(mStr, 10) - 1]} ${yStr}`;
         const roundLabels = group.map((g) => `Round ${g.roundNumber}`).join(', ');
-        const msg = `Block ${blk.blockNumber}: Same date ${iso} shared by ${roundLabels}.`;
-        const flag = { severity: 'info', code: 'duplicate_date', message: msg };
+        const refs = group.map((g) => g.dateRef).filter(Boolean).join(', ');
+        const msg = `Block ${blk.blockNumber}: Same date ${humanDate} (${iso}) shared by ${roundLabels}.`;
+        const flag = { severity: 'info', code: 'duplicate_date', message: msg, dateISO: iso };
         group.forEach((g) => g.dateFlags.push(flag));
         blk.dateInfos.push(flag);
+        needsAttention.push({
+          severity: 'info',
+          type: 'duplicate_date',
+          blockNumber: blk.blockNumber,
+          roundNumber: group[0].roundNumber,
+          roundNumbers: group.map((g) => g.roundNumber),
+          ref: refs || group[0].dateRef,
+          dateISO: iso,
+          message: msg,
+        });
       }
     }
   }
@@ -1047,8 +1139,26 @@ export function parseScoreSheetCsv(csvText, options = {}) {
           const ref = cellRef(r, rnd.scoreCol);
 
           if (summaryType === 'roundType') {
-            rnd.summary.roundType = isEmptyOrPlaceholderCell(rawVal) ? null : rawVal;
             rnd.summary.roundTypeRef = ref;
+            if (isEmptyOrPlaceholderCell(rawVal)) {
+              rnd.summary.roundType = null;
+            } else if (rawVal.length > MAX_ROUND_TYPE_LENGTH) {
+              const cutType = rawVal.slice(0, MAX_ROUND_TYPE_LENGTH);
+              rnd.summary.roundType = cutType;
+              rnd.summary.roundTypeOriginal = rawVal;
+              rnd.summary.roundTypeTruncated = true;
+              needsAttention.push({
+                severity: 'warning',
+                type: 'round_type_truncated',
+                blockNumber: blk.blockNumber,
+                roundNumber: rnd.roundNumber,
+                ref,
+                rawText: rawVal,
+                message: `Round type "${rawVal.slice(0, 24)}…" at ${ref} is ${rawVal.length} characters (max 40): cut to "${cutType}".`,
+              });
+            } else {
+              rnd.summary.roundType = rawVal;
+            }
           } else if (summaryType === 'timeTaken') {
             rnd.summary.timeTakenRaw = rawVal;
             rnd.summary.timeTakenRef = ref;
@@ -1060,10 +1170,27 @@ export function parseScoreSheetCsv(csvText, options = {}) {
               rnd.summary.timeTakenDisplay = '— (Without Time)';
               rnd.summary.withoutTime = true;
             } else {
-              const parsedT = parseTimeCell(rawVal);
+              const parsedT = parseTimeCell(rawVal, { maxSeconds: Infinity });
               if (parsedT.status === 'ok') {
-                rnd.summary.timeTakenSeconds = parsedT.seconds;
-                rnd.summary.timeTakenDisplay = formatSecondsDisplay(parsedT.seconds, true);
+                if (parsedT.seconds > MAX_ROUND_TOTAL_TIME_SECONDS) {
+                  rnd.summary.timeTakenRawSeconds = parsedT.seconds;
+                  rnd.summary.timeTakenSeconds = null;
+                  rnd.summary.timeTakenOverLimit = true;
+                  rnd.summary.timeTakenDisplay = `${rawVal} (>8h → omitted)`;
+                  needsAttention.push({
+                    severity: 'warning',
+                    type: 'time_taken_over_limit',
+                    blockNumber: blk.blockNumber,
+                    roundNumber: rnd.roundNumber,
+                    ref,
+                    rawText: rawVal,
+                    seconds: parsedT.seconds,
+                    message: `Total time ${rawVal} at ${ref} is more than 8 hours: the round will be imported WITHOUT a total time`,
+                  });
+                } else {
+                  rnd.summary.timeTakenSeconds = parsedT.seconds;
+                  rnd.summary.timeTakenDisplay = formatSecondsDisplay(parsedT.seconds, true);
+                }
               } else {
                 rnd.summary.timeTakenSeconds = null;
                 rnd.summary.timeTakenDisplay = rawVal;
@@ -1153,6 +1280,19 @@ export function parseScoreSheetCsv(csvText, options = {}) {
 
           let cellStatus = scoreParsed.status;
           const cellWarnings = [];
+
+          if (scoreParsed.noteTruncated) {
+            needsAttention.push({
+              severity: 'warning',
+              type: 'note_truncated',
+              blockNumber: blk.blockNumber,
+              roundNumber: rnd.roundNumber,
+              ref: scoreRef,
+              rawText: rawScore.trim().slice(0, 40) + '…',
+              categoryName: catText,
+              message: `Block ${blk.blockNumber} · Round ${rnd.roundNumber} (${catText}): Note at ${scoreRef} is ${scoreParsed.originalNoteLength} characters (max 500): cut to 500 characters.`,
+            });
+          }
 
           if (scoreParsed.status === 'unreadable') {
             rnd.computed.hasUnreadableScore = true;
@@ -1580,12 +1720,10 @@ function evaluateMarksCrossCheck({
     };
   }
 
-  // If it matches computedMarks OR sheetDerivedMarks, wait: let's check!
-  // By rule: "(Total Attempt - Final Score) vs Marks TO BE CORRECTED"
-  // When Final Score and Total Attempt match the cells, computedMarks === sheetDerivedMarks.
+  // Strict Marks TO BE CORRECTED check: compare sheet value against calculated marks
+  // from the category cells: sum(total) - sum(correct) (`computedMarks`).
   const diff = computedMarks - sheetValue;
-  const sheetDiff = sheetDerivedMarks !== null ? sheetDerivedMarks - sheetValue : diff;
-  const isOk = diff === 0 || sheetDiff === 0;
+  const isOk = diff === 0;
 
   return {
     label,

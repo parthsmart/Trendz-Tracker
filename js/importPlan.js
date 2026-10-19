@@ -1330,14 +1330,275 @@ export function chunkRoundsForImport(rounds = [], options = {}) {
 }
 
 /**
- * Builds the complete Phase 4c-2b execution plan for saving a parsed and resolved CSV import.
+ * Database limit constants for `admin_import_rounds`
+ */
+export const DB_MAX_ROUND_NUMBER = 100000;
+export const DB_MIN_ROUND_DATE_ISO = '2020-01-01';
+export const DB_MAX_ROUND_TYPE_LEN = 40;
+export const DB_MAX_ROUND_TIME_TAKEN_SECONDS = 28800; // 8:00:00
+export const DB_MAX_CELL_TIME_SECONDS = 14400; // 4:00:00
+export const DB_MAX_NOTE_LEN = 500;
+
+/**
+ * Validates a round import payload (either an array of rounds for `admin_import_rounds`,
+ * an object `{ rounds }` / `{ p_rounds }`, or a full execution plan `{ blockPlans }`)
+ * against all PostgreSQL `admin_import_rounds` constraints before calling the database.
  *
- * Checks all readiness requirements:
- * - Student is selected
- * - All blocks have a selected and confirmed simulator series, with no duplicate series across blocks
- * - All categories in all blocks are resolved (no `unmatched` categories, no duplicate target categories)
- * - Zero blocking parse/date/cell errors in `combinedAttention` and zero non-skipped unreadable cells
- * - At least 1 round exists to import
+ * Returns a list of problems where each item names `round_number`, `field`, and `value`.
+ * If the returned array is non-empty, the caller MUST NOT call the database.
+ *
+ * @param {Array<Object>|Object} payload
+ * @param {Object} [options={}]
+ * @param {string} [options.todayIST] - YYYY-MM-DD in Asia/Kolkata
+ * @returns {Array<{round_number: number|null, roundNumber: number|null, field: string, value: any, message: string}>}
+ */
+export function validatePayload(payload, options = {}) {
+  const todayIST =
+    options.todayIST ||
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+
+  const problems = [];
+
+  const pushProblem = (roundNum, field, value, message) => {
+    problems.push({
+      round_number: roundNum ?? null,
+      roundNumber: roundNum ?? null,
+      field,
+      value,
+      message,
+    });
+  };
+
+  // Support validating a full execution plan with multiple chunks/blockPlans
+  if (payload && !Array.isArray(payload) && Array.isArray(payload.blockPlans)) {
+    for (const bp of payload.blockPlans) {
+      const chunks = Array.isArray(bp.chunks)
+        ? bp.chunks
+        : chunkRoundsForImport(bp.rounds || []);
+      for (const ch of chunks) {
+        const subProblems = validatePayload(ch, { todayIST });
+        problems.push(...subProblems);
+      }
+    }
+    return problems;
+  }
+
+  const rounds = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.p_rounds)
+    ? payload.p_rounds
+    : Array.isArray(payload?.rounds)
+    ? payload.rounds
+    : null;
+
+  if (!Array.isArray(rounds) || rounds.length === 0) {
+    pushProblem(
+      null,
+      'rounds',
+      rounds ? rounds.length : payload,
+      'Payload must contain between 1 and 100 rounds.'
+    );
+    return problems;
+  }
+
+  if (rounds.length > MAX_ROUNDS_PER_RPC_CALL) {
+    pushProblem(
+      null,
+      'rounds',
+      rounds.length,
+      `Payload has ${rounds.length} rounds, exceeding the maximum of ${MAX_ROUNDS_PER_RPC_CALL} rounds per call.`
+    );
+  }
+
+  let totalCellsInCall = 0;
+
+  for (const rnd of rounds) {
+    const rNum = rnd?.round_number ?? null;
+
+    // 1. round_number: integer 1 to 100000
+    if (!Number.isInteger(rNum) || rNum < 1 || rNum > DB_MAX_ROUND_NUMBER) {
+      pushProblem(
+        rNum,
+        'round_number',
+        rNum,
+        `Round ${rNum ?? '?'}: round_number (${rNum}) must be an integer from 1 to ${DB_MAX_ROUND_NUMBER}.`
+      );
+    }
+
+    // 2. round_date: YYYY-MM-DD between 2020-01-01 and today_ist()
+    const rDate = rnd?.round_date ?? null;
+    const isIsoFormat = typeof rDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(rDate);
+    if (!isIsoFormat || rDate < DB_MIN_ROUND_DATE_ISO || rDate > todayIST) {
+      pushProblem(
+        rNum,
+        'round_date',
+        rDate,
+        `Round ${rNum ?? '?'}: round_date (${rDate}) must be YYYY-MM-DD between ${DB_MIN_ROUND_DATE_ISO} and ${todayIST}.`
+      );
+    }
+
+    // 3. round_type: string, at most 40 characters
+    const rType = rnd?.round_type;
+    if (typeof rType !== 'string' || rType.trim().length === 0 || rType.length > DB_MAX_ROUND_TYPE_LEN) {
+      pushProblem(
+        rNum,
+        'round_type',
+        rType,
+        `Round ${rNum ?? '?'}: round_type (${JSON.stringify(rType)}) must be 1 to ${DB_MAX_ROUND_TYPE_LEN} characters.`
+      );
+    }
+
+    // 4. time_taken_seconds: null or integer 0 to 28800
+    const rTime = rnd?.time_taken_seconds;
+    if (
+      rTime !== null &&
+      rTime !== undefined &&
+      (!Number.isInteger(rTime) || rTime < 0 || rTime > DB_MAX_ROUND_TIME_TAKEN_SECONDS)
+    ) {
+      pushProblem(
+        rNum,
+        'time_taken_seconds',
+        rTime,
+        `Round ${rNum ?? '?'}: time_taken_seconds (${rTime}) must be null or 0 to ${DB_MAX_ROUND_TIME_TAKEN_SECONDS}.`
+      );
+    }
+
+    // 5. Cells validation
+    const cells = Array.isArray(rnd?.cells) ? rnd.cells : [];
+    totalCellsInCall += cells.length;
+
+    const seenCategoryIds = new Set();
+
+    for (const cell of cells) {
+      // 5a. category_id present and at most once per round
+      const catId = cell?.category_id ?? null;
+      if (!catId || typeof catId !== 'string') {
+        pushProblem(
+          rNum,
+          'category_id',
+          catId,
+          `Round ${rNum ?? '?'}: cell is missing a valid category_id.`
+        );
+      } else if (seenCategoryIds.has(catId)) {
+        pushProblem(
+          rNum,
+          'category_id',
+          catId,
+          `Round ${rNum ?? '?'}: duplicate category_id "${catId}" in the same round.`
+        );
+      } else {
+        seenCategoryIds.add(catId);
+      }
+
+      // 5b. correct and total both present (0 <= correct <= total, total >= 1), or both absent with a note (<= 500 chars)
+      const hasCorrect = cell?.correct !== null && cell?.correct !== undefined;
+      const hasTotal = cell?.total !== null && cell?.total !== undefined;
+      const hasNote = typeof cell?.note === 'string' && cell.note.trim().length > 0;
+
+      if (cell?.note !== null && cell?.note !== undefined) {
+        if (typeof cell.note !== 'string' || cell.note.length > DB_MAX_NOTE_LEN) {
+          pushProblem(
+            rNum,
+            'note',
+            cell.note,
+            `Round ${rNum ?? '?'}: cell note exceeds ${DB_MAX_NOTE_LEN} characters.`
+          );
+        }
+      }
+
+      if (hasCorrect && hasTotal) {
+        if (!Number.isInteger(cell.total) || cell.total < 1) {
+          pushProblem(
+            rNum,
+            'total',
+            cell.total,
+            `Round ${rNum ?? '?'}: cell total (${cell.total}) must be an integer >= 1.`
+          );
+        }
+        if (
+          !Number.isInteger(cell.correct) ||
+          cell.correct < 0 ||
+          (Number.isInteger(cell.total) && cell.total >= 1 && cell.correct > cell.total)
+        ) {
+          pushProblem(
+            rNum,
+            'correct',
+            cell.correct,
+            `Round ${rNum ?? '?'}: cell correct (${cell.correct}) must be between 0 and total (${cell.total}).`
+          );
+        }
+      } else if (!hasCorrect && !hasTotal) {
+        if (!hasNote) {
+          pushProblem(
+            rNum,
+            'note',
+            cell?.note ?? null,
+            `Round ${rNum ?? '?'}: cell without correct/total scores must have a non-empty note.`
+          );
+        }
+      } else {
+        // One of correct/total is present and the other is absent
+        if (!hasCorrect) {
+          pushProblem(
+            rNum,
+            'correct',
+            cell?.correct ?? null,
+            `Round ${rNum ?? '?'}: cell has total (${cell.total}) but correct is missing.`
+          );
+        } else {
+          pushProblem(
+            rNum,
+            'total',
+            cell?.total ?? null,
+            `Round ${rNum ?? '?'}: cell has correct (${cell.correct}) but total is missing.`
+          );
+        }
+      }
+
+      // 5c. time_seconds: null or integer 0 to 14400
+      const cTime = cell?.time_seconds;
+      if (
+        cTime !== null &&
+        cTime !== undefined &&
+        (!Number.isInteger(cTime) || cTime < 0 || cTime > DB_MAX_CELL_TIME_SECONDS)
+      ) {
+        pushProblem(
+          rNum,
+          'time_seconds',
+          cTime,
+          `Round ${rNum ?? '?'}: cell time_seconds (${cTime}) must be null or 0 to ${DB_MAX_CELL_TIME_SECONDS}.`
+        );
+      }
+    }
+  }
+
+  if (totalCellsInCall > MAX_CELLS_PER_RPC_CALL) {
+    pushProblem(
+      null,
+      'cells',
+      totalCellsInCall,
+      `Payload has ${totalCellsInCall} cells, exceeding the maximum of ${MAX_CELLS_PER_RPC_CALL} cells per call.`
+    );
+  }
+
+  return problems;
+}
+
+/**
+ * Builds the complete Phase 4c-2b / 4c-2c execution plan for saving a parsed and resolved CSV import.
+ *
+ * Mirrors all database limits:
+ * - Time Taken > 28,800s -> warning + `time_taken_seconds = null` in payload + counted in `acknowledgments`.
+ * - Cell time > 14,400s -> unreadable cell (not imported) + counted in `acknowledgments`.
+ * - Note > 500 chars -> cut to 500 chars with a warning.
+ * - Round type > 40 chars -> cut to 40 chars with a warning.
+ * - Any round breaking round_number (1..100000), round_date (2020-01-01..today_ist()), or missing/unreadable date
+ *   is excluded (`excludedRounds`) instead of failing the whole import.
  *
  * @param {Object} parsed - Output from `parseScoreSheetCsv`
  * @param {Object} previewState - Output from `buildImportPreviewState`
@@ -1346,7 +1607,8 @@ export function chunkRoundsForImport(rounds = [], options = {}) {
  * @param {string} [options.fileName='']
  * @param {boolean} [options.markVerified=false]
  * @param {'skip'|'use_existing'} [options.onDateConflict='use_existing']
- * @returns {Object} Structured execution plan for `admin_start_import`, `admin_import_ensure_category`, `admin_import_rounds`, and `admin_finish_import`
+ * @param {string} [options.todayIST]
+ * @returns {Object} Structured execution plan
  */
 export function buildImportExecutionPlan(parsed, previewState, options = {}) {
   const {
@@ -1355,6 +1617,16 @@ export function buildImportExecutionPlan(parsed, previewState, options = {}) {
     markVerified = false,
     onDateConflict = 'use_existing',
   } = options;
+
+  const todayIST =
+    options.todayIST ||
+    parsed?.todayIST ||
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
 
   const normalizedConflictPolicy = onDateConflict === 'skip' ? 'skip' : 'use_existing';
   const blockingReasons = [];
@@ -1372,6 +1644,15 @@ export function buildImportExecutionPlan(parsed, previewState, options = {}) {
       onDateConflict: normalizedConflictPolicy,
       rowsFound: 0,
       totalRounds: 0,
+      excludedRounds: [],
+      acknowledgments: [],
+      acknowledgmentCounts: {
+        timeTakenOverLimit: 0,
+        unreadableCellsSkipped: 0,
+        roundTypesTruncated: 0,
+        notesTruncated: 0,
+        excludedRounds: 0,
+      },
       blockPlans: [],
       summaryPayload: {},
     };
@@ -1381,20 +1662,33 @@ export function buildImportExecutionPlan(parsed, previewState, options = {}) {
     blockingReasons.push('No student is selected in Step 1.');
   }
 
-  // Collect all blocking errors from previewState.combinedAttention
+  // Sheet-level and block-level blocking errors:
+  // - Series unconfirmed / missing / duplicated across blocks
+  // - Duplicate category target within a block
+  // - Mixed date formats in Auto mode
+  // Note: Per-round date/number limit violations exclude that round (`excludedRounds`),
+  // and unreadable cells are skipped (`unreadableCellsSkipped`), rather than failing the whole import.
+  const roundExclusionErrorTypes = new Set([
+    'missing_date',
+    'unreadable_date',
+    'future_date',
+    'before_2020',
+    'round_excluded',
+    'unreadable_score',
+    'unreadable_time',
+    'time_without_score',
+    'unreadable_cell',
+  ]);
+
   const attentionErrors = (previewState.combinedAttention || []).filter(
-    (item) => item.severity === 'error'
+    (item) => item.severity === 'error' && !roundExclusionErrorTypes.has(item.type)
   );
   for (const err of attentionErrors) {
     blockingReasons.push(err.message);
   }
 
-  // Also check if any block still has unresolved `unmatched` categories or non-skipped unreadable cells
+  // Also check if any block still has unresolved `unmatched` categories
   for (const rep of previewState.blockReports || []) {
-    const resolvedByRowIndex = new Map(
-      (rep.categoryResolution?.categories || []).map((c) => [c.rowIndex, c])
-    );
-
     for (const cat of rep.categoryResolution?.categories || []) {
       if (cat.effectiveStatus === 'unmatched') {
         blockingReasons.push(
@@ -1402,37 +1696,19 @@ export function buildImportExecutionPlan(parsed, previewState, options = {}) {
         );
       }
     }
-
-    const blk = (parsed.blocks || []).find((b) => b.blockNumber === rep.blockNumber);
-    if (blk) {
-      for (const rnd of blk.rounds || []) {
-        if (!rnd.dateISO) {
-          const dateMsg = `Block ${rep.blockNumber} · Round ${rnd.roundNumber}: Missing or unreadable round date (${rnd.dateRef || 'date row'}).`;
-          if (!blockingReasons.includes(dateMsg)) {
-            blockingReasons.push(dateMsg);
-          }
-        }
-        for (const cell of rnd.cells || []) {
-          const catRes = resolvedByRowIndex.get(cell.rowIndex);
-          if (!catRes || catRes.effectiveStatus === 'skipped') continue;
-          if (cell.status === 'unreadable') {
-            const refStr = cell.timeStatus === 'unreadable' ? cell.timeRef : cell.scoreRef;
-            const cellMsg = `Block ${rep.blockNumber} · Round ${rnd.roundNumber} (${cell.categoryName}): Unreadable cell ${refStr} (${cell.reason || 'invalid format'}).`;
-            if (
-              !blockingReasons.some(
-                (r) => r.includes(cell.scoreRef) || (cell.timeRef && r.includes(cell.timeRef))
-              )
-            ) {
-              blockingReasons.push(cellMsg);
-            }
-          }
-        }
-      }
-    }
   }
 
-  // Build per-block plans
+  // Build per-block plans, tracking excluded rounds and acknowledgment counts
   const blockPlans = [];
+  const excludedRounds = [];
+  const acknowledgmentCounts = {
+    timeTakenOverLimit: 0,
+    unreadableCellsSkipped: 0,
+    roundTypesTruncated: 0,
+    notesTruncated: 0,
+    excludedRounds: 0,
+  };
+
   let totalRowsFound = 0;
   let totalRoundsCount = 0;
   let hasDateConflictsWithDb = false;
@@ -1465,8 +1741,6 @@ export function buildImportExecutionPlan(parsed, previewState, options = {}) {
           p_new_name: cat.sheetName,
         });
       } else if (cat.resolvedCategory?.id) {
-        // Ensure existing category is linked to this block's series if not already in category_series
-        // or if mapped by admin
         if (cat.inSelectedSeries === false || cat.effectiveStatus === 'mapped_existing') {
           categoriesToEnsure.push({
             rowIndex: cat.rowIndex,
@@ -1490,13 +1764,55 @@ export function buildImportExecutionPlan(parsed, previewState, options = {}) {
       }
     }
 
-    // 3. Build planned rounds and cells for this block
+    // 3. Build planned rounds and cells for this block, excluding rounds that break DB limits
     const plannedRounds = [];
+    const blockExcludedRounds = [];
     let blockCellsCount = 0;
 
     for (const rnd of blk.rounds || []) {
+      const rNum = Number(rnd.roundNumber);
+      const rDate = rnd.dateISO;
+
+      // Check round-level limits: round_number 1..100000 and round_date YYYY-MM-DD in 2020-01-01..todayIST
+      let exclusionReason = null;
+      if (!Number.isInteger(rNum) || rNum < 1 || rNum > DB_MAX_ROUND_NUMBER) {
+        exclusionReason = `Round number ${rnd.roundNumber} is outside 1..100,000`;
+      } else if (!rDate || !/^\d{4}-\d{2}-\d{2}$/.test(rDate)) {
+        exclusionReason = rnd.dateError || `Missing or unreadable round date (${rnd.rawDate || 'empty'})`;
+      } else if (rDate < DB_MIN_ROUND_DATE_ISO) {
+        exclusionReason = `Round date ${rDate} is before ${DB_MIN_ROUND_DATE_ISO}`;
+      } else if (rDate > todayIST) {
+        exclusionReason = `Round date ${rDate} is after today (${todayIST})`;
+      } else if (rnd.excluded) {
+        exclusionReason = rnd.exclusionReason || 'Excluded due to round limit';
+      }
+
+      if (exclusionReason) {
+        const exItem = {
+          blockNumber: blk.blockNumber,
+          seriesId: rep.seriesId,
+          seriesName: rep.seriesName,
+          roundNumber: rNum,
+          dateISO: rDate,
+          rawDate: rnd.rawDate || '',
+          ref: rnd.dateRef || rnd.headerRef || null,
+          reason: exclusionReason,
+        };
+        blockExcludedRounds.push(exItem);
+        excludedRounds.push(exItem);
+        acknowledgmentCounts.excludedRounds += 1;
+        continue;
+      }
+
+      if (rnd.summary?.timeTakenOverLimit) {
+        acknowledgmentCounts.timeTakenOverLimit += 1;
+      }
+      if (rnd.summary?.roundTypeTruncated) {
+        acknowledgmentCounts.roundTypesTruncated += 1;
+      }
+
       const rComp = (rep.dataComparison?.rounds || []).find(
-        (rc) => Number(rc.roundNumber) === Number(rnd.roundNumber)
+        (rc) => Number(rc.roundNumber) === rNum
       );
       if (rComp && (rComp.dateDiffers || (rComp.sameDateOtherDbRounds || []).length > 0)) {
         hasDateConflictsWithDb = true;
@@ -1508,8 +1824,30 @@ export function buildImportExecutionPlan(parsed, previewState, options = {}) {
         if (!catRes || catRes.effectiveStatus === 'skipped' || catRes.effectiveStatus === 'unmatched') {
           continue;
         }
+        if (cell.status === 'unreadable') {
+          acknowledgmentCounts.unreadableCellsSkipped += 1;
+          continue;
+        }
         if (cell.status !== 'ok' && cell.status !== 'note') {
           continue;
+        }
+
+        // Enforce cell time <= 14400s
+        if (
+          cell.timeSeconds !== null &&
+          cell.timeSeconds !== undefined &&
+          (Number(cell.timeSeconds) < 0 || Number(cell.timeSeconds) > DB_MAX_CELL_TIME_SECONDS)
+        ) {
+          acknowledgmentCounts.unreadableCellsSkipped += 1;
+          continue;
+        }
+
+        let noteVal = cell.note ? String(cell.note) : null;
+        if (noteVal && noteVal.length > DB_MAX_NOTE_LEN) {
+          noteVal = noteVal.slice(0, DB_MAX_NOTE_LEN);
+          acknowledgmentCounts.notesTruncated += 1;
+        } else if (cell.noteTruncated) {
+          acknowledgmentCounts.notesTruncated += 1;
         }
 
         cells.push({
@@ -1522,19 +1860,42 @@ export function buildImportExecutionPlan(parsed, previewState, options = {}) {
             cell.timeSeconds !== null && cell.timeSeconds !== undefined
               ? Number(cell.timeSeconds)
               : null,
-          note: cell.note ? String(cell.note) : null,
+          note: noteVal,
         });
+      }
+
+      // Sanitize round_type (max 40 chars) and time_taken_seconds (null if > 28800 or < 0)
+      let rawRoundType = rnd.summary?.roundType ? String(rnd.summary.roundType).trim() : 'Category wise';
+      if (!rawRoundType) rawRoundType = 'Category wise';
+      if (rawRoundType.length > DB_MAX_ROUND_TYPE_LEN) {
+        rawRoundType = rawRoundType.slice(0, DB_MAX_ROUND_TYPE_LEN);
+        if (!rnd.summary?.roundTypeTruncated) {
+          acknowledgmentCounts.roundTypesTruncated += 1;
+        }
+      }
+
+      let sanitizedTimeTaken =
+        rnd.summary?.timeTakenSeconds !== null && rnd.summary?.timeTakenSeconds !== undefined
+          ? Number(rnd.summary.timeTakenSeconds)
+          : null;
+      if (
+        sanitizedTimeTaken !== null &&
+        (!Number.isInteger(sanitizedTimeTaken) ||
+          sanitizedTimeTaken < 0 ||
+          sanitizedTimeTaken > DB_MAX_ROUND_TIME_TAKEN_SECONDS)
+      ) {
+        sanitizedTimeTaken = null;
+        if (!rnd.summary?.timeTakenOverLimit) {
+          acknowledgmentCounts.timeTakenOverLimit += 1;
+        }
       }
 
       blockCellsCount += cells.length;
       plannedRounds.push({
-        round_number: Number(rnd.roundNumber),
-        round_date: rnd.dateISO,
-        round_type: rnd.summary?.roundType ? String(rnd.summary.roundType).trim() : 'Category wise',
-        time_taken_seconds:
-          rnd.summary?.timeTakenSeconds !== null && rnd.summary?.timeTakenSeconds !== undefined
-            ? Number(rnd.summary.timeTakenSeconds)
-            : null,
+        round_number: rNum,
+        round_date: rDate,
+        round_type: rawRoundType,
+        time_taken_seconds: sanitizedTimeTaken,
         cells,
       });
     }
@@ -1549,12 +1910,61 @@ export function buildImportExecutionPlan(parsed, previewState, options = {}) {
       categoriesToEnsure,
       aliasesToSave,
       rounds: plannedRounds,
+      excludedRounds: blockExcludedRounds,
       totalCells: blockCellsCount,
     });
   }
 
   if (totalRoundsCount === 0) {
     blockingReasons.push('No valid rounds found to import.');
+  }
+
+  // Build human-readable acknowledgment items with their counts
+  const acknowledgments = [];
+  if (acknowledgmentCounts.timeTakenOverLimit > 0) {
+    acknowledgments.push({
+      type: 'time_taken_over_limit',
+      count: acknowledgmentCounts.timeTakenOverLimit,
+      label: `${acknowledgmentCounts.timeTakenOverLimit} round${
+        acknowledgmentCounts.timeTakenOverLimit === 1 ? '' : 's'
+      } with total time over 8 hours will be imported WITHOUT a total time`,
+    });
+  }
+  if (acknowledgmentCounts.unreadableCellsSkipped > 0) {
+    acknowledgments.push({
+      type: 'unreadable_cells_skipped',
+      count: acknowledgmentCounts.unreadableCellsSkipped,
+      label: `${acknowledgmentCounts.unreadableCellsSkipped} unreadable cell${
+        acknowledgmentCounts.unreadableCellsSkipped === 1 ? '' : 's'
+      } will not be imported`,
+    });
+  }
+  if (acknowledgmentCounts.roundTypesTruncated > 0) {
+    acknowledgments.push({
+      type: 'round_types_truncated',
+      count: acknowledgmentCounts.roundTypesTruncated,
+      label: `${acknowledgmentCounts.roundTypesTruncated} round type${
+        acknowledgmentCounts.roundTypesTruncated === 1 ? '' : 's'
+      } longer than 40 characters will be cut to 40 characters`,
+    });
+  }
+  if (acknowledgmentCounts.notesTruncated > 0) {
+    acknowledgments.push({
+      type: 'notes_truncated',
+      count: acknowledgmentCounts.notesTruncated,
+      label: `${acknowledgmentCounts.notesTruncated} note${
+        acknowledgmentCounts.notesTruncated === 1 ? '' : 's'
+      } longer than 500 characters will be cut to 500 characters`,
+    });
+  }
+  if (acknowledgmentCounts.excludedRounds > 0) {
+    acknowledgments.push({
+      type: 'excluded_rounds',
+      count: acknowledgmentCounts.excludedRounds,
+      label: `${acknowledgmentCounts.excludedRounds} round${
+        acknowledgmentCounts.excludedRounds === 1 ? '' : 's'
+      } breaking date or round number limits will be excluded`,
+    });
   }
 
   const nameInFile = parsed.primaryStudentName ? String(parsed.primaryStudentName).trim() : null;
@@ -1570,6 +1980,7 @@ export function buildImportExecutionPlan(parsed, previewState, options = {}) {
       series_id: bp.seriesId,
       series_name: bp.seriesName,
       rounds_count: bp.rounds.length,
+      excluded_rounds_count: bp.excludedRounds.length,
       cells_count: bp.totalCells,
       categories_ensured: bp.categoriesToEnsure.length,
       aliases_saved: bp.aliasesToSave.length,
@@ -1578,7 +1989,9 @@ export function buildImportExecutionPlan(parsed, previewState, options = {}) {
     on_date_conflict: normalizedConflictPolicy,
     mark_verified: Boolean(markVerified),
     planned_rounds: totalRoundsCount,
+    excluded_rounds: excludedRounds.length,
     planned_cells: totalRowsFound,
+    acknowledgments: acknowledgmentCounts,
     comparison: previewState.overallComparison
       ? {
           new_rounds: previewState.overallComparison.rounds.newRounds,
@@ -1607,6 +2020,9 @@ export function buildImportExecutionPlan(parsed, previewState, options = {}) {
     onDateConflict: normalizedConflictPolicy,
     rowsFound: totalRowsFound,
     totalRounds: totalRoundsCount,
+    excludedRounds,
+    acknowledgments,
+    acknowledgmentCounts,
     blockPlans,
     summaryPayload,
   };
@@ -1667,3 +2083,4 @@ export function materializeBlockRoundChunks(
 
   return chunkRoundsForImport(cleanRounds, chunkOptions);
 }
+
