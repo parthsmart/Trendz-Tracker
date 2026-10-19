@@ -24,6 +24,7 @@ import {
   setupScoreSheetController,
   setupProgressChartsController
 } from './dashboardComponents.js';
+import { loadAndRenderLeaderboardCard } from './leaderboardCard.js';
 
 async function initStudentDashboard() {
   // 1. Guard check: Strictly for logged-in students (or admin viewing their own student record).
@@ -42,6 +43,9 @@ async function initStudentDashboard() {
   if (isDemoMode()) {
     renderDemoBanner();
   }
+
+  // Load Leaderboard summary card (Phase 5a) in parallel
+  loadAndRenderLeaderboardCard('leaderboard-card-container', loggedInProfile);
 
   // 2. Fetch and render all dashboard data using shared loader
   try {

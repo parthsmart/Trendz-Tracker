@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url';
 import createStudentHandler from './api/create-student.js';
 import resetPasswordHandler from './api/reset-password.js';
 import supabaseProxyHandler from './api/supabase-proxy.js';
+import weeklyReportHandler from './api/weekly-report.js';
 import { getSupabaseServerConfig } from './api/_configHelper.js';
 
 dotenv.config();
@@ -20,7 +21,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // Public config endpoint (never exposes secret keys, returns 500 if missing)
 app.get('/api/config', (req, res) => {
@@ -46,6 +47,10 @@ app.post('/api/reset-password', (req, res) => {
 
 app.all('/api/supabase-proxy', (req, res) => {
   return supabaseProxyHandler(req, res);
+});
+
+app.all('/api/weekly-report', (req, res) => {
+  return weeklyReportHandler(req, res);
 });
 
 async function startServer() {

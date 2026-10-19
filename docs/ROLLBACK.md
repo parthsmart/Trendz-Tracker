@@ -85,3 +85,11 @@ To reset your local testing environment:
 1. Open your browser Developer Tools Console (`F12`).
 2. Run `localStorage.clear()` to clear the demo students, categories, and test auth state.
 3. Refresh the page. The local state will return to its initial pristine demonstration state.
+
+---
+
+## 4. Phase 5b Weekly Report Cron & Email Rollback
+- **Vercel Cron Scope**: Vercel Cron (`{"path": "/api/weekly-report", "schedule": "30 15 * * 0"}` in `vercel.json`) runs **only on the production deployment** (Sunday 15:30 UTC, ~9:00 PM India time; Vercel may invoke it up to an hour after the scheduled minute). Preview deployments never trigger cron jobs automatically.
+- **Disabling Scheduled Weekly Emails**:
+  1. Remove or rotate `CRON_SECRET` or `RESEND_API_KEY` in **Vercel Dashboard $\rightarrow$ Settings $\rightarrow$ Environment Variables**, or remove the `"crons"` array from `vercel.json` and redeploy.
+  2. In Supabase SQL Editor, Phase 5b objects (`public.report_log`, `public.weekly_report_data()`, `public.student_month_report(uuid, date)`, `public.admin_milestones(integer)`) can be dropped if rolling back Phase 5b completely.

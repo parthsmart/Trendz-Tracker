@@ -5,7 +5,11 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-import { getSupabaseAdminConfig } from './_configHelper.js';
+import {
+  getSupabaseAdminConfig,
+  getSupabaseServerConfig,
+  hasSupabaseAdminConfig,
+} from './_configHelper.js';
 
 export function getAdminClient() {
   const { url, serviceRoleKey } = getSupabaseAdminConfig();
@@ -19,10 +23,30 @@ export function getAdminClient() {
 }
 
 /**
+ * Creates a server-side Supabase client authenticated with the caller's Bearer JWT
+ * using the public URL and Anon Key. Used when verifying admin sessions or executing
+ * admin-authorized queries when SUPABASE_SERVICE_ROLE_KEY is not configured.
+ * @param {string} token
+ */
+export function getCallerClient(token) {
+  const { url, anonKey } = getSupabaseServerConfig();
+
+  return createClient(url, anonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+    global: {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    },
+  });
+}
+
+/**
  * Extracts and verifies the Bearer JWT token from the Request header,
  * checking that the user exists and has role === 'admin' in public.profiles.
  * @param {Request | Object} req
- * @returns {Promise<Object>} The authenticated admin profile
+ * @returns {Promise<Object>} The authenticated admin profile (including accessToken)
  */
 export async function verifyAdminCaller(req) {
   // Support both Node/Express (req.headers.authorization) and Fetch Request (req.headers.get)
@@ -40,7 +64,7 @@ export async function verifyAdminCaller(req) {
   }
 
   const token = authHeader.replace('Bearer ', '').trim();
-  const supabase = getAdminClient();
+  const supabase = hasSupabaseAdminConfig() ? getAdminClient() : getCallerClient(token);
 
   // 1. Verify token with Supabase Auth
   const { data: { user }, error: userError } = await supabase.auth.getUser(token);
@@ -63,5 +87,8 @@ export async function verifyAdminCaller(req) {
     throw new Error('Forbidden: Admin access required.');
   }
 
-  return profile;
+  return {
+    ...profile,
+    accessToken: token,
+  };
 }

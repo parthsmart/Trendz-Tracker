@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Monthly Report - Trendz Tracker</title>
+    <meta name="description" content="Monthly student practice, accuracy, speed, attendance, and weekly test report for Trendz Abacus." />
+    
+    <!-- Design tokens & unified styles -->
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- Top Bar Contract: 3-Zone Navigation (switches between Student & Admin nav based on logged-in role) -->
+      <header class="app-header no-print">
+        <div class="container header-inner">
+          <!-- Zone 1: Wordmark & Brand -->
+          <a href="/pages/student.html" class="brand-zone" id="header-brand-link">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <!-- Mobile Menu Toggle (shown for Admin nav on mobile) -->
+          <button type="button" class="mobile-menu-btn" id="btn-mobile-menu" aria-label="Toggle Navigation" aria-expanded="false" style="display: none;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+
+          <!-- Zone 2A: Student Navigation Links (default until role check) -->
+          <nav class="nav-zone" id="student-nav-zone" aria-label="Student Navigation">
+            <a href="/pages/student.html" class="nav-link">Home</a>
+            <a href="/pages/round-scores.html" class="nav-link">Round Scores</a>
+            <a href="/pages/basics.html" class="nav-link">Basics</a>
+            <a href="/pages/leaderboard.html" class="nav-link">Leaderboard</a>
+            <a href="/pages/monthly-report.html" class="nav-link active" aria-current="page">Monthly Report</a>
+          </nav>
+
+          <!-- Zone 2B: Admin Navigation Links (shown when logged-in user is admin) -->
+          <nav class="nav-zone" id="admin-nav-zone" aria-label="Admin Navigation" style="display: none;">
+            <a href="/pages/admin.html" class="nav-link">Overview</a>
+            <a href="/pages/review.html" class="nav-link">Review</a>
+            <a href="/pages/students.html" class="nav-link">Students</a>
+            <a href="/pages/attendance.html" class="nav-link">Attendance</a>
+            <a href="/pages/weekly-tests.html" class="nav-link">Weekly Tests</a>
+            <a href="/pages/leaderboard.html" class="nav-link">Leaderboard</a>
+            <a href="/pages/monthly-report.html" class="nav-link active" aria-current="page">Monthly Report</a>
+            
+            <!-- Setup Dropdown -->
+            <div class="nav-dropdown" id="nav-setup-dropdown">
+              <button type="button" class="nav-link nav-dropdown-toggle" id="btn-setup-dropdown" aria-expanded="false" aria-haspopup="true">
+                Setup <span style="font-size: 10px; margin-left: 2px;">▾</span>
+              </button>
+              <div class="nav-dropdown-menu" id="setup-dropdown-menu" role="menu">
+                <a href="/pages/todos.html" class="dropdown-item" role="menuitem">Daily To-Do</a>
+                <a href="/pages/resources.html" class="dropdown-item" role="menuitem">Resources</a>
+                <a href="/pages/categories.html" class="dropdown-item" role="menuitem">Categories</a>
+                <a href="/pages/rounds.html" class="dropdown-item" role="menuitem">Rounds</a>
+                <a href="/pages/targets.html" class="dropdown-item" role="menuitem">Targets</a>
+                <a href="/pages/competition.html" class="dropdown-item" role="menuitem">Competition</a>
+                <a href="/pages/import.html" class="dropdown-item" role="menuitem">Import</a>
+              </div>
+            </div>
+          </nav>
+
+          <!-- Zone 3: User Details & Logout Action -->
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">User</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-code" class="num" style="color: var(--text-muted);">ID</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Page Content -->
+      <main class="main-content">
+        <div class="container">
+          <!-- Demo Mode Banner Placeholder -->
+          <div id="config-banner-placeholder" class="no-print"></div>
+
+          <!-- Page Header & Controls -->
+          <div class="section-header-row no-print" style="margin-bottom: var(--space-5); display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: var(--space-4);">
+            <div>
+              <h1 style="display: flex; align-items: center; gap: var(--space-2);">
+                <span aria-hidden="true">📊</span>
+                <span id="report-month-heading">Monthly Student Report</span>
+              </h1>
+              <p style="font-size: var(--text-sm); color: var(--text-muted);">
+                Monthly practice summary, accuracy comparison, attendance, and weekly test scores.
+              </p>
+            </div>
+
+            <div style="display: flex; align-items: flex-end; gap: var(--space-3); flex-wrap: wrap;">
+              <!-- Admin Student Selector (shown only for admins) -->
+              <div id="admin-student-selector-wrapper" style="display: none; align-items: flex-end; gap: 8px; flex-wrap: wrap;">
+                <div>
+                  <label for="select-report-student" class="form-label" style="margin-bottom: 4px; font-size: var(--text-xs);">Student</label>
+                  <select id="select-report-student" class="form-select" style="min-width: 230px;">
+                    <option value="">Loading students...</option>
+                  </select>
+                </div>
+                <a href="/pages/student-detail.html" id="btn-view-student-detail" class="btn btn-outline btn-sm" style="display: none;">
+                  👤 Student Detail
+                </a>
+              </div>
+
+              <!-- Month Selector -->
+              <div>
+                <label for="select-report-month" class="form-label" style="margin-bottom: 4px; font-size: var(--text-xs);">Month</label>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <button type="button" id="btn-prev-month" class="btn btn-outline btn-sm" title="Previous month" aria-label="Previous month">&larr; Prev</button>
+                  <input type="month" id="select-report-month" class="form-input" style="padding: 6px 10px; width: 155px;" />
+                  <button type="button" id="btn-this-month" class="btn btn-outline btn-sm" title="Current month">This Month</button>
+                </div>
+              </div>
+
+              <!-- Action Buttons -->
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <button type="button" id="btn-copy-report" class="btn btn-outline btn-sm">📋 Copy Summary</button>
+                <a href="#" id="btn-whatsapp-report" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm">💬 Share on WhatsApp</a>
+                <button type="button" id="btn-browser-print" class="btn btn-outline btn-sm">🖨️ Print</button>
+                <button type="button" id="btn-print-report" class="btn btn-primary btn-sm">📥 Save PDF</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Error Alert -->
+          <div id="report-error-banner" class="banner banner-error" style="display: none; margin-bottom: var(--space-5); justify-content: space-between; align-items: center;" role="alert">
+            <span id="report-error-message">Could not load monthly report.</span>
+            <button type="button" id="btn-retry-report" class="btn btn-outline btn-sm">Retry</button>
+          </div>
+
+          <!-- Loading Skeleton -->
+          <div id="report-loading-skeleton" class="card" style="margin-bottom: var(--space-5);">
+            <div class="card-body">
+              <div class="skeleton" style="width: 45%; height: 24px; margin-bottom: 16px; border-radius: 6px;"></div>
+              <div class="summary-strip" style="margin-bottom: 16px;">
+                <div class="skeleton" style="height: 88px; border-radius: 8px;"></div>
+                <div class="skeleton" style="height: 88px; border-radius: 8px;"></div>
+                <div class="skeleton" style="height: 88px; border-radius: 8px;"></div>
+                <div class="skeleton" style="height: 88px; border-radius: 8px;"></div>
+              </div>
+              <div class="skeleton" style="width: 100%; height: 140px; border-radius: 8px;"></div>
+            </div>
+          </div>
+
+          <!-- Printable Report Container -->
+          <div id="report-main-content" class="report-sheet" style="display: none;">
+            <!-- Report Banner / Student Identity Header -->
+            <div class="card report-header-card" style="margin-bottom: var(--space-5);">
+              <div class="card-body" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-4);">
+                <div>
+                  <div style="font-size: var(--text-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700;">Trendz Abacus Progress Report</div>
+                  <h2 id="report-student-name" style="font-size: 1.5rem; font-weight: 700; margin: 4px 0; color: var(--text-main);">--</h2>
+                  <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <span class="badge num" id="report-student-code">--</span>
+                    <span class="badge badge-level" id="report-student-level">Level --</span>
+                  </div>
+                </div>
+                <div style="text-align: right;">
+                  <div id="report-date-range" class="num" style="font-size: 1rem; font-weight: 700; color: var(--color-primary);">--</div>
+                  <div id="report-days-elapsed" class="num" style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">--</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Primary KPI Cards (with vs Previous Month comparison) -->
+            <section class="summary-strip" style="margin-bottom: var(--space-5);" aria-label="Monthly Summary Indicators">
+              <div class="card stat-card">
+                <div class="stat-label">Practice Days</div>
+                <div class="stat-value num" id="metric-practice-days">0 days</div>
+                <div class="stat-sub" id="metric-practice-days-sub">0 days elapsed · Last month: 0 days</div>
+              </div>
+
+              <div class="card stat-card">
+                <div class="stat-label">Practice Entries</div>
+                <div class="stat-value num" id="metric-entries">0</div>
+                <div class="stat-sub" id="metric-entries-sub">0 / 0 correct · 0 rounds · Last month: 0</div>
+              </div>
+
+              <div class="card stat-card">
+                <div class="stat-label">Overall Accuracy</div>
+                <div class="stat-value num" id="metric-accuracy">--</div>
+                <div class="stat-sub" id="metric-accuracy-sub">Last month: --</div>
+              </div>
+
+              <div class="card stat-card">
+                <div class="stat-label">Speed (QPM)</div>
+                <div class="stat-value num" id="metric-qpm">--</div>
+                <div class="stat-sub" id="metric-qpm-sub">Last month: --</div>
+              </div>
+            </section>
+
+            <!-- Secondary Summary Strip: Streak & Points, Attendance, Basics Targets -->
+            <section class="summary-strip" style="margin-bottom: var(--space-5); grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));" aria-label="Points, Streak, Attendance, and Targets">
+              <div class="card stat-card">
+                <div class="stat-label">Monthly Points &amp; Streak</div>
+                <div class="stat-value num" style="font-size: 1.35rem;" id="metric-points">0 pts</div>
+                <div class="stat-sub" id="metric-streak">🔥 0d current · Best: 0d</div>
+              </div>
+
+              <div class="card stat-card">
+                <div class="stat-label">Session Attendance</div>
+                <div class="stat-value num" style="font-size: 1.35rem;" id="metric-attendance-pct">--</div>
+                <div class="stat-sub" id="metric-attendance-counts">0 present · 0 absent · 0 excused</div>
+              </div>
+
+              <div class="card stat-card">
+                <div class="stat-label">Basics Targets</div>
+                <div class="stat-value num" style="font-size: 1.35rem;" id="metric-targets-main">0 of 0 met target</div>
+                <div class="stat-sub" id="metric-targets-sub">Basics speed &amp; accuracy target benchmark</div>
+              </div>
+            </section>
+
+            <!-- Two-Column Breakdown: Weekly Progression & Category Performance -->
+            <div class="dashboard-top-grid" style="margin-bottom: var(--space-5);">
+              <!-- Week-by-Week Breakdown -->
+              <section class="card" aria-labelledby="rpt-weeks-heading">
+                <div class="card-header">
+                  <h2 id="rpt-weeks-heading" class="card-title">Week-by-Week Practice</h2>
+                  <p style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">Entries and accuracy for each week in this month</p>
+                </div>
+                <div class="table-scroll">
+                  <table class="data-table" aria-label="Week by Week Breakdown">
+                    <thead>
+                      <tr>
+                        <th>Week Starting</th>
+                        <th style="text-align: right;">Entries</th>
+                        <th style="text-align: right;">Accuracy</th>
+                      </tr>
+                    </thead>
+                    <tbody id="report-weeks-tbody">
+                      <tr><td colspan="3" style="text-align: center; color: var(--text-muted);">No weekly data for this month.</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              <!-- Categories Breakdown (Sorted by accuracy ascending, min 3 entries) -->
+              <section class="card" aria-labelledby="rpt-categories-heading">
+                <div class="card-header">
+                  <h2 id="rpt-categories-heading" class="card-title">Categories Practised (3+ Entries)</h2>
+                  <p id="report-focus-categories" style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">Sorted lowest accuracy first to highlight focus areas</p>
+                </div>
+                <div class="table-scroll">
+                  <table class="data-table" aria-label="Category Accuracy Breakdown">
+                    <thead>
+                      <tr>
+                        <th>Category</th>
+                        <th>Section</th>
+                        <th style="text-align: right;">Entries</th>
+                        <th style="text-align: right;">Wrong</th>
+                        <th style="text-align: right;">Accuracy</th>
+                      </tr>
+                    </thead>
+                    <tbody id="report-categories-tbody">
+                      <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No categories with at least 3 entries this month.</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+
+            <!-- Weekly Tests Section -->
+            <section class="card" style="margin-bottom: var(--space-5);" aria-labelledby="rpt-weekly-tests-heading">
+              <div class="card-header">
+                <h2 id="rpt-weekly-tests-heading" class="card-title">Weekly Tests This Month</h2>
+                <p style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">Official weekly test scores recorded during the month</p>
+              </div>
+              <div class="table-scroll">
+                <table class="data-table" aria-label="Monthly Weekly Test Scores">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Test Title</th>
+                      <th>Category</th>
+                      <th style="text-align: right;">Score (Correct / Total)</th>
+                      <th style="text-align: right;">Time</th>
+                    </tr>
+                  </thead>
+                  <tbody id="report-weekly-tests-tbody">
+                    <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No weekly test scores recorded in this month.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <div id="toast-container" class="toast-container no-print" aria-live="polite"></div>
+    <script type="module" src="/js/monthlyReport.js"></script>
+  </body>
+</html>

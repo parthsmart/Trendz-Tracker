@@ -87,7 +87,12 @@ One-page overview of the modules, data flows, and trust boundaries governing **T
 | **CSV Sheet Parser**| `/js/importParser.js`| Pure RFC-4180 CSV & multi-block competition sheet parser with zero DOM/`import.meta.env` dependencies (`node --test` compatible). |
 | **Admin Categories**| `/js/categories.js` | Displays 24 championship categories grouped strictly by section; handles reordering and deactivation. |
 | **Dashboard Modules**| `/js/dashboardData.js`, `/js/dashboardComponents.js` | Shared data loaders (`results_with_target`, `streak_for`, `todo_for`, `attendance_summary`, `weekly_tests`) and cards for `/pages/student.html` and `/pages/student-detail.html`. |
+| **Leaderboards** | `/pages/leaderboard.html`, `/js/leaderboard.js`, `/js/leaderboardData.js` | Student and Admin leaderboards (`points`, `streak`, `practice_days`, `improved`) powered strictly by SQL RPCs `leaderboard()` and `competition_rules()`. |
+| **Leaderboard Card** | `/js/leaderboardCard.js` | Reusable student dashboard summary card showing weekly rank, points, and top 3 names via `leaderboard(limit=3)`. |
+| **Competition Settings** | `/pages/competition.html`, `/js/competition.js` | Admin management of `competition_settings` (`weekly_test_multiplier`, `attendance_present_points`, `improved_min_entries`, `leaderboard_names`) with live name preview. |
+| **Monthly Student Report** | `/pages/monthly-report.html`, `/pages/report.html`, `/js/monthlyReport.js`, `/js/monthlyReportData.js` | Printable monthly student progress report for students (own report) and admins (any student + month picker) via `student_month_report(p_student, p_month)`. |
+| **Weekly Report Email Builder** | `/api/_reportEmail.js` | Pure function `buildWeeklyEmail(data)` returning `{ subject, html, text }` with inline CSS, HTML escaping, and zero DOM/network dependencies. |
+| **Weekly Report API & Cron** | `/api/weekly-report.js`, `vercel.json` | Scheduled Sunday cron (`30 15 * * 0` UTC, ~9:00 PM IST — **runs only on the Vercel production deployment**) and admin preview/manual send endpoint via Resend REST API (`POST https://api.resend.com/emails`) with `report_log` tracking. |
 | **Shared Modal & Nav**| `/js/modal.js` | Universal accessible modal manager (`openModal`, `closeModal`, Escape key, focus management) and Admin `Setup ▾` dropdown / mobile hamburger (`setupAdminNav`). |
-| **Server Admin API**| `/api/*.js` | Serverless Node.js endpoints executing user creation and password resets with service key. |
+| **Server Admin API**| `/api/*.js` | Serverless Node.js endpoints executing user creation, password resets, and weekly report delivery with service role key. |
 | **Database DDL** | `/supabase/schema.sql`| PostgreSQL tables, views (`results_with_target`), RPCs, indexes, RLS policies, and triggers. |
-

@@ -50,12 +50,30 @@ export function getSupabaseServerConfig() {
 }
 
 /**
+ * Checks whether a valid non-placeholder Service Role Key is configured on the server.
+ */
+export function hasSupabaseAdminConfig(env = process.env) {
+  const rawUrl = pickValidEnv(env.VITE_SUPABASE_URL, env.SUPABASE_URL);
+  const rawAnonKey = pickValidEnv(env.VITE_SUPABASE_ANON_KEY, env.SUPABASE_ANON_KEY);
+  const rawServiceKey = pickValidEnv(
+    env.SUPABASE_SERVICE_ROLE_KEY,
+    env.SUPABASE_SERVICE_KEY,
+    env.VITE_SUPABASE_SERVICE_ROLE_KEY
+  );
+  return Boolean(rawUrl && rawAnonKey && rawServiceKey);
+}
+
+/**
  * Reads and validates Supabase Service Role Key for server-only administrative tasks.
  * Throws 500 error if unconfigured or placeholder.
  */
-export function getSupabaseAdminConfig() {
+export function getSupabaseAdminConfig(env = process.env) {
   const { url, anonKey } = getSupabaseServerConfig();
-  const rawServiceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+  const rawServiceKey = pickValidEnv(
+    env.SUPABASE_SERVICE_ROLE_KEY,
+    env.SUPABASE_SERVICE_KEY,
+    env.VITE_SUPABASE_SERVICE_ROLE_KEY
+  );
 
   if (isPlaceholder(rawServiceKey)) {
     throw new Error('Supabase configuration error: SUPABASE_SERVICE_ROLE_KEY must be properly configured in environment variables.');
@@ -67,3 +85,45 @@ export function getSupabaseAdminConfig() {
     serviceRoleKey: rawServiceKey,
   };
 }
+
+const DEFAULT_REPORT_FROM_EMAIL = 'Trendz Tracker <onboarding@resend.dev>';
+
+/**
+ * Reads and validates email configuration for weekly report delivery via Resend.
+ * Never falls back for RESEND_API_KEY or REPORT_TO_EMAIL.
+ * REPORT_FROM_EMAIL is optional and defaults to "Trendz Tracker <onboarding@resend.dev>".
+ */
+export function getEmailReportConfig(env = process.env) {
+  const rawApiKey = (env.RESEND_API_KEY || '').trim();
+  const rawToEmail = (env.REPORT_TO_EMAIL || '').trim();
+  const rawFromEmail = (env.REPORT_FROM_EMAIL || '').trim();
+
+  if (isPlaceholder(rawApiKey)) {
+    throw new Error('Email configuration error: RESEND_API_KEY must be configured in environment variables.');
+  }
+
+  if (isPlaceholder(rawToEmail) || !rawToEmail.includes('@')) {
+    throw new Error('Email configuration error: REPORT_TO_EMAIL must be a valid email address in environment variables.');
+  }
+
+  const fromEmail = !isPlaceholder(rawFromEmail) ? rawFromEmail : DEFAULT_REPORT_FROM_EMAIL;
+
+  return {
+    resendApiKey: rawApiKey,
+    toEmail: rawToEmail,
+    fromEmail,
+  };
+}
+
+/**
+ * Reads and validates CRON_SECRET for scheduled GET /api/weekly-report runs.
+ * Never falls back to any hardcoded value.
+ */
+export function getCronSecret(env = process.env) {
+  const rawSecret = (env.CRON_SECRET || '').trim();
+  if (isPlaceholder(rawSecret)) {
+    throw new Error('Cron configuration error: CRON_SECRET must be configured in environment variables.');
+  }
+  return rawSecret;
+}
+

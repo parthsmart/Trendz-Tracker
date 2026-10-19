@@ -457,36 +457,56 @@ async function ensureStudentExistingDataLoaded(studentId, forceReload = false) {
 async function loadImportBatches() {
   const container = document.getElementById('import-history-container');
   try {
+    let rawBatches = [];
     if (isSupabaseConfigured()) {
       const supabase = await getSupabase();
       const { data, error } = await supabase
         .from('import_batches')
         .select('*')
-        .order('imported_at', { ascending: false })
+        .order('created_at', { ascending: false })
         .limit(50);
 
       if (error) throw new Error(error.message);
-      const studentById = new Map(allStudents.map((s) => [s.id, s]));
-      importBatches = (data || []).map((b) => {
-        const stu = studentById.get(b.student_id);
-        return {
-          ...b,
-          fileName: b.file_name || b.fileName || 'scoresheet.csv',
-          nameInFile: b.name_in_file ?? b.nameInFile ?? null,
-          markVerified: Boolean(b.mark_verified ?? b.markVerified),
-          rowsFound: Number(b.rows_found ?? b.rowsFound ?? 0),
-          rowsImported:
-            b.rows_imported !== undefined ? b.rows_imported : (b.rowsImported ?? null),
-          importedAt: b.imported_at || b.importedAt || null,
-          undoneAt: b.undone_at || b.undoneAt || null,
-          undoReason: b.undo_reason || b.undoReason || null,
-          studentName: stu ? stu.full_name : b.studentName || 'Student',
-          studentCode: stu ? stu.student_code : b.studentCode || '—',
-        };
-      });
+      rawBatches = data || [];
     } else {
-      importBatches = DemoDB.getImportBatches ? DemoDB.getImportBatches() : [];
+      rawBatches = DemoDB.getImportBatches ? DemoDB.getImportBatches() : [];
     }
+
+    const studentById = new Map(allStudents.map((s) => [s.id, s]));
+    importBatches = rawBatches.map((b) => {
+      const stu = studentById.get(b.student_id);
+      const isOpen =
+        b.status === 'open' ||
+        b.status === 'started' ||
+        (!b.finished_at &&
+          b.status !== 'done' &&
+          b.status !== 'completed' &&
+          b.status !== 'undone' &&
+          !b.undone_at &&
+          b.rowsImported === undefined);
+      const rawRowsImported =
+        b.rows_imported !== undefined
+          ? b.rows_imported
+          : b.rowsImported !== undefined
+            ? b.rowsImported
+            : b.cells_inserted !== undefined
+              ? b.cells_inserted
+              : null;
+      return {
+        ...b,
+        fileName: b.file_name || b.fileName || 'scoresheet.csv',
+        nameInFile: b.name_in_file ?? b.nameInFile ?? null,
+        markVerified: Boolean(b.mark_verified ?? b.markVerified),
+        rowsFound: Number(b.rows_found ?? b.rowsFound ?? 0),
+        rowsImported: isOpen ? null : rawRowsImported,
+        importedAt:
+          b.created_at || b.finished_at || b.imported_at || b.importedAt || null,
+        undoneAt: b.undone_at || b.undoneAt || null,
+        undoReason: b.undo_reason || b.undoReason || null,
+        studentName: stu ? stu.full_name : b.studentName || 'Student',
+        studentCode: stu ? stu.student_code : b.studentCode || '—',
+      };
+    });
 
     renderImportHistoryTable();
   } catch (err) {
@@ -4764,9 +4784,11 @@ function renderImportHistoryTable() {
       batch.summary && typeof batch.summary === 'object' ? batch.summary : {};
     const recordedEdits = Array.isArray(summaryObj.edits) ? summaryObj.edits : [];
     const totalEditsCount =
-      typeof summaryObj.edits_count === 'number'
-        ? summaryObj.edits_count
-        : recordedEdits.length;
+      typeof summaryObj.edits_total_count === 'number'
+        ? summaryObj.edits_total_count
+        : typeof summaryObj.edits_count === 'number'
+          ? summaryObj.edits_count
+          : recordedEdits.length;
 
     if (totalEditsCount > 0) {
       const editsDetails = document.createElement('details');

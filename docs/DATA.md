@@ -13,6 +13,7 @@ This catalog outlines every database table in the Trendz Tracker PostgreSQL sche
   - `role`: `TEXT NOT NULL CHECK (role IN ('student', 'admin')) DEFAULT 'student'`
   - `level`: `TEXT NULL` (e.g. `Level 1`, `Level 2`, `Level 3`, `Master`)
   - `active`: `BOOLEAN NOT NULL DEFAULT true`
+  - `leaderboard_visible`: `BOOLEAN NOT NULL DEFAULT true` (admin-writable toggle controlling whether the student appears on any leaderboard)
   - `created_at`: `TIMESTAMPTZ NOT NULL DEFAULT now()`
 - **Who Reads**:
   - **Student**: Only their own row (`id = auth.uid()`).
@@ -264,4 +265,35 @@ This catalog outlines every database table in the Trendz Tracker PostgreSQL sche
 - Authoritative calculation of attendance metrics for a student between `p_from` and `p_to`.
 - Formula: `attendance_pct = (present_count::numeric / (present_count + absent_count)) * 100.0`.
 - **CRITICAL**: Excused sessions are strictly ignored/excluded from the denominator. Never calculate attendance percentage in client JavaScript.
+
+---
+
+### 12. Table: `competition_settings` & Leaderboard RPCs (Phase 5a)
+
+#### Table: `public.competition_settings`
+- **Purpose**: Stores institute-wide competition rules and leaderboard display settings.
+- **Columns**:
+  - `key`: `TEXT PRIMARY KEY`
+  - `value`: `TEXT NOT NULL` (validated by database constraints/triggers)
+- **Supported Keys**:
+  - `weekly_test_multiplier`: Multiplier applied to `GREATEST(correct - wrong, 0)` for each weekly test category on the Points board.
+  - `attendance_present_points`: Points added for each session where the student is marked `'present'` (excused sessions give 0 and cost 0).
+  - `improved_min_entries`: Minimum number of practice entries required in both last week and this week (IST) to qualify for the Most Improved board.
+  - `leaderboard_names`: `'first_name_initial'` (e.g. `"Aarav S."`) or `'student_code'` (e.g. `"STU101"`).
+- **Who Reads**: Admins read/edit directly via `competition_settings`; students and admins read parsed values via `public.competition_rules()`.
+- **Who Writes**: Administrators only (`public.is_admin() = true`), saving each setting via `UPDATE public.competition_settings SET value = ... WHERE key = ...`.
+
+#### RPC: `public.competition_rules() -> TABLE(weekly_test_multiplier INT, attendance_present_points INT, improved_min_entries INT, leaderboard_names TEXT)`
+- Callable by both authenticated students and administrators.
+- Returns the active competition rule parameters so the UI can build accurate `"How it works"` explanations without hardcoding multipliers or granting students direct read access to admin configuration tables.
+
+#### RPC: `public.leaderboard(p_board TEXT, p_period TEXT, p_level TEXT, p_limit INT) -> TABLE(rank INT, student_id UUID, display_name TEXT, value NUMERIC, is_me BOOLEAN)`
+- **Boards (`p_board`)**: `'points'`, `'streak'`, `'practice_days'`, `'improved'`.
+- **Periods (`p_period`)**: `'week'` (Monday–Sunday in Indian time `Asia/Kolkata`), `'month'`, `'all'` (period is ignored for `'streak'` and `'improved'`).
+- **Role Scoping & Privacy**:
+  - **For Students**: Always filters to the caller's own `level` only, returns the top `p_limit` (up to 10; 3 on the dashboard card) plus the student's own row when ranked outside the top `p_limit`, sets `student_id = NULL` on all rows, and sets `is_me = true` on the caller's row.
+  - **For Admins**: Supports `p_level = NULL` or `'all'` (all levels) or a specific level, returns up to `200` rows, populates `student_id` for deep-linking to `/pages/student-detail.html?id=<student_id>`, and sets `is_me = false`.
+  - **Exclusions**: Students with `profiles.leaderboard_visible = false`, inactive students, and rows with zero/non-positive values are never returned.
+  - **Display Names**: Already formatted by SQL as first name + initial or `student_code`; full names and raw scores are never exposed by this function.
+
 

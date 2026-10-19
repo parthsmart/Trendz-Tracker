@@ -94,7 +94,15 @@ export default async function handler(req, res) {
 
   try {
     // 6. Forward only permitted headers
-    const allowedHeaderNames = ['apikey', 'authorization', 'content-type', 'accept', 'prefer', 'x-client-info'];
+    const allowedHeaderNames = [
+      'apikey',
+      'authorization',
+      'content-type',
+      'accept',
+      'prefer',
+      'x-client-info',
+      'x-supabase-api-version',
+    ];
     const forwardHeaders = {};
 
     if (headers && typeof headers === 'object') {

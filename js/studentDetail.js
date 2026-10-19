@@ -153,6 +153,11 @@ function renderStudentDetails(profile) {
   if (reviewBtn) {
     reviewBtn.href = `/pages/review.html?studentId=${encodeURIComponent(profile.id)}`;
   }
+
+  const reportBtn = document.getElementById('btn-monthly-report');
+  if (reportBtn) {
+    reportBtn.href = `/pages/monthly-report.html?studentId=${encodeURIComponent(profile.id)}`;
+  }
 }
 
 function renderHeaderUser(profile) {

@@ -1,5 +1,11 @@
 {
   "buildCommand": "npm run build",
   "installCommand": "npm ci || npm install",
-  "outputDirectory": "dist"
+  "outputDirectory": "dist",
+  "crons": [
+    {
+      "path": "/api/weekly-report",
+      "schedule": "30 15 * * 0"
+    }
+  ]
 }

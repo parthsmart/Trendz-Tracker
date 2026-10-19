@@ -4404,6 +4404,7 @@ export function buildImportExecutionPlan(arg1 = {}, arg2 = {}, arg3 = {}) {
       count: a.count,
     })),
     edits: boundedEdits,
+    edits_count: fullEditsList.length,
     edits_total_count: fullEditsList.length,
     edits_truncated: editsTruncated,
   };

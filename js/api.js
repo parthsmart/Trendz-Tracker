@@ -129,3 +129,35 @@ export async function toggleStudentActive(studentId, currentActive) {
 
   return data;
 }
+
+/**
+ * Toggles whether a student appears on any leaderboard (profiles.leaderboard_visible).
+ * @param {string} studentId
+ * @param {boolean} currentVisible
+ */
+export async function toggleStudentLeaderboardVisible(studentId, currentVisible) {
+  const nextVisible = !currentVisible;
+
+  if (!isSupabaseConfigured()) {
+    if (!isDemoAllowedHost()) {
+      throw new Error('Configuration error - contact the administrator.');
+    }
+    return DemoDB.toggleStudentLeaderboardVisible(studentId, nextVisible);
+  }
+
+  const supabase = await getSupabase();
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .update({ leaderboard_visible: nextVisible })
+    .eq('id', studentId)
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data;
+}
+

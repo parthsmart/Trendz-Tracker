@@ -8,6 +8,50 @@
 
 ## Current Status Overview
 
+### Session: 2026-10-19 (Phase 5b — Weekly Report Email, Monthly Student Report & Milestone Alerts)
+
+#### 5-Line Session Summary
+- Built `/api/weekly-report.js` and pure email builder `/api/_reportEmail.js` (`buildWeeklyEmail(data)`) sending multipart HTML + plain-text weekly reports via `fetch` to Resend (`POST https://api.resend.com/emails`) with constant-time `CRON_SECRET` auth on `GET`, `verifyAdminCaller` on `POST` (`{ preview: true }` / `{ send: true }`), and idempotent `report_log` tracking.
+- Added Vercel Cron configuration (`{"path": "/api/weekly-report", "schedule": "30 15 * * 0"}`, Sunday ~9:00 PM IST; **runs only on the Vercel production deployment**) to `vercel.json` while preserving `buildCommand`, `installCommand`, and `outputDirectory`, and added `RESEND_API_KEY`, `REPORT_TO_EMAIL`, `REPORT_FROM_EMAIL`, and `CRON_SECRET` to `.env.example` and `api/_configHelper.js`.
+- Built the Monthly Student Report page (`/pages/monthly-report.html` and `/pages/report.html`, `js/monthlyReport.js`, `js/monthlyReportData.js`) powered by `student_month_report(p_student, p_month)` for both students (own report only) and admins (student selector + month selector), with print-friendly `@media print` layout, Copy Summary, and manual WhatsApp share link.
+- Added the Streak Milestones alert card (`admin_milestones(7)` for 25/50/100/200-day streaks with student detail link, Copy Message, and manual WhatsApp link) and the Weekly Report Email panel (Preview modal, Send Report Now, and recent `report_log` history table) to `/pages/admin.html` (`js/adminOverview.js`).
+- Added static Phase 5b sample data in `js/demoDb.js`, added unit tests in `tests/reportEmail.test.js`, and updated `HANDOVER.md`, `ARCHITECTURE.md`, `DECISIONS.md` (ADR-029), and `ROLLBACK.md`.
+
+---
+
+### Session: 2026-10-19 (Phase 5a — Points, Student & Admin Leaderboards, Competition Settings & Visibility Controls)
+
+#### 5-Line Session Summary
+- Built `/pages/leaderboard.html` (`js/leaderboard.js`, `js/leaderboardData.js`) for both Students (own level only, top 10 + own row below top 10 when outside, `"You"` highlight) and Admins (level filter, up to 200 rows, student detail links, no `"You"` highlight) across 4 boards (`Points`, `Streak`, `Practice days`, `Most improved`) and 3 periods (`This week`, `This month`, `All time`).
+- Built the reusable Student Dashboard Leaderboard card module (`js/leaderboardCard.js`) on `/pages/student.html` reusing `leaderboard('points', 'week', null, 3)` to display the student's weekly rank/points (or `"Not on the board yet"`), top 3 names, and link to `/pages/leaderboard.html`.
+- Built the Admin Competition Settings page `/pages/competition.html` (`js/competition.html`) under the `Setup ▾` menu to edit `weekly_test_multiplier`, `attendance_present_points`, `improved_min_entries`, and `leaderboard_names` via `UPDATE competition_settings` with numeric validation, friendly DB error messages, and a live sample student name preview (`"Aarav S."` vs `"STU101"`).
+- Added the `"Show on leaderboards"` column with toggle and tooltip (`profiles.leaderboard_visible`) to `/pages/students.html` (`js/admin.js`, `js/api.js`) and wired `"Leaderboard"` and `"Competition"` across student/admin navigation bars and `vite.config.ts`.
+- Added fixed static sample data for `leaderboard()`, `competition_rules()`, and `competition_settings` in `js/demoDb.js` without re-implementing any scoring/ranking formulas in JavaScript, and updated `HANDOVER.md`, `DECISIONS.md` (ADR-028), `DATA.md`, `THREAT.md`, and `TESTING.md`.
+
+#### Done
+- **Data Access & RPC Module** (`js/leaderboardData.js`):
+  - Calls `supabase.rpc('leaderboard', { p_board, p_period, p_level, p_limit })` and `supabase.rpc('competition_rules')` exclusively — zero client-side calculation of points, ranks, streaks, or accuracy deltas.
+  - Formats board units (`points`, `days`, `days`, `+<x>% accuracy`), builds dynamic `"How it works"` explanations from `competition_rules()` (including `"Only your level is shown."` for students), and supplies encouraging empty-state copy per board/period.
+- **Student & Admin Leaderboard Page** (`/pages/leaderboard.html`, `js/leaderboard.js`):
+  - Protected by `requireAuth(['student', 'admin'])`.
+  - Automatically switches header navigation between student nav and admin nav based on `profile.role`.
+  - Tabs: `Points`, `Streak`, `Practice days`, `Most improved`. Period selector (`This week`, `This month`, `All time`) shown for `Points` and `Practice days` and hidden for `Streak` and `Most improved`.
+  - Student view: displays top 10 rows for the student's level, highlights `is_me` row with `"You"`, and renders the student's own row separated below the top 10 when `rank > 10`.
+  - Admin view: adds a level dropdown (`All levels` or distinct levels from `profiles`), renders up to 200 rows, links each `display_name` to `/pages/student-detail.html?id=<student_id>`, and suppresses the `"You"` highlight.
+- **Student Dashboard Leaderboard Card** (`js/leaderboardCard.js`, `/pages/student.html`, `js/student.js`):
+  - Modular card calling `fetchLeaderboard({ board: 'points', period: 'week', level: null, limit: 3 })`.
+  - Shows caller's weekly rank and points (or `"Not on the board yet"` when absent from returned rows), top 3 names with values, and `"Full leaderboard →"` link.
+- **Admin Competition Settings Page** (`/pages/competition.html`, `js/competition.js`):
+  - Protected by `requireAuth(['admin'])` and accessible under `Setup ▾ → Competition`.
+  - Edits `weekly_test_multiplier`, `attendance_present_points`, `improved_min_entries`, and `leaderboard_names` (`first_name_initial` or `student_code`) with individual **Save** buttons updating `public.competition_settings`.
+  - Includes a live sample student preview (`"Aarav Sharma"` / `"STU101"` → `"Aarav S."` vs `"STU101"`).
+- **Admin Students Visibility Toggle** (`/pages/students.html`, `js/admin.js`, `js/api.js`):
+  - Added `"Show on leaderboards"` column with tooltip explaining that hidden students do not appear on any board, and a toggle button updating `profiles.leaderboard_visible`.
+- **Demo Mode Static Fixtures** (`js/demoDb.js`):
+  - Added static pre-baked leaderboard rows per board/period, static `competition_rules()` / `competition_settings` storage, and `toggleStudentLeaderboardVisible` filtering without re-implementing SQL scoring rules.
+
+---
+
 ### Session: 2026-10-19 (Phase 4c-2c — Import Validation Limits Mirroring, Pre-Flight `validatePayload`, Better Error Diagnostics & Import UI Polish)
 
 #### 5-Line Session Summary

@@ -146,6 +146,17 @@ The serverless functions in `/api/create-student.js` and `/api/reset-password.js
       - **Strict `textContent` Rendering**: Every string originating from the CSV file (names, level labels, block hints, categories, dates, scores, times, notes, and stray values) is rendered exclusively via `document.createElement()` and `.textContent`, never `innerHTML`.
       - **Zero Database Writes in Phase 4c-1**: The preview step performs no `INSERT`, `UPDATE`, `DELETE`, or write RPC calls.
 
+16. **Leaderboard Score Inflation & Same-Level Peer Data Exposure (Phase 5a Disclosure)**:
+    - *Practice, Streak, and Most Improved Boards Use Student-Typed Scores*:
+      - **Risk**: The `practice_days`, `streak`, and `improved` boards aggregate daily practice entries (`public.results`) entered by students. Because students can type unverified scores for up to 7 days back, a student could inflate their practice day count, streak, or week-over-week accuracy gain prior to teacher review.
+      - **Mitigation**: Teachers can inspect, flag, or correct suspicious entries on `/pages/review.html` and can immediately hide any student from all leaderboards using the **"Show on leaderboards"** toggle (`profiles.leaderboard_visible = false`) on `/pages/students.html`.
+    - *Points Board Uses Admin-Entered Data Only*:
+      - **Control**: The `points` board is computed exclusively from teacher-entered `weekly_test_scores` and teacher-marked `attendance` (`status = 'present'`). Students have zero write access to either table, making the Points board immune to student-typed score inflation.
+    - *Same-Level Peer Visibility (Display Name + One Number)*:
+      - **Disclosure**: Calling `leaderboard()` exposes the formatted `display_name` (`first_name_initial` e.g. `"Aarav S."` or `student_code` e.g. `"STU101"`) and **one aggregate number** (`value` and `rank`) for top-10 peers in the **same level** to authenticated students in that level.
+      - **Protections**: Full names (`full_name`), internal `student_id` UUIDs (`NULL` for students), raw test/practice scores, students from other levels, hidden students (`leaderboard_visible = false`), and ranks below #10 (except the caller's own row) are never exposed to students.
+
+
 
 
 

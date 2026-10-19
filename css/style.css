@@ -2450,5 +2450,39 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   user-select: none;
 }
 
+.hidden {
+  display: none !important;
+}
 
+@media print {
+  .no-print,
+  .app-header,
+  .toast-container,
+  .modal-backdrop {
+    display: none !important;
+  }
 
+  body,
+  .app-shell,
+  .main-content {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .container {
+    max-width: 100% !important;
+    padding: 0 !important;
+  }
+
+  .card {
+    box-shadow: none !important;
+    break-inside: avoid;
+    border: 1px solid #cbd5e1 !important;
+  }
+
+  .table-scroll {
+    overflow: visible !important;
+  }
+}

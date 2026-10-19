@@ -36,6 +36,8 @@
             <a href="/pages/students.html" class="nav-link">Students</a>
             <a href="/pages/attendance.html" class="nav-link">Attendance</a>
             <a href="/pages/weekly-tests.html" class="nav-link">Weekly Tests</a>
+            <a href="/pages/leaderboard.html" class="nav-link">Leaderboard</a>
+            <a href="/pages/monthly-report.html" class="nav-link">Monthly Report</a>
             
             <!-- Setup Dropdown -->
             <div class="nav-dropdown">
@@ -48,6 +50,7 @@
                 <a href="/pages/categories.html" class="dropdown-item" role="menuitem">Categories</a>
                 <a href="/pages/rounds.html" class="dropdown-item" role="menuitem">Rounds</a>
                 <a href="/pages/targets.html" class="dropdown-item" role="menuitem">Targets</a>
+                <a href="/pages/competition.html" class="dropdown-item" role="menuitem">Competition</a>
                 <a href="/pages/import.html" class="dropdown-item" role="menuitem">Import</a>
               </div>
             </div>
@@ -78,7 +81,7 @@
             <div>
               <h1>Institute Practice Overview</h1>
               <p style="font-size: var(--text-sm);">
-                Daily practice completion, active streaks, and 7-day performance tracking across all students.
+                Daily practice completion, active streaks, milestone alerts, weekly email reports, and 7-day performance tracking.
               </p>
             </div>
             <div class="meta-row" style="font-size: var(--text-xs);">
@@ -109,6 +112,27 @@
               <span class="stat-value" id="stat-longest-streak" style="font-size: var(--text-lg); display: flex; align-items: baseline; gap: 4px;">—</span>
             </div>
           </div>
+
+          <!-- Milestone Alerts Section (Phase 5b: admin_milestones(7)) -->
+          <section class="card" id="milestone-alerts-card" style="margin-bottom: var(--space-6);" aria-labelledby="milestone-alerts-heading">
+            <div class="card-header" style="padding: var(--space-4) var(--space-5);">
+              <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: var(--space-2);">
+                <div>
+                  <h2 id="milestone-alerts-heading" class="card-title" style="display: flex; align-items: center; gap: 6px; font-size: var(--text-base);">
+                    <span aria-hidden="true">🎉</span>
+                    <span>Streak Milestones Reached (Last 7 Days)</span>
+                  </h2>
+                  <p style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">
+                    Students who reached a 25, 50, 100, or 200-day practice streak milestone this week. Copy a message or open in WhatsApp to congratulate them.
+                  </p>
+                </div>
+                <span id="milestone-alerts-count" style="font-size: var(--text-xs); font-weight: 700; color: var(--color-primary);">Loading...</span>
+              </div>
+            </div>
+            <div class="card-body" id="milestone-alerts-list" style="padding: var(--space-4) var(--space-5);">
+              <div class="skeleton-row"></div>
+            </div>
+          </section>
 
           <!-- Needs Attention Section (Students with no entry in 3+ days) -->
           <div id="needs-attention-box" class="attention-card" style="display: none;">
@@ -186,17 +210,20 @@
                     <th style="cursor: pointer; width: 120px; text-align: right;" data-sort="accuracy_7d" title="Sort by 7-Day Accuracy">
                       7d Accuracy <span class="sort-icon" aria-hidden="true">↕</span>
                     </th>
+                    <th style="width: 110px; text-align: right;">
+                      Report
+                    </th>
                   </tr>
                 </thead>
                 <tbody id="overview-table-body">
                   <tr>
-                    <td colspan="8"><div class="skeleton-row"></div></td>
+                    <td colspan="9"><div class="skeleton-row"></div></td>
                   </tr>
                   <tr>
-                    <td colspan="8"><div class="skeleton-row"></div></td>
+                    <td colspan="9"><div class="skeleton-row"></div></td>
                   </tr>
                   <tr>
-                    <td colspan="8"><div class="skeleton-row"></div></td>
+                    <td colspan="9"><div class="skeleton-row"></div></td>
                   </tr>
                 </tbody>
               </table>
@@ -217,8 +244,98 @@
             </div>
           </div>
 
+          <!-- Weekly Report Email & Delivery Log Card (Phase 5b) -->
+          <section class="card" id="weekly-report-card" style="margin-bottom: var(--space-6);" aria-labelledby="weekly-report-heading">
+            <div class="card-header" style="padding: var(--space-4) var(--space-5);">
+              <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: var(--space-3);">
+                <div>
+                  <h2 id="weekly-report-heading" class="card-title" style="display: flex; align-items: center; gap: 6px; font-size: var(--text-base);">
+                    <span aria-hidden="true">📧</span>
+                    <span>Weekly Email Report</span>
+                  </h2>
+                  <p style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">
+                    Scheduled automatically on Sundays at 15:30 UTC (~9:00 PM IST on production). You can also preview or send a manual report anytime.
+                  </p>
+                </div>
+                <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
+                  <button type="button" id="btn-preview-weekly-report" class="btn btn-outline btn-sm">
+                    Preview Weekly Report
+                  </button>
+                  <button type="button" id="btn-send-weekly-report" class="btn btn-primary btn-sm">
+                    Send Report Now
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="card-body" style="padding: 0;">
+              <div class="table-wrapper">
+                <table class="table" aria-label="Weekly report delivery history">
+                  <thead>
+                    <tr>
+                      <th>Week Start</th>
+                      <th>Type</th>
+                      <th>Status</th>
+                      <th>Recipient</th>
+                      <th>Sent / Finished (IST)</th>
+                      <th>Details</th>
+                    </tr>
+                  </thead>
+                  <tbody id="report-log-table-body">
+                    <tr>
+                      <td colspan="6"><div class="skeleton-row"></div></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
         </div>
       </main>
+    </div>
+
+    <!-- Weekly Report Preview Modal (Shared js/modal.js contract) -->
+    <div id="weekly-report-preview-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="weekly-report-modal-title" hidden>
+      <div class="modal-dialog" style="max-width: 780px; width: 95%;">
+        <div class="modal-header">
+          <h2 id="weekly-report-modal-title" class="modal-title">Weekly Report Preview</h2>
+          <button type="button" class="modal-close" data-modal-close="weekly-report-preview-modal" aria-label="Close modal">&times;</button>
+        </div>
+        <div class="modal-body" style="display: flex; flex-direction: column; gap: var(--space-3);">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2); background: var(--bg-surface-subtle); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); border: 1px solid var(--border-hairline);">
+            <div style="font-size: var(--text-xs);">
+              <span style="color: var(--text-muted);">Subject:</span>
+              <strong id="preview-report-subject" style="color: var(--text-main);">Loading...</strong>
+            </div>
+            <div class="segmented-control" role="group" aria-label="Preview format">
+              <button type="button" class="segmented-btn active" id="btn-preview-mode-html">HTML</button>
+              <button type="button" class="segmented-btn" id="btn-preview-mode-text">Plain Text</button>
+            </div>
+          </div>
+
+          <div id="preview-html-wrapper" style="border: 1px solid var(--border-hairline); border-radius: var(--radius-sm); overflow: hidden; background: #fff;">
+            <iframe
+              id="preview-report-iframe"
+              title="Weekly Report HTML Preview"
+              sandbox=""
+              style="width: 100%; height: 420px; border: none; display: block;"
+            ></iframe>
+          </div>
+
+          <pre
+            id="preview-report-text"
+            style="display: none; margin: 0; max-height: 420px; overflow: auto; padding: var(--space-3); background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: var(--text-xs); white-space: pre-wrap;"
+          ></pre>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" data-modal-close="weekly-report-preview-modal">
+            Close
+          </button>
+          <button type="button" class="btn btn-primary" id="btn-modal-send-weekly-report">
+            Send Report Email
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Toast Notifications Container -->

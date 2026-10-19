@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Leaderboard - Trendz Tracker</title>
+    <meta name="description" content="Points, practice streak, practice days, and most improved leaderboards for Trendz Abacus students." />
+    
+    <!-- Design tokens & unified styles -->
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- Top Bar Contract: 3-Zone Navigation (switches between Student & Admin nav based on logged-in role) -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <!-- Zone 1: Wordmark & Brand -->
+          <a href="/pages/student.html" class="brand-zone" id="header-brand-link">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <!-- Mobile Menu Toggle (shown for Admin nav on mobile) -->
+          <button type="button" class="mobile-menu-btn" id="btn-mobile-menu" aria-label="Toggle Navigation" aria-expanded="false" style="display: none;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+
+          <!-- Zone 2A: Student Navigation Links (default until role check) -->
+          <nav class="nav-zone" id="student-nav-zone" aria-label="Student Navigation">
+            <a href="/pages/student.html" class="nav-link">Home</a>
+            <a href="/pages/round-scores.html" class="nav-link">Round Scores</a>
+            <a href="/pages/basics.html" class="nav-link">Basics</a>
+            <a href="/pages/leaderboard.html" class="nav-link active" aria-current="page">Leaderboard</a>
+            <a href="/pages/monthly-report.html" class="nav-link">Monthly Report</a>
+          </nav>
+
+          <!-- Zone 2B: Admin Navigation Links (shown when logged-in user is admin) -->
+          <nav class="nav-zone" id="admin-nav-zone" aria-label="Admin Navigation" style="display: none;">
+            <a href="/pages/admin.html" class="nav-link">Overview</a>
+            <a href="/pages/review.html" class="nav-link">Review</a>
+            <a href="/pages/students.html" class="nav-link">Students</a>
+            <a href="/pages/attendance.html" class="nav-link">Attendance</a>
+            <a href="/pages/weekly-tests.html" class="nav-link">Weekly Tests</a>
+            <a href="/pages/leaderboard.html" class="nav-link active" aria-current="page">Leaderboard</a>
+            <a href="/pages/monthly-report.html" class="nav-link">Monthly Report</a>
+            
+            <!-- Setup Dropdown -->
+            <div class="nav-dropdown" id="nav-setup-dropdown">
+              <button type="button" class="nav-link nav-dropdown-toggle" id="btn-setup-dropdown" aria-expanded="false" aria-haspopup="true">
+                Setup <span style="font-size: 10px; margin-left: 2px;">▾</span>
+              </button>
+              <div class="nav-dropdown-menu" id="setup-dropdown-menu" role="menu">
+                <a href="/pages/todos.html" class="dropdown-item" role="menuitem">Daily To-Do</a>
+                <a href="/pages/resources.html" class="dropdown-item" role="menuitem">Resources</a>
+                <a href="/pages/categories.html" class="dropdown-item" role="menuitem">Categories</a>
+                <a href="/pages/rounds.html" class="dropdown-item" role="menuitem">Rounds</a>
+                <a href="/pages/targets.html" class="dropdown-item" role="menuitem">Targets</a>
+                <a href="/pages/competition.html" class="dropdown-item" role="menuitem">Competition</a>
+                <a href="/pages/import.html" class="dropdown-item" role="menuitem">Import</a>
+              </div>
+            </div>
+          </nav>
+
+          <!-- Zone 3: User Details & Logout Action -->
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">User</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-code" class="num" style="color: var(--text-muted);">ID</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Page Content -->
+      <main class="main-content">
+        <div class="container">
+          <!-- Demo Mode Banner Placeholder -->
+          <div id="config-banner-placeholder"></div>
+
+          <!-- Page Heading & Controls -->
+          <div class="section-header-row" style="margin-bottom: var(--space-5); align-items: flex-end; flex-wrap: wrap; gap: var(--space-4);">
+            <div>
+              <h1 style="display: flex; align-items: center; gap: var(--space-2);">
+                <span aria-hidden="true">🏅</span>
+                <span>Leaderboards</span>
+              </h1>
+              <p id="leaderboard-subtitle" style="font-size: var(--text-sm); color: var(--text-muted);">
+                Track weekly test &amp; session points, daily streaks, practice days, and accuracy improvements.
+              </p>
+            </div>
+
+            <!-- Admin-Only Level Filter & Settings Shortcut -->
+            <div id="admin-leaderboard-controls" style="display: none; align-items: center; gap: var(--space-3); flex-wrap: wrap;">
+              <div style="display: flex; align-items: center; gap: var(--space-2);">
+                <label for="select-leaderboard-level" class="form-label" style="margin-bottom: 0; white-space: nowrap;">Level:</label>
+                <select id="select-leaderboard-level" class="form-select" style="width: auto; min-width: 160px;">
+                  <option value="all">All levels</option>
+                  <option value="Level 1">Level 1</option>
+                  <option value="Level 2">Level 2</option>
+                  <option value="Level 3">Level 3</option>
+                  <option value="Level 4">Level 4</option>
+                  <option value="Master">Master</option>
+                </select>
+              </div>
+              <a href="/pages/competition.html" class="btn btn-outline btn-sm">
+                ⚙️ Competition Settings
+              </a>
+            </div>
+          </div>
+
+          <!-- Board Tabs & Period Switch Toolbar -->
+          <div class="card" style="margin-bottom: var(--space-4);">
+            <div class="card-body" style="padding: var(--space-4) var(--space-5); display: flex; flex-direction: column; gap: var(--space-4);">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3);">
+                <!-- 4 Board Tabs -->
+                <div class="segmented-control" role="tablist" aria-label="Leaderboard type" style="flex-wrap: wrap;">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected="true"
+                    class="segmented-btn active"
+                    data-board="points"
+                  >
+                    🏆 Points
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    class="segmented-btn"
+                    data-board="streak"
+                  >
+                    🔥 Streak
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    class="segmented-btn"
+                    data-board="practice_days"
+                  >
+                    📅 Practice days
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    class="segmented-btn"
+                    data-board="improved"
+                  >
+                    📈 Most improved
+                  </button>
+                </div>
+
+                <!-- Period Switch (shown only for Points and Practice days) -->
+                <div id="period-switch-wrapper" class="segmented-control" role="group" aria-label="Time period">
+                  <button
+                    type="button"
+                    class="segmented-btn active"
+                    data-period="week"
+                  >
+                    This week
+                  </button>
+                  <button
+                    type="button"
+                    class="segmented-btn"
+                    data-period="month"
+                  >
+                    This month
+                  </button>
+                  <button
+                    type="button"
+                    class="segmented-btn"
+                    data-period="all"
+                  >
+                    All time
+                  </button>
+                </div>
+              </div>
+
+              <!-- "How it works" explanation built dynamically from competition_rules() -->
+              <div
+                id="how-it-works-box"
+                class="banner banner-info"
+                style="margin-bottom: 0; align-items: center; padding: var(--space-3) var(--space-4);"
+              >
+                <div style="display: flex; align-items: flex-start; gap: var(--space-2);">
+                  <span aria-hidden="true" style="font-size: 1rem; line-height: 1.4;">ℹ️</span>
+                  <div>
+                    <strong style="font-weight: 700;">How it works:</strong>
+                    <span id="how-it-works-text">Loading rules...</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!--Friendly Error Banner (hidden unless RPC fails) -->
+          <div id="leaderboard-error-banner" class="banner banner-error" style="display: none;" role="alert">
+            <div>
+              <strong>Could not load leaderboard:</strong>
+              <span id="leaderboard-error-message">Please try again.</span>
+            </div>
+            <button type="button" id="btn-retry-leaderboard" class="btn btn-outline btn-sm" style="background: #fff;">
+              ↻ Try Again
+            </button>
+          </div>
+
+          <!-- Ranked Leaderboard Card -->
+          <div class="card">
+            <div class="card-header" style="padding: var(--space-4) var(--space-5);">
+              <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: var(--space-2);">
+                <h2 id="board-card-title" class="card-title" style="font-size: var(--text-base);">
+                  Points &mdash; This week
+                </h2>
+                <span id="board-scope-badge" class="badge badge-inactive">
+                  Your Level Only
+                </span>
+              </div>
+            </div>
+
+            <div class="table-wrapper">
+              <table class="table" id="leaderboard-table" aria-label="Leaderboard rankings">
+                <thead>
+                  <tr>
+                    <th style="width: 90px;">Rank</th>
+                    <th>Student</th>
+                    <th id="th-board-value" style="text-align: right;">Points</th>
+                  </tr>
+                </thead>
+                <tbody id="leaderboard-table-body">
+                  <tr>
+                    <td colspan="3"><div class="skeleton-row"></div></td>
+                  </tr>
+                  <tr>
+                    <td colspan="3"><div class="skeleton-row"></div></td>
+                  </tr>
+                  <tr>
+                    <td colspan="3"><div class="skeleton-row"></div></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Encouraging Empty State -->
+            <div id="leaderboard-empty-state" class="empty-state" style="display: none;">
+              <div class="empty-state-icon" aria-hidden="true">🌟</div>
+              <h3 class="empty-state-title" id="leaderboard-empty-title">No entries yet</h3>
+              <p class="empty-state-desc" id="leaderboard-empty-desc">
+                No points yet this week. Weekly tests and sessions earn points.
+              </p>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- Toast Notifications Container -->
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <!-- Leaderboard Controller -->
+    <script type="module" src="/js/leaderboard.js"></script>
+  </body>
+</html>

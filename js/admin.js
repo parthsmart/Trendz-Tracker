@@ -3,7 +3,7 @@
  * Renders roster, handles student creation, password resets, and active status toggling.
  */
 
-import { createStudent, resetStudentPassword, toggleStudentActive } from './api.js';
+import { createStudent, resetStudentPassword, toggleStudentActive, toggleStudentLeaderboardVisible } from './api.js';
 import { isSupabaseConfigured } from './config.js';
 import { requireAuth } from './guard.js';
 import { closeModal, openModal, setupModalListeners, setupAdminNav } from './modal.js';
@@ -71,7 +71,7 @@ async function loadStudents() {
     if (tbody) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="5" style="text-align: center; padding: var(--space-6);">
+          <td colspan="6" style="text-align: center; padding: var(--space-6);">
             <div style="color: var(--color-danger); margin-bottom: var(--space-3); font-weight: 500;">
               Error loading student roster: ${escapeHtml(err.message)}
             </div>
@@ -84,7 +84,7 @@ async function loadStudents() {
       document.getElementById('btn-retry-load-students')?.addEventListener('click', () => {
         tbody.innerHTML = `
           <tr>
-            <td colspan="5" style="text-align: center; padding: var(--space-6); color: var(--text-muted);">
+            <td colspan="6" style="text-align: center; padding: var(--space-6); color: var(--text-muted);">
               <span class="spinner" style="margin-right: 8px;"></span> Loading student roster...
             </td>
           </tr>
@@ -140,7 +140,9 @@ function renderTable() {
   }
 
   emptyState.style.display = 'none';
-  tbody.innerHTML = filtered.map(student => `
+  tbody.innerHTML = filtered.map(student => {
+    const isVisible = student.leaderboard_visible !== false;
+    return `
     <tr class="${student.active ? '' : 'row-inactive'}">
       <td class="num" style="font-weight: 600; color: var(--color-primary-text);">
         ${escapeHtml(student.student_code)}
@@ -157,6 +159,23 @@ function renderTable() {
         <span class="status-indicator ${student.active ? 'active' : 'inactive'}">
           ${student.active ? 'Active' : 'Inactive'}
         </span>
+      </td>
+      <td>
+        <label
+          style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: var(--text-xs); font-weight: 600; color: ${isVisible ? 'var(--color-accent-text)' : 'var(--text-dim)'};"
+          title="Hidden students do not appear on any board."
+        >
+          <input
+            type="checkbox"
+            class="chk-leaderboard-visible"
+            data-id="${student.id}"
+            data-visible="${isVisible}"
+            ${isVisible ? 'checked' : ''}
+            aria-label="Show ${escapeHtml(student.full_name)} on leaderboards. Hidden students do not appear on any board."
+            style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;"
+          />
+          <span>${isVisible ? 'Shown' : 'Hidden'}</span>
+        </label>
       </td>
       <td style="text-align: right;">
         <div style="display: inline-flex; gap: var(--space-2);">
@@ -182,7 +201,8 @@ function renderTable() {
         </div>
       </td>
     </tr>
-  `).join('');
+  `;
+  }).join('');
 
   // Attach action listeners
   attachRowListeners();
@@ -222,6 +242,29 @@ function attachRowListeners() {
       } catch (err) {
         showToast('error', `Failed to ${actionName} student: ` + err.message);
         btn.disabled = false;
+      }
+    });
+  });
+
+  document.querySelectorAll('.chk-leaderboard-visible').forEach(chk => {
+    chk.addEventListener('change', async () => {
+      const studentId = chk.getAttribute('data-id');
+      const currentVisible = chk.getAttribute('data-visible') === 'true';
+
+      chk.disabled = true;
+      try {
+        await toggleStudentLeaderboardVisible(studentId, currentVisible);
+        showToast(
+          'success',
+          currentVisible
+            ? 'Student hidden from leaderboards.'
+            : 'Student is now shown on leaderboards.'
+        );
+        await loadStudents();
+      } catch (err) {
+        chk.checked = currentVisible;
+        chk.disabled = false;
+        showToast('error', 'Failed to update leaderboard visibility: ' + (err.message || 'Database error'));
       }
     });
   });

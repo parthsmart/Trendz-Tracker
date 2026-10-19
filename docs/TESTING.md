@@ -755,8 +755,62 @@ This document contains step-by-step test scenarios to verify security boundaries
      - Click **Undo Import**, enter a reason of at least 3 characters (e.g. `"Testing Phase 4c-2c undo flow"`), and click **Confirm Undo**.
      - Verify the batch status updates to `↩ Undone` with the undo timestamp and reason.
 
+---
 
+## Phase 5a Test Cases (Points, Leaderboards, Competition Settings & Leaderboard Visibility)
 
+### Test Case 36: Student Dashboard Leaderboard Card (`/pages/student.html`)
+- **Action**:
+  1. Log in as a Student (`STU101` / `student123`).
+  2. On `/pages/student.html`, locate the **Leaderboard** card next to the Weekly Tests card.
+- **Expected Result**:
+  - The card displays the student's rank and points for **This Week** from the `points` board (e.g. `#1` and `215 points`), or `"Not on the board yet"` if the student has no points this week.
+  - The card lists the **Top 3** names for the student's level with their points and highlights the student's own row with a `"You"` badge if in the top 3.
+  - Clicking **Full leaderboard →** navigates to `/pages/leaderboard.html`.
 
+### Test Case 37: Student Leaderboard Page (`/pages/leaderboard.html`)
+- **Action**:
+  1. Logged in as a Student (`STU101`), click **Leaderboard** in the top navigation bar (or **Full leaderboard →** on the dashboard card).
+  2. Inspect the **"How it works"** box and switch between the 4 board tabs: **Points**, **Streak**, **Practice days**, and **Most improved**.
+  3. On **Points** and **Practice days**, switch between **This week**, **This month**, and **All time**.
+  4. Switch to **Streak** and **Most improved**.
+- **Expected Result**:
+  - The period switch (**This week**, **This month**, **All time**) is visible on **Points** and **Practice days** and automatically hidden on **Streak** and **Most improved**.
+  - The **"How it works"** explanation updates dynamically per board using values from `competition_rules()` (e.g. multiplier `5`, attendance points `10`, minimum entries `5`) and always includes the note: *"Only your level is shown."*
+  - Values display with their proper units (`points`, `days`, `days`, `+<x>% accuracy`). Raw scores and full last names are never shown.
+  - The student's own row is highlighted with a `"You"` badge. When a student is ranked outside the top 10 (e.g. `#14`), a separator row appears below the top 10 followed by the student's own row.
+  - If a board/period has no rows, an encouraging empty state is shown (e.g. *"No points yet this week. Weekly tests and sessions earn points."*).
 
+### Test Case 38: Admin Leaderboard View (`/pages/leaderboard.html`)
+- **Action**:
+  1. Log Out and log in as an Admin (`ADMIN01` / `admin123`).
+  2. Click **Leaderboard** in the main admin navigation bar.
+  3. Use the **Level** dropdown to switch between `All levels` and a specific level (e.g. `Level 1`, `Level 2`), and switch across boards and periods.
+  4. Click any student's display name in the table.
+- **Expected Result**:
+  - The page renders the Admin navigation bar (including `Setup ▾ → Competition`) and the Admin **Level** filter dropdown (`All levels` or distinct student levels).
+  - Up to 200 rows are shown, no `"You"` badge is displayed, and the student-only note *"Only your level is shown."* is omitted.
+  - Each student's display name is a link to `/pages/student-detail.html?id=<student_id>`.
 
+### Test Case 39: Admin Competition Settings (`/pages/competition.html`)
+- **Action**:
+  1. Logged in as Admin (`ADMIN01`), open **Setup ▾ → Competition** (`/pages/competition.html`).
+  2. Inspect the 4 settings: **Weekly test multiplier**, **Attendance present points**, **Most improved minimum entries**, and **Leaderboard display names**.
+  3. Toggle the **Leaderboard display names** radio buttons between **First name + last initial** and **Student ID code** and observe the **Sample Student Preview** box.
+  4. Try entering a negative or non-numeric value in a numeric field and click **Save**, then enter a valid number (e.g. `6` for Weekly test multiplier) and click **Save**.
+- **Expected Result**:
+  - Invalid/empty numbers are blocked with a friendly inline validation message before calling the database.
+  - The **Sample Student Preview** immediately updates between `"Aarav S."` and `"STU101"`.
+  - Clicking **Save** updates `public.competition_settings` for that key, shows an inline `"✓ Saved"` status + toast, and updates the live `"How it works"` summary on `/pages/leaderboard.html`.
+  - Attempting to visit `/pages/competition.html` while logged in as a Student redirects away immediately via the admin-only guard.
+
+### Test Case 40: Admin Students "Show on leaderboards" Toggle (`/pages/students.html`)
+- **Action**:
+  1. Logged in as Admin (`ADMIN01`), navigate to **Students** (`/pages/students.html`).
+  2. Locate the **Show on leaderboards** column and hover over the `ⓘ` tooltip icon in the column header.
+  3. Click the toggle button (`✓ Shown` / `Hidden`) for `STU101` (`Aarav Sharma`).
+  4. Navigate to `/pages/leaderboard.html` and check the boards.
+- **Expected Result**:
+  - The header tooltip explains: *"Hidden students do not appear on any leaderboard."*
+  - Clicking the toggle updates `profiles.leaderboard_visible` and switches the button state between `✓ Shown` and `Hidden` with a confirmation toast.
+  - When a student is set to `Hidden` (`leaderboard_visible = false`), they no longer appear on any leaderboard.

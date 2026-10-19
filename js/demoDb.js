@@ -28,6 +28,8 @@ const DEMO_STORAGE_KEY_WEEKLY_TESTS = 'trendz_demo_weekly_tests_v2';
 const DEMO_STORAGE_KEY_WEEKLY_SCORES = 'trendz_demo_weekly_scores_v2';
 const DEMO_STORAGE_KEY_CATEGORY_ALIASES = 'trendz_demo_category_aliases_v1';
 const DEMO_STORAGE_KEY_IMPORT_BATCHES = 'trendz_demo_import_batches_v1';
+const DEMO_STORAGE_KEY_COMPETITION_SETTINGS = 'trendz_demo_competition_settings_v1';
+const DEMO_STORAGE_KEY_REPORT_LOG = 'trendz_demo_report_log_v1';
 
 export const DEFAULT_ROUND_CATEGORIES = [
   'ADD', 'SUB', 'MIX', 'MULT', 'DIV', 'BRAC',
@@ -63,13 +65,30 @@ function initDemoStorage() {
   // 1. Initial Students
   if (!localStorage.getItem(DEMO_STORAGE_KEY_STUDENTS)) {
     const initialStudents = [
-      { id: 'usr-101', student_code: 'STU101', full_name: 'Aarav Sharma', role: 'student', level: 'Level 3', active: true, created_at: '2026-10-01T10:00:00.000Z' },
-      { id: 'usr-102', student_code: 'STU102', full_name: 'Diya Patel', role: 'student', level: 'Level 2', active: true, created_at: '2026-10-02T10:00:00.000Z' },
-      { id: 'usr-103', student_code: 'STU103', full_name: 'Kabir Verma', role: 'student', level: 'Level 4', active: true, created_at: '2026-10-03T10:00:00.000Z' },
-      { id: 'usr-104', student_code: 'STU104', full_name: 'Ananya Iyer', role: 'student', level: 'Level 1', active: false, created_at: '2026-10-04T10:00:00.000Z' },
-      { id: 'usr-105', student_code: 'STU105', full_name: 'Rohan Mehra', role: 'student', level: 'Level 2', active: true, created_at: '2026-10-05T10:00:00.000Z' }
+      { id: 'usr-101', student_code: 'STU101', full_name: 'Aarav Sharma', role: 'student', level: 'Level 3', active: true, leaderboard_visible: true, created_at: '2026-10-01T10:00:00.000Z' },
+      { id: 'usr-102', student_code: 'STU102', full_name: 'Diya Patel', role: 'student', level: 'Level 2', active: true, leaderboard_visible: true, created_at: '2026-10-02T10:00:00.000Z' },
+      { id: 'usr-103', student_code: 'STU103', full_name: 'Kabir Verma', role: 'student', level: 'Level 4', active: true, leaderboard_visible: true, created_at: '2026-10-03T10:00:00.000Z' },
+      { id: 'usr-104', student_code: 'STU104', full_name: 'Ananya Iyer', role: 'student', level: 'Level 1', active: false, leaderboard_visible: false, created_at: '2026-10-04T10:00:00.000Z' },
+      { id: 'usr-105', student_code: 'STU105', full_name: 'Rohan Mehra', role: 'student', level: 'Level 2', active: true, leaderboard_visible: true, created_at: '2026-10-05T10:00:00.000Z' }
     ];
     localStorage.setItem(DEMO_STORAGE_KEY_STUDENTS, JSON.stringify(initialStudents));
+  } else {
+    // Ensure existing stored demo students have boolean leaderboard_visible
+    try {
+      const existing = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_STUDENTS) || '[]');
+      let mutated = false;
+      existing.forEach(s => {
+        if (typeof s.leaderboard_visible !== 'boolean') {
+          s.leaderboard_visible = s.active !== false;
+          mutated = true;
+        }
+      });
+      if (mutated) {
+        localStorage.setItem(DEMO_STORAGE_KEY_STUDENTS, JSON.stringify(existing));
+      }
+    } catch {
+      // Ignore parse errors
+    }
   }
 
   // 2. Initial Categories (24 New Simulator + 2 Old Simulator extras + 2 Basics)
@@ -665,6 +684,46 @@ function initDemoStorage() {
   if (!localStorage.getItem(DEMO_STORAGE_KEY_IMPORT_BATCHES)) {
     localStorage.setItem(DEMO_STORAGE_KEY_IMPORT_BATCHES, JSON.stringify([]));
   }
+
+  // 13. Initial Competition Settings (Phase 5a)
+  if (!localStorage.getItem(DEMO_STORAGE_KEY_COMPETITION_SETTINGS)) {
+    const initialCompetitionSettings = [
+      { key: 'weekly_test_multiplier', value: '2' },
+      { key: 'attendance_present_points', value: '10' },
+      { key: 'improved_min_entries', value: '5' },
+      { key: 'leaderboard_names', value: 'first_name_initial' }
+    ];
+    localStorage.setItem(DEMO_STORAGE_KEY_COMPETITION_SETTINGS, JSON.stringify(initialCompetitionSettings));
+  }
+
+  // 14. Initial Report Log (Phase 5b)
+  if (!localStorage.getItem(DEMO_STORAGE_KEY_REPORT_LOG)) {
+    const initialReportLogs = [
+      {
+        id: 'rlog-1',
+        week_start: '2026-10-12',
+        kind: 'cron',
+        status: 'sent',
+        error: null,
+        to_email: 'coach@trendzabacus.com',
+        created_by: null,
+        created_at: '2026-10-18T15:30:05.000Z',
+        finished_at: '2026-10-18T15:30:07.000Z'
+      },
+      {
+        id: 'rlog-2',
+        week_start: '2026-10-05',
+        kind: 'manual',
+        status: 'sent',
+        error: null,
+        to_email: 'coach@trendzabacus.com',
+        created_by: 'usr-admin-1',
+        created_at: '2026-10-12T06:15:00.000Z',
+        finished_at: '2026-10-12T06:15:02.000Z'
+      }
+    ];
+    localStorage.setItem(DEMO_STORAGE_KEY_REPORT_LOG, JSON.stringify(initialReportLogs));
+  }
 }
 
 /**
@@ -694,6 +753,7 @@ export const DemoDB = {
       role: 'student',
       level: level ? level.trim() : null,
       active: true,
+      leaderboard_visible: true,
       created_at: new Date().toISOString()
     };
     students.unshift(newStudent);
@@ -705,6 +765,15 @@ export const DemoDB = {
     const index = students.findIndex(s => s.id === studentId || s.student_code === studentId);
     if (index === -1) throw new Error('Student not found');
     students[index].active = !students[index].active;
+    this.saveStudents(students);
+    return students[index];
+  },
+  toggleStudentLeaderboardVisible(studentId, nextVisible) {
+    const students = this.getStudents();
+    const index = students.findIndex(s => s.id === studentId || s.student_code === studentId);
+    if (index === -1) throw new Error('Student not found');
+    students[index].leaderboard_visible =
+      typeof nextVisible === 'boolean' ? nextVisible : !students[index].leaderboard_visible;
     this.saveStudents(students);
     return students[index];
   },
@@ -2364,5 +2433,469 @@ export const DemoDB = {
     });
     localStorage.setItem(DEMO_STORAGE_KEY_RESULTS, JSON.stringify(results));
     return true;
+  },
+
+  // ==================== PHASE 5a: COMPETITION SETTINGS & LEADERBOARDS ====================
+  // Fixed static sample data for Demo Mode only. Zero formula/points/rank calculation in JS.
+
+  getCompetitionSettings() {
+    initDemoStorage();
+    return JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_COMPETITION_SETTINGS) || '[]');
+  },
+
+  updateCompetitionSetting(key, value) {
+    if (!isDemoMode()) {
+      throw new Error('Action blocked: Demo mode cannot mutate live database.');
+    }
+    initDemoStorage();
+    const validKeys = [
+      'weekly_test_multiplier',
+      'attendance_present_points',
+      'improved_min_entries',
+      'leaderboard_names'
+    ];
+    if (!validKeys.includes(key)) {
+      throw new Error(`Unknown competition setting key "${key}".`);
+    }
+    const cleanVal = String(value ?? '').trim();
+    if (key === 'leaderboard_names') {
+      if (cleanVal !== 'first_name_initial' && cleanVal !== 'student_code') {
+        throw new Error('Leaderboard display name mode must be "first_name_initial" or "student_code".');
+      }
+    } else {
+      const num = Number(cleanVal);
+      if (!cleanVal || !Number.isFinite(num) || !Number.isInteger(num) || num < 0) {
+        throw new Error(`Value for "${key}" must be a whole non-negative number.`);
+      }
+      if (key === 'improved_min_entries' && num < 1) {
+        throw new Error('Minimum entries for Most Improved must be at least 1.');
+      }
+    }
+
+    const list = this.getCompetitionSettings();
+    const idx = list.findIndex(item => item.key === key);
+    if (idx !== -1) {
+      list[idx].value = cleanVal;
+    } else {
+      list.push({ key, value: cleanVal });
+    }
+    localStorage.setItem(DEMO_STORAGE_KEY_COMPETITION_SETTINGS, JSON.stringify(list));
+    return { key, value: cleanVal };
+  },
+
+  mockCompetitionRules() {
+    const list = this.getCompetitionSettings();
+    const map = new Map(list.map(i => [i.key, i.value]));
+    return {
+      weekly_test_multiplier: Number(map.get('weekly_test_multiplier') ?? 2),
+      attendance_present_points: Number(map.get('attendance_present_points') ?? 10),
+      improved_min_entries: Number(map.get('improved_min_entries') ?? 5),
+      leaderboard_names: map.get('leaderboard_names') || 'first_name_initial'
+    };
+  },
+
+  mockLeaderboard({ p_board = 'points', p_period = 'week', p_level = null, p_limit = 10 }, callerProfile = null) {
+    initDemoStorage();
+    const rules = this.mockCompetitionRules();
+    const useCode = rules.leaderboard_names === 'student_code';
+    const isAdmin = callerProfile?.role === 'admin';
+    const callerId = callerProfile?.id || 'usr-101';
+    const callerLevel = callerProfile?.level || 'Level 3';
+
+    // Check if any demo student was hidden by admin on /pages/students.html
+    const storedStudents = this.getStudents();
+    const hiddenSet = new Set(
+      storedStudents.filter(s => s.leaderboard_visible === false || s.active === false).map(s => s.id)
+    );
+
+    // Fixed static pre-baked entries (never computed from scores or streaks in JS)
+    // Display names are strictly pre-formatted as First Name + Initial or Student Code, NEVER full names.
+    const STATIC_FIXTURES = {
+      points: {
+        week: [
+          { student_id: 'usr-301', name_initial: 'Ishaan K.', code: 'STU301', level: 'Level 3', value: 112 },
+          { student_id: 'usr-101', name_initial: 'Aarav S.', code: 'STU101', level: 'Level 3', value: 96 },
+          { student_id: 'usr-106', name_initial: 'Mira J.', code: 'STU106', level: 'Level 3', value: 84 },
+          { student_id: 'usr-302', name_initial: 'Tanvi R.', code: 'STU302', level: 'Level 3', value: 78 },
+          { student_id: 'usr-303', name_initial: 'Devansh M.', code: 'STU303', level: 'Level 3', value: 72 },
+          { student_id: 'usr-102', name_initial: 'Diya P.', code: 'STU102', level: 'Level 2', value: 94 },
+          { student_id: 'usr-108', name_initial: 'Riya S.', code: 'STU108', level: 'Level 2', value: 82 },
+          { student_id: 'usr-105', name_initial: 'Rohan M.', code: 'STU105', level: 'Level 2', value: 60 },
+          { student_id: 'usr-103', name_initial: 'Kabir V.', code: 'STU103', level: 'Level 4', value: 104 },
+          { student_id: 'usr-110', name_initial: 'Meera R.', code: 'STU110', level: 'Level 4', value: 90 },
+          { student_id: 'usr-107', name_initial: 'Arjun N.', code: 'STU107', level: 'Master', value: 120 }
+        ],
+        month: [
+          { student_id: 'usr-101', name_initial: 'Aarav S.', code: 'STU101', level: 'Level 3', value: 380 },
+          { student_id: 'usr-301', name_initial: 'Ishaan K.', code: 'STU301', level: 'Level 3', value: 364 },
+          { student_id: 'usr-106', name_initial: 'Mira J.', code: 'STU106', level: 'Level 3', value: 310 },
+          { student_id: 'usr-302', name_initial: 'Tanvi R.', code: 'STU302', level: 'Level 3', value: 290 },
+          { student_id: 'usr-303', name_initial: 'Devansh M.', code: 'STU303', level: 'Level 3', value: 265 },
+          { student_id: 'usr-102', name_initial: 'Diya P.', code: 'STU102', level: 'Level 2', value: 342 },
+          { student_id: 'usr-108', name_initial: 'Riya S.', code: 'STU108', level: 'Level 2', value: 298 },
+          { student_id: 'usr-105', name_initial: 'Rohan M.', code: 'STU105', level: 'Level 2', value: 220 },
+          { student_id: 'usr-103', name_initial: 'Kabir V.', code: 'STU103', level: 'Level 4', value: 392 },
+          { student_id: 'usr-110', name_initial: 'Meera R.', code: 'STU110', level: 'Level 4', value: 356 },
+          { student_id: 'usr-107', name_initial: 'Arjun N.', code: 'STU107', level: 'Master', value: 440 }
+        ],
+        all: [
+          { student_id: 'usr-301', name_initial: 'Ishaan K.', code: 'STU301', level: 'Level 3', value: 1420 },
+          { student_id: 'usr-302', name_initial: 'Tanvi R.', code: 'STU302', level: 'Level 3', value: 1380 },
+          { student_id: 'usr-303', name_initial: 'Devansh M.', code: 'STU303', level: 'Level 3', value: 1310 },
+          { student_id: 'usr-304', name_initial: 'Saanvi G.', code: 'STU304', level: 'Level 3', value: 1290 },
+          { student_id: 'usr-305', name_initial: 'Atharv B.', code: 'STU305', level: 'Level 3', value: 1250 },
+          { student_id: 'usr-306', name_initial: 'Navya D.', code: 'STU306', level: 'Level 3', value: 1210 },
+          { student_id: 'usr-307', name_initial: 'Reyansh T.', code: 'STU307', level: 'Level 3', value: 1180 },
+          { student_id: 'usr-308', name_initial: 'Kiara S.', code: 'STU308', level: 'Level 3', value: 1150 },
+          { student_id: 'usr-309', name_initial: 'Vihaan L.', code: 'STU309', level: 'Level 3', value: 1120 },
+          { student_id: 'usr-106', name_initial: 'Mira J.', code: 'STU106', level: 'Level 3', value: 1090 },
+          { student_id: 'usr-310', name_initial: 'Prisha N.', code: 'STU310', level: 'Level 3', value: 1040 },
+          { student_id: 'usr-101', name_initial: 'Aarav S.', code: 'STU101', level: 'Level 3', value: 980 },
+          { student_id: 'usr-102', name_initial: 'Diya P.', code: 'STU102', level: 'Level 2', value: 1190 },
+          { student_id: 'usr-103', name_initial: 'Kabir V.', code: 'STU103', level: 'Level 4', value: 1460 },
+          { student_id: 'usr-107', name_initial: 'Arjun N.', code: 'STU107', level: 'Master', value: 1680 }
+        ]
+      },
+      streak: {
+        default: [
+          { student_id: 'usr-301', name_initial: 'Ishaan K.', code: 'STU301', level: 'Level 3', value: 14 },
+          { student_id: 'usr-101', name_initial: 'Aarav S.', code: 'STU101', level: 'Level 3', value: 8 },
+          { student_id: 'usr-302', name_initial: 'Tanvi R.', code: 'STU302', level: 'Level 3', value: 6 },
+          { student_id: 'usr-106', name_initial: 'Mira J.', code: 'STU106', level: 'Level 3', value: 4 },
+          { student_id: 'usr-102', name_initial: 'Diya P.', code: 'STU102', level: 'Level 2', value: 5 },
+          { student_id: 'usr-108', name_initial: 'Riya S.', code: 'STU108', level: 'Level 2', value: 3 },
+          { student_id: 'usr-103', name_initial: 'Kabir V.', code: 'STU103', level: 'Level 4', value: 12 },
+          { student_id: 'usr-110', name_initial: 'Meera R.', code: 'STU110', level: 'Level 4', value: 15 },
+          { student_id: 'usr-107', name_initial: 'Arjun N.', code: 'STU107', level: 'Master', value: 22 }
+        ]
+      },
+      practice_days: {
+        week: [
+          { student_id: 'usr-101', name_initial: 'Aarav S.', code: 'STU101', level: 'Level 3', value: 6 },
+          { student_id: 'usr-301', name_initial: 'Ishaan K.', code: 'STU301', level: 'Level 3', value: 6 },
+          { student_id: 'usr-302', name_initial: 'Tanvi R.', code: 'STU302', level: 'Level 3', value: 5 },
+          { student_id: 'usr-106', name_initial: 'Mira J.', code: 'STU106', level: 'Level 3', value: 4 },
+          { student_id: 'usr-102', name_initial: 'Diya P.', code: 'STU102', level: 'Level 2', value: 5 },
+          { student_id: 'usr-103', name_initial: 'Kabir V.', code: 'STU103', level: 'Level 4', value: 6 },
+          { student_id: 'usr-107', name_initial: 'Arjun N.', code: 'STU107', level: 'Master', value: 7 }
+        ],
+        month: [
+          { student_id: 'usr-301', name_initial: 'Ishaan K.', code: 'STU301', level: 'Level 3', value: 24 },
+          { student_id: 'usr-101', name_initial: 'Aarav S.', code: 'STU101', level: 'Level 3', value: 22 },
+          { student_id: 'usr-302', name_initial: 'Tanvi R.', code: 'STU302', level: 'Level 3', value: 19 },
+          { student_id: 'usr-106', name_initial: 'Mira J.', code: 'STU106', level: 'Level 3', value: 16 },
+          { student_id: 'usr-102', name_initial: 'Diya P.', code: 'STU102', level: 'Level 2', value: 20 },
+          { student_id: 'usr-103', name_initial: 'Kabir V.', code: 'STU103', level: 'Level 4', value: 25 },
+          { student_id: 'usr-107', name_initial: 'Arjun N.', code: 'STU107', level: 'Master', value: 28 }
+        ],
+        all: [
+          { student_id: 'usr-301', name_initial: 'Ishaan K.', code: 'STU301', level: 'Level 3', value: 92 },
+          { student_id: 'usr-101', name_initial: 'Aarav S.', code: 'STU101', level: 'Level 3', value: 86 },
+          { student_id: 'usr-302', name_initial: 'Tanvi R.', code: 'STU302', level: 'Level 3', value: 79 },
+          { student_id: 'usr-106', name_initial: 'Mira J.', code: 'STU106', level: 'Level 3', value: 64 },
+          { student_id: 'usr-102', name_initial: 'Diya P.', code: 'STU102', level: 'Level 2', value: 74 },
+          { student_id: 'usr-103', name_initial: 'Kabir V.', code: 'STU103', level: 'Level 4', value: 98 },
+          { student_id: 'usr-107', name_initial: 'Arjun N.', code: 'STU107', level: 'Master', value: 115 }
+        ]
+      },
+      improved: {
+        default: [
+          { student_id: 'usr-106', name_initial: 'Mira J.', code: 'STU106', level: 'Level 3', value: 6.4 },
+          { student_id: 'usr-101', name_initial: 'Aarav S.', code: 'STU101', level: 'Level 3', value: 4.2 },
+          { student_id: 'usr-302', name_initial: 'Tanvi R.', code: 'STU302', level: 'Level 3', value: 2.8 },
+          { student_id: 'usr-102', name_initial: 'Diya P.', code: 'STU102', level: 'Level 2', value: 5.1 },
+          { student_id: 'usr-108', name_initial: 'Riya S.', code: 'STU108', level: 'Level 2', value: 3.5 },
+          { student_id: 'usr-103', name_initial: 'Kabir V.', code: 'STU103', level: 'Level 4', value: 3.9 },
+          { student_id: 'usr-107', name_initial: 'Arjun N.', code: 'STU107', level: 'Master', value: 2.1 }
+        ]
+      }
+    };
+
+    const boardGroup = STATIC_FIXTURES[p_board] || STATIC_FIXTURES.points;
+    const rawPool =
+      p_board === 'streak' || p_board === 'improved'
+        ? boardGroup.default || []
+        : boardGroup[p_period] || boardGroup.week || [];
+
+    // Filter out hidden students and zero values
+    let pool = rawPool.filter(item => !hiddenSet.has(item.student_id) && item.value > 0);
+
+    // Level filtering:
+    // - For students: always returns their own level only
+    // - For admins: p_level null or 'all' means every level; otherwise filter by p_level
+    if (!isAdmin) {
+      pool = pool.filter(item => item.level === callerLevel);
+    } else if (p_level && p_level !== 'all') {
+      pool = pool.filter(item => item.level === p_level);
+    }
+
+    // Sort descending by static value and assign sequential pre-baked ranks
+    pool = [...pool].sort((a, b) => b.value - a.value);
+    const ranked = pool.map((item, idx) => ({
+      rank: idx + 1,
+      student_id: isAdmin ? item.student_id : null,
+      display_name: useCode ? item.code : item.name_initial,
+      value: item.value,
+      is_me: !isAdmin && item.student_id === callerId
+    }));
+
+    if (isAdmin) {
+      const cap = Math.min(200, Number(p_limit) || 200);
+      return ranked.slice(0, cap);
+    }
+
+    // For students: top N (default 10, or 3 on dashboard card) plus their own row if outside top N
+    const topLimit = Math.min(10, Number(p_limit) || 10);
+    const topRows = ranked.slice(0, topLimit);
+    const ownRow = ranked.find(r => r.is_me);
+    if (ownRow && !topRows.some(r => r.is_me)) {
+      topRows.push(ownRow);
+    }
+    return topRows;
+  },
+
+  // ==================== PHASE 5b: WEEKLY REPORT, MONTHLY REPORT & MILESTONES ====================
+  // Fixed static sample data for Demo Mode only. Zero formula/streak/points/accuracy calculation in JS.
+
+  mockWeeklyReportData() {
+    initDemoStorage();
+    return {
+      week_start: '2026-10-12',
+      week_end: '2026-10-18',
+      generated_on: '2026-10-19',
+      summary: {
+        active_students: 8,
+        students_with_entries: 6,
+        accuracy: 92.4
+      },
+      students: [
+        { code: 'STU102', name: 'Diya Patel', level: 'Level 2', practice_days: 5, entries: 18, accuracy: 91.2, qpm: 16.4, streak: 5, points: 94 },
+        { code: 'STU105', name: 'Rohan Mehra', level: 'Level 2', practice_days: 0, entries: 0, accuracy: null, qpm: null, streak: 0, points: 60 },
+        { code: 'STU108', name: 'Riya Sen', level: 'Level 2', practice_days: 4, entries: 12, accuracy: 89.5, qpm: 15.1, streak: 3, points: 82 },
+        { code: 'STU101', name: 'Aarav Sharma', level: 'Level 3', practice_days: 6, entries: 26, accuracy: 94.6, qpm: 19.8, streak: 25, points: 96 },
+        { code: 'STU106', name: 'Mira Joshi', level: 'Level 3', practice_days: 4, entries: 15, accuracy: 90.8, qpm: 17.2, streak: 4, points: 84 },
+        { code: 'STU103', name: 'Kabir Verma', level: 'Level 4', practice_days: 6, entries: 24, accuracy: 93.5, qpm: 21.0, streak: 50, points: 104 },
+        { code: 'STU110', name: 'Meera Rao', level: 'Level 4', practice_days: 0, entries: 0, accuracy: null, qpm: null, streak: 0, points: 90 },
+        { code: 'STU107', name: 'Arjun Nair', level: 'Master', practice_days: 7, entries: 32, accuracy: 96.8, qpm: 24.5, streak: 100, points: 120 }
+      ],
+      needs_attention: [
+        { code: 'STU105', name: 'Rohan Mehra', level: 'Level 2', last_entry: '2026-10-12', days_ago: 7 },
+        { code: 'STU110', name: 'Meera Rao', level: 'Level 4', last_entry: null, days_ago: null }
+      ],
+      milestones: [
+        { code: 'STU107', name: 'Arjun Nair', level: 'Master', milestone: 100, streak: 100 },
+        { code: 'STU103', name: 'Kabir Verma', level: 'Level 4', milestone: 50, streak: 50 },
+        { code: 'STU101', name: 'Aarav Sharma', level: 'Level 3', milestone: 25, streak: 25 }
+      ],
+      sessions: [
+        { date: '2026-10-18', title: 'Sunday Competition Prep & Finals Workshop', type: 'workshop', present: 7, absent: 1, excused: 1 },
+        { date: '2026-10-16', title: 'Friday Speed Drills & Flash Mental Class', type: 'class', present: 8, absent: 1, excused: 0 },
+        { date: '2026-10-14', title: 'Wednesday Prime Factors & HCF-LCM Masterclass', type: 'class', present: 7, absent: 1, excused: 1 }
+      ],
+      weekly_tests: [
+        { date: '2026-10-18', title: 'Weekly Assessment #14 (Speed Basics)', scores: 7 }
+      ]
+    };
+  },
+
+  mockAdminMilestones(p_days = 7) {
+    initDemoStorage();
+    const days = Number(p_days) || 7;
+    if (days <= 0) return [];
+    return [
+      {
+        student_id: 'usr-107',
+        student_code: 'STU107',
+        full_name: 'Arjun Nair',
+        level: 'Master',
+        current_streak: 100,
+        milestone: 100
+      },
+      {
+        student_id: 'usr-103',
+        student_code: 'STU103',
+        full_name: 'Kabir Verma',
+        level: 'Level 4',
+        current_streak: 52,
+        milestone: 50
+      },
+      {
+        student_id: 'usr-101',
+        student_code: 'STU101',
+        full_name: 'Aarav Sharma',
+        level: 'Level 3',
+        current_streak: 25,
+        milestone: 25
+      }
+    ];
+  },
+
+  getReportLogs() {
+    initDemoStorage();
+    const list = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_REPORT_LOG) || '[]');
+    return list.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+  },
+
+  addReportLog(entry = {}) {
+    if (!isDemoMode()) {
+      throw new Error('Action blocked: Demo mode cannot mutate live database.');
+    }
+    initDemoStorage();
+    const list = this.getReportLogs();
+    const nowIso = new Date().toISOString();
+    const newRow = {
+      id: `rlog-${Date.now()}`,
+      week_start: entry.week_start || '2026-10-12',
+      kind: entry.kind || 'manual',
+      status: entry.status || 'sent',
+      error: entry.error || null,
+      to_email: entry.to_email || 'coach@trendzabacus.com',
+      created_by: entry.created_by || 'usr-admin-1',
+      created_at: nowIso,
+      finished_at: nowIso
+    };
+    list.unshift(newRow);
+    localStorage.setItem(DEMO_STORAGE_KEY_REPORT_LOG, JSON.stringify(list));
+    return newRow;
+  },
+
+  mockStudentMonthReport(studentId = 'usr-101', pMonth = null) {
+    initDemoStorage();
+    const students = this.getStudents();
+    const stu = students.find(s => s.id === studentId || s.student_code === studentId) || {
+      id: 'usr-101',
+      student_code: 'STU101',
+      full_name: 'Aarav Sharma',
+      level: 'Level 3'
+    };
+
+    const monthPrefix =
+      typeof pMonth === 'string' && /^\d{4}-\d{2}/.test(pMonth.trim())
+        ? pMonth.trim().slice(0, 7)
+        : '2026-10';
+
+    if (monthPrefix === '2026-09') {
+      return {
+        student: {
+          name: stu.full_name,
+          code: stu.student_code,
+          level: stu.level || 'Level 3'
+        },
+        month_start: '2026-09-01',
+        month_end: '2026-09-30',
+        days_elapsed: 30,
+        practice: {
+          entries: 84,
+          correct: 1512,
+          total: 1680,
+          accuracy: 90.0,
+          qpm: 17.6,
+          rounds: 3,
+          practice_days: 19
+        },
+        previous: {
+          entries: 72,
+          accuracy: 88.2,
+          qpm: 16.4,
+          practice_days: 16
+        },
+        streak: {
+          current: 8,
+          best: 14
+        },
+        attendance: {
+          present: 7,
+          absent: 1,
+          excused: 0,
+          percent: 87.5
+        },
+        points: 310,
+        weeks: [
+          { week_start: '2026-08-31', entries: 18, accuracy: 88.5 },
+          { week_start: '2026-09-07', entries: 22, accuracy: 89.8 },
+          { week_start: '2026-09-14', entries: 20, accuracy: 90.4 },
+          { week_start: '2026-09-21', entries: 24, accuracy: 91.2 }
+        ],
+        categories: [
+          { name: 'Cube root', section: 'round', entries: 3, accuracy: 82.0, wrong: 9 },
+          { name: 'Square Root', section: 'round', entries: 3, accuracy: 85.3, wrong: 11 },
+          { name: 'FRAC ÷', section: 'round', entries: 3, accuracy: 88.0, wrong: 6 },
+          { name: '2d2r', section: 'basics', entries: 8, accuracy: 91.5, wrong: 14 },
+          { name: '1d4r', section: 'basics', entries: 10, accuracy: 94.0, wrong: 12 },
+          { name: 'ADD', section: 'round', entries: 3, accuracy: 96.7, wrong: 3 }
+        ],
+        targets: {
+          measured: 18,
+          met: 14
+        },
+        weekly_tests: [
+          { title: 'Weekly Assessment #11 (Speed Basics)', date: '2026-09-27', category: '1d4r', correct: 19, total: 20, time_seconds: 94 },
+          { title: 'Weekly Assessment #10 (Opening Baseline)', date: '2026-09-20', category: '1d4r', correct: 17, total: 20, time_seconds: 115 }
+        ]
+      };
+    }
+
+    // Default: October 2026 (Current Month Static Sample)
+    return {
+      student: {
+        name: stu.full_name,
+        code: stu.student_code,
+        level: stu.level || 'Level 3'
+      },
+      month_start: `${monthPrefix}-01`,
+      month_end: `${monthPrefix}-31`,
+      days_elapsed: 19,
+      practice: {
+        entries: 96,
+        correct: 1810,
+        total: 1920,
+        accuracy: 94.3,
+        qpm: 19.4,
+        rounds: 4,
+        practice_days: 15
+      },
+      previous: {
+        entries: 84,
+        accuracy: 90.0,
+        qpm: 17.6,
+        practice_days: 19
+      },
+      streak: {
+        current: 8,
+        best: 14
+      },
+      attendance: {
+        present: 6,
+        absent: 1,
+        excused: 1,
+        percent: 85.7
+      },
+      points: 380,
+      weeks: [
+        { week_start: '2026-09-28', entries: 18, accuracy: 92.1 },
+        { week_start: '2026-10-05', entries: 38, accuracy: 94.2 },
+        { week_start: '2026-10-12', entries: 40, accuracy: 95.4 }
+      ],
+      categories: [
+        { name: 'Cube root', section: 'round', entries: 4, accuracy: 85.0, wrong: 12 },
+        { name: 'Approximation', section: 'round', entries: 4, accuracy: 87.5, wrong: 10 },
+        { name: 'Square Root', section: 'round', entries: 4, accuracy: 89.0, wrong: 9 },
+        { name: 'HCF and LCM', section: 'round', entries: 4, accuracy: 92.5, wrong: 6 },
+        { name: '2d2r', section: 'basics', entries: 6, accuracy: 94.0, wrong: 7 },
+        { name: '1d4r', section: 'basics', entries: 8, accuracy: 96.5, wrong: 6 },
+        { name: 'MULT', section: 'round', entries: 4, accuracy: 97.5, wrong: 2 },
+        { name: 'ADD', section: 'round', entries: 4, accuracy: 98.8, wrong: 1 }
+      ],
+      targets: {
+        measured: 14,
+        met: 12
+      },
+      weekly_tests: [
+        { title: 'Weekly Assessment #14 (Speed Basics)', date: '2026-10-18', category: '1d4r', correct: 20, total: 20, time_seconds: 85 },
+        { title: 'Weekly Assessment #13 (Round Core)', date: '2026-10-11', category: '1d4r', correct: 19, total: 20, time_seconds: 90 },
+        { title: 'Weekly Assessment #12 (Mixed Drills)', date: '2026-10-04', category: '1d4r', correct: 18, total: 20, time_seconds: 102 }
+      ]
+    };
   }
 };
+

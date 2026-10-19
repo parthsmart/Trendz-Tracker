@@ -5,21 +5,32 @@
  * 1. Admin-only Route Guard
  * 2. Single call to database RPC public.admin_overview() (or DemoDB.getAdminOverview in demo mode)
  * 3. Calculation of top summary statistics (Active, Entered Today, Not Entered, Avg 7d Accuracy, Longest Streak)
- * 4. "Needs Attention" detection (active students with no entry in >= 3 days)
- * 5. In-browser instant search, level filter, status filter, multi-column sorting
- * 6. 25-row paginated student table with Indian Standard Time dates
+ * 4. Phase 5b: Streak Milestone Alerts via RPC public.admin_milestones(7) with Copy & WhatsApp share actions
+ * 5. "Needs Attention" detection (active students with no entry in >= 3 days)
+ * 6. In-browser instant search, level filter, status filter, multi-column sorting
+ * 7. 25-row paginated student table with Indian Standard Time dates & Monthly Report links
+ * 8. Phase 5b: Weekly Report Email preview modal, manual send, and report_log delivery history
  * 
  * STRICT COMPLIANCE:
- * - Never compute streaks in JavaScript; consume current_streak directly from admin_overview().
+ * - Never compute streaks, points, accuracy, or attendance in JavaScript; consume directly from RPCs.
  * - Never use browser clock for "today"; authoritative Indian Standard Time is used.
  */
 
-import { requireAuth } from './guard.js';
 import { isSupabaseConfigured } from './config.js';
-import { getSupabase, DemoDB } from './supabaseClient.js';
 import { isDemoMode } from './demoDb.js';
-import { setupAdminNav } from './modal.js';
+import { requireAuth } from './guard.js';
+import { setupAdminNav, setupModalListeners, openModal, closeModal } from './modal.js';
+import {
+  fetchAdminMilestones,
+  fetchReportLogs,
+  requestWeeklyReportPreview,
+  requestWeeklyReportSend,
+  buildMilestoneMessage,
+  formatTimestampIST,
+} from './monthlyReportData.js';
 import { getISTDateString, formatDisplayDateIST } from './stats.js';
+import { getSupabase, DemoDB } from './supabaseClient.js';
+import { showToast } from './toast.js';
 
 const PAGE_SIZE = 25;
 
@@ -66,10 +77,16 @@ async function initAdminOverview() {
   if (!profile) return;
 
   setupAdminNav();
+  setupModalListeners();
   renderDemoBanner();
 
-  await loadOverviewData();
   attachEventListeners();
+
+  await Promise.all([
+    loadOverviewData(),
+    loadMilestoneAlerts(),
+    loadReportLogs(),
+  ]);
 }
 
 /**
@@ -94,15 +111,196 @@ function renderDemoBanner() {
 }
 
 /**
+ * Loads Phase 5b Streak Milestones from RPC `admin_milestones(7)`
+ */
+async function loadMilestoneAlerts() {
+  const listEl = document.getElementById('milestone-alerts-list');
+  const countEl = document.getElementById('milestone-alerts-count');
+  if (!listEl) return;
+
+  try {
+    const milestones = await fetchAdminMilestones(7);
+
+    if (countEl) {
+      countEl.textContent = `${milestones.length} milestone${milestones.length === 1 ? '' : 's'} (last 7 days)`;
+    }
+
+    if (!milestones || milestones.length === 0) {
+      listEl.innerHTML = `
+        <div style="font-size: var(--text-sm); color: var(--text-muted); padding: var(--space-2) 0;">
+          No new 25, 50, 100, or 200-day streak milestones reached in the past 7 days.
+        </div>
+      `;
+      return;
+    }
+
+    listEl.innerHTML = `
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: var(--space-3);">
+        ${milestones
+          .map((m, idx) => {
+            const msg = buildMilestoneMessage(m);
+            const waUrl = `https://wa.me/?text=${encodeURIComponent(msg)}`;
+            const milestoneNum = Number(m.milestone || m.current_streak || 25);
+            const curStreak = Number(m.current_streak || milestoneNum);
+            const icon =
+              milestoneNum >= 200
+                ? '👑'
+                : milestoneNum >= 100
+                  ? '💎'
+                  : milestoneNum >= 50
+                    ? '🥇'
+                    : '🥈';
+
+            return `
+              <div style="display: flex; flex-direction: column; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-4); background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md);">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-2);">
+                  <div style="min-width: 0;">
+                    <div style="font-weight: 700; font-size: var(--text-sm);">
+                      <a href="/pages/student-detail.html?id=${encodeURIComponent(m.student_id)}" style="color: var(--color-primary); text-decoration: none;">
+                        ${escapeHtml(m.full_name)}
+                      </a>
+                    </div>
+                    <div style="font-size: var(--text-xs); color: var(--text-muted); display: flex; gap: 4px; align-items: center; margin-top: 2px;">
+                      <span class="num">${escapeHtml(m.student_code)}</span>
+                      <span aria-hidden="true">·</span>
+                      <span>${escapeHtml(m.level || 'Unassigned')}</span>
+                    </div>
+                  </div>
+                  <div style="text-align: right; white-space: nowrap;">
+                    <div style="font-weight: 800; font-size: var(--text-sm); color: var(--text-main);">
+                      ${icon} ${milestoneNum}-Day Milestone
+                    </div>
+                    <div style="font-size: 11px; color: #f97316; font-weight: 600;">
+                      🔥 ${curStreak}d current streak
+                    </div>
+                  </div>
+                </div>
+
+                <div style="display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); border-top: 1px solid var(--border-hairline); padding-top: var(--space-2);">
+                  <button
+                    type="button"
+                    class="btn btn-outline btn-sm btn-copy-milestone"
+                    data-milestone-idx="${idx}"
+                    style="font-size: 11px; padding: 4px 10px;"
+                  >
+                    Copy Message
+                  </button>
+                  <a
+                    href="${waUrl}"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="btn btn-primary btn-sm"
+                    style="font-size: 11px; padding: 4px 10px; text-decoration: none;"
+                  >
+                    WhatsApp &nearr;
+                  </a>
+                </div>
+              </div>
+            `;
+          })
+          .join('')}
+      </div>
+    `;
+
+    // Attach copy handlers
+    listEl.querySelectorAll('.btn-copy-milestone').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const idx = Number(btn.getAttribute('data-milestone-idx'));
+        const item = milestones[idx];
+        if (!item) return;
+        const text = buildMilestoneMessage(item);
+        try {
+          await navigator.clipboard.writeText(text);
+          showToast('success', `Copied congratulatory message for ${item.full_name}`);
+        } catch {
+          showToast('info', text);
+        }
+      });
+    });
+  } catch (err) {
+    console.warn('Could not load admin milestones:', err);
+    if (countEl) countEl.textContent = 'Unavailable';
+    listEl.innerHTML = `
+      <div style="font-size: var(--text-xs); color: var(--text-muted);">
+        Could not load milestone alerts: ${escapeHtml(err.message || 'Unknown error')}
+      </div>
+    `;
+  }
+}
+
+/**
+ * Loads Phase 5b Weekly Report Delivery History (`report_log`)
+ */
+async function loadReportLogs() {
+  const tbody = document.getElementById('report-log-table-body');
+  if (!tbody) return;
+
+  try {
+    const logs = await fetchReportLogs(10);
+
+    if (!logs || logs.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6" style="text-align: center; color: var(--text-muted); padding: var(--space-5);">
+            No weekly reports have been logged yet. Click <strong>Preview Weekly Report</strong> or <strong>Send Report Now</strong> above.
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    tbody.innerHTML = logs
+      .map((row) => {
+        const weekStr = row.week_start ? formatDisplayDateIST(row.week_start) : '—';
+        const kindLabel = row.kind === 'cron' ? 'Scheduled (Cron)' : 'Manual (Admin)';
+        const status = String(row.status || 'sending').toLowerCase();
+
+        let statusHtml = `<span style="color: var(--text-muted); font-weight: 600;">⏳ Sending</span>`;
+        if (status === 'sent') {
+          statusHtml = `<span style="color: var(--color-score-perfect); font-weight: 700;">✓ Sent</span>`;
+        } else if (status === 'failed') {
+          statusHtml = `<span style="color: var(--color-danger); font-weight: 700;">✕ Failed</span>`;
+        }
+
+        const timeStr = formatTimestampIST(row.finished_at || row.created_at);
+        const detailStr = row.error
+          ? `<span style="color: var(--color-danger); font-size: var(--text-xs);">${escapeHtml(row.error)}</span>`
+          : `<span style="color: var(--text-muted); font-size: var(--text-xs);">Delivered</span>`;
+
+        return `
+          <tr>
+            <td class="num" style="font-weight: 600;">${escapeHtml(weekStr)}</td>
+            <td style="font-size: var(--text-xs); color: var(--text-muted);">${escapeHtml(kindLabel)}</td>
+            <td>${statusHtml}</td>
+            <td class="num" style="font-size: var(--text-xs); color: var(--text-muted);">${escapeHtml(row.to_email || '—')}</td>
+            <td class="num" style="font-size: var(--text-xs); color: var(--text-muted);">${escapeHtml(timeStr)}</td>
+            <td>${detailStr}</td>
+          </tr>
+        `;
+      })
+      .join('');
+  } catch (err) {
+    console.warn('Could not load report_log:', err);
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" style="color: var(--text-muted); font-size: var(--text-xs); padding: var(--space-4);">
+          Could not load report history: ${escapeHtml(err.message || 'Check database connection.')}
+        </td>
+      </tr>
+    `;
+  }
+}
+
+/**
  * Fetches overview data from RPC admin_overview() once per page load
  */
 async function loadOverviewData() {
   const tbody = document.getElementById('overview-table-body');
   if (tbody) {
     tbody.innerHTML = `
-      <tr><td colspan="8"><div class="skeleton-row"></div></td></tr>
-      <tr><td colspan="8"><div class="skeleton-row"></div></td></tr>
-      <tr><td colspan="8"><div class="skeleton-row"></div></td></tr>
+      <tr><td colspan="9"><div class="skeleton-row"></div></td></tr>
+      <tr><td colspan="9"><div class="skeleton-row"></div></td></tr>
+      <tr><td colspan="9"><div class="skeleton-row"></div></td></tr>
     `;
   }
 
@@ -356,7 +554,7 @@ function renderTable() {
   if (pageRows.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="8" class="empty-state-cell">
+        <td colspan="9" class="empty-state-cell">
           <div class="empty-state" style="padding: var(--space-8) var(--space-4);">
             <div class="empty-state-icon" aria-hidden="true">🔍</div>
             <h3 class="empty-state-title">No students match your filter</h3>
@@ -423,13 +621,79 @@ function renderTable() {
         <td class="num" style="text-align: right; font-weight: 600; color: ${student.accuracy_7d && student.accuracy_7d >= 90 ? 'var(--color-accent-text)' : 'inherit'};">
           ${accStr}
         </td>
+        <td style="text-align: right;">
+          <a
+            href="/pages/monthly-report.html?id=${encodeURIComponent(student.student_id)}"
+            style="font-size: var(--text-xs); font-weight: 600; color: var(--color-primary); text-decoration: none;"
+          >
+            Monthly &rarr;
+          </a>
+        </td>
       </tr>
     `;
   }).join('');
 }
 
 /**
- * Attaches search, filter, sort, and pagination listeners
+ * Handles opening the Weekly Report Preview modal
+ */
+async function handlePreviewWeeklyReport(triggerBtn) {
+  const origLabel = triggerBtn ? triggerBtn.textContent : 'Preview Weekly Report';
+  if (triggerBtn) {
+    triggerBtn.disabled = true;
+    triggerBtn.textContent = 'Loading Preview...';
+  }
+
+  try {
+    const preview = await requestWeeklyReportPreview();
+
+    const subjEl = document.getElementById('preview-report-subject');
+    const iframeEl = document.getElementById('preview-report-iframe');
+    const textEl = document.getElementById('preview-report-text');
+
+    if (subjEl) subjEl.textContent = preview.subject || 'Trendz Tracker weekly report';
+    if (iframeEl) iframeEl.srcdoc = preview.html || '';
+    if (textEl) textEl.textContent = preview.text || '';
+
+    openModal('weekly-report-preview-modal', triggerBtn);
+  } catch (err) {
+    showToast('error', err.message || 'Could not preview weekly report.');
+  } finally {
+    if (triggerBtn) {
+      triggerBtn.disabled = false;
+      triggerBtn.textContent = origLabel;
+    }
+  }
+}
+
+/**
+ * Handles manually sending the Weekly Report email
+ */
+async function handleSendWeeklyReport(triggerBtn) {
+  const origLabel = triggerBtn ? triggerBtn.textContent : 'Send Report Now';
+  if (triggerBtn) {
+    triggerBtn.disabled = true;
+    triggerBtn.textContent = 'Sending...';
+  }
+
+  try {
+    await requestWeeklyReportSend();
+    showToast('success', 'Weekly report email sent successfully.');
+    closeModal('weekly-report-preview-modal');
+    await loadReportLogs();
+  } catch (err) {
+    showToast('error', err.message || 'Failed to send weekly report email.');
+    await loadReportLogs();
+  } finally {
+    if (triggerBtn) {
+      triggerBtn.disabled = false;
+      triggerBtn.textContent = origLabel;
+    }
+  }
+}
+
+/**
+ * Attaches search, filter, sort, pagination, and weekly report listeners
  */
 function attachEventListeners() {
   // Search input
@@ -502,6 +766,44 @@ function attachEventListeners() {
     btnNext.addEventListener('click', () => {
       currentPage++;
       renderTable();
+    });
+  }
+
+  // Weekly Report Preview & Send actions
+  const btnPreview = document.getElementById('btn-preview-weekly-report');
+  if (btnPreview) {
+    btnPreview.addEventListener('click', () => handlePreviewWeeklyReport(btnPreview));
+  }
+
+  const btnSend = document.getElementById('btn-send-weekly-report');
+  if (btnSend) {
+    btnSend.addEventListener('click', () => handleSendWeeklyReport(btnSend));
+  }
+
+  const btnModalSend = document.getElementById('btn-modal-send-weekly-report');
+  if (btnModalSend) {
+    btnModalSend.addEventListener('click', () => handleSendWeeklyReport(btnModalSend));
+  }
+
+  // HTML vs Plain Text toggle in preview modal
+  const btnModeHtml = document.getElementById('btn-preview-mode-html');
+  const btnModeText = document.getElementById('btn-preview-mode-text');
+  const htmlWrap = document.getElementById('preview-html-wrapper');
+  const textWrap = document.getElementById('preview-report-text');
+
+  if (btnModeHtml && btnModeText && htmlWrap && textWrap) {
+    btnModeHtml.addEventListener('click', () => {
+      btnModeHtml.classList.add('active');
+      btnModeText.classList.remove('active');
+      htmlWrap.style.display = 'block';
+      textWrap.style.display = 'none';
+    });
+
+    btnModeText.addEventListener('click', () => {
+      btnModeText.classList.add('active');
+      btnModeHtml.classList.remove('active');
+      htmlWrap.style.display = 'none';
+      textWrap.style.display = 'block';
     });
   }
 }

@@ -25,6 +25,8 @@
             <a href="/pages/student.html" class="nav-link active">Home</a>
             <a href="/pages/round-scores.html" class="nav-link">Round Scores</a>
             <a href="/pages/basics.html" class="nav-link">Basics</a>
+            <a href="/pages/leaderboard.html" class="nav-link">Leaderboard</a>
+            <a href="/pages/monthly-report.html" class="nav-link">Monthly Report</a>
           </nav>
 
           <!-- Zone 3: User Details & Logout Action -->
@@ -90,6 +92,17 @@
                         <span>Enter Basics</span>
                       </h3>
                       <p style="font-size: 11px;">Log mental speed calculation drills (1d4r, 2d2r digits and rows).</p>
+                    </div>
+                    <span class="action-card-arrow" aria-hidden="true">&rarr;</span>
+                  </a>
+
+                  <a href="/pages/monthly-report.html" class="action-card-btn" style="padding: var(--space-3);" aria-label="View monthly report">
+                    <div class="action-card-content">
+                      <h3 style="font-size: var(--text-sm);">
+                        <span>📊</span>
+                        <span>Monthly Progress Report</span>
+                      </h3>
+                      <p style="font-size: 11px;">View your monthly accuracy, speed (QPM), attendance, and test scores.</p>
                     </div>
                     <span class="action-card-arrow" aria-hidden="true">&rarr;</span>
                   </a>
@@ -233,6 +246,24 @@
               </div>
               <div class="card-body" id="weekly-tests-card-container">
                 <div class="loading-state">Loading weekly test scores...</div>
+              </div>
+            </section>
+
+            <!-- Leaderboard Card (Phase 5a) -->
+            <section class="card" aria-labelledby="leaderboard-card-heading">
+              <div class="card-header">
+                <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                  <h2 id="leaderboard-card-heading" class="card-title" style="display: flex; align-items: center; gap: 6px;">
+                    <span aria-hidden="true">🏅</span>
+                    <span>Leaderboard</span>
+                  </h2>
+                  <a href="/pages/leaderboard.html" style="font-size: var(--text-xs); font-weight: 600; color: var(--color-primary); text-decoration: none;">
+                    Full Board &rarr;
+                  </a>
+                </div>
+              </div>
+              <div class="card-body" id="leaderboard-card-container">
+                <div class="loading-state">Loading leaderboard...</div>
               </div>
             </section>
 
