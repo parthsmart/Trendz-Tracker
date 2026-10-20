@@ -8,6 +8,39 @@
 
 ## Current Status Overview
 
+### Session: 2026-10-20 (Phase 9b-1 — Memoriad-Style Competition Practice: Shared Desktop Stage, Mental Calendar Dates & Mental Additions)
+
+#### 5-Line Session Summary
+- Built the pure server-side module `api/_memoriad.js` (`defaultRng` via `crypto.randomInt`, Gregorian leap-year/weekday helpers, `calendar` generator for 25–125 distinct dates in `1600..2099`, `additions` generator for 10 questions of ten 10-digit numbers summed with `BigInt`, evaluators, and plausibility speed gates) and the serverless endpoint `/api/memoriad.js` (`start` with 60/hr rate limit and 3h expiry stripping expected answers, `submit` computing `used_seconds`, atomic session claim, and `activity_results` insertion via service role).
+- Extended `js/competitionKeys.js` with `'unstep'` (`'/'` and `NumpadDivide`) and created five pure, DOM-free client modules: `js/answerSlots.js` (11-slot `'rtl'`/`'ltr'` cursor, backspace, and gap compacting), `js/columnHighlight.js` (1- or 2-column step highlight in `'rtl'`/`'ltr'`), `js/calendarKeys.js` (`dayForKey` mapping `0..7`), `js/memoriadFormat.js` (date and weekday label formatting), and `js/memoriadStats.js` (best score per module, Calendar grouping by date count, last 5 tries, and weekly IST tries).
+- Created `/pages/memoriad.html` (`js/memoriad.js`) displaying the 4 competition module cards (`Mental Calendar Dates`, `Mental Additions`, plus `Mental Multiplications` and `Mental Square Roots` marked `"Coming soon"`), personal bests, and last 5 tries in India time.
+- Created `/pages/memoriad-play.html` (`js/memoriadPlay.js`) with a `< 1000px` desktop-keyboard guard, persistent `localStorage` settings, hidden-nav Concentration countdown, 1280×800 no-scroll competition stages for Calendar and Additions (with Fullscreen, Exit confirmation, upward timer, and full keyboard shortcuts), and a Results screen with 2-decimal used time, question-by-question review, and `"Try sending again"` network-failure recovery.
+- Added the shared dashboard card `js/memoriadCard.js` to `/pages/student.html` and `/pages/student-detail.html` (read-only for admins), added `'memoriad'` to Daily To-Do setup and student checklists, registered both pages in `vite.config.ts` and student navigation bars, added 6 new unit test files (`tests/memoriadServer.test.js`, `tests/answerSlots.test.js`, `tests/columnHighlight.test.js`, `tests/calendarKeys.test.js`, `tests/memoriadFormat.test.js`, `tests/memoriadStats.test.js`), and updated `DECISIONS.md` (ADR-035), `DATA.md`, `THREAT.md`, `TESTING.md`, and `HANDOVER.md`.
+
+---
+
+### Session: 2026-10-20 (Phase 8c — Elements Worksheet Keyboard Shortcuts, Shared Competition Key Module & Active-Question Highlight)
+
+#### 5-Line Session Summary
+- Created the pure, DOM-free shared keyboard shortcut module `js/competitionKeys.js` (`keyAction(eventLike)`) mapping `+`/`NumpadAdd` to `'next'`, `-`/`−` (`\u2212`)/`NumpadSubtract` to `'previous'`, and `*`/`NumpadMultiply` to `'step'`, while returning `null` whenever `ctrlKey`, `altKey`, or `metaKey` is active.
+- Added unit tests in `tests/competitionKeys.test.js` (`node --test`) verifying numpad keys, standard keys, Unicode minus (`−`), modifier keys (`Ctrl`, `Alt`, `Meta`), and non-matching keys returning `null`.
+- Updated `js/elementDrill.js` so pressing `+` moves focus to the next question's input and `-` moves to the previous one (with `preventDefault()` so no character is inserted, and no wrap-around at the first/last question), while ignoring `'step'` (`*`) so Prime Factors drills continue to accept `*`, and keeping `Enter`, `Tab`, and arrow keys intact.
+- Added an accessible active-question highlight on `/pages/element-drill.html` (coloured background + thicker border, not colour alone) that smoothly scrolls the focused question into view, controlled by a `"Highlight the active question"` toggle (default ON, persisted in `localStorage` inside `try/catch`).
+- Added the one-line hint `"Numpad: + next question, - previous question"` under the timer, added touch-device `Previous` and `Next` buttons next to the timer, and documented the shared module design and test steps in `docs/DECISIONS.md` (ADR-034), `docs/TESTING.md` (Test Cases 48–49), and `docs/HANDOVER.md`.
+
+---
+
+### Session: 2026-10-20 (Phase 9a — Online Basics Practice One Question at a Time, Category-Name Generators & Locked Site Results)
+
+#### 5-Line Session Summary
+- Extended `api/_drills.js` with pure category-name-driven Basics question generators (`parseBasicsCategoryName`, `generateBasicsSet`, `stripBasicsExpected`, `checkSubmission`) supporting `<N>d<R>r` ($N \in [1, 4], R \in [2, 10]$, 40% subtraction probability, non-negative running total, no equal adjacent numbers), `<A>dx<B>d` (`1d` factors in $2..9$), and `<A>d/<B>d` (exact $A$-digit dividend with `1d` divisors in $2..9$).
+- Extended `POST /api/drill` (`api/drill.js`) with `{ action: 'start', kind: 'basics', category_id, questions }` (validating active Basics category, 60 sets/hr rate limit, 30m expiry, returning `{ session_id, title, questions, target }` without expected answers) and `submit` (minimum speed `questions * 0.6s`, atomic claim, `today_ist()` RPC, inserting `results` with `source = 'site'` and `verified = true`, and linking `drill_sessions.result_row_id`).
+- Built the pure one-question-at-a-time player `js/drillPlayer.js` (order, skipping, revisiting skipped items at the end of pass 1, `null` for unanswered, idempotent `finish()`) and pure stats module `js/practiceStats.js` (`bestResult`, `bestByCategoryAndCount`, `setsThisWeek` in IST).
+- Created `/pages/basics-practice.html` (`js/basicsPractice.js`, registered in `vite.config.ts`) with setup (5 / 10 / 20 questions, level target, personal best), vertical/horizontal question display with count-up stopwatch, and results review reading `meets_target` from `results_with_target`, plus `"Practice online"` buttons on `/pages/basics.html` and Today's To-Do, and `"Recorded by the site"` (`source = 'site'`, locked) vs `"Typed"` (`source = 'typed'`) chips across Basics, Student Home, `/pages/review.html`, and `/pages/student-detail.html`.
+- Added unit tests in `tests/drills.test.js` (300 seeded sets per generator, category name recognition, and `checkSubmission` edge cases), `tests/drillPlayer.test.js`, and `tests/practiceStats.test.js` (all 113 unit tests pass via `node --test tests/*.test.js`), and updated `HANDOVER.md`, `DECISIONS.md` (ADR-033), `DATA.md`, `THREAT.md`, and `TESTING.md`.
+
+---
+
 ### Session: 2026-10-19 (Phase 7b — Simplify Flash Anzan to One Question Per Try, Pure Timeline & Per-Settings Stats)
 
 #### 5-Line Session Summary

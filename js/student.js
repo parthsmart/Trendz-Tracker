@@ -27,6 +27,7 @@ import {
 } from './dashboardComponents.js';
 import { loadAndRenderLeaderboardCard } from './leaderboardCard.js';
 import { renderElementsCard } from './elementsCard.js';
+import { renderMemoriadCard } from './memoriadCard.js';
 
 async function initStudentDashboard() {
   // 1. Guard check: Strictly for logged-in students (or admin viewing their own student record).
@@ -61,7 +62,7 @@ async function initStudentDashboard() {
     renderStreakCard(data.streak);
 
     // Today's To-Do List (isReadOnly = false -> active score-entry action links)
-    renderTodoList(data.todos, 'todo-list-container', false);
+    renderTodoList(data.todos, 'todo-list-container', false, data.categories);
 
     // Basics This Week
     renderBasicsThisWeek(data.results, data.categories, data.todayIST);
@@ -73,6 +74,15 @@ async function initStudentDashboard() {
     await renderElementsCard({
       studentId: currentStudentId,
       containerId: 'elements-week-container',
+      isReadOnly: false,
+      todayIST: data.todayIST,
+      preloadedResults: data.activityResults
+    });
+
+    // Memoriad Competition Practice Card (Phase 9b-1)
+    await renderMemoriadCard({
+      studentId: currentStudentId,
+      containerId: 'memoriad-week-container',
       isReadOnly: false,
       todayIST: data.todayIST,
       preloadedResults: data.activityResults

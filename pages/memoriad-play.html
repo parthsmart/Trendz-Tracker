@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Competition Practice Stage - Trendz Tracker</title>
+    <meta
+      name="description"
+      content="Desktop competition practice stage for Mental Calendar Dates and Mental Additions on Trendz Tracker."
+    />
+    <meta property="og:title" content="Competition Practice Stage - Trendz Tracker" />
+    <meta
+      property="og:description"
+      content="Desktop competition practice stage for Mental Calendar Dates and Mental Additions on Trendz Tracker."
+    />
+    <link rel="stylesheet" href="/css/style.css" />
+    <style>
+      /* Viewport notice for screens narrower than 1000 px */
+      .memoriad-narrow-guard {
+        display: none;
+        max-width: 560px;
+        margin: var(--space-8) auto;
+        padding: var(--space-6);
+        background: var(--bg-surface);
+        border: 2px solid var(--border-strong);
+        border-radius: var(--radius-lg);
+        text-align: center;
+      }
+
+      @media (max-width: 999px) {
+        .memoriad-narrow-guard {
+          display: block;
+        }
+        #memoriad-desktop-app {
+          display: none !important;
+        }
+      }
+
+      /* Hide site header when stage/concentration mode is active */
+      body.memoriad-stage-mode .app-header {
+        display: none !important;
+      }
+
+      body.memoriad-stage-mode .main-content {
+        padding: 0 !important;
+      }
+
+      /* Competition Stage Shell: fits 1280x800 without page scrolling */
+      .comp-stage-shell {
+        height: 100vh;
+        max-height: 100vh;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        background: var(--bg-app);
+        overflow: hidden;
+        user-select: none;
+      }
+
+      .comp-stage-topbar {
+        height: 58px;
+        min-height: 58px;
+        padding: 0 var(--space-5);
+        background: var(--bg-surface);
+        border-bottom: 2px solid var(--border-subtle);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-4);
+      }
+
+      .comp-timer-display {
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+        font-size: 1.55rem;
+        font-weight: 800;
+        color: var(--color-primary);
+        padding: 4px 12px;
+        border-radius: var(--radius-md);
+        background: var(--color-primary-subtle);
+        border: 1px solid var(--color-primary);
+        min-width: 104px;
+        text-align: center;
+      }
+
+      .comp-stage-body {
+        flex: 1;
+        min-height: 0;
+        padding: var(--space-4) var(--space-5);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      /* Concentration Screen */
+      .comp-concentration-screen {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        background: var(--bg-surface);
+        border: 2px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        padding: var(--space-6);
+      }
+
+      .comp-concentration-digits {
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+        font-size: 6rem;
+        line-height: 1;
+        font-weight: 900;
+        color: var(--color-primary);
+        margin: var(--space-4) 0;
+      }
+
+      /* Calendar Stage Layout: 3-column list + center active panel */
+      .calendar-stage-layout {
+        flex: 1;
+        min-height: 0;
+        display: grid;
+        grid-template-columns: 1.25fr 1fr;
+        gap: var(--space-4);
+      }
+
+      .calendar-list-panel {
+        background: var(--bg-surface);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        padding: var(--space-3);
+        overflow-y: auto;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
+        align-content: start;
+      }
+
+      .calendar-list-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        padding: 6px 8px;
+        border: 1px solid var(--border-hairline);
+        border-radius: var(--radius-sm);
+        background: var(--bg-surface-subtle);
+        cursor: pointer;
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+        font-size: 12px;
+        transition: background-color 0.1s ease, border-color 0.1s ease;
+      }
+
+      .calendar-list-item:hover {
+        border-color: var(--color-primary);
+      }
+
+      .calendar-list-item.is-answered {
+        background: var(--bg-surface);
+        border-color: var(--border-strong);
+      }
+
+      .calendar-list-item.is-active-highlight {
+        background: var(--color-primary-subtle);
+        border: 2px solid var(--color-primary);
+        border-left: 5px solid var(--color-primary);
+        font-weight: 800;
+        box-shadow: 0 1px 6px rgba(37, 99, 235, 0.16);
+      }
+
+      .calendar-active-panel {
+        background: var(--bg-surface);
+        border: 2px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        padding: var(--space-5);
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+
+      .calendar-active-date {
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+        font-size: 3.1rem;
+        font-weight: 900;
+        letter-spacing: 0.03em;
+        color: var(--text-main);
+        text-align: center;
+        padding: var(--space-5) var(--space-3);
+        background: var(--bg-surface-subtle);
+        border: 2px solid var(--border-strong);
+        border-radius: var(--radius-lg);
+        margin: var(--space-3) 0;
+      }
+
+      .calendar-day-buttons {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 8px;
+      }
+
+      .calendar-day-btn {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 12px 4px;
+        border: 2px solid var(--border-strong);
+        border-radius: var(--radius-md);
+        background: var(--bg-surface);
+        color: var(--text-main);
+        font-weight: 800;
+        font-size: var(--text-sm);
+        cursor: pointer;
+        transition: transform 0.06s ease, background-color 0.1s ease, border-color 0.1s ease;
+      }
+
+      .calendar-day-btn:hover {
+        background: var(--color-primary-subtle);
+        border-color: var(--color-primary);
+      }
+
+      .calendar-day-btn.is-selected {
+        background: var(--color-primary);
+        border-color: var(--color-primary);
+        color: #ffffff;
+      }
+
+      .calendar-day-btn-key {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 700;
+        opacity: 0.82;
+        margin-top: 3px;
+      }
+
+      /* Additions Stage Layout: 5x2 overview grid + active question workbench */
+      .additions-stage-layout {
+        flex: 1;
+        min-height: 0;
+        display: grid;
+        grid-template-columns: 1.35fr 1fr;
+        gap: var(--space-4);
+      }
+
+      .additions-overview-grid {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        grid-template-rows: repeat(2, 1fr);
+        gap: 8px;
+        min-height: 0;
+      }
+
+      .additions-mini-card {
+        background: var(--bg-surface);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-md);
+        padding: 6px 8px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        cursor: pointer;
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+        overflow: hidden;
+      }
+
+      .additions-mini-card:hover {
+        border-color: var(--color-primary);
+      }
+
+      .additions-mini-card.is-active {
+        background: var(--color-primary-subtle);
+        border: 2px solid var(--color-primary);
+        border-top: 5px solid var(--color-primary);
+        box-shadow: 0 2px 8px rgba(37, 99, 235, 0.16);
+      }
+
+      .additions-mini-rows {
+        font-size: 11px;
+        line-height: 1.24;
+        color: var(--text-muted);
+        text-align: right;
+        letter-spacing: 0.04em;
+      }
+
+      .additions-mini-answer {
+        margin-top: 4px;
+        padding-top: 4px;
+        border-top: 1px solid var(--border-strong);
+        font-size: 12px;
+        font-weight: 800;
+        color: var(--text-main);
+        text-align: right;
+        min-height: 20px;
+      }
+
+      .additions-workbench {
+        background: var(--bg-surface);
+        border: 2px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        padding: var(--space-4);
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        min-height: 0;
+      }
+
+      .additions-matrix {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: var(--bg-surface-subtle);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-md);
+        padding: var(--space-3) var(--space-4);
+      }
+
+      .additions-matrix-row {
+        display: grid;
+        grid-template-columns: 32px repeat(10, 28px);
+        gap: 3px;
+        align-items: center;
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+        font-size: 1.35rem;
+        line-height: 1.32;
+        font-weight: 700;
+      }
+
+      .additions-row-idx {
+        font-size: 11px;
+        color: var(--text-dim);
+        text-align: right;
+        padding-right: 6px;
+      }
+
+      .additions-digit-cell {
+        text-align: center;
+        border-radius: 4px;
+        padding: 1px 0;
+        color: var(--text-main);
+      }
+
+      .additions-digit-cell.is-col-highlighted {
+        background: var(--color-primary-subtle);
+        color: var(--color-primary);
+        font-weight: 900;
+        outline: 1px solid var(--color-primary);
+      }
+
+      .additions-slots-row {
+        display: grid;
+        grid-template-columns: repeat(11, 30px);
+        gap: 4px;
+        justify-content: center;
+        margin-top: var(--space-3);
+        padding-top: var(--space-3);
+        border-top: 2px solid var(--text-main);
+      }
+
+      .additions-slot-box {
+        height: 40px;
+        border: 2px solid var(--border-strong);
+        border-radius: var(--radius-sm);
+        background: var(--bg-surface);
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+        font-size: 1.35rem;
+        font-weight: 800;
+        color: var(--text-main);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+      }
+
+      .additions-slot-box.is-cursor {
+        background: var(--color-primary-subtle);
+        border-color: var(--color-primary);
+        border-bottom-width: 5px;
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- Top Bar Contract: 3-Zone Navigation (hidden during Concentration & Stage) -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <a href="/pages/student.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <nav class="nav-zone" aria-label="Student Navigation">
+            <a href="/pages/student.html" class="nav-link">Home</a>
+            <a href="/pages/round-scores.html" class="nav-link">Round Scores</a>
+            <a href="/pages/basics.html" class="nav-link">Basics</a>
+            <a href="/pages/flash.html" class="nav-link">Flash Anzan</a>
+            <a href="/pages/elements.html" class="nav-link">Elements</a>
+            <a href="/pages/memoriad.html" class="nav-link active" aria-current="page">Memoriad</a>
+            <a href="/pages/leaderboard.html" class="nav-link">Leaderboard</a>
+            <a href="/pages/monthly-report.html" class="nav-link">Monthly Report</a>
+          </nav>
+
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Student</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-code" class="num" style="color: var(--text-muted);">STU</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main class="main-content">
+        <!-- Narrow Viewport Friendly Message (< 1000 px) -->
+        <div class="memoriad-narrow-guard" role="region" aria-label="Desktop keyboard required">
+          <div style="font-size: 2.25rem; margin-bottom: var(--space-3);" aria-hidden="true">⌨️</div>
+          <h1 style="font-size: 1.35rem; margin-bottom: var(--space-2);">
+            Use a laptop or desktop with a keyboard for this practice
+          </h1>
+          <p style="font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-4);">
+            The Memoriad competition stage requires at least a 1000&nbsp;px screen and a physical keyboard for high-speed numerical entry.
+          </p>
+          <a href="/pages/memoriad.html" class="btn btn-primary" style="text-decoration: none;">
+            &larr; Back to Memoriad
+          </a>
+        </div>
+
+        <!-- Desktop Competition App Root -->
+        <div id="memoriad-desktop-app">
+          <div class="container" id="memoriad-normal-container">
+            <div id="config-banner-placeholder"></div>
+            <div id="memoriad-view-root">
+              <div class="loading-state" style="padding: var(--space-6);">
+                Loading competition module settings...
+              </div>
+            </div>
+          </div>
+
+          <!-- Full-Viewport Stage Container (used during Concentration & Stage) -->
+          <div id="memoriad-stage-root" style="display: none;"></div>
+        </div>
+      </main>
+    </div>
+
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <script type="module" src="/js/memoriadPlay.js"></script>
+  </body>
+</html>

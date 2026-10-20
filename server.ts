@@ -13,6 +13,7 @@ import supabaseProxyHandler from './api/supabase-proxy.js';
 import weeklyReportHandler from './api/weekly-report.js';
 import backupHandler from './api/backup.js';
 import drillHandler from './api/drill.js';
+import memoriadHandler from './api/memoriad.js';
 import { getSupabaseServerConfig } from './api/_configHelper.js';
 
 dotenv.config();
@@ -38,30 +39,27 @@ app.get('/api/config', (req, res) => {
   }
 });
 
+function safeHandler(fn: (req: express.Request, res: express.Response) => unknown) {
+  return (req: express.Request, res: express.Response) => {
+    Promise.resolve(fn(req, res)).catch((err) => {
+      if (!res.headersSent) {
+        const status = Number(err?.statusCode) || 500;
+        res.status(status).json({
+          error: err?.message || 'An unexpected server error occurred.',
+        });
+      }
+    });
+  };
+}
+
 // Mount the serverless API routes locally
-app.post('/api/create-student', (req, res) => {
-  return createStudentHandler(req, res);
-});
-
-app.post('/api/reset-password', (req, res) => {
-  return resetPasswordHandler(req, res);
-});
-
-app.all('/api/supabase-proxy', (req, res) => {
-  return supabaseProxyHandler(req, res);
-});
-
-app.all('/api/weekly-report', (req, res) => {
-  return weeklyReportHandler(req, res);
-});
-
-app.all('/api/backup', (req, res) => {
-  return backupHandler(req, res);
-});
-
-app.all('/api/drill', (req, res) => {
-  return drillHandler(req, res);
-});
+app.post('/api/create-student', safeHandler(createStudentHandler));
+app.post('/api/reset-password', safeHandler(resetPasswordHandler));
+app.all('/api/supabase-proxy', safeHandler(supabaseProxyHandler));
+app.all('/api/weekly-report', safeHandler(weeklyReportHandler));
+app.all('/api/backup', safeHandler(backupHandler));
+app.all('/api/drill', safeHandler(drillHandler));
+app.all(['/api/memoriad', '/api/memoriad.js'], safeHandler(memoriadHandler));
 
 async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';

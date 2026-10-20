@@ -20,7 +20,7 @@
  * - Never logs answers, tokens, or keys.
  */
 
-import { getAdminClient, verifyStudentCaller } from './_supabaseAdmin.js';
+import { getDrillServerClient, verifyStudentCaller } from './_supabaseAdmin.js';
 import {
   DRILLS,
   BASICS_QUESTION_COUNTS,
@@ -105,7 +105,7 @@ export default async function handler(req, res) {
 
   let adminSupabase;
   try {
-    adminSupabase = getAdminClient();
+    adminSupabase = getDrillServerClient(student);
   } catch {
     return res.status(500).json({
       error: 'Server database configuration is missing. Please contact your teacher.',

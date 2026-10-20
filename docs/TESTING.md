@@ -888,4 +888,92 @@ This document contains step-by-step test scenarios to verify security boundaries
   - Every completed try saves 1 question (`total = 1`, `correct = 1 | 0`) via `flash_submit`, while legacy multi-question rows display `"n of m correct"` in history and count accurately toward `statsByKey` (`sum(correct) / sum(total)`).
   - The shared Flash Anzan card displays **Tries This Week**, **Correct This Week**, and **Most-Practised Settings** with its success rate.
 
+---
+
+## Phase 9a Test Cases (Online Basics Practice One Question at a Time)
+
+### Test Case 46: Automated Unit Test Suite for Phase 9a (`tests/drills.test.js`, `tests/drillPlayer.test.js`, `tests/practiceStats.test.js`)
+- **Action**:
+  1. Run `node --test tests/*.test.js` in the terminal.
+- **Expected Result**:
+  - All 113 unit tests across 26 suites pass (`0 fail`).
+  - `tests/drills.test.js` verifies:
+    - Category name recognition for `1d4r`, `2D2R`, `2d 4r`, `1dx1d`, `2dX1d`, `2d*1d`, `2d×1d`, `3d/1d`, `3d÷1d`, `2d / 1d`, and rejection of `"weird"`, `"0d3r"`, `"9d9r"`, `"1d/2d"`, and inactive categories.
+    - 300 seeded sets for each of `1d4r`, `2d2r`, and `2d4r` verifying row count, digit range, positive first row, non-negative running total at every step, no equal adjacent numbers, and exact expected sum.
+    - 100 seeded sets for `1dx1d` and `2dx1d` verifying factor ranges (`2..9` for 1-digit factors) and exact products.
+    - 100 seeded sets for `2d/1d` and `3d/1d` verifying exact division, dividend digit count, divisor in `2..9`, and exact quotient.
+    - Pure `checkSubmission(session, answers, now)` verifying correct/skipped/wrong/blank/spaced/comma answers, rejection of already-submitted, expired, wrong answer-count, too-long (`> 20` chars), and too-fast (`elapsed < questions * 0.6s`) submissions, and start response stripping of expected answers.
+  - `tests/drillPlayer.test.js` verifies question order, skipping and revisiting skipped questions at the end of pass 1, building the `answers` array with `null` for unanswered items, and idempotent `finish()`.
+  - `tests/practiceStats.test.js` verifies `bestResult` (highest accuracy first, then shorter time), `setsThisWeek` in Indian Standard Time (`Asia/Kolkata`), and empty data handling.
+
+### Test Case 47: End-to-End Online Basics Practice Flow & `"Recorded by the site"` Provenance (`/pages/basics.html`, `/pages/basics-practice.html`)
+- **Action**:
+  1. Log in as a Student (`STU101` / `pass123`) and navigate to **Basics** (`/pages/basics.html`) or inspect the **Today's To-Do** card on `/pages/student.html`.
+  2. Click **Practice online** for `1d4r` (or `2d2r`) to open `/pages/basics-practice.html?cat=<category_id>`.
+  3. On the Setup screen, switch between `5`, `10`, and `20` questions and verify the student's level target and Personal Best update. Select `5 Questions` and click **Start Practice**.
+  4. Solve questions one at a time using `Enter` / **Next →** and **Skip** (verifying that skipped questions are revisited before finishing and that no Back button is shown).
+  5. Inspect the Results screen, then click **Back to basics** (`/pages/basics.html`) and inspect `/pages/student.html`, `/pages/student-detail.html`, and `/pages/review.html`.
+- **Expected Result**:
+  - The Results screen shows **"✓ This set was saved to your scores."**, score (`correct / total`), accuracy, time, mistake badge (`n wrong`), **`🎯 Target met`** / **`⚠️ Below target`** chip from `results_with_target`, and the question-by-question review table.
+  - On `/pages/basics.html`, Student Home, `/pages/student-detail.html`, and `/pages/review.html`, rows with `source = 'site'` display the **`Recorded by the site`** chip (not `"Verified by teacher"`) and have no Edit or Delete buttons, while manually entered rows (`source = 'typed'`) display **`Typed`** (and **`🔒 Verified`** if verified by a teacher).
+
+---
+
+## Phase 8c Test Cases (Elements Worksheet Keyboard Shortcuts & Active-Question Highlight)
+
+### Test Case 48: Automated Unit Tests for Shared Competition Keys (`tests/competitionKeys.test.js`)
+- **Action**:
+  1. Run `node --test tests/competitionKeys.test.js` (or `node --test tests/*.test.js`) in the terminal.
+- **Expected Result**:
+  - All tests in `tests/competitionKeys.test.js` pass (`0 fail`), verifying:
+    - `'next'` is returned for `key: '+'` and `code: 'NumpadAdd'`.
+    - `'previous'` is returned for `key: '-'` (hyphen-minus), `key: '−'` (`\u2212` minus sign), and `code: 'NumpadSubtract'`.
+    - `'step'` is returned for `key: '*'` and `code: 'NumpadMultiply'`.
+    - `null` is returned whenever `ctrlKey`, `altKey`, or `metaKey` is `true`.
+    - `null` is returned for digits, `Enter`, `Tab`, arrow keys, `/`, `^`, and `null`/`undefined`.
+
+### Test Case 49: Elements Worksheet `+` / `-` Navigation, Prime Factor `*` Entry, Active-Question Highlight Toggle & Touch Buttons (`/pages/element-drill.html`)
+- **Action**:
+  1. Log in as a Student (`STU101` / `pass123`), open **Elements** (`/pages/elements.html`), choose any drill (e.g. **Day Codes** or **Squares 11 to 50**), and click **Start Worksheet →**.
+  2. Verify the one-line hint directly under the timer reads: `"Numpad: + next question, - previous question"`.
+  3. With Question 1 focused, type a digit and press `+` (both on the numpad and on the main keyboard). Verify that no `+` character is inserted into Question 1 and focus moves to Question 2.
+  4. Press `-` (on the numpad or main keyboard). Verify that no `-` character is inserted and focus moves back to Question 1. Press `-` again on Question 1 and verify focus stays on Question 1 (no wrap-around). Navigate to the last question and press `+` to verify focus stops at the last question (no wrap-around).
+  5. Test `Enter`, `Tab`, `ArrowDown`, and `ArrowUp` to confirm they still work as before, and test `Ctrl +` / `Ctrl -` to confirm modifier shortcuts are never intercepted.
+  6. Open the **Prime Factors** drill (`/pages/element-drill.html?drill=prime_factors`), start the worksheet, and type `2^2*5*13` in an answer box. Verify that `*` (both normal `*` and `NumpadMultiply`) inserts `*` into the input while `+` and `-` move between questions.
+  7. Inspect the focused question row: verify it has both a coloured background and a thicker border, and smoothly scrolls into view as you move down the worksheet. Uncheck **"Highlight the active question"**, verify the highlight disappears immediately, reload the page, and start a worksheet again to confirm the preference was remembered in `localStorage`.
+  8. On a touch device (or using browser DevTools mobile device emulation), verify the small **Previous** and **Next** buttons appear next to the timer and move focus to the previous/next question (stopping at the first and last question).
+- **Expected Result**:
+  - `+` and `-` cleanly move focus to the next/previous question input without inserting characters or wrapping around, `*` works normally in Prime Factors, active-question highlight + smooth scroll respects the persistent toggle, and touch devices show working **Previous** and **Next** buttons next to the timer.
+
+---
+
+## Phase 9b-1 Test Cases (Memoriad Competition Practice: Mental Calendar Dates & Mental Additions)
+
+### Test Case 50: Automated Unit Test Suite for Phase 9b-1 (`tests/memoriadServer.test.js`, `tests/answerSlots.test.js`, `tests/columnHighlight.test.js`, `tests/calendarKeys.test.js`, `tests/memoriadFormat.test.js`, `tests/memoriadStats.test.js`, `tests/competitionKeys.test.js`)
+- **Action**:
+  1. Run `node --test tests/*.test.js` in the terminal.
+- **Expected Result**:
+  - All unit tests across the repository pass (`0 fail`), verifying:
+    - `tests/competitionKeys.test.js`: `'next'` (`+`/`NumpadAdd`), `'previous'` (`-`/`−`/`NumpadSubtract`), `'step'` (`*`/`NumpadMultiply`), `'unstep'` (`/`/`NumpadDivide`), modifier key rejection (`Ctrl`, `Alt`, `Meta`), and `null` for other keys.
+    - `tests/memoriadServer.test.js`: Calendar date generation (`25, 50, 75, 100, 125` distinct valid Gregorian dates in `1600..2099`, leap-year rules, weekday checks for `2000-01-01 = Saturday`, `1969-07-20 = Sunday`, `1600-01-01 = Saturday`), Additions generation (10 questions of ten 10-digit numbers with no leading zero and exact `BigInt` sum), evaluation (correct, wrong, blank, leading zeros `"000123"`), plausibility rejection (`< 0.25s/attempt` for Calendar, `< 3s/attempt` for Additions), and stripping of `expected` from the start response.
+    - `tests/answerSlots.test.js`: `typeDigit`, `moveCursorLeft`, `moveCursorRight`, `backspace`, `compact`, and `toAnswerString` in both `'rtl'` and `'ltr'` directions.
+    - `tests/columnHighlight.test.js`: `highlightedColumns` in `'rtl'` and `'ltr'` directions, `1` and `2` columns per step, manual step offsets, and clamping after the last column.
+    - `tests/calendarKeys.test.js`: `dayForKey` for default Saturday (`0 -> Sat, 1 -> Sun, 2 -> Mon, ..., 7 -> Sat`), custom Wednesday (`0 -> Wed, 1 -> Thu, ..., 7 -> Wed`), and `null` for other keys.
+    - `tests/memoriadFormat.test.js`: `formatCalendarDate` (`DD-MM-YYYY`, `MM-DD-YYYY`, `YYYY-MM-DD`), `formatDayLabel` (`MON-TUE-WED...`, `Mo-Tu-We...`, full names), and `getOrderedWeekdays`.
+    - `tests/memoriadStats.test.js`: best score ranking (highest `correct`, then higher accuracy, then shorter time), Calendar grouping by `dates`, tries this week in India time (`Asia/Kolkata`), and empty data handling.
+
+### Test Case 51: End-to-End Memoriad Competition Practice Flow (`/pages/memoriad.html`, `/pages/memoriad-play.html`)
+- **Action**:
+  1. Log in as a Student (`STU101` / `student123`) on a laptop or desktop screen ($\ge 1000\text{ px}$ wide) and click **Memoriad** in the top navigation bar (or **Open Memoriad →** on the Student Home **Memoriad Practice** card).
+  2. On `/pages/memoriad.html`, verify the 4 module cards: **Mental Calendar Dates** (available), **Mental Additions** (available), **Mental Multiplications** (`Coming soon`, disabled), and **Mental Square Roots** (`Coming soon`, disabled), along with Personal Best and Last 5 Tries (India time).
+  3. Click **Start Mental Calendar Dates →** (`/pages/memoriad-play.html?module=calendar`):
+     - Change **Day abbreviation style**, **Leftmost day button**, **Day that key `0` stands for** (observe the live `0 → ..., 7 → ...` preview), **Question date format**, **Number of dates** (`25`), and **Concentration countdown** (`3` seconds). Click **Start Competition Stage →**.
+     - Verify the top navigation bar hides during the `3, 2, 1` concentration countdown and that questions are not shown in the DOM until the countdown reaches `0`.
+     - On the stage, press keys `0`–`7` to choose weekdays and verify focus automatically jumps to the next unanswered date; test `Enter` (skip), `+`/`-` or arrow keys (next/previous without wrap), and clicking a date in the 3-column list. Click **FINISH** to submit.
+     - Verify the Results screen shows **SCORE**, used time with 2 decimals, correct, attempted, `"Saved to your scores."`, and the full question-by-question table with `✓ Correct` / `✗ Wrong` / `— Not answered`.
+  4. Click **Back to Memoriad** and click **Start Mental Additions →** (`/pages/memoriad-play.html?module=additions`):
+     - Choose **Typing direction** (`Right to left` or `Left to right`) and **Number of columns to highlight** (`1` or `2`), then click **Start Competition Stage →**.
+     - Type digits `0`–`9` into the 11 answer slots and verify the active column highlight shifts automatically; press `*` (`NumpadMultiply`) to step the column highlight forward and `/` (`NumpadDivide`) to step it back; press `ArrowLeft`/`ArrowRight` and `Backspace`; press `+`/`-` to move between the 10 questions; press `Enter` to close any blank gap (`compact`) and move to the next question.
+     - Click **FINISH** and verify the Results screen, then check `/pages/student.html` and `/pages/student-detail.html` (as Admin) to confirm the **Memoriad Practice** card updates and Admin **Daily To-Do** (`Setup ▾ → Daily To-Do`) includes the `Memoriad` section option.
+  5. Resize the browser window narrower than `1000 px` on `/pages/memoriad-play.html`: verify the friendly message *"Use a laptop or desktop with a keyboard for this practice"* is shown with a link back to `/pages/memoriad.html`.
 

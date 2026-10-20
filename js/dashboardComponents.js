@@ -16,6 +16,7 @@
 
 import { getScoreFeedback } from './scoreColors.js';
 import { buildFlashCardSummary } from './flashStats.js';
+import { isBasicsOnlineAvailable } from './practiceStats.js';
 import {
   formatDisplayDateIST,
   formatSecondsToTime,
@@ -122,8 +123,9 @@ export function renderStreakCard(streakData) {
  * @param {Array<object>} todos - Items from todo_for() RPC
  * @param {string} containerId - DOM container ID
  * @param {boolean} isReadOnly - If true (teacher detail view), do not render edit action links
+ * @param {Array<object>} [categories=[]] - Categories list to detect online-available basics tasks
  */
-export function renderTodoList(todos = [], containerId = 'todo-list-container', isReadOnly = false) {
+export function renderTodoList(todos = [], containerId = 'todo-list-container', isReadOnly = false, categories = []) {
   const container = document.getElementById(containerId);
   const countEl = document.getElementById('todo-progress-count');
   if (!container) return;
@@ -150,11 +152,12 @@ export function renderTodoList(todos = [], containerId = 'todo-list-container', 
 
   // Group strictly by section
   const sectionMap = new Map();
-  const sectionOrder = ['round', 'basics', 'elements', 'flash'];
+  const sectionOrder = ['round', 'basics', 'elements', 'memoriad', 'flash'];
   const sectionTitles = {
     round: 'Competition Rounds',
     basics: 'Speed Drills',
     elements: 'Elements',
+    memoriad: 'Memoriad',
     flash: 'Flash Anzan'
   };
 
@@ -185,10 +188,20 @@ export function renderTodoList(todos = [], containerId = 'todo-list-container', 
                 ? `/pages/flash.html`
                 : t.task_section === 'elements'
                   ? `/pages/elements.html`
-                  : `/pages/round-scores.html?cat=${encodeURIComponent(t.task_category_id || '')}`;
+                  : t.task_section === 'memoriad'
+                    ? `/pages/memoriad.html`
+                    : `/pages/round-scores.html?cat=${encodeURIComponent(t.task_category_id || '')}`;
+
+            const matchedBasicsCat = t.task_section === 'basics' && t.task_category_id && Array.isArray(categories)
+              ? categories.find(c => String(c.id) === String(t.task_category_id))
+              : null;
+            const canPracticeOnline = matchedBasicsCat ? isBasicsOnlineAvailable(matchedBasicsCat) : false;
+            const onlineLink = canPracticeOnline
+              ? `/pages/basics-practice.html?cat=${encodeURIComponent(t.task_category_id)}`
+              : null;
 
             return `
-              <div class="todo-task-item ${isDone ? 'todo-task-done' : ''}" style="display: flex; align-items: center; justify-content: space-between; padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline);">
+              <div class="todo-task-item ${isDone ? 'todo-task-done' : ''}" style="display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline);">
                 <div style="display: flex; align-items: center; gap: var(--space-2); min-width: 0;">
                   <span class="todo-checkbox ${isDone ? 'checked' : ''}" aria-hidden="true">
                     ${isDone ? '✓' : '○'}
@@ -197,12 +210,12 @@ export function renderTodoList(todos = [], containerId = 'todo-list-container', 
                     ${escapeHtml(t.task_title)}
                   </span>
                 </div>
-                <div>
+                <div style="display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;">
                   ${isReadOnly
                     ? `<span class="badge ${isDone ? 'badge-active' : 'badge-inactive'}" style="font-size: 10px;">${isDone ? 'Done' : 'Pending'}</span>`
                     : (isDone
                         ? `<span class="badge badge-active" style="font-size: 10px;">Done</span>`
-                        : `<a href="${targetLink}" class="btn btn-primary btn-sm" style="font-size: 10px; padding: 2px 8px; text-decoration: none;">Start &rarr;</a>`
+                        : `${onlineLink ? `<a href="${onlineLink}" class="btn btn-primary btn-sm" style="font-size: 10px; padding: 2px 8px; text-decoration: none;">Practice online</a>` : ''}<a href="${targetLink}" class="btn ${onlineLink ? 'btn-outline' : 'btn-primary'} btn-sm" style="font-size: 10px; padding: 2px 8px; text-decoration: none;">Start &rarr;</a>`
                       )
                   }
                 </div>
@@ -280,9 +293,7 @@ export function renderBasicsThisWeek(results, categories, todayIST, containerId 
           const isSite = entry.source === 'site';
           const statusChip = isSite
             ? `<span class="status-chip chip-verified" style="font-size: 10px;">Recorded by the site</span>`
-            : entry.verified
-              ? `<span class="status-chip chip-verified" style="font-size: 10px;">🔒 Verified</span>`
-              : '';
+            : `<span class="status-chip chip-unverified" style="font-size: 10px;">Typed</span>${entry.verified ? ` <span class="status-chip chip-verified" style="font-size: 10px;">🔒 Verified</span>` : ''}`;
           return `
             <div style="display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--text-xs); padding: 2px 0; flex-wrap: wrap;">
               <div style="display: flex; align-items: center; gap: 6px;">

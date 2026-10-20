@@ -298,39 +298,43 @@ This catalog outlines every database table in the Trendz Tracker PostgreSQL sche
 
 ---
 
-### 13. Tables: `drill_sessions` & `activity_results` (Phase 7b Flash Anzan & Phase 8 Elements Drills)
+#### 13. Tables: `drill_sessions` & `activity_results` (Phase 7b Flash Anzan, Phase 8 Elements Drills & Phase 9a Online Basics)
 
 #### Table: `public.drill_sessions`
-- **Purpose**: Server-only ephemeral session store holding generated numbers/questions, expected canonical answers, timing boundaries, and submission status for Flash Anzan (`activity_type = 'flash_anzan'`) and Elements timed worksheet drills (`activity_type = 'element'`).
+- **Purpose**: Server-only ephemeral session store holding generated numbers/questions, expected canonical answers, timing boundaries, and submission status for Flash Anzan (`activity_type = 'flash_anzan'`), Elements timed worksheet drills (`activity_type = 'element'`), and Online Basics practice (`activity_type = 'basics'`).
 - **Columns**:
   - `id`: `UUID PRIMARY KEY`
   - `student_id`: `UUID NOT NULL REFERENCES public.profiles(id)`
-  - `activity_type`: `'flash_anzan' | 'element'`
-  - `activity_name`: `TEXT NOT NULL` (e.g. `'Flash Anzan'` or the drill's `title` such as `'Day Codes'`)
-  - `settings`: `JSONB NOT NULL` (for Flash Anzan Phase 7b: `{ digits, count, speed_ms, mode }` with no `questions` key; for Elements: `{ drill, questions, time_limit_seconds }`)
-  - `questions`: `JSONB NOT NULL` (array of signed integers `numbers` for a single Flash Anzan try; array of prompt strings for Elements)
-  - `expected`: `JSONB NOT NULL` (expected sum for Flash Anzan or array of canonical expected answers for Elements; **never sent to the browser before submission**)
-  - `min_seconds`: `NUMERIC NOT NULL` (`count * speed_ms / 1000` for Flash Anzan; enforced as `attempted * 0.25` seconds on submit for Elements)
+  - `activity_type`: `'flash_anzan' | 'element' | 'basics'`
+  - `activity_name`: `TEXT NOT NULL` (e.g. `'Flash Anzan'`, the Elements drill's `title` such as `'Day Codes'`, or the Basics category name such as `'1d4r'`)
+  - `settings`: `JSONB NOT NULL` (for Flash Anzan Phase 7b: `{ digits, count, speed_ms, mode }`; for Elements: `{ drill, questions, time_limit_seconds }`; for Basics Phase 9a: `{ kind: 'basics', category_id, questions }`; for Memoriad Phase 9b-1: `{ module: 'calendar' | 'additions', dates?, concentration_seconds }`)
+  - `questions`: `JSONB NOT NULL` (array of signed integers `numbers` for a single Flash Anzan try; array of prompt strings for Elements; array of display objects `{ type, rows?, a?, b?, dividend?, divisor?, text }` without `expected` for Basics; array of `[year, month, day]` triples for Memoriad Calendar or array of 10 ten-digit number string arrays for Memoriad Additions)
+  - `expected`: `JSONB NOT NULL` (expected sum for Flash Anzan or array of canonical expected answers for Elements, Basics, and Memoriad; **never sent to the browser before submission**)
+  - `min_seconds`: `NUMERIC NOT NULL` (`count * speed_ms / 1000` for Flash Anzan; enforced as `attempted * 0.25` seconds on submit for Elements and Memoriad Calendar; enforced as `questions * 0.6` seconds on submit for Basics; enforced as `attempted * 3` seconds on submit for Memoriad Additions)
   - `started_at`: `TIMESTAMPTZ NOT NULL`
-  - `expires_at`: `TIMESTAMPTZ NOT NULL`
-  - `status`: `'open' | 'submitted'`
+  - `expires_at`: `TIMESTAMPTZ NOT NULL` (`started_at + 30 minutes` for Basics; `started_at + 3 hours` for Memoriad)
+  - `status`: `'open' | 'submitted' | 'expired'`
   - `submitted_at`: `TIMESTAMPTZ NULL`
-  - `result_id`: `UUID NULL REFERENCES public.activity_results(id)`
-- **Who Reads / Writes**: Readable only by administrators; written exclusively via `SECURITY DEFINER` RPCs (`flash_start`, `flash_submit`) or the service-role serverless endpoint (`POST /api/drill`). Students have **zero** read or write access to `drill_sessions`.
+  - `result_id`: `UUID NULL REFERENCES public.activity_results(id)` (used by Flash Anzan, Elements, and Memoriad)
+  - `result_row_id`: `UUID NULL REFERENCES public.results(id)` (Phase 9a: points to the `public.results` row inserted when an online Basics session is submitted)
+- **Who Reads / Writes**: Readable only by administrators; written exclusively via `SECURITY DEFINER` RPCs (`flash_start`, `flash_submit`) or the service-role serverless endpoints (`POST /api/drill`, `POST /api/memoriad`). Students have **zero** read or write access to `drill_sessions`.
+
+#### Phase 9a Additions to `public.results` & `public.results_with_target`
+- **`results.source`**: `'typed' | 'site'`. A database trigger forces `source = 'typed'` on any row inserted directly by a student, so only the server (`POST /api/drill` using the service role) can write `source = 'site'`. Server-graded Basics rows are inserted with `source = 'site'`, `verified = true`, `verified_by = null`, `student_round_id = null`, `entry_date = public.today_ist()`, `correct`, `total = questions`, and `time_seconds = LEAST(ROUND(elapsed), 14400)`.
+- **`results_with_target` View**: Includes `source`, `updated_at`, and `meets_target` alongside all score, review, and threshold columns.
 
 #### Table: `public.activity_results`
-- **Purpose**: Permanent log of completed Flash Anzan tries (`activity_type = 'flash_anzan'`) and Elements worksheet sets (`activity_type = 'element'`). Read by `streak_for`, `todo_for`, and the `practice_days` leaderboard.
+- **Purpose**: Permanent log of completed Flash Anzan tries (`activity_type = 'flash_anzan'`), Elements worksheet sets (`activity_type = 'element'`), and Memoriad competition practice runs (`activity_type = 'memoriad'`). Read by `streak_for`, `todo_for` (including `section = 'memoriad'`), and the `practice_days` leaderboard.
 - **Columns**:
   - `id`: `UUID PRIMARY KEY`
   - `student_id`: `UUID NOT NULL REFERENCES public.profiles(id)`
-  - `activity_type`: `'flash_anzan' | 'element'`
-  - `activity_name`: `TEXT NOT NULL`
-  - `correct`: `INT NOT NULL` (for a Phase 7b Flash Anzan try: `1` or `0`)
-  - `total`: `INT NOT NULL` (for a Phase 7b Flash Anzan try: `1`; older Phase 7 rows with multiple questions per set have `total > 1` and `settings.questions` and remain supported in history and `statsByKey` via `sum(correct) / sum(total)`. For Elements: `attempted`, the number of non-blank answers submitted; if `attempted === 0`, no row is inserted)
-  - `time_seconds`: `INT NOT NULL`
-  - `settings`: `JSONB NOT NULL` (for Flash Anzan: `{ digits, count, speed_ms, mode }`; for Elements: `{ drill, questions, time_limit_seconds, attempted, session_id }`)
+  - `activity_type`: `'flash_anzan' | 'element' | 'memoriad'`
+  - `activity_name`: `TEXT NOT NULL` (e.g., `'Mental Calendar Dates'`, `'Mental Additions'`)
+  - `correct`: `INT NOT NULL` (for a Phase 7b Flash Anzan try: `1` or `0`; for Elements and Memoriad: number of correct answers)
+  - `total`: `INT NOT NULL` (for a Phase 7b Flash Anzan try: `1`; older Phase 7 rows with multiple questions per set have `total > 1` and `settings.questions` and remain supported in history and `statsByKey` via `sum(correct) / sum(total)`. For Elements and Memoriad: `attempted`, the number of non-blank answers submitted; if `attempted === 0`, no row is inserted)
+  - `time_seconds`: `INT NOT NULL` (for Memoriad: `ROUND(used_seconds)`, where `used_seconds = max(0, (now - started_at) - concentration_seconds)`)
+  - `settings`: `JSONB NOT NULL` (for Flash Anzan: `{ digits, count, speed_ms, mode }`; for Elements: `{ drill, questions, time_limit_seconds, attempted, session_id }`; for Memoriad: `{ module, questions, attempted, correct, score, used_seconds, concentration_seconds, dates? }`)
   - `created_at`, `updated_at`: `TIMESTAMPTZ NOT NULL`
 - **Who Reads**: Students can `SELECT` only their own rows (`student_id = auth.uid()`); admins can `SELECT` all rows.
-- **Who Writes**: Students can **never** `INSERT`, `UPDATE`, or `DELETE` rows in `activity_results`. Only `flash_submit` and the service-role `/api/drill` endpoint insert rows after verifying session ownership, expiry, atomic `status = 'open' -> 'submitted'` transition, and minimum completion time.
-
+- **Who Writes**: Students can **never** `INSERT`, `UPDATE`, or `DELETE` rows in `activity_results`. Only `flash_submit`, `POST /api/drill`, and `POST /api/memoriad` (using the service role) insert rows after verifying session ownership, expiry, atomic `status = 'open' -> 'submitted'` transition, and minimum human plausibility time.
 

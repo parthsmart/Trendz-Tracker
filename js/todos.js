@@ -103,6 +103,7 @@ function renderTodosTable() {
     { key: 'round', label: '🏆 Competition Rounds' },
     { key: 'basics', label: '⚡ Basics Speed Drills' },
     { key: 'elements', label: '🧩 Elements' },
+    { key: 'memoriad', label: '🧠 Memoriad' },
     { key: 'flash', label: '⚡ Flash Anzan' }
   ];
 

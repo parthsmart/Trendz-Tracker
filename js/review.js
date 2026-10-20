@@ -408,8 +408,11 @@ function renderReviewTable(entries) {
     let statusChipsHtml = '';
     if (isSite) {
       statusChipsHtml += `<span class="status-chip chip-verified" title="Recorded by the site">Recorded by the site</span>`;
-    } else if (isVerified) {
-      statusChipsHtml += `<span class="status-chip chip-verified" title="Verified by teacher">🔒 Verified</span>`;
+    } else {
+      statusChipsHtml += `<span class="status-chip chip-unverified" title="Typed by student">Typed</span>`;
+      if (isVerified) {
+        statusChipsHtml += `<span class="status-chip chip-verified" title="Verified by teacher">🔒 Verified</span>`;
+      }
     }
     if (isCorrected) {
       statusChipsHtml += `<span class="status-chip chip-corrected" title="Corrected: ${escapeHtml(entry.note || '')}">✏️ Corrected</span>`;
@@ -418,7 +421,7 @@ function renderReviewTable(entries) {
       statusChipsHtml += `<span class="status-chip chip-flagged" title="Flag note: ${escapeHtml(entry.flag_note || '')}">⚠️ Flagged</span>`;
     }
     if (!isSite && !isVerified && !isCorrected && !isFlagged) {
-      statusChipsHtml = `<span class="status-chip chip-unverified">Unverified</span>`;
+      statusChipsHtml += `<span class="status-chip chip-unverified">Unverified</span>`;
     }
     if (entry.meets_target === true) {
       statusChipsHtml += `<span class="badge badge-success" title="Meets target benchmark">🎯 Meets target</span>`;

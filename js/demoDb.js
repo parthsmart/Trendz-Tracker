@@ -3050,6 +3050,53 @@ export const DemoDB = {
       localStorage.setItem(key, JSON.stringify(list));
     }
 
+    if (!list.some(r => r && r.activity_type === 'memoriad')) {
+      list.push(
+        {
+          id: 'act-demo-mem-cal-1',
+          student_id: 'usr-101',
+          activity_type: 'memoriad',
+          activity_name: 'Mental Calendar Dates',
+          correct: 23,
+          total: 25,
+          time_seconds: 34,
+          settings: {
+            module: 'calendar',
+            questions: 25,
+            dates: 25,
+            attempted: 25,
+            correct: 23,
+            score: 23,
+            used_seconds: 34.18,
+            concentration_seconds: 5,
+          },
+          created_at: nowIso,
+          updated_at: nowIso,
+        },
+        {
+          id: 'act-demo-mem-add-1',
+          student_id: 'usr-101',
+          activity_type: 'memoriad',
+          activity_name: 'Mental Additions',
+          correct: 9,
+          total: 10,
+          time_seconds: 128,
+          settings: {
+            module: 'additions',
+            questions: 10,
+            attempted: 10,
+            correct: 9,
+            score: 9,
+            used_seconds: 128.45,
+            concentration_seconds: 5,
+          },
+          created_at: yestIso,
+          updated_at: yestIso,
+        }
+      );
+      localStorage.setItem(key, JSON.stringify(list));
+    }
+
     return list.filter(r => {
       if (studentId && r.student_id !== studentId) return false;
       if (activityType && r.activity_type !== activityType) return false;
@@ -3436,6 +3483,144 @@ export const DemoDB = {
       seconds: 22,
       detail: fixedDetail,
       result_id: resultId,
+    };
+  },
+
+  // ==================== PHASE 9b-1: MEMORIAD COMPETITION DEMO FIXTURES ====================
+  // Fixed pre-baked sets and fixed fake evaluation (never generates or calculates scores in browser).
+  mockMemoriadStart(moduleKey = 'calendar', settings = {}) {
+    if (!isDemoMode()) {
+      throw new Error('Action blocked: Demo mode cannot mutate live database.');
+    }
+    const mod = moduleKey === 'additions' ? 'additions' : 'calendar';
+    const conc = Number.isInteger(Number(settings?.concentration_seconds))
+      ? Number(settings.concentration_seconds)
+      : 5;
+
+    if (mod === 'calendar') {
+      const fixedDates25 = [
+        [2000, 1, 1], [1969, 7, 20], [1600, 1, 1], [1947, 8, 15], [1950, 1, 26],
+        [1776, 7, 4], [1857, 5, 10], [1989, 11, 9], [2024, 2, 29], [2099, 12, 31],
+        [1642, 12, 25], [1789, 7, 14], [1815, 6, 18], [1869, 10, 2], [1905, 6, 30],
+        [1918, 11, 11], [1945, 5, 8], [1953, 5, 29], [1961, 4, 12], [1971, 12, 16],
+        [1983, 6, 25], [1991, 12, 26], [2008, 8, 8], [2011, 4, 2], [2026, 10, 20],
+      ];
+      return {
+        session_id: 'demo-memoriad-cal-session',
+        module: 'calendar',
+        title: 'Mental Calendar Dates',
+        questions: fixedDates25,
+        settings: {
+          dates: 25,
+          concentration_seconds: conc,
+        },
+      };
+    }
+
+    const fixedAdditions10 = Array.from({ length: 10 }, (_, idx) => [
+      `123456789${idx}`,
+      `234567890${idx}`,
+      `345678901${idx}`,
+      `456789012${idx}`,
+      `567890123${idx}`,
+      `678901234${idx}`,
+      `789012345${idx}`,
+      `890123456${idx}`,
+      `901234567${idx}`,
+      `112345678${idx}`,
+    ]);
+
+    return {
+      session_id: 'demo-memoriad-add-session',
+      module: 'additions',
+      title: 'Mental Additions',
+      questions: fixedAdditions10,
+      settings: {
+        concentration_seconds: conc,
+      },
+    };
+  },
+
+  mockMemoriadSubmit(sessionId, moduleKey = 'calendar', answers = [], studentId = 'usr-101', settings = {}) {
+    if (!isDemoMode()) {
+      throw new Error('Action blocked: Demo mode cannot mutate live database.');
+    }
+    const mod = moduleKey === 'additions' ? 'additions' : 'calendar';
+    const rawAnswers = Array.isArray(answers) ? answers : [];
+    const nonNullCount = rawAnswers.filter(a => a !== null && a !== undefined && String(a).trim() !== '').length;
+
+    if (nonNullCount === 0) {
+      return {
+        module: mod,
+        title: mod === 'calendar' ? 'Mental Calendar Dates' : 'Mental Additions',
+        questions_total: mod === 'calendar' ? 25 : 10,
+        attempted: 0,
+        correct: 0,
+        score: 0,
+        used_seconds: 12.5,
+        saved: false,
+        result_id: null,
+        message: 'No questions were attempted, so no score was saved.',
+        detail: [],
+      };
+    }
+
+    const fixedAttempted = mod === 'calendar' ? 25 : 10;
+    const fixedCorrect = mod === 'calendar' ? 24 : 9;
+    const fixedUsedSeconds = mod === 'calendar' ? 31.42 : 118.65;
+    const title = mod === 'calendar' ? 'Mental Calendar Dates' : 'Mental Additions';
+
+    const actKey = 'trendz_demo_activity_results_v1';
+    const currentList = this.getActivityResults();
+    const nowIso = new Date().toISOString();
+    const newId = `act-demo-mem-${Date.now()}`;
+
+    currentList.unshift({
+      id: newId,
+      student_id: studentId || 'usr-101',
+      activity_type: 'memoriad',
+      activity_name: title,
+      correct: fixedCorrect,
+      total: fixedAttempted,
+      time_seconds: Math.round(fixedUsedSeconds),
+      settings: {
+        module: mod,
+        questions: fixedAttempted,
+        attempted: fixedAttempted,
+        correct: fixedCorrect,
+        score: fixedCorrect,
+        used_seconds: fixedUsedSeconds,
+        concentration_seconds: Number(settings?.concentration_seconds) || 5,
+        ...(mod === 'calendar' ? { dates: 25 } : {}),
+      },
+      created_at: nowIso,
+      updated_at: nowIso,
+    });
+    localStorage.setItem(actKey, JSON.stringify(currentList));
+
+    const detail = Array.from({ length: fixedAttempted }, (_, idx) => ({
+      index: idx + 1,
+      question_summary: mod === 'calendar' ? `2000-01-${String((idx % 28) + 1).padStart(2, '0')}` : `Question ${idx + 1} (10 × 10d)`,
+      expected: mod === 'calendar' ? 5 : '51000000000',
+      expected_display: mod === 'calendar' ? 'Saturday' : '51000000000',
+      given: mod === 'calendar' ? (idx === 0 ? 4 : 5) : (idx === 0 ? '50000000000' : '51000000000'),
+      given_display: mod === 'calendar' ? (idx === 0 ? 'Friday' : 'Saturday') : (idx === 0 ? '50000000000' : '51000000000'),
+      attempted: true,
+      correct: idx !== 0,
+    }));
+
+    return {
+      module: mod,
+      title,
+      questions_total: fixedAttempted,
+      attempted: fixedAttempted,
+      correct: fixedCorrect,
+      score: fixedCorrect,
+      used_seconds: fixedUsedSeconds,
+      saved: true,
+      result_id: newId,
+      message: 'Saved to your scores.',
+      detail,
     };
   },
 };

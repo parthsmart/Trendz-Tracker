@@ -14,6 +14,75 @@
       content="Timed Elements mental-math worksheet drill with server-side checking on Trendz Tracker."
     />
     <link rel="stylesheet" href="/css/style.css" />
+    <style>
+      /* Phase 8c: Active-question highlight (coloured background + thicker border, not colour alone) */
+      .element-question-row {
+        scroll-margin-top: 132px;
+        transition: background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+      }
+
+      /* Disable default focus-within highlight so the explicit toggle controls it */
+      .element-question-row:focus-within {
+        border-color: var(--border-subtle);
+        box-shadow: none;
+      }
+
+      .element-question-row.active-question-highlight {
+        background-color: var(--color-primary-subtle);
+        border: 2px solid var(--color-primary);
+        border-left: 5px solid var(--color-primary);
+        padding: calc(var(--space-3) - 1px) calc(var(--space-3) - 1px) calc(var(--space-3) - 1px) calc(var(--space-3) - 2px);
+        box-shadow: 0 2px 8px rgba(37, 99, 235, 0.12);
+      }
+
+      .element-question-row.active-question-highlight .element-question-prompt {
+        color: var(--color-primary-text, var(--text-main));
+      }
+
+      /* Touch-device Previous / Next buttons next to the timer */
+      .worksheet-touch-nav {
+        display: none;
+        align-items: center;
+        gap: var(--space-1);
+      }
+
+      @media (hover: none), (pointer: coarse) {
+        .worksheet-touch-nav {
+          display: inline-flex;
+        }
+      }
+
+      .worksheet-touch-nav.is-touch-device {
+        display: inline-flex;
+      }
+
+      .worksheet-controls-subbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: var(--space-3);
+        flex-wrap: wrap;
+        margin-bottom: var(--space-2);
+      }
+
+      .worksheet-highlight-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: var(--text-xs);
+        color: var(--text-muted);
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .worksheet-highlight-toggle input[type="checkbox"] {
+        width: 15px;
+        height: 15px;
+        accent-color: var(--color-primary);
+        cursor: pointer;
+        margin: 0;
+      }
+    </style>
   </head>
   <body>
     <div class="app-shell">
@@ -33,6 +102,7 @@
             <a href="/pages/basics.html" class="nav-link">Basics</a>
             <a href="/pages/flash.html" class="nav-link">Flash Anzan</a>
             <a href="/pages/elements.html" class="nav-link active" aria-current="page">Elements</a>
+            <a href="/pages/memoriad.html" class="nav-link">Memoriad</a>
             <a href="/pages/leaderboard.html" class="nav-link">Leaderboard</a>
             <a href="/pages/monthly-report.html" class="nav-link">Monthly Report</a>
           </nav>
@@ -177,7 +247,7 @@
 
               <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); flex-wrap: wrap;">
                 <span style="font-size: var(--text-xs); color: var(--text-muted);">
-                  Tip: Press <strong>Enter</strong>, <strong>Tab</strong>, or <strong>&darr;</strong> to move to the next question.
+                  Tip: Press <strong>+</strong> (next), <strong>-</strong> (previous), <strong>Enter</strong>, <strong>Tab</strong>, or <strong>&darr;</strong> to move between questions.
                 </span>
                 <button
                   type="button"
@@ -221,7 +291,27 @@
                 ></div>
               </div>
 
-              <div style="display: flex; align-items: center; gap: var(--space-4);">
+              <div style="display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;">
+                <!-- Touch-device Previous / Next question buttons next to the timer -->
+                <div id="worksheet-touch-nav" class="worksheet-touch-nav" role="group" aria-label="Question navigation">
+                  <button
+                    type="button"
+                    id="btn-touch-prev-question"
+                    class="btn btn-secondary btn-sm"
+                    title="Previous question (-)"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    id="btn-touch-next-question"
+                    class="btn btn-secondary btn-sm"
+                    title="Next question (+)"
+                  >
+                    Next
+                  </button>
+                </div>
+
                 <div style="text-align: right;">
                   <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--text-muted);">
                     Remaining Time
@@ -234,6 +324,12 @@
                   >
                     00:00
                   </div>
+                  <div
+                    id="worksheet-numpad-hint"
+                    style="font-size: 11px; color: var(--text-muted); margin-top: 2px;"
+                  >
+                    Numpad: + next question, - previous question
+                  </div>
                 </div>
 
                 <button
@@ -245,6 +341,18 @@
                   Submit now
                 </button>
               </div>
+            </div>
+
+            <!-- Active-question highlight toggle -->
+            <div class="worksheet-controls-subbar">
+              <label class="worksheet-highlight-toggle" for="toggle-highlight-active-question">
+                <input
+                  type="checkbox"
+                  id="toggle-highlight-active-question"
+                  checked
+                />
+                <span>Highlight the active question</span>
+              </label>
             </div>
 
             <!-- Countdown Progress Bar -->

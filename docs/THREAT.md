@@ -172,11 +172,19 @@ The serverless functions in `/api/create-student.js` and `/api/reset-password.js
       - **Foreground Tab Requirement**: If the browser tab becomes hidden (`document.hidden`) during the countdown or while numbers are flashing, the client immediately cancels the try without calling `flash_submit`.
       - **Practice-Data Scope (Immune to Points Leaderboard)**: Flash Anzan records in `activity_results` are self-paced practice data (used for daily streaks, practice days, and personal settings progress). The flagship **Points** competition leaderboard is computed exclusively from teacher-entered `weekly_test_scores` and teacher-marked `attendance`, so Flash Anzan tries cannot inflate official competition points.
 
+19. **Online Basics Practice Answer Scraping, Speed-Bot Submissions & `source = 'site'` Spoofing (Phase 9a)**:
+    - *Risk*: A student attempts to read expected answers from the `POST /api/drill` (`kind: 'basics'`) start payload, submits a set in 0 seconds via script, replays a submission to create duplicate `results` rows, or attempts to insert a fake row directly into `public.results` with `source = 'site'` and `verified = true`.
+    - *Mitigation in Place*:
+      - **Database-Enforced `source = 'typed'` for Direct Student Writes**: A PostgreSQL trigger forces `source = 'typed'` and `verified = false` on any `results` row inserted by a student role; only the server-side service role (`POST /api/drill`) can write `source = 'site'` and `verified = true`.
+      - **Server-Only Expected Answers (`stripBasicsExpected`)**: `generateBasicsSet` runs exclusively on the server; `expected` is stored only in `drill_sessions.expected` and stripped before returning `{ session_id, title, questions, target }`.
+      - **Rate Limit, 30-Minute Expiry & Minimum Human Time (`questions * 0.6s`)**: `POST /api/drill` enforces 60 sets/hour per student on `drill_sessions` (`activity_type = 'basics'`), rejects expired sessions (`now > expires_at`), and rejects submissions where `elapsed < questions * 0.6` seconds (`"finished faster than possible, not saved"`).
+      - **Atomic Session Claim & Locked Result Row**: The session is claimed atomically (`status = 'open' -> 'submitted'`) and the resulting `results` row is saved with `verified = true` (`source = 'site'`), preventing student edits or deletions.
 
-
-
-
-
-
-
+20. **Memoriad Competition Practice External Script / Calculator Assistance & Speed-Bot Submissions (Phase 9b-1)**:
+    - *Risk*: During unsupervised home practice on `/pages/memoriad-play.html`, a student could use an external calculator or browser script to compute calendar weekdays or 10×10-digit sums, inspect the `start` network payload for expected answers, or submit answers instantaneously via script.
+    - *Mitigation in Place*:
+      - **Server-Only Expected Answers & Scoring**: `api/_memoriad.js` generates questions and expected answers on the server (`crypto.randomInt` and `BigInt`), stores `expected` only in `public.drill_sessions` (inaccessible to students), and strips `expected` from the `POST /api/memoriad` (`action: 'start'`) response. All grading and timing calculations happen exclusively on the server on `submit`.
+      - **Server-Side Plausibility Speed Gate**: `POST /api/memoriad` (`action: 'submit'`) computes `used_seconds = max(0, (now - started_at) - concentration_seconds)` and rejects implausibly fast submissions where `used_seconds < attempted * 0.25` seconds for Mental Calendar Dates or `used_seconds < attempted * 3` seconds for Mental Additions.
+      - **Rate Limiting, 3-Hour Expiry & Atomic Single-Use Claim**: Starts are rate-limited to at most 60 sessions per hour per student, sessions expire after 3 hours, and `submit` atomically updates `drill_sessions` only where `status = 'open'`.
+      - **Practice-Data Scope**: Memoriad rows in `public.activity_results` (`activity_type = 'memoriad'`) are self-paced practice data (used for personal bests, streaks, and daily to-do ticks); official competition points on the Points leaderboard remain driven exclusively by teacher-verified weekly tests and attendance.
 

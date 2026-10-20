@@ -26,6 +26,7 @@ import {
   setupProgressChartsController
 } from './dashboardComponents.js';
 import { renderElementsCard } from './elementsCard.js';
+import { renderMemoriadCard } from './memoriadCard.js';
 
 async function initStudentDetail() {
   // 1. Guard check: Strictly admin-only.
@@ -77,7 +78,7 @@ async function initStudentDetail() {
     renderStreakCard(data.streak);
 
     // To-do list (isReadOnly = true -> badges only, no edit links)
-    renderTodoList(data.todos, 'todo-list-container', true);
+    renderTodoList(data.todos, 'todo-list-container', true, data.categories);
 
     // Basics this week
     renderBasicsThisWeek(data.results, data.categories, data.todayIST);
@@ -89,6 +90,15 @@ async function initStudentDetail() {
     await renderElementsCard({
       studentId: profile.id,
       containerId: 'elements-week-container',
+      isReadOnly: true,
+      todayIST: data.todayIST,
+      preloadedResults: data.activityResults
+    });
+
+    // Memoriad Competition Practice Card (Phase 9b-1, read-only for admin)
+    await renderMemoriadCard({
+      studentId: profile.id,
+      containerId: 'memoriad-week-container',
       isReadOnly: true,
       todayIST: data.todayIST,
       preloadedResults: data.activityResults

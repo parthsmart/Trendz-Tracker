@@ -431,11 +431,16 @@ function renderDrillRow(drill) {
           <span class="status-chip chip-verified" title="Completed online and recorded by the site (locked)">
             Recorded by the site
           </span>
-        ` : isVerified ? `
-          <span class="verified-lock-indicator" title="Verified by teacher (locked)">
-            🔒 Verified
+        ` : `
+          <span class="status-chip chip-unverified" title="Manually typed score entry">
+            Typed
           </span>
-        ` : ''}
+          ${isVerified ? `
+            <span class="verified-lock-indicator" title="Verified by teacher (locked)">
+              🔒 Verified
+            </span>
+          ` : ''}
+        `}
         ${isCorrected ? `
           <span class="status-chip chip-corrected" title="Corrected by teacher (locked)">
             ✏️ Corrected by teacher

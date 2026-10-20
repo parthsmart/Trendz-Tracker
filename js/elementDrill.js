@@ -34,9 +34,43 @@ import {
 import { fetchStudentElementResults } from './elementsCard.js';
 import { getScoreFeedback } from './scoreColors.js';
 import { formatSecondsToMMSS } from './timeUtils.js';
+import { keyAction } from './competitionKeys.js';
 
 const TIMER_INTERVAL_MS = 250;
 const EXPIRY_GRACE_SECONDS = 30;
+const HIGHLIGHT_STORAGE_KEY = 'tt_element_highlight_active';
+
+function loadHighlightPreference() {
+  try {
+    const raw = window.localStorage.getItem(HIGHLIGHT_STORAGE_KEY);
+    if (raw === '0' || raw === 'false') return false;
+    if (raw === '1' || raw === 'true') return true;
+  } catch {
+    // Ignore storage access errors (private browsing / restricted storage)
+  }
+  return true;
+}
+
+function saveHighlightPreference(enabled) {
+  try {
+    window.localStorage.setItem(HIGHLIGHT_STORAGE_KEY, enabled ? '1' : '0');
+  } catch {
+    // Ignore storage access errors
+  }
+}
+
+function isTouchCapableDevice() {
+  try {
+    return (
+      'ontouchstart' in window ||
+      (navigator && Number(navigator.maxTouchPoints) > 0) ||
+      (typeof window.matchMedia === 'function' &&
+        window.matchMedia('(hover: none), (pointer: coarse)').matches)
+    );
+  } catch {
+    return false;
+  }
+}
 
 function escapeHtml(str) {
   if (str === null || str === undefined) return '';
@@ -65,6 +99,8 @@ let worksheetExpiresPerfMs = 0;
 let isStarting = false;
 let isSubmitting = false;
 let hasSubmitted = false;
+let highlightActiveEnabled = true;
+let activeQuestionIndex = 0;
 
 async function initElementDrillPage() {
   const user = await requireAuth(['student', 'admin']);
@@ -84,6 +120,39 @@ async function initElementDrillPage() {
   const expiredNewSetBtn = document.getElementById('btn-expired-new-set');
   const sameDrillAgainBtn = document.getElementById('btn-same-drill-again');
   const worksheetForm = document.getElementById('worksheet-form');
+  const highlightToggleEl = document.getElementById('toggle-highlight-active-question');
+  const touchNavEl = document.getElementById('worksheet-touch-nav');
+  const touchPrevBtn = document.getElementById('btn-touch-prev-question');
+  const touchNextBtn = document.getElementById('btn-touch-next-question');
+
+  // Restore "Highlight the active question" preference (default on)
+  highlightActiveEnabled = loadHighlightPreference();
+  if (highlightToggleEl) {
+    highlightToggleEl.checked = highlightActiveEnabled;
+    highlightToggleEl.addEventListener('change', () => {
+      highlightActiveEnabled = Boolean(highlightToggleEl.checked);
+      saveHighlightPreference(highlightActiveEnabled);
+      applyActiveQuestionHighlight();
+    });
+  }
+
+  // Reveal touch navigation buttons on touch-capable devices
+  if (touchNavEl && isTouchCapableDevice()) {
+    touchNavEl.classList.add('is-touch-device');
+  }
+
+  // Prevent touch/mouse press on Previous/Next from blurring the active input before moving focus
+  const keepFocusOnPointerDown = (e) => {
+    e.preventDefault();
+  };
+  touchPrevBtn?.addEventListener('pointerdown', keepFocusOnPointerDown);
+  touchNextBtn?.addEventListener('pointerdown', keepFocusOnPointerDown);
+  touchPrevBtn?.addEventListener('click', () => {
+    moveQuestionFocus(activeQuestionIndex - 1);
+  });
+  touchNextBtn?.addEventListener('click', () => {
+    moveQuestionFocus(activeQuestionIndex + 1);
+  });
 
   if (!currentDrillMeta) {
     showIntroError('Unknown drill selected. Please choose a drill from the Elements catalog.');
@@ -241,6 +310,56 @@ async function handleStartDrill() {
   }
 }
 
+/**
+ * Moves focus to the target question index without wrap-around (stops at 0 and inputs.length - 1).
+ */
+function moveQuestionFocus(targetIndex) {
+  const inputs = getWorksheetInputs();
+  if (inputs.length === 0) return;
+  const clampedIndex = Math.max(0, Math.min(inputs.length - 1, targetIndex));
+  const targetInput = inputs[clampedIndex];
+  if (!targetInput || targetInput.disabled) return;
+  activeQuestionIndex = clampedIndex;
+  targetInput.focus();
+  targetInput.select?.();
+}
+
+/**
+ * Updates the `.active-question-highlight` class on question rows and touch button disabled states.
+ */
+function applyActiveQuestionHighlight(scrollRowIntoView = false) {
+  const gridEl = document.getElementById('worksheet-questions-grid');
+  if (!gridEl) return;
+
+  const rows = Array.from(gridEl.querySelectorAll('.element-question-row'));
+  const activeEl = document.activeElement;
+
+  rows.forEach((row, idx) => {
+    const input = row.querySelector('.element-answer-input');
+    const isFocusedRow = Boolean(input && activeEl === input);
+    if (highlightActiveEnabled && isFocusedRow) {
+      row.classList.add('active-question-highlight');
+      if (scrollRowIntoView && typeof row.scrollIntoView === 'function') {
+        row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    } else {
+      row.classList.remove('active-question-highlight');
+    }
+    if (isFocusedRow) {
+      activeQuestionIndex = idx;
+    }
+  });
+
+  const touchPrevBtn = document.getElementById('btn-touch-prev-question');
+  const touchNextBtn = document.getElementById('btn-touch-next-question');
+  if (touchPrevBtn) {
+    touchPrevBtn.disabled = activeQuestionIndex <= 0;
+  }
+  if (touchNextBtn) {
+    touchNextBtn.disabled = rows.length === 0 || activeQuestionIndex >= rows.length - 1;
+  }
+}
+
 function renderWorksheet(payload) {
   stopTimers();
 
@@ -272,7 +391,7 @@ function renderWorksheet(payload) {
       .map((qText, idx) => {
         const qNum = idx + 1;
         return `
-          <div class="element-question-row">
+          <div class="element-question-row" data-row-index="${idx}">
             <span class="num" style="font-size: var(--text-xs); font-weight: 700; color: var(--text-muted); min-width: 28px;">
               ${qNum}.
             </span>
@@ -298,9 +417,44 @@ function renderWorksheet(payload) {
       .join('');
   }
 
+  activeQuestionIndex = 0;
   const inputs = getWorksheetInputs();
   inputs.forEach((input, idx) => {
+    input.addEventListener('focus', () => {
+      activeQuestionIndex = idx;
+      applyActiveQuestionHighlight(true);
+    });
+
+    input.addEventListener('blur', () => {
+      applyActiveQuestionHighlight(false);
+    });
+
     input.addEventListener('keydown', (e) => {
+      // Never intercept any key when Ctrl, Alt, or Meta is pressed
+      if (e.ctrlKey || e.altKey || e.metaKey) {
+        return;
+      }
+
+      // Phase 8c: Numpad / keyboard '+' (next) and '-' (previous).
+      // Do NOT handle 'step' ('*') on this page because Prime Factors accepts '*' as multiplication.
+      const shortcut = keyAction(e);
+      if (shortcut === 'next') {
+        e.preventDefault();
+        if (idx + 1 < inputs.length) {
+          inputs[idx + 1].focus();
+          inputs[idx + 1].select?.();
+        }
+        return;
+      }
+      if (shortcut === 'previous') {
+        e.preventDefault();
+        if (idx - 1 >= 0) {
+          inputs[idx - 1].focus();
+          inputs[idx - 1].select?.();
+        }
+        return;
+      }
+
       if (e.key === 'Enter' || e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) {
         if (idx + 1 < inputs.length) {
           e.preventDefault();

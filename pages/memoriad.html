@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Memoriad Competition Practice - Trendz Tracker</title>
+    <meta
+      name="description"
+      content="Desktop mental calculation competition practice for Mental Calendar Dates and Mental Additions on Trendz Tracker."
+    />
+    <meta property="og:title" content="Memoriad Competition Practice - Trendz Tracker" />
+    <meta
+      property="og:description"
+      content="Desktop mental calculation competition practice for Mental Calendar Dates and Mental Additions on Trendz Tracker."
+    />
+    <link rel="stylesheet" href="/css/style.css" />
+    <style>
+      .memoriad-modules-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
+        gap: var(--space-5);
+        margin-bottom: var(--space-6);
+      }
+
+      @media (max-width: 640px) {
+        .memoriad-modules-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .memoriad-module-card {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        background: var(--bg-surface);
+        padding: var(--space-5);
+        box-shadow: var(--shadow-sm);
+      }
+
+      .memoriad-module-card.is-coming-soon {
+        opacity: 0.78;
+        background: var(--bg-surface-subtle);
+      }
+
+      .memoriad-best-box {
+        background: var(--bg-surface-subtle);
+        border: 1px solid var(--border-hairline);
+        border-radius: var(--radius-md);
+        padding: var(--space-3);
+        margin: var(--space-3) 0;
+      }
+
+      .memoriad-dates-tiers {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: var(--space-2);
+      }
+
+      .memoriad-tier-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: var(--radius-sm);
+        background: var(--bg-surface);
+        border: 1px solid var(--border-subtle);
+        color: var(--text-main);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- Top Bar Contract: 3-Zone Navigation -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <!-- Zone 1: Wordmark & Brand -->
+          <a href="/pages/student.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <!-- Zone 2: Navigation Links -->
+          <nav class="nav-zone" aria-label="Student Navigation">
+            <a href="/pages/student.html" class="nav-link">Home</a>
+            <a href="/pages/round-scores.html" class="nav-link">Round Scores</a>
+            <a href="/pages/basics.html" class="nav-link">Basics</a>
+            <a href="/pages/flash.html" class="nav-link">Flash Anzan</a>
+            <a href="/pages/elements.html" class="nav-link">Elements</a>
+            <a href="/pages/memoriad.html" class="nav-link active" aria-current="page">Memoriad</a>
+            <a href="/pages/leaderboard.html" class="nav-link">Leaderboard</a>
+            <a href="/pages/monthly-report.html" class="nav-link">Monthly Report</a>
+          </nav>
+
+          <!-- Zone 3: User Details & Logout Action -->
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Student</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-code" class="num" style="color: var(--text-muted);">STU</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Page Content -->
+      <main class="main-content">
+        <div class="container">
+          <!-- Demo Mode Banner Placeholder -->
+          <div id="config-banner-placeholder"></div>
+
+          <!-- Page Heading & Summary Pill -->
+          <div
+            class="section-header-row"
+            style="align-items: flex-end; flex-wrap: wrap; gap: var(--space-4); margin-bottom: var(--space-5);"
+          >
+            <div>
+              <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: 4px;">
+                <span class="badge badge-role">Competition Stage</span>
+                <span style="font-size: var(--text-xs); color: var(--text-muted);">
+                  Designed for Laptop &amp; Desktop Keyboards (1280&times;800)
+                </span>
+              </div>
+              <h1 style="margin-bottom: 4px;">Memoriad Competition Practice</h1>
+              <p style="font-size: var(--text-sm); color: var(--text-muted); margin: 0;">
+                Practise full-stage mental calculation disciplines with keyboard-first navigation and server-verified scoring.
+              </p>
+            </div>
+
+            <div
+              class="card"
+              style="padding: var(--space-3) var(--space-4); display: flex; align-items: center; gap: var(--space-4); background: var(--bg-surface-subtle);"
+            >
+              <div>
+                <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);">
+                  Tries This Week (IST)
+                </div>
+                <div style="font-size: var(--text-xs); color: var(--text-dim);">
+                  Across all competition modules
+                </div>
+              </div>
+              <div id="memoriad-tries-this-week" class="num" style="font-size: 1.5rem; font-weight: 800; color: var(--color-primary);">
+                0
+              </div>
+            </div>
+          </div>
+
+          <!-- 4 Module Cards Container -->
+          <div id="memoriad-modules-container" class="memoriad-modules-grid">
+            <div class="loading-state" style="grid-column: 1 / -1; padding: var(--space-6);">
+              Loading competition modules and your practice history...
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- Toast Notifications Container -->
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <script type="module" src="/js/memoriad.js"></script>
+  </body>
+</html>

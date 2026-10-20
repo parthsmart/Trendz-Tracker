@@ -46,6 +46,8 @@ export default defineConfig(() => {
           flash: path.resolve(__dirname, 'pages/flash.html'),
           elements: path.resolve(__dirname, 'pages/elements.html'),
           elementDrill: path.resolve(__dirname, 'pages/element-drill.html'),
+          memoriad: path.resolve(__dirname, 'pages/memoriad.html'),
+          memoriadPlay: path.resolve(__dirname, 'pages/memoriad-play.html'),
           admin: path.resolve(__dirname, 'pages/admin.html'),
           students: path.resolve(__dirname, 'pages/students.html'),
           categories: path.resolve(__dirname, 'pages/categories.html'),
