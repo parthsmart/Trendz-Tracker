@@ -23,8 +23,16 @@
 import { getAdminClient, verifyStudentCaller } from './_supabaseAdmin.js';
 import {
   DRILLS,
+  BASICS_QUESTION_COUNTS,
+  BASICS_DEFAULT_QUESTIONS,
+  BASICS_SESSION_EXPIRY_SECONDS,
+   BASICS_MIN_SECONDS_PER_QUESTION,
   buildDrillStartResponse,
   gradeDrillSubmission,
+  parseBasicsCategoryName,
+  generateBasicsSet,
+  stripBasicsExpected,
+  checkSubmission,
 } from './_drills.js';
 
 export const RATE_LIMIT_SETS_PER_HOUR = 60;
@@ -33,7 +41,7 @@ export const MIN_SECONDS_PER_ATTEMPT = 0.25;
 export const MAX_ANSWER_LENGTH = 40;
 
 /**
- * Pure validation helper for the `answers` payload on submit.
+ * Pure validation helper for the `answers` payload on Elements submit.
  *
  * @param {unknown} answers
  * @param {number} expectedCount
@@ -68,6 +76,18 @@ export function validateSubmittedAnswersArray(answers, expectedCount) {
   return { ok: true };
 }
 
+/**
+ * Fallback IST YYYY-MM-DD formatter if today_ist() RPC is unavailable.
+ */
+function fallbackTodayIst() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed. Use POST.' });
@@ -96,6 +116,9 @@ export default async function handler(req, res) {
   const action = String(body.action || '').trim();
 
   if (action === 'start') {
+    if (String(body.kind || '').trim() === 'basics') {
+      return handleStartBasicsDrill({ body, student, adminSupabase, res });
+    }
     return handleStartDrill({ body, student, adminSupabase, res });
   }
 
@@ -104,6 +127,149 @@ export default async function handler(req, res) {
   }
 
   return res.status(400).json({ error: 'Invalid action. Use "start" or "submit".' });
+}
+
+async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
+  const categoryId = String(body.category_id || '').trim();
+  if (!categoryId) {
+    return res.status(400).json({ error: 'Please select a basics category.' });
+  }
+
+  const requestedQuestions =
+    body.questions === undefined || body.questions === null
+      ? BASICS_DEFAULT_QUESTIONS
+      : Number(body.questions);
+
+  if (!BASICS_QUESTION_COUNTS.includes(requestedQuestions)) {
+    return res.status(400).json({
+      error: `Number of questions must be ${BASICS_QUESTION_COUNTS.join(', ')}.`,
+    });
+  }
+
+  // Validate category: section === 'basics', active === true, supported name
+  const { data: category, error: catErr } = await adminSupabase
+    .from('categories')
+    .select('id, name, section, active')
+    .eq('id', categoryId)
+    .single();
+
+  if (catErr || !category) {
+    return res.status(404).json({ error: 'Basics category not found.' });
+  }
+
+  if (category.section !== 'basics' || category.active === false) {
+    return res.status(400).json({
+      error: 'This category is not available for online practice.',
+    });
+  }
+
+  const spec = parseBasicsCategoryName(category.name);
+  if (!spec) {
+    return res.status(400).json({
+      error: 'This category is not available online and uses typed entry only.',
+    });
+  }
+
+  // Rate limit: 60 sets per hour per student (activity_type = 'basics')
+  const oneHourAgoIso = new Date(Date.now() - 3600 * 1000).toISOString();
+  const { count: recentCount, error: countErr } = await adminSupabase
+    .from('drill_sessions')
+    .select('id', { count: 'exact', head: true })
+    .eq('student_id', student.id)
+    .eq('activity_type', 'basics')
+    .gte('started_at', oneHourAgoIso);
+
+  if (countErr) {
+    return res.status(500).json({
+      error: 'Could not check your recent practice sessions. Please try again.',
+    });
+  }
+
+  if ((recentCount || 0) >= RATE_LIMIT_SETS_PER_HOUR) {
+    return res.status(429).json({
+      error: 'You have started 60 sets in the past hour. Please take a short break and try again soon.',
+    });
+  }
+
+  // Generate questions and expected answers on the server
+  const generated = generateBasicsSet(category.name, requestedQuestions);
+  const displayQuestions = stripBasicsExpected(generated);
+  const expectedAnswers = generated.map((q) => q.expected);
+
+  const nowMs = Date.now();
+  const startedAtIso = new Date(nowMs).toISOString();
+  const expiresAtIso = new Date(
+    nowMs + BASICS_SESSION_EXPIRY_SECONDS * 1000
+  ).toISOString();
+  const minSeconds = Math.ceil(requestedQuestions * BASICS_MIN_SECONDS_PER_QUESTION);
+
+  const { data: sessionRow, error: insertErr } = await adminSupabase
+    .from('drill_sessions')
+    .insert({
+      student_id: student.id,
+      activity_type: 'basics',
+      activity_name: category.name,
+      settings: {
+        kind: 'basics',
+        category_id: category.id,
+        questions: requestedQuestions,
+      },
+      questions: displayQuestions,
+      expected: expectedAnswers,
+      min_seconds: minSeconds,
+      started_at: startedAtIso,
+      expires_at: expiresAtIso,
+      status: 'open',
+    })
+    .select('id')
+    .single();
+
+  if (insertErr || !sessionRow) {
+    return res.status(500).json({
+      error: 'Could not start the basics practice session. Please try again.',
+    });
+  }
+
+  // Look up target from basics_thresholds for the student's level (or default)
+  let target = null;
+  try {
+    const { data: thresholds } = await adminSupabase
+      .from('basics_thresholds')
+      .select('category_id, level, min_accuracy, max_time_seconds, active')
+      .eq('category_id', category.id)
+      .eq('active', true);
+
+    if (Array.isArray(thresholds) && thresholds.length > 0) {
+      const studentLevel = String(student.level || '').trim().toLowerCase();
+      let matched = null;
+      if (studentLevel) {
+        matched = thresholds.find(
+          (t) => t.level && String(t.level).trim().toLowerCase() === studentLevel
+        );
+      }
+      if (!matched) {
+        matched = thresholds.find((t) => !t.level || !String(t.level).trim());
+      }
+      if (matched) {
+        target = {
+          min_accuracy: Number(matched.min_accuracy),
+          max_time_seconds:
+            matched.max_time_seconds !== null && matched.max_time_seconds !== undefined
+              ? Number(matched.max_time_seconds)
+              : null,
+        };
+      }
+    }
+  } catch {
+    // Non-fatal: target stays null
+  }
+
+  return res.status(200).json({
+    session_id: sessionRow.id,
+    title: category.name,
+    questions: displayQuestions,
+    target,
+  });
 }
 
 async function handleStartDrill({ body, student, adminSupabase, res }) {
@@ -197,7 +363,7 @@ async function handleSubmitDrill({ body, student, adminSupabase, res }) {
     return res.status(400).json({ error: 'Missing drill session ID.' });
   }
 
-  // Load the student's own session
+  // Load the student's own session (supports both 'element' and 'basics')
   const { data: session, error: sessionErr } = await adminSupabase
     .from('drill_sessions')
     .select(
@@ -205,13 +371,16 @@ async function handleSubmitDrill({ body, student, adminSupabase, res }) {
     )
     .eq('id', sessionId)
     .eq('student_id', student.id)
-    .eq('activity_type', 'element')
     .single();
 
   if (sessionErr || !session) {
     return res.status(404).json({
       error: 'Drill session not found. Please start a new set.',
     });
+  }
+
+  if (session.activity_type === 'basics') {
+    return handleSubmitBasicsSession({ session, answers, student, adminSupabase, res });
   }
 
   if (session.status !== 'open') {
@@ -338,3 +507,110 @@ async function handleSubmitDrill({ body, student, adminSupabase, res }) {
 
   return res.status(200).json(graded);
 }
+
+async function handleSubmitBasicsSession({
+  session,
+  answers,
+  student,
+  adminSupabase,
+  res,
+}) {
+  const nowMs = Date.now();
+  const check = checkSubmission(session, answers, nowMs);
+
+  if (!check.ok) {
+    return res.status(check.statusCode || 400).json({
+      error: check.error,
+    });
+  }
+
+  const categoryId = session.settings?.category_id;
+  if (!categoryId) {
+    return res.status(400).json({
+      error: 'Session is missing a basics category reference.',
+    });
+  }
+
+  // Claim the session atomically (update only where status is 'open')
+  const nowIso = new Date(nowMs).toISOString();
+  const { data: claimedRows, error: claimErr } = await adminSupabase
+    .from('drill_sessions')
+    .update({
+      status: 'submitted',
+      submitted_at: nowIso,
+    })
+    .eq('id', session.id)
+    .eq('student_id', student.id)
+    .eq('status', 'open')
+    .select('id');
+
+  if (claimErr || !claimedRows || claimedRows.length === 0) {
+    return res.status(400).json({
+      error: 'already submitted',
+    });
+  }
+
+  // Obtain today in India time via database RPC today_ist()
+  let entryDate = fallbackTodayIst();
+  try {
+    const { data: istDate, error: rpcErr } = await adminSupabase.rpc('today_ist');
+    if (!rpcErr && istDate) {
+      entryDate = String(istDate).trim();
+    }
+  } catch {
+    // Keep fallbackTodayIst()
+  }
+
+  // Insert into results with the service role:
+  // verified = true, source = 'site', verified_by = null, student_round_id = null
+  const { data: insertedResult, error: insertErr } = await adminSupabase
+    .from('results')
+    .insert({
+      student_id: student.id,
+      category_id: categoryId,
+      correct: check.correct,
+      total: check.total,
+      time_seconds: check.seconds,
+      entry_date: entryDate,
+      verified: true,
+      source: 'site',
+      verified_by: null,
+      student_round_id: null,
+    })
+    .select('id')
+    .single();
+
+  if (insertErr || !insertedResult) {
+    // Reopen session if insert fails
+    await adminSupabase
+      .from('drill_sessions')
+      .update({
+        status: 'open',
+        submitted_at: null,
+      })
+      .eq('id', session.id);
+
+    return res.status(500).json({
+      error: 'Could not save your basics practice score. Please try submitting again.',
+    });
+  }
+
+  // Update the session with status and result_row_id
+  await adminSupabase
+    .from('drill_sessions')
+    .update({
+      status: 'submitted',
+      result_row_id: insertedResult.id,
+    })
+    .eq('id', session.id);
+
+  return res.status(200).json({
+    correct: check.correct,
+    total: check.total,
+    accuracy: check.accuracy,
+    seconds: check.seconds,
+    detail: check.detail,
+    result_id: insertedResult.id,
+  });
+}
+

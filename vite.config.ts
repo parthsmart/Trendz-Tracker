@@ -42,6 +42,7 @@ export default defineConfig(() => {
           student: path.resolve(__dirname, 'pages/student.html'),
           roundScores: path.resolve(__dirname, 'pages/round-scores.html'),
           basics: path.resolve(__dirname, 'pages/basics.html'),
+          basicsPractice: path.resolve(__dirname, 'pages/basics-practice.html'),
           flash: path.resolve(__dirname, 'pages/flash.html'),
           elements: path.resolve(__dirname, 'pages/elements.html'),
           elementDrill: path.resolve(__dirname, 'pages/element-drill.html'),

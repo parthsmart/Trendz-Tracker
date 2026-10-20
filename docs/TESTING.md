@@ -846,11 +846,13 @@ This document contains step-by-step test scenarios to verify security boundaries
 
 ## Phase 7 & Phase 8 Test Cases (Flash Anzan Trainer & Elements Timed Worksheet Drills)
 
-### Test Case 43: Automated Unit Test Suite for Phase 7 & Phase 8 (`tests/flash.test.js`, `tests/drills.test.js`, `tests/drillStats.test.js`)
+### Test Case 43: Automated Unit Test Suite for Phase 7b & Phase 8 (`tests/flashStats.test.js`, `tests/flashTimeline.test.js`, `tests/drills.test.js`, `tests/drillStats.test.js`)
 - **Action**:
   1. Run `node --test tests/*.test.js` in the terminal.
 - **Expected Result**:
-  - All 93 unit tests across the repository pass (`0 fail`).
+  - All unit tests across the repository pass (`0 fail`).
+  - `tests/flashTimeline.test.js` verifies `buildTimeline(settings, count)` for `2`, `50`, and `1000` numbers (`2 * count + 1` events, exact millisecond offsets, `FLASH_BLANK_MS = 80`, and final `done` event).
+  - `tests/flashStats.test.js` verifies `settingsKey` and `statsByKey` ignoring `questions` and `session_id`, combining old multi-question sets (`total > 1`) and new single-question tries (`total = 1`) via `sum(correct) / sum(total)`, `recentTries` (last 20 tries with `"Correct"`/`"Wrong"` and `"n of m correct"`), `triesThisWeek` in Indian time (`Asia/Kolkata`), and empty data.
   - `tests/drills.test.js` verifies:
     - Exact 1:1 parity between `js/drillCatalog.js` and `api/_drills.js` across all 18 drills.
     - 200 deterministic seeded runs for every one of the 18 drills (3,600 sets total) verifying question counts, non-empty prompts, canonical answers, and domain invariants (including non-square `n` and `(k-1)^2 < n < k^2` for `number_to_be_squared`, 20 distinct numbers for `squares_3d_4d`, non-negative answers for `minutes_to_seconds`, and `1 Year` as the 25th question in `time_conversion`).
@@ -871,5 +873,19 @@ This document contains step-by-step test scenarios to verify security boundaries
   - The worksheet grades on the server via `POST /api/drill` (`action: 'submit'`) and displays the Result & Review screen with `correct / attempted` (`n left blank`), accuracy %, time taken, mistake badge (`n wrong` with colour + text), `"New personal best!"` callout when earned, and a question-by-question table showing `Question`, `Your answer` (or `"Blank"`), `Correct answer`, and explicit `"Correct"` / `"Wrong"` badges.
   - Submitting with 0 attempted answers (`attempted === 0`) shows `"No questions were answered, so this attempt was not saved to your history."` and does not insert a row into `activity_results`.
   - Returning to `/pages/student.html` or `/pages/student-detail.html` shows the updated **Elements** summary card, **Personal Bests by Drill** table, and **Recent Elements Sets** table.
+
+### Test Case 45: Phase 7b Flash Anzan One-Question-Per-Try Flow (`/pages/flash.html`)
+- **Action**:
+  1. Log in as a Student (`STU101` / `pass123`) and open **Flash Anzan** (`/pages/flash.html`).
+  2. Verify there are no preset buttons and no "questions per set" input. Test the **Numbers in the Question** control (`2` to `1000`) using `−`, `+`, `-10`, `+10`, `-100`, `+100`, and direct typing (e.g., type `1` or `1500` and blur to see it clamp silently to `2` or `1000`).
+  3. Set **Numbers** to `400` and **Speed** to `1.0 s` (expected duration > 5 minutes) and click **Start Try →**. Confirm that the inline confirmation prompt (`"This will take about 7 minutes. Start?"`) appears before starting. Click **Cancel**, then set **Numbers** to `5` and **Speed** to `0.5 s` and click **Start Try →**.
+  4. While the numbers are flashing, switch to another browser tab and switch back. Verify the try is immediately cancelled with the banner: *"You left the page, so this try was cancelled. Start again when you are ready."*
+  5. Click **Start Try →** again and watch the `3, 2, 1` countdown and the flashing numbers with the thin progress bar.
+  6. When the answer box appears, verify it accepts only digits `0–9` (no minus sign, max 10 digits). Type an answer and press `Enter` (or click **Submit**, or click **I don't know** to send `null`).
+  7. On the Result screen, inspect the large **Correct** / **Wrong** banner, **Your Answer**, **Correct Answer**, **Time Taken**, **Settings**, and expand **Show the numbers** (shown when `count <= 100`). Test **Try again** (confirms settings and starts immediately) and **Change settings**.
+  8. Inspect **Your results at these settings**, **Most-practised settings**, **Recent Flash Anzan History (Last 20 Tries)**, and the **Flash Anzan** card on `/pages/student.html` and `/pages/student-detail.html`.
+- **Expected Result**:
+  - Every completed try saves 1 question (`total = 1`, `correct = 1 | 0`) via `flash_submit`, while legacy multi-question rows display `"n of m correct"` in history and count accurately toward `statsByKey` (`sum(correct) / sum(total)`).
+  - The shared Flash Anzan card displays **Tries This Week**, **Correct This Week**, and **Most-Practised Settings** with its success rate.
 
 

@@ -234,6 +234,8 @@ async function loadReviewEntries() {
             note,
             entry_date,
             created_at,
+            source,
+            verified,
             verified_by,
             verified_at,
             corrected_by,
@@ -259,9 +261,9 @@ async function loadReviewEntries() {
         }
 
         if (activeFilters.status === 'unverified') {
-          q = q.is('verified_at', null).is('corrected_at', null);
+          q = q.eq('verified', false).is('corrected_at', null);
         } else if (activeFilters.status === 'verified') {
-          q = q.not('verified_at', 'is', null);
+          q = q.eq('verified', true);
         } else if (activeFilters.status === 'flagged') {
           q = q.eq('flagged', true);
         } else if (activeFilters.status === 'corrected') {
@@ -378,7 +380,8 @@ function renderReviewTable(entries) {
     const student = entry.student || { full_name: 'Unknown', student_code: '—', level: '—' };
     const category = entry.category || { name: 'Unknown', section: 'other' };
 
-    const isVerified = !!entry.verified_at || !!entry.verified_by;
+    const isSite = entry.source === 'site';
+    const isVerified = entry.verified === true || !!entry.verified_at || !!entry.verified_by;
     const isCorrected = !!entry.corrected_at || !!entry.corrected_by;
     const isFlagged = entry.flagged === true;
 
@@ -403,7 +406,9 @@ function renderReviewTable(entries) {
 
     // Status chips
     let statusChipsHtml = '';
-    if (isVerified) {
+    if (isSite) {
+      statusChipsHtml += `<span class="status-chip chip-verified" title="Recorded by the site">Recorded by the site</span>`;
+    } else if (isVerified) {
       statusChipsHtml += `<span class="status-chip chip-verified" title="Verified by teacher">🔒 Verified</span>`;
     }
     if (isCorrected) {
@@ -412,7 +417,7 @@ function renderReviewTable(entries) {
     if (isFlagged) {
       statusChipsHtml += `<span class="status-chip chip-flagged" title="Flag note: ${escapeHtml(entry.flag_note || '')}">⚠️ Flagged</span>`;
     }
-    if (!isVerified && !isCorrected && !isFlagged) {
+    if (!isSite && !isVerified && !isCorrected && !isFlagged) {
       statusChipsHtml = `<span class="status-chip chip-unverified">Unverified</span>`;
     }
     if (entry.meets_target === true) {
@@ -425,13 +430,17 @@ function renderReviewTable(entries) {
       <tr class="${isSelected ? 'row-selected' : ''}" style="${isSelected ? 'background-color: var(--bg-surface-subtle);' : ''}">
         <!-- Checkbox -->
         <td style="text-align: center;">
-          <input
-            type="checkbox"
-            class="row-select-checkbox"
-            data-id="${entry.id}"
-            ${isSelected ? 'checked' : ''}
-            aria-label="Select entry for bulk verify"
-          />
+          ${isSite ? `
+            <span style="font-size: 11px; color: var(--text-dim);" title="Recorded by the site">—</span>
+          ` : `
+            <input
+              type="checkbox"
+              class="row-select-checkbox"
+              data-id="${entry.id}"
+              ${isSelected ? 'checked' : ''}
+              aria-label="Select entry for bulk verify"
+            />
+          `}
         </td>
 
         <!-- Student -->
@@ -489,48 +498,54 @@ function renderReviewTable(entries) {
         <!-- Actions -->
         <td style="text-align: right;">
           <div style="display: inline-flex; gap: 4px; align-items: center;">
-            <!-- Verify / Unverify -->
-            <button
-              type="button"
-              class="btn btn-outline btn-sm btn-action-verify"
-              data-id="${entry.id}"
-              data-verified="${isVerified ? 'true' : 'false'}"
-              style="padding: 2px 6px; font-size: 11px;"
-              title="${isVerified ? 'Mark as Unverified' : 'Mark as Verified'}"
-            >
-              ${isVerified ? 'Unverify' : '✓ Verify'}
-            </button>
+            ${isSite ? `
+              <span style="font-size: 11px; color: var(--text-dim); padding-right: 4px;" title="Recorded by the site (read-only)">
+                Read-only
+              </span>
+            ` : `
+              <!-- Verify / Unverify -->
+              <button
+                type="button"
+                class="btn btn-outline btn-sm btn-action-verify"
+                data-id="${entry.id}"
+                data-verified="${isVerified ? 'true' : 'false'}"
+                style="padding: 2px 6px; font-size: 11px;"
+                title="${isVerified ? 'Mark as Unverified' : 'Mark as Verified'}"
+              >
+                ${isVerified ? 'Unverify' : '✓ Verify'}
+              </button>
 
-            <!-- Flag / Unflag -->
-            <button
-              type="button"
-              class="btn btn-outline btn-sm btn-action-flag"
-              data-id="${entry.id}"
-              data-flagged="${isFlagged ? 'true' : 'false'}"
-              data-note="${escapeHtml(entry.flag_note || '')}"
-              style="padding: 2px 6px; font-size: 11px;"
-              title="${isFlagged ? 'Clear flag' : 'Flag entry for student'}"
-            >
-              ${isFlagged ? 'Unflag' : '⚑ Flag'}
-            </button>
+              <!-- Flag / Unflag -->
+              <button
+                type="button"
+                class="btn btn-outline btn-sm btn-action-flag"
+                data-id="${entry.id}"
+                data-flagged="${isFlagged ? 'true' : 'false'}"
+                data-note="${escapeHtml(entry.flag_note || '')}"
+                style="padding: 2px 6px; font-size: 11px;"
+                title="${isFlagged ? 'Clear flag' : 'Flag entry for student'}"
+              >
+                ${isFlagged ? 'Unflag' : '⚑ Flag'}
+              </button>
 
-            <!-- Correct -->
-            <button
-              type="button"
-              class="btn btn-outline btn-sm btn-action-correct"
-              data-id="${entry.id}"
-              data-correct="${correct}"
-              data-total="${total}"
-              data-time="${entry.time_seconds || 0}"
-              data-note="${escapeHtml(entry.note || '')}"
-              data-student="${escapeHtml(student.full_name)}"
-              data-cat="${escapeHtml(category.name)}"
-              data-round="${escapeHtml(roundLabel)}"
-              style="padding: 2px 6px; font-size: 11px;"
-              title="Correct score"
-            >
-              ✏️ Correct
-            </button>
+              <!-- Correct -->
+              <button
+                type="button"
+                class="btn btn-outline btn-sm btn-action-correct"
+                data-id="${entry.id}"
+                data-correct="${correct}"
+                data-total="${total}"
+                data-time="${entry.time_seconds || 0}"
+                data-note="${escapeHtml(entry.note || '')}"
+                data-student="${escapeHtml(student.full_name)}"
+                data-cat="${escapeHtml(category.name)}"
+                data-round="${escapeHtml(roundLabel)}"
+                style="padding: 2px 6px; font-size: 11px;"
+                title="Correct score"
+              >
+                ✏️ Correct
+              </button>
+            `}
 
             <!-- History -->
             <button

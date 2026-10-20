@@ -24,6 +24,11 @@ import {
   solveDrillQuestion,
   buildDrillStartResponse,
   gradeDrillSubmission,
+  parseBasicsCategoryName,
+  isBasicsCategorySupported,
+  generateBasicsSet,
+  stripBasicsExpected,
+  checkSubmission,
 } from '../api/_drills.js';
 import {
   DRILL_CATALOG,
@@ -436,3 +441,226 @@ describe('Phase 8 — 5. Start Response Security & Submission Grading', () => {
     });
   });
 });
+
+describe('Phase 9a — Online Basics Category Name Recognition', () => {
+  it('recognises valid <N>d<R>r, <A>dx<B>d (with x, X, *, ×), and <A>d/<B>d (with /, ÷) names', () => {
+    const validNames = [
+      '1d4r',
+      '2D2R',
+      ' 2d 4r ',
+      '1dx1d',
+      '2dX1d',
+      '2d*1d',
+      '2d×1d',
+      '3d/1d',
+      '3d÷1d',
+      '2d / 1d',
+    ];
+
+    for (const name of validNames) {
+      const parsed = parseBasicsCategoryName(name);
+      assert.ok(parsed, `Expected "${name}" to be recognised`);
+      assert.equal(isBasicsCategorySupported(name), true);
+    }
+  });
+
+  it('rejects unsupported names ("weird", "0d3r", "9d9r", "1d/2d") and inactive categories', () => {
+    const invalidNames = [
+      'weird',
+      '0d3r',
+      '9d9r',
+      '1d1r',
+      '1d11r',
+      '5d4r',
+      '0dx1d',
+      '2dx0d',
+      '1d/2d',
+      '2d/3d',
+      '',
+      null,
+      undefined,
+    ];
+
+    for (const name of invalidNames) {
+      assert.equal(
+        parseBasicsCategoryName(name),
+        null,
+        `Expected "${String(name)}" to be rejected`
+      );
+      assert.equal(isBasicsCategorySupported(name), false);
+    }
+
+    assert.equal(
+      isBasicsCategorySupported({ name: '1d4r', active: false, section: 'basics' }),
+      false
+    );
+    assert.equal(
+      isBasicsCategorySupported({ name: '1d4r', active: true, section: 'round' }),
+      false
+    );
+  });
+});
+
+describe('Phase 9a — Online Basics Question Generators (300 Seeded Sets Each)', () => {
+  const addSubSpecs = [
+    { name: '1d4r', digits: 1, rows: 4, minMag: 1, maxMag: 9 },
+    { name: '2d2r', digits: 2, rows: 2, minMag: 10, maxMag: 99 },
+    { name: '2d4r', digits: 2, rows: 4, minMag: 10, maxMag: 99 },
+  ];
+
+  for (const spec of addSubSpecs) {
+    it(`${spec.name}: 300 seeded sets have ${spec.rows} rows, ${spec.digits}-digit magnitudes, positive first row, non-negative running total, no equal neighbours, and exact expected total`, () => {
+      for (let seed = 1; seed <= 300; seed++) {
+        const rng = createSeededRng(seed * 7919);
+        const set = generateBasicsSet(spec.name, 10, rng);
+        assert.equal(set.length, 10);
+
+        for (const q of set) {
+          assert.equal(q.type, 'add_sub');
+          assert.ok(Array.isArray(q.rows));
+          assert.equal(q.rows.length, spec.rows);
+          assert.ok(q.rows[0] > 0, 'First row must be positive');
+
+          let running = 0;
+          for (let i = 0; i < q.rows.length; i++) {
+            const val = q.rows[i];
+            const mag = Math.abs(val);
+            assert.ok(
+              mag >= spec.minMag && mag <= spec.maxMag,
+              `Row magnitude ${mag} out of range [${spec.minMag}, ${spec.maxMag}]`
+            );
+            running += val;
+            assert.ok(running >= 0, `Running total went negative (${running}) at row ${i}`);
+            if (i > 0) {
+              assert.notEqual(
+                Math.abs(q.rows[i]),
+                Math.abs(q.rows[i - 1]),
+                `Adjacent rows ${i - 1} and ${i} have equal numbers (${q.rows[i - 1]}, ${q.rows[i]})`
+              );
+            }
+          }
+
+          assert.equal(q.expected, running);
+        }
+      }
+    });
+  }
+
+  it('1dx1d and 2dx1d: factors stay in exact ranges (1-digit factor 2..9, 2-digit factor 10..99) and expected equals product', () => {
+    for (let seed = 1; seed <= 100; seed++) {
+      const rng = createSeededRng(seed * 3571);
+      const set1 = generateBasicsSet('1dx1d', 10, rng);
+      for (const q of set1) {
+        assert.equal(q.type, 'mul');
+        assert.ok(q.a >= 2 && q.a <= 9, `1dx1d factor a=${q.a} not in 2..9`);
+        assert.ok(q.b >= 2 && q.b <= 9, `1dx1d factor b=${q.b} not in 2..9`);
+        assert.equal(q.expected, q.a * q.b);
+      }
+
+      const set2 = generateBasicsSet('2dx1d', 10, rng);
+      for (const q of set2) {
+        assert.equal(q.type, 'mul');
+        assert.ok(q.a >= 10 && q.a <= 99, `2dx1d factor a=${q.a} not in 10..99`);
+        assert.ok(q.b >= 2 && q.b <= 9, `2dx1d factor b=${q.b} not in 2..9`);
+        assert.equal(q.expected, q.a * q.b);
+      }
+    }
+  });
+
+  it('2d/1d and 3d/1d: dividend has exact digit count, division is exact, divisor is 2..9, and quotient is correct', () => {
+    for (let seed = 1; seed <= 100; seed++) {
+      const rng = createSeededRng(seed * 6151);
+
+      const set2 = generateBasicsSet('2d/1d', 10, rng);
+      for (const q of set2) {
+        assert.equal(q.type, 'div');
+        assert.ok(q.dividend >= 10 && q.dividend <= 99, `2d/1d dividend=${q.dividend} not 2 digits`);
+        assert.ok(q.divisor >= 2 && q.divisor <= 9, `2d/1d divisor=${q.divisor} not in 2..9`);
+        assert.equal(q.dividend % q.divisor, 0);
+        assert.equal(q.expected, q.dividend / q.divisor);
+      }
+
+      const set3 = generateBasicsSet('3d/1d', 10, rng);
+      for (const q of set3) {
+        assert.equal(q.type, 'div');
+        assert.ok(
+          q.dividend >= 100 && q.dividend <= 999,
+          `3d/1d dividend=${q.dividend} not 3 digits`
+        );
+        assert.ok(q.divisor >= 2 && q.divisor <= 9, `3d/1d divisor=${q.divisor} not in 2..9`);
+        assert.equal(q.dividend % q.divisor, 0);
+        assert.equal(q.expected, q.dividend / q.divisor);
+      }
+    }
+  });
+
+  it('stripBasicsExpected strips expected answers from start payload', () => {
+    const generated = generateBasicsSet('1d4r', 5, createSeededRng(42));
+    const stripped = stripBasicsExpected(generated);
+    assert.equal(stripped.length, 5);
+    for (const item of stripped) {
+      assert.equal('expected' in item, false);
+      assert.ok(Array.isArray(item.rows));
+    }
+  });
+});
+
+describe('Phase 9a — Pure checkSubmission(session, answers, now)', () => {
+  const baseStartMs = Date.parse('2026-10-20T10:00:00.000Z');
+  const baseSession = {
+    status: 'open',
+    started_at: new Date(baseStartMs).toISOString(),
+    expires_at: new Date(baseStartMs + 30 * 60 * 1000).toISOString(),
+    questions: [
+      { type: 'mul', a: 6, b: 7, text: '6 x 7' },
+      { type: 'mul', a: 8, b: 9, text: '8 x 9' },
+      { type: 'div', dividend: 84, divisor: 7, text: '84 / 7' },
+      { type: 'add_sub', rows: [4, 5, -2, 3], text: '+4 +5 -2 +3' },
+      { type: 'mul', a: 5, b: 5, text: '5 x 5' },
+    ],
+    expected: [42, 72, 12, 10, 25],
+  };
+
+  it('rejects submissions that are too fast (< questions * 0.6s)', () => {
+    // 5 questions * 0.6s = 3.0s minimum; test at 2.5s
+    const res = checkSubmission(
+      baseSession,
+      ['42', '72', '12', '10', '25'],
+      baseStartMs + 2500
+    );
+    assert.equal(res.ok, false);
+    assert.match(res.error, /faster than possible/i);
+  });
+
+  it('rejects expired sessions (now > expires_at)', () => {
+    const res = checkSubmission(
+      baseSession,
+      ['42', '72', '12', '10', '25'],
+      baseStartMs + 31 * 60 * 1000
+    );
+    assert.equal(res.ok, false);
+    assert.match(res.error, /time is up/i);
+  });
+
+  it('counts blank and null (skipped) answers as wrong and sets total to the number of questions', () => {
+    const res = checkSubmission(
+      baseSession,
+      ['42', null, '   ', '010', '99'],
+      baseStartMs + 15000
+    );
+    assert.equal(res.ok, true);
+    assert.equal(res.total, 5);
+    assert.equal(res.correct, 2); // '42' and '010'
+    assert.equal(res.accuracy, 40);
+    assert.equal(res.seconds, 15);
+    assert.equal(res.detail.length, 5);
+    assert.equal(res.detail[0].correct, true);
+    assert.equal(res.detail[1].correct, false);
+    assert.equal(res.detail[1].given, null);
+    assert.equal(res.detail[2].correct, false);
+    assert.equal(res.detail[2].given, null);
+    assert.equal(res.detail[3].correct, true);
+    assert.equal(res.detail[4].correct, false);
+  });
+});
+

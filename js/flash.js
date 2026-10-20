@@ -1,47 +1,55 @@
 /**
- * Trendz Tracker - Flash Anzan Trainer Controller (js/flash.js)
+ * Trendz Tracker — Flash Anzan Trainer Controller (js/flash.js)
  *
- * STRICT RULES:
+ * Phase 7b — Simplified to ONE QUESTION PER TRY:
  * - Never calculate sums, correctness, streaks, or points in JavaScript.
- * - The browser only displays the numbers returned by flash_start(p_settings)
- *   and sends the student's answers (array of integers or nulls) to flash_submit(p_session, p_answers).
- * - Never insert, update, or delete rows in activity_results from the browser;
- *   only read the student's own activity_results rows for history display.
- * - Uses Web Audio API for the optional beep and plain JavaScript for timing.
+ * - `flash_start(p_settings)` returns `{ session_id, numbers: [signed integers], settings }`
+ *   with `digits` (1..5), `count` (2..1000), `speed_ms` (200..5000), `mode` ('add' | 'add_sub').
+ * - `flash_submit(p_session, p_answer)` sends a single integer or `null` ("I don't know")
+ *   and returns `{ correct: boolean, expected, given, seconds }`.
+ * - Uses `performance.now()` with an absolute schedule built by `buildTimeline(settings, count)`
+ *   and drift correction (never chaining plain timeouts).
+ * - Cancels the try immediately if the browser tab becomes hidden while numbers are showing.
  */
 
 import { isSupabaseConfigured } from './config.js';
 import { isDemoMode } from './demoDb.js';
 import {
+  DEFAULT_FLASH_SETTINGS,
   FLASH_LIMITS,
-  FLASH_PRESETS,
-  detectFlashPreset,
+  clampFlashSettings,
   formatFlashSettingsSummary,
-  formatNumberSequence,
   formatSpeedDisplay,
   friendlyFlashError,
+  getExpectedDurationInfo,
+  getStatsForSettings,
   parseFlashAnswerInput,
+  recentTries,
   secondsToSpeedMs,
   speedMsToSeconds,
+  statsByKey,
   validateFlashSettings,
-} from './flashPresets.js';
+} from './flashStats.js';
+import { buildTimeline } from './flashTimeline.js';
 import { requireAuth } from './guard.js';
 import { getScoreFeedback } from './scoreColors.js';
-import { formatSecondsToTime, getISTDateString } from './stats.js';
+import { formatSecondsToTime } from './stats.js';
 import { DemoDB, getSupabase } from './supabaseClient.js';
 import { showToast } from './toast.js';
 
-const STORAGE_KEY_SETTINGS = 'trendz_flash_settings_v1';
+const STORAGE_KEY_SETTINGS = 'trendz_flash_settings_v2';
 const STORAGE_KEY_SOUND = 'trendz_flash_sound_v1';
 
 let currentProfile = null;
-let currentSettings = { ...FLASH_PRESETS.beginner.settings };
+let currentSettings = { ...DEFAULT_FLASH_SETTINGS };
 let soundEnabled = false;
 let audioCtx = null;
+let cachedHistoryRows = [];
 
-// Active session state
-let activeSession = null; // { session_id, questions, settings, startedAtMs, currentIndex, answers, cancelled }
+// Active try state
+let activeTry = null; // { session_id, numbers, settings, phase: 'countdown'|'flashing'|'answering', cancelled, pendingAnswer }
 let activeTimers = [];
+let isStarting = false;
 let isSubmitting = false;
 
 function escapeHtml(str) {
@@ -85,7 +93,6 @@ function playFlashBeep(isNegative = false) {
     const gain = ctx.createGain();
 
     osc.type = 'sine';
-    // 880 Hz (A5) for positive addition, 660 Hz (E5) for negative subtraction
     osc.frequency.setValueAtTime(isNegative ? 660 : 880, now);
 
     gain.gain.setValueAtTime(0.001, now);
@@ -103,7 +110,7 @@ function playFlashBeep(isNegative = false) {
 }
 
 /**
- * Timer management for clean cancellation when stopping a set
+ * Timer management for clean cancellation
  */
 function clearActiveTimers() {
   while (activeTimers.length > 0) {
@@ -124,24 +131,24 @@ function waitMs(ms) {
 }
 
 /**
- * Load saved settings & sound preference from localStorage
+ * Load saved settings & sound preference from localStorage (wrapped in try/catch)
  */
 function loadSavedPreferences() {
   try {
-    const rawSettings = localStorage.getItem(STORAGE_KEY_SETTINGS);
+    const rawSettings =
+      localStorage.getItem(STORAGE_KEY_SETTINGS) ||
+      localStorage.getItem('trendz_flash_settings_v1');
     if (rawSettings) {
       const parsed = JSON.parse(rawSettings);
-      const validated = validateFlashSettings(parsed);
-      if (validated.valid && validated.settings) {
-        currentSettings = validated.settings;
-      }
+      currentSettings = clampFlashSettings(parsed);
     }
     const rawSound = localStorage.getItem(STORAGE_KEY_SOUND);
     if (rawSound !== null) {
       soundEnabled = rawSound === 'true';
     }
   } catch {
-    // Fallback to defaults
+    currentSettings = { ...DEFAULT_FLASH_SETTINGS };
+    soundEnabled = false;
   }
 }
 
@@ -150,7 +157,7 @@ function savePreferences() {
     localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(currentSettings));
     localStorage.setItem(STORAGE_KEY_SOUND, String(soundEnabled));
   } catch {
-    // Ignore storage quota errors
+    // Ignore storage quota / privacy errors
   }
 }
 
@@ -162,7 +169,7 @@ function showErrorBanner(message) {
   if (!banner) return;
   if (!message) {
     banner.style.display = 'none';
-    banner.innerHTML = '';
+    banner.textContent = '';
     return;
   }
   banner.innerHTML = `
@@ -173,34 +180,19 @@ function showErrorBanner(message) {
 }
 
 /**
- * Syncs all Setup Screen controls and badges with currentSettings
+ * Syncs Setup Screen controls, summary line, duration estimate, and per-settings stats table
  */
-function syncSetupControlsUI(forceCustomHighlight = false) {
-  const { digits, count, speed_ms, questions, mode } = currentSettings;
-  const presetKey = forceCustomHighlight ? 'custom' : detectFlashPreset(currentSettings);
+function syncSetupControlsUI() {
+  currentSettings = clampFlashSettings(currentSettings);
+  const { digits, count, speed_ms, mode } = currentSettings;
 
-  // 1. Preset buttons & badge
-  document.querySelectorAll('.flash-preset-btn').forEach((btn) => {
-    const key = btn.getAttribute('data-preset');
-    btn.classList.toggle('active', key === presetKey);
-  });
-
-  const presetBadge = document.getElementById('setup-active-preset-badge');
-  if (presetBadge) {
-    const labelMap = {
-      beginner: 'Beginner Preset',
-      intermediate: 'Intermediate Preset',
-      advanced: 'Advanced Preset',
-      custom: 'Custom Settings',
-    };
-    presetBadge.textContent = labelMap[presetKey] || 'Custom Settings';
-  }
-
-  // 2. Digits buttons & hidden input
+  // 1. Digits buttons & hidden input
   const digitsInput = document.getElementById('flash-digits');
   if (digitsInput) digitsInput.value = String(digits);
   const digitsLabel = document.getElementById('display-digits-val');
-  if (digitsLabel) digitsLabel.textContent = `${digits} ${digits === 1 ? 'digit' : 'digits'}`;
+  if (digitsLabel) {
+    digitsLabel.textContent = `${digits} ${digits === 1 ? 'digit' : 'digits'}`;
+  }
 
   document.querySelectorAll('[data-digits]').forEach((btn) => {
     const btnDigits = Number(btn.getAttribute('data-digits'));
@@ -209,7 +201,7 @@ function syncSetupControlsUI(forceCustomHighlight = false) {
     btn.setAttribute('aria-pressed', String(isActive));
   });
 
-  // 3. Mode buttons & hidden input
+  // 2. Mode buttons & hidden input
   const modeInput = document.getElementById('flash-mode');
   if (modeInput) modeInput.value = mode;
   document.querySelectorAll('[data-mode]').forEach((btn) => {
@@ -219,12 +211,12 @@ function syncSetupControlsUI(forceCustomHighlight = false) {
     btn.setAttribute('aria-pressed', String(isActive));
   });
 
-  // 4. Numbers per question (count)
+  // 3. Numbers in the question (2 to 1000)
   const countInput = document.getElementById('flash-count');
-  const countRange = document.getElementById('flash-count-range');
   const countDisplay = document.getElementById('display-count-val');
-  if (countInput && document.activeElement !== countInput) countInput.value = String(count);
-  if (countRange) countRange.value = String(count);
+  if (countInput && document.activeElement !== countInput) {
+    countInput.value = String(count);
+  }
   if (countDisplay) countDisplay.textContent = `${count} numbers`;
 
   const btnCountDec = document.getElementById('btn-count-dec');
@@ -232,7 +224,7 @@ function syncSetupControlsUI(forceCustomHighlight = false) {
   if (btnCountDec) btnCountDec.disabled = count <= FLASH_LIMITS.COUNT_MIN;
   if (btnCountInc) btnCountInc.disabled = count >= FLASH_LIMITS.COUNT_MAX;
 
-  // 5. Speed per number (seconds & numbers/sec)
+  // 4. Speed per number (0.2 to 5.0 seconds)
   const speedSec = speedMsToSeconds(speed_ms);
   const speedInput = document.getElementById('flash-speed-seconds');
   const speedRange = document.getElementById('flash-speed-range');
@@ -246,9 +238,7 @@ function syncSetupControlsUI(forceCustomHighlight = false) {
   const speedCombinedEl = document.getElementById('display-speed-combined');
   const speedSecEl = document.getElementById('display-speed-seconds');
   const speedRateEl = document.getElementById('display-speed-rate');
-  if (speedCombinedEl) {
-    speedCombinedEl.textContent = `${speedDisplay.secondsText} · ${speedDisplay.perSecondText}`;
-  }
+  if (speedCombinedEl) speedCombinedEl.textContent = speedDisplay.combinedText;
   if (speedSecEl) speedSecEl.textContent = speedDisplay.secondsText;
   if (speedRateEl) speedRateEl.textContent = speedDisplay.perSecondText;
 
@@ -257,460 +247,87 @@ function syncSetupControlsUI(forceCustomHighlight = false) {
   if (btnSpeedDec) btnSpeedDec.disabled = speed_ms <= FLASH_LIMITS.SPEED_MS_MIN;
   if (btnSpeedInc) btnSpeedInc.disabled = speed_ms >= FLASH_LIMITS.SPEED_MS_MAX;
 
-  // 6. Questions per set
-  const questionsInput = document.getElementById('flash-questions');
-  const questionsRange = document.getElementById('flash-questions-range');
-  const questionsDisplay = document.getElementById('display-questions-val');
-  if (questionsInput && document.activeElement !== questionsInput) {
-    questionsInput.value = String(questions);
-  }
-  if (questionsRange) questionsRange.value = String(questions);
-  if (questionsDisplay) questionsDisplay.textContent = `${questions} questions`;
-
-  const btnQDec = document.getElementById('btn-questions-dec');
-  const btnQInc = document.getElementById('btn-questions-inc');
-  if (btnQDec) btnQDec.disabled = questions <= FLASH_LIMITS.QUESTIONS_MIN;
-  if (btnQInc) btnQInc.disabled = questions >= FLASH_LIMITS.QUESTIONS_MAX;
-
-  // 7. Sound toggle
+  // 5. Sound toggle
   const soundToggle = document.getElementById('flash-sound-toggle');
   if (soundToggle) soundToggle.checked = soundEnabled;
-  updatePlaySoundButtonUI();
 
-  // 8. Summary bar
-  const summaryTextEl = document.getElementById('setup-summary-text');
-  const durationTextEl = document.getElementById('setup-duration-text');
-  if (summaryTextEl) {
-    summaryTextEl.textContent = formatFlashSettingsSummary(currentSettings);
+  // 6. One-line summary & expected duration
+  const summaryLine = document.getElementById('flash-setup-summary-line');
+  if (summaryLine) {
+    summaryLine.textContent = formatFlashSettingsSummary(currentSettings);
   }
-  if (durationTextEl) {
-    const perQuestionSec = ((count * speed_ms) / 1000).toFixed(1);
-    const totalFlashSec = Math.round((questions * count * speed_ms) / 1000);
-    durationTextEl.textContent = `${perQuestionSec}s / question (~${totalFlashSec}s total flash)`;
+
+  const durationInfo = getExpectedDurationInfo(currentSettings);
+  const durationBadge = document.getElementById('setup-duration-badge');
+  const durationLine = document.getElementById('flash-setup-duration-line');
+  if (durationBadge) {
+    durationBadge.textContent = `Expected duration: ${durationInfo.displayText}`;
   }
-}
+  if (durationLine) {
+    durationLine.textContent = `Expected duration: ${durationInfo.displayText}${
+      durationInfo.requiresConfirmation ? ' (confirmation required over 5 minutes)' : ''
+    }`;
+  }
 
-function updatePlaySoundButtonUI() {
-  const btn = document.getElementById('btn-play-sound-toggle');
-  if (!btn) return;
-  btn.textContent = soundEnabled ? '🔊 Sound On' : '🔇 Sound Off';
-}
+  // Hide long-duration confirmation prompt when settings change
+  const longConfirmBox = document.getElementById('flash-long-confirm-box');
+  if (longConfirmBox) longConfirmBox.style.display = 'none';
 
-/**
- * Switch visible screen ('setup' | 'play' | 'results')
- */
-function showScreen(screenName) {
-  const setupEl = document.getElementById('flash-setup-screen');
-  const playEl = document.getElementById('flash-play-screen');
-  const resultsEl = document.getElementById('flash-results-screen');
-  const historyEl = document.getElementById('flash-history-section');
-
-  if (setupEl) setupEl.style.display = screenName === 'setup' ? 'block' : 'none';
-  if (playEl) playEl.style.display = screenName === 'play' ? 'block' : 'none';
-  if (resultsEl) resultsEl.style.display = screenName === 'results' ? 'block' : 'none';
-  // Hide distraction below the trainer while actively playing a set
-  if (historyEl) historyEl.style.display = screenName === 'play' ? 'none' : 'block';
+  // 7. Refresh "Your results at these settings" table
+  renderSetupStatsTables();
 }
 
 /**
- * Calls RPC flash_start(p_settings) and begins the set
+ * Renders "Your results at these settings" and "Most-practised settings" on the Setup screen
  */
-async function startFlashSession() {
-  showErrorBanner(null);
+function renderSetupStatsTables() {
+  const currentTbody = document.getElementById('current-settings-stats-tbody');
+  const mostTbody = document.getElementById('most-practised-stats-tbody');
 
-  const check = validateFlashSettings(currentSettings);
-  if (!check.valid || !check.settings) {
-    showErrorBanner(check.errors.join(' '));
-    return;
-  }
-
-  currentSettings = check.settings;
-  savePreferences();
-
-  if (soundEnabled) {
-    ensureAudioContext();
-  }
-
-  const startBtn = document.getElementById('btn-start-flash');
-  const playAgainBtn = document.getElementById('btn-play-again');
-  if (startBtn) {
-    startBtn.disabled = true;
-    startBtn.textContent = 'Starting Set...';
-  }
-  if (playAgainBtn) {
-    playAgainBtn.disabled = true;
-    playAgainBtn.textContent = 'Starting Set...';
-  }
-
-  try {
-    let rpcData = null;
-
-    if (isSupabaseConfigured()) {
-      const supabase = await getSupabase();
-      const { data, error } = await supabase.rpc('flash_start', {
-        p_settings: currentSettings,
-      });
-      if (error) {
-        throw error;
-      }
-      rpcData = Array.isArray(data) ? data[0] : data;
-    } else if (isDemoMode()) {
-      rpcData = DemoDB.mockFlashStart(currentSettings, currentProfile?.id);
-    } else {
-      throw new Error('Database connection is not configured.');
-    }
-
-    if (
-      !rpcData ||
-      !rpcData.session_id ||
-      !Array.isArray(rpcData.questions) ||
-      rpcData.questions.length === 0
-    ) {
-      throw new Error('Server returned an unexpected session format.');
-    }
-
-    clearActiveTimers();
-    activeSession = {
-      session_id: rpcData.session_id,
-      questions: rpcData.questions,
-      settings: rpcData.settings || { ...currentSettings },
-      startedAtMs: performance.now(),
-      currentIndex: 0,
-      answers: [],
-      cancelled: false,
-    };
-
-    showScreen('play');
-    await runQuestionFlow(0);
-  } catch (err) {
-    const friendly = friendlyFlashError(err, 'start');
-    showErrorBanner(friendly);
-    showToast('error', friendly);
-  } finally {
-    if (startBtn) {
-      startBtn.disabled = false;
-      startBtn.textContent = '⚡ Start Flash Set';
-    }
-    if (playAgainBtn) {
-      playAgainBtn.disabled = false;
-      playAgainBtn.textContent = '⚡ Play Again (Same Settings)';
-    }
-  }
-}
-
-/**
- * Runs the countdown and number-flashing sequence for question index qIdx,
- * then switches to the answer input box.
- */
-async function runQuestionFlow(qIdx) {
-  if (!activeSession || activeSession.cancelled) return;
-
-  const totalQuestions = activeSession.questions.length;
-  const numbers = activeSession.questions[qIdx] || [];
-  const settings = activeSession.settings || currentSettings;
-  const speedMs = Number(settings.speed_ms) || 1000;
-
-  activeSession.currentIndex = qIdx;
-
-  // Update play header
-  const qCurrentEl = document.getElementById('play-q-current');
-  const qTotalEl = document.getElementById('play-q-total');
-  const settingsBadgeEl = document.getElementById('play-settings-badge');
-  const progressBarEl = document.getElementById('play-progress-bar');
-
-  if (qCurrentEl) qCurrentEl.textContent = String(qIdx + 1);
-  if (qTotalEl) qTotalEl.textContent = String(totalQuestions);
-  if (settingsBadgeEl) {
-    settingsBadgeEl.textContent = formatFlashSettingsSummary(settings);
-  }
-  if (progressBarEl) {
-    const pct = Math.round(((qIdx + 1) / totalQuestions) * 100);
-    progressBarEl.style.width = `${pct}%`;
-  }
-
-  const stageDisplay = document.getElementById('flash-stage-display');
-  const stageAnswer = document.getElementById('flash-stage-answer');
-  const stepLabelEl = document.getElementById('flash-step-label');
-  const stepIndexEl = document.getElementById('flash-step-index');
-  const numberBoxEl = document.getElementById('flash-number-box');
-  const subtextEl = document.getElementById('flash-stage-subtext');
-
-  if (stageDisplay) stageDisplay.style.display = 'flex';
-  if (stageAnswer) stageAnswer.style.display = 'none';
-
-  // Brief countdown before flashing numbers: Ready (400ms) -> Set (350ms)
-  if (stepLabelEl) stepLabelEl.textContent = `Question ${qIdx + 1} of ${totalQuestions}`;
-  if (stepIndexEl) stepIndexEl.textContent = `${numbers.length} numbers`;
-  if (numberBoxEl) {
-    numberBoxEl.className = 'flash-number-display';
-    numberBoxEl.textContent = 'Ready...';
-  }
-  if (subtextEl) subtextEl.textContent = 'Keep your eyes focused in the center';
-
-  await waitMs(450);
-  if (!activeSession || activeSession.cancelled) return;
-
-  if (numberBoxEl) {
-    numberBoxEl.textContent = 'Go!';
-  }
-  await waitMs(300);
-  if (!activeSession || activeSession.cancelled) return;
-
-  // Monotonic clock anchor for this question's numbers so total time >= numbers.length * speedMs
-  const questionFlashStartMs = performance.now();
-  // Brief blank gap between consecutive numbers so identical adjacent numbers visibly flash
-  const blankGapMs = Math.min(85, Math.max(25, Math.floor(speedMs * 0.15)));
-  const visibleDurationMs = Math.max(100, speedMs - blankGapMs);
-
-  for (let i = 0; i < numbers.length; i++) {
-    if (!activeSession || activeSession.cancelled) return;
-
-    const num = Number(numbers[i]);
-    const isNeg = num < 0;
-    const formattedNum = isNeg ? `−${Math.abs(num)}` : String(num);
-
-    if (stepLabelEl) stepLabelEl.textContent = `Question ${qIdx + 1}`;
-    if (stepIndexEl) stepIndexEl.textContent = `Number ${i + 1} of ${numbers.length}`;
-    if (subtextEl) {
-      subtextEl.textContent = isNeg ? 'Subtract (−)' : 'Add (+)';
-    }
-    if (numberBoxEl) {
-      numberBoxEl.className = `flash-number-display ${isNeg ? 'negative' : 'positive'}`;
-      numberBoxEl.textContent = formattedNum;
-    }
-
-    playFlashBeep(isNeg);
-
-    const slotTargetEndMs = questionFlashStartMs + (i + 1) * speedMs;
-    const slotBlankStartMs = slotTargetEndMs - blankGapMs;
-
-    const nowBeforeVisibleWait = performance.now();
-    await waitMs(Math.max(20, slotBlankStartMs - nowBeforeVisibleWait));
-    if (!activeSession || activeSession.cancelled) return;
-
-    // Blank between numbers so repeat numbers flash distinctly
-    if (numberBoxEl) {
-      numberBoxEl.textContent = '';
-    }
-
-    const nowBeforeGapWait = performance.now();
-    await waitMs(Math.max(5, slotTargetEndMs - nowBeforeGapWait));
-  }
-
-  if (!activeSession || activeSession.cancelled) return;
-
-  // Ensure total elapsed time for this question's flash phase is at least numbers.length * speedMs
-  const totalExpectedMs = numbers.length * speedMs;
-  const elapsedMs = performance.now() - questionFlashStartMs;
-  if (elapsedMs < totalExpectedMs) {
-    await waitMs(Math.ceil(totalExpectedMs - elapsedMs));
-  }
-  if (!activeSession || activeSession.cancelled) return;
-
-  // Switch to Answer Stage for Question qIdx
-  showAnswerStageForQuestion(qIdx, totalQuestions);
-}
-
-function showAnswerStageForQuestion(qIdx, totalQuestions) {
-  const stageDisplay = document.getElementById('flash-stage-display');
-  const stageAnswer = document.getElementById('flash-stage-answer');
-  const answerQNum = document.getElementById('answer-q-num');
-  const answerInput = document.getElementById('flash-answer-input');
-  const answerError = document.getElementById('flash-answer-error');
-  const submitBtn = document.getElementById('btn-submit-answer');
-
-  if (stageDisplay) stageDisplay.style.display = 'none';
-  if (stageAnswer) stageAnswer.style.display = 'block';
-  if (answerQNum) answerQNum.textContent = String(qIdx + 1);
-  if (answerError) {
-    answerError.style.display = 'none';
-    answerError.textContent = '';
-  }
-
-  const isLast = qIdx + 1 >= totalQuestions;
-  if (submitBtn) {
-    submitBtn.innerHTML = isLast ? '✓ Submit Set' : 'Next Question &rarr;';
-  }
-
-  if (answerInput) {
-    answerInput.value = '';
-    setTimeout(() => {
-      answerInput.focus();
-    }, 20);
-  }
-}
-
-/**
- * Records the student's answer (integer or null for skip) for the current question,
- * then either advances to the next question or submits the set via flash_submit.
- */
-async function recordAnswerAndAdvance(answerValue) {
-  if (!activeSession || activeSession.cancelled || isSubmitting) return;
-
-  activeSession.answers.push(answerValue);
-
-  const nextIdx = activeSession.currentIndex + 1;
-  if (nextIdx < activeSession.questions.length) {
-    await runQuestionFlow(nextIdx);
-  } else {
-    await submitFlashSession();
-  }
-}
-
-/**
- * Calls RPC flash_submit(p_session, p_answers) and renders the server results
- */
-async function submitFlashSession() {
-  if (!activeSession || activeSession.cancelled || isSubmitting) return;
-  isSubmitting = true;
-
-  const submitBtn = document.getElementById('btn-submit-answer');
-  const skipBtn = document.getElementById('btn-skip-question');
-  if (submitBtn) {
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Submitting Set...';
-  }
-  if (skipBtn) {
-    skipBtn.disabled = true;
-  }
-
-  try {
-    // Guarantee minimum total flash time has elapsed so server never rejects due to sub-millisecond clock skew
-    const totalNumbers = activeSession.questions.reduce(
-      (sum, q) => sum + (Array.isArray(q) ? q.length : 0),
-      0
-    );
-    const speedMs = Number(activeSession.settings?.speed_ms) || 1000;
-    const minRequiredMs = totalNumbers * speedMs + 50;
-    const elapsedSinceStartMs = performance.now() - activeSession.startedAtMs;
-    if (elapsedSinceStartMs < minRequiredMs) {
-      await waitMs(Math.ceil(minRequiredMs - elapsedSinceStartMs));
-    }
-
-    let resultData = null;
-
-    if (isSupabaseConfigured()) {
-      const supabase = await getSupabase();
-      const { data, error } = await supabase.rpc('flash_submit', {
-        p_session: activeSession.session_id,
-        p_answers: activeSession.answers,
-      });
-      if (error) {
-        throw error;
-      }
-      resultData = Array.isArray(data) ? data[0] : data;
-    } else if (isDemoMode()) {
-      resultData = DemoDB.mockFlashSubmit(
-        activeSession.session_id,
-        activeSession.answers,
-        currentProfile?.id
-      );
-    } else {
-      throw new Error('Database connection is not configured.');
-    }
-
-    const completedSettings = activeSession.settings || currentSettings;
-    activeSession = null;
-
-    renderFlashResultsScreen(resultData, completedSettings);
-    showScreen('results');
-    showToast('success', 'Flash Anzan set completed and saved!');
-
-    // Refresh recent history from activity_results
-    await loadFlashHistory();
-  } catch (err) {
-    const friendly = friendlyFlashError(err, 'submit');
-    showErrorBanner(friendly);
-    showToast('error', friendly);
-    activeSession = null;
-    showScreen('setup');
-  } finally {
-    isSubmitting = false;
-    if (submitBtn) {
-      submitBtn.disabled = false;
-    }
-    if (skipBtn) {
-      skipBtn.disabled = false;
-    }
-  }
-}
-
-/**
- * Renders the server-returned results and question-by-question breakdown.
- * Never computes correctness or sums in JS; strictly renders server fields.
- */
-function renderFlashResultsScreen(resultData, settingsUsed) {
-  const correct = Number(resultData?.correct ?? 0);
-  const total = Number(resultData?.total ?? 0);
-  const accuracy =
-    resultData?.accuracy !== undefined && resultData?.accuracy !== null
-      ? Number(resultData.accuracy)
-      : 0;
-  const seconds =
-    resultData?.seconds !== undefined && resultData?.seconds !== null
-      ? Number(resultData.seconds)
-      : null;
-  const details = Array.isArray(resultData?.detail) ? resultData.detail : [];
-
-  const summaryEl = document.getElementById('results-settings-summary');
-  const scoreEl = document.getElementById('res-metric-score');
-  const accEl = document.getElementById('res-metric-accuracy');
-  const timeEl = document.getElementById('res-metric-time');
-  const tbody = document.getElementById('results-detail-tbody');
-
-  if (summaryEl) {
-    summaryEl.textContent = formatFlashSettingsSummary(settingsUsed);
-  }
-  if (scoreEl) {
-    scoreEl.textContent = `${correct} / ${total}`;
-  }
-  if (accEl) {
-    const feedback = getScoreFeedback(correct, total);
-    accEl.textContent = `${accuracy}%`;
-    accEl.style.color = feedback.colorVar;
-  }
-  if (timeEl) {
-    timeEl.textContent = seconds !== null ? formatSecondsToTime(seconds) : '—';
-  }
-
-  if (tbody) {
-    if (details.length === 0) {
-      tbody.innerHTML = `
+  if (currentTbody) {
+    const stat = getStatsForSettings(cachedHistoryRows, currentSettings);
+    if (stat.tries === 0) {
+      currentTbody.innerHTML = `
         <tr>
-          <td colspan="5" class="empty-state" style="padding: var(--space-4); text-align: center;">
-            No question details returned.
+          <td class="num">${escapeHtml(stat.summary)}</td>
+          <td class="num" style="text-align: right;">0</td>
+          <td class="num" style="text-align: right;">0</td>
+          <td style="text-align: right; color: var(--text-muted);">No tries yet</td>
+        </tr>
+      `;
+    } else {
+      const fb = getScoreFeedback(stat.correct, stat.tries);
+      currentTbody.innerHTML = `
+        <tr>
+          <td class="num" style="font-weight: 600;">${escapeHtml(stat.summary)}</td>
+          <td class="num" style="text-align: right; font-weight: 700;">${stat.tries}</td>
+          <td class="num" style="text-align: right; font-weight: 700;">${stat.correct}</td>
+          <td class="num" style="text-align: right; font-weight: 800; color: ${fb.colorVar};">${stat.successRate}%</td>
+        </tr>
+      `;
+    }
+  }
+
+  if (mostTbody) {
+    const allGroups = statsByKey(cachedHistoryRows).slice(0, 5);
+    if (allGroups.length === 0) {
+      mostTbody.innerHTML = `
+        <tr>
+          <td colspan="4" style="text-align: center; color: var(--text-muted); padding: var(--space-3);">
+            No Flash Anzan tries recorded yet.
           </td>
         </tr>
       `;
     } else {
-      tbody.innerHTML = details
-        .map((row, idx) => {
-          const isCorrect = Boolean(row.correct);
-          const isSkipped = row.given === null || row.given === undefined;
-          const seqText = formatNumberSequence(row.numbers);
-          const expectedText =
-            row.expected !== null && row.expected !== undefined ? String(row.expected) : '—';
-          const givenText = isSkipped ? 'Skipped' : String(row.given);
-
-          const statusBadge = isCorrect
-            ? `<span class="badge badge-success">✓ Correct</span>`
-            : isSkipped
-              ? `<span class="badge badge-neutral">Skipped</span>`
-              : `<span class="badge badge-danger" style="background: var(--color-danger-subtle); color: var(--color-danger-text);">✗ Wrong</span>`;
-
+      mostTbody.innerHTML = allGroups
+        .map((g) => {
+          const fb = getScoreFeedback(g.correct, g.tries);
           return `
             <tr>
-              <td class="num" style="font-weight: 700; color: var(--text-muted);">${idx + 1}</td>
-              <td class="num" style="font-family: var(--font-mono); font-size: var(--text-xs);">${escapeHtml(seqText)}</td>
-              <td class="num" style="text-align: right; font-weight: 700;">${escapeHtml(expectedText)}</td>
-              <td class="num" style="text-align: right; font-weight: 700; color: ${
-                isCorrect
-                  ? 'var(--color-score-perfect)'
-                  : isSkipped
-                    ? 'var(--text-dim)'
-                    : 'var(--color-danger)'
-              };">${escapeHtml(givenText)}</td>
-              <td style="text-align: center;">${statusBadge}</td>
+              <td class="num" style="font-weight: 600;">${escapeHtml(g.summary)}</td>
+              <td class="num" style="text-align: right;">${g.tries}</td>
+              <td class="num" style="text-align: right;">${g.correct}</td>
+              <td class="num" style="text-align: right; font-weight: 800; color: ${fb.colorVar};">${g.successRate}%</td>
             </tr>
           `;
         })
@@ -720,140 +337,509 @@ function renderFlashResultsScreen(resultData, settingsUsed) {
 }
 
 /**
- * Loads the student's read-only Flash Anzan history from activity_results
+ * Switches visible screen between 'setup', 'play', and 'results'
  */
-async function loadFlashHistory() {
-  const container = document.getElementById('flash-history-container');
-  const todayBadge = document.getElementById('flash-today-count-badge');
-  if (!container || !currentProfile) return;
+function showScreen(screenName) {
+  const setupEl = document.getElementById('flash-setup-screen');
+  const playEl = document.getElementById('flash-play-screen');
+  const resultsEl = document.getElementById('flash-results-screen');
 
-  try {
-    let rows = [];
-    if (isSupabaseConfigured()) {
-      const supabase = await getSupabase();
-      const { data, error } = await supabase
-        .from('activity_results')
-        .select('id, student_id, activity_type, activity_name, correct, total, time_seconds, settings, created_at')
-        .eq('student_id', currentProfile.id)
-        .eq('activity_type', 'flash_anzan')
-        .order('created_at', { ascending: false })
-        .limit(20);
+  if (setupEl) setupEl.style.display = screenName === 'setup' ? 'block' : 'none';
+  if (playEl) playEl.style.display = screenName === 'play' ? 'block' : 'none';
+  if (resultsEl) resultsEl.style.display = screenName === 'results' ? 'block' : 'none';
+}
 
-      if (!error && Array.isArray(data)) {
-        rows = data;
-      }
-    } else if (isDemoMode()) {
-      rows = DemoDB.getActivityResults(currentProfile.id, 'flash_anzan');
-    }
+/**
+ * Calls `flash_start(p_settings)` on Supabase (or DemoDB in demo mode)
+ */
+async function callFlashStartRpc(settings) {
+  const payload = {
+    digits: settings.digits,
+    count: settings.count,
+    speed_ms: settings.speed_ms,
+    mode: settings.mode,
+  };
 
-    const todayIst = getISTDateString(new Date());
-    const todayCount = rows.filter((r) => {
-      if (!r.created_at) return false;
-      return getISTDateString(new Date(r.created_at)) === todayIst;
-    }).length;
+  if (isDemoMode() && !isSupabaseConfigured()) {
+    return DemoDB.mockFlashStart(payload, currentProfile?.id);
+  }
 
-    if (todayBadge) {
-      todayBadge.textContent = `(${todayCount} today)`;
-    }
+  const supabase = await getSupabase();
+  if (!supabase) {
+    throw new Error('Database connection is not available.');
+  }
 
-    if (rows.length === 0) {
-      container.innerHTML = `
-        <div class="card">
-          <div class="card-body">
-            <div class="empty-state" style="padding: var(--space-4);">
-              No Flash Anzan sets completed yet. Choose a preset above and click <strong>Start Flash Set</strong>!
-            </div>
-          </div>
-        </div>
-      `;
-      return;
-    }
+  const { data, error } = await supabase.rpc('flash_start', {
+    p_settings: payload,
+  });
 
-    container.innerHTML = `
-      <div class="card" style="padding: 0; overflow: hidden;">
-        <div class="table-responsive">
-          <table class="data-table" aria-label="Recent Flash Anzan Sets">
-            <thead>
-              <tr>
-                <th>Date &amp; Time</th>
-                <th>Settings</th>
-                <th style="text-align: right;">Score</th>
-                <th style="text-align: right;">Accuracy</th>
-                <th style="text-align: right;">Time</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows
-                .map((row) => {
-                  const dt = row.created_at ? new Date(row.created_at) : null;
-                  const dateLabel =
-                    dt && !Number.isNaN(dt.getTime())
-                      ? dt.toLocaleString('en-IN', {
-                          timeZone: 'Asia/Kolkata',
-                          day: 'numeric',
-                          month: 'short',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })
-                      : '—';
-                  const sSummary =
-                    row.settings && typeof row.settings === 'object'
-                      ? formatFlashSettingsSummary(row.settings)
-                      : row.activity_name || 'Flash Anzan';
-                  const c = Number(row.correct) || 0;
-                  const t = Number(row.total) || 0;
-                  const pct = t > 0 ? Math.round((c / t) * 1000) / 10 : 0;
-                  const feedback = getScoreFeedback(c, t);
-                  const timeStr =
-                    row.time_seconds !== null && row.time_seconds !== undefined
-                      ? formatSecondsToTime(row.time_seconds)
-                      : '—';
+  if (error) {
+    throw error;
+  }
+  return data;
+}
 
-                  return `
-                    <tr>
-                      <td class="num" style="font-size: var(--text-xs); color: var(--text-muted);">${escapeHtml(dateLabel)}</td>
-                      <td style="font-size: var(--text-xs); font-weight: 600;">${escapeHtml(sSummary)}</td>
-                      <td class="num" style="text-align: right; font-weight: 700;">${c} / ${t}</td>
-                      <td class="num" style="text-align: right; font-weight: 700; color: ${feedback.colorVar};">${pct}%</td>
-                      <td class="num" style="text-align: right; color: var(--text-muted);">${escapeHtml(timeStr)}</td>
-                    </tr>
-                  `;
-                })
-                .join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    `;
-  } catch (err) {
-    console.warn('Could not load Flash Anzan history:', err);
+/**
+ * Calls `flash_submit(p_session, p_answer)` on Supabase (or DemoDB in demo mode)
+ */
+async function callFlashSubmitRpc(sessionId, answerValue) {
+  if (isDemoMode() && !isSupabaseConfigured()) {
+    return DemoDB.mockFlashSubmit(sessionId, answerValue, currentProfile?.id);
+  }
+
+  const supabase = await getSupabase();
+  if (!supabase) {
+    throw new Error('Database connection is not available.');
+  }
+
+  const { data, error } = await supabase.rpc('flash_submit', {
+    p_session: sessionId,
+    p_answer: answerValue,
+  });
+
+  if (error) {
+    throw error;
+  }
+  return data;
+}
+
+/**
+ * Handles `visibilitychange`: if the tab becomes hidden while countdown or numbers
+ * are showing, CANCEL the try immediately (save nothing) and explain why.
+ */
+function handleVisibilityChange() {
+  if (!document.hidden) return;
+  if (!activeTry || activeTry.cancelled) return;
+
+  if (activeTry.phase === 'countdown' || activeTry.phase === 'flashing') {
+    activeTry.cancelled = true;
+    clearActiveTimers();
+    activeTry = null;
+    showScreen('setup');
+    showErrorBanner(
+      'You left the page, so this try was cancelled. Start again when you are ready.'
+    );
   }
 }
 
 /**
- * Attaches all Setup, Play, Keypad, and Results event listeners
+ * Runs the 3-2-1 countdown and then flashes the numbers using `buildTimeline`
+ * and `performance.now()` drift correction.
+ */
+async function runTrySequence() {
+  if (!activeTry || activeTry.cancelled) return;
+
+  const numbers = Array.isArray(activeTry.numbers) ? activeTry.numbers : [];
+  const totalNumbers = numbers.length;
+  const speedMs = Number(activeTry.settings.speed_ms) || 1000;
+
+  const progressFill = document.getElementById('play-progress-fill');
+  const summaryEl = document.getElementById('play-settings-summary');
+  const stageBox = document.getElementById('flash-stage-box');
+  const captionEl = document.getElementById('flash-stage-caption');
+  const numberEl = document.getElementById('flash-number-display');
+  const answerPanel = document.getElementById('flash-answer-panel');
+  const stopConfirmBar = document.getElementById('flash-stop-confirm-bar');
+
+  if (summaryEl) {
+    summaryEl.textContent = formatFlashSettingsSummary(activeTry.settings);
+  }
+  if (progressFill) progressFill.style.width = '0%';
+  if (stopConfirmBar) stopConfirmBar.style.display = 'none';
+  if (answerPanel) answerPanel.style.display = 'none';
+  if (stageBox) stageBox.style.display = 'flex';
+
+  // 1. Countdown: 3, 2, 1
+  activeTry.phase = 'countdown';
+  for (const step of ['3', '2', '1']) {
+    if (!activeTry || activeTry.cancelled) return;
+    if (captionEl) captionEl.textContent = 'Get Ready';
+    if (numberEl) {
+      numberEl.className = 'flash-number-display flash-countdown num';
+      numberEl.textContent = step;
+    }
+    await waitMs(650);
+    if (!activeTry || activeTry.cancelled) return;
+  }
+
+  // Brief blank before first number
+  if (captionEl) captionEl.textContent = '';
+  if (numberEl) {
+    numberEl.className = 'flash-number-display num';
+    numberEl.textContent = '';
+  }
+  await waitMs(150);
+  if (!activeTry || activeTry.cancelled) return;
+
+  // 2. Flashing numbers using absolute schedule from `buildTimeline`
+  activeTry.phase = 'flashing';
+  const timeline = buildTimeline({ speed_ms: speedMs }, totalNumbers);
+  const anchorMs = performance.now();
+
+  for (const event of timeline) {
+    if (!activeTry || activeTry.cancelled) return;
+
+    const targetTimeMs = anchorMs + event.offsetMs;
+    const waitDuration = targetTimeMs - performance.now();
+    if (waitDuration > 0) {
+      await waitMs(waitDuration);
+      if (!activeTry || activeTry.cancelled) return;
+    }
+
+    if (event.type === 'number') {
+      const val = Number(numbers[event.index]);
+      const isNeg = val < 0;
+      const displayStr = isNeg ? `-${Math.abs(val)}` : `${Math.abs(val)}`;
+
+      if (numberEl) {
+        numberEl.className = `flash-number-display num ${isNeg ? 'is-negative' : ''}`;
+        numberEl.textContent = displayStr;
+      }
+      if (progressFill && totalNumbers > 0) {
+        const pct = Math.min(100, Math.round(((event.index + 1) / totalNumbers) * 100));
+        progressFill.style.width = `${pct}%`;
+      }
+      playFlashBeep(isNeg);
+    } else if (event.type === 'blank') {
+      if (numberEl) {
+        numberEl.textContent = '';
+      }
+    } else if (event.type === 'done') {
+      if (numberEl) {
+        numberEl.textContent = '';
+      }
+      if (progressFill) {
+        progressFill.style.width = '100%';
+      }
+    }
+  }
+
+  if (!activeTry || activeTry.cancelled) return;
+
+  // 3. Transition to Answer Input Panel
+  activeTry.phase = 'answering';
+  if (stageBox) stageBox.style.display = 'none';
+  if (answerPanel) answerPanel.style.display = 'block';
+
+  const answerInput = document.getElementById('flash-answer-input');
+  const answerErr = document.getElementById('flash-answer-error');
+  const retryBox = document.getElementById('flash-submit-retry-box');
+  const submitBtn = document.getElementById('btn-answer-submit');
+  const idkBtn = document.getElementById('btn-answer-idk');
+
+  if (answerErr) {
+    answerErr.style.display = 'none';
+    answerErr.textContent = '';
+  }
+  if (retryBox) retryBox.style.display = 'none';
+  if (submitBtn) {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Submit';
+  }
+  if (idkBtn) idkBtn.disabled = false;
+
+  if (answerInput) {
+    answerInput.disabled = false;
+    answerInput.value = '';
+    setTimeout(() => {
+      try {
+        answerInput.focus();
+      } catch {
+        // ignore focus error
+      }
+    }, 20);
+  }
+}
+
+/**
+ * Starts a Flash Anzan try (after any long-duration confirmation)
+ */
+async function startTryExecution() {
+  if (isStarting) return;
+  showErrorBanner(null);
+
+  currentSettings = clampFlashSettings(currentSettings);
+  const validation = validateFlashSettings(currentSettings);
+  if (!validation.valid || !validation.settings) {
+    showErrorBanner(validation.errors.join(' '));
+    return;
+  }
+
+  savePreferences();
+  ensureAudioContext();
+
+  const startBtn = document.getElementById('btn-flash-start');
+  isStarting = true;
+  if (startBtn) {
+    startBtn.disabled = true;
+    startBtn.textContent = 'Starting...';
+  }
+
+  try {
+    const response = await callFlashStartRpc(validation.settings);
+    const numbers = Array.isArray(response?.numbers)
+      ? response.numbers
+      : Array.isArray(response?.questions?.[0])
+        ? response.questions[0]
+        : null;
+
+    if (!response || !response.session_id || !Array.isArray(numbers) || numbers.length === 0) {
+      throw new Error('Invalid response from flash_start. Please try again.');
+    }
+
+    clearActiveTimers();
+    activeTry = {
+      session_id: response.session_id,
+      numbers,
+      settings: response.settings
+        ? clampFlashSettings(response.settings)
+        : validation.settings,
+      phase: 'countdown',
+      cancelled: false,
+      pendingAnswer: undefined,
+    };
+
+    showScreen('play');
+    await runTrySequence();
+  } catch (err) {
+    const friendly = friendlyFlashError(err, 'start');
+    showErrorBanner(friendly);
+    showScreen('setup');
+  } finally {
+    isStarting = false;
+    if (startBtn) {
+      startBtn.disabled = false;
+      startBtn.innerHTML = 'Start Try &rarr;';
+    }
+  }
+}
+
+/**
+ * Submits the student's single integer answer (or `null` for "I don't know") via `flash_submit`
+ */
+async function submitTryAnswer(answerValue) {
+  if (!activeTry || isSubmitting) return;
+  isSubmitting = true;
+  activeTry.pendingAnswer = answerValue;
+
+  const answerInput = document.getElementById('flash-answer-input');
+  const submitBtn = document.getElementById('btn-answer-submit');
+  const idkBtn = document.getElementById('btn-answer-idk');
+  const retryBox = document.getElementById('flash-submit-retry-box');
+  const retryMsg = document.getElementById('flash-submit-retry-msg');
+  const answerErr = document.getElementById('flash-answer-error');
+
+  if (answerErr) answerErr.style.display = 'none';
+  if (retryBox) retryBox.style.display = 'none';
+  if (answerInput) answerInput.disabled = true;
+  if (idkBtn) idkBtn.disabled = true;
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Submitting...';
+  }
+
+  try {
+    const result = await callFlashSubmitRpc(activeTry.session_id, answerValue);
+    const finishedTry = activeTry;
+    activeTry = null;
+
+    renderTryResultScreen(result, finishedTry);
+    showScreen('results');
+    await loadFlashHistory();
+  } catch (err) {
+    const exactMessage = friendlyFlashError(err, 'submit');
+    if (retryBox && retryMsg) {
+      retryMsg.textContent = exactMessage;
+      retryBox.style.display = 'block';
+    } else {
+      showErrorBanner(exactMessage);
+    }
+    if (answerInput) answerInput.disabled = false;
+    if (idkBtn) idkBtn.disabled = false;
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Submit';
+    }
+  } finally {
+    isSubmitting = false;
+  }
+}
+
+/**
+ * Renders the Result Screen immediately after answering
+ */
+function renderTryResultScreen(result, finishedTry) {
+  const isCorrect = Boolean(result?.correct);
+  const expected = result?.expected ?? '—';
+  const given =
+    result?.given !== undefined ? result.given : finishedTry?.pendingAnswer ?? null;
+  const seconds = Math.max(0, Number(result?.seconds) || 0);
+  const settings = finishedTry?.settings || currentSettings;
+  const numbers = Array.isArray(finishedTry?.numbers) ? finishedTry.numbers : [];
+  const summaryStr = formatFlashSettingsSummary(settings);
+
+  const outcomeBanner = document.getElementById('result-outcome-banner');
+  const outcomeLabel = document.getElementById('result-outcome-label');
+  if (outcomeBanner && outcomeLabel) {
+    if (isCorrect) {
+      outcomeBanner.style.background = 'rgba(22, 163, 74, 0.08)';
+      outcomeBanner.style.borderColor = 'var(--color-score-perfect)';
+      outcomeLabel.style.color = 'var(--color-score-perfect)';
+      outcomeLabel.textContent = 'Correct';
+    } else {
+      outcomeBanner.style.background = 'rgba(220, 38, 38, 0.08)';
+      outcomeBanner.style.borderColor = 'var(--color-score-danger)';
+      outcomeLabel.style.color = 'var(--color-score-danger)';
+      outcomeLabel.textContent = 'Wrong';
+    }
+  }
+
+  const summaryHeaderEl = document.getElementById('results-settings-summary');
+  if (summaryHeaderEl) summaryHeaderEl.textContent = summaryStr;
+
+  const givenEl = document.getElementById('res-stat-given');
+  if (givenEl) {
+    givenEl.textContent =
+      given === null || given === undefined ? "I don't know" : String(given);
+  }
+
+  const expectedEl = document.getElementById('res-stat-expected');
+  if (expectedEl) {
+    expectedEl.textContent = String(expected);
+  }
+
+  const timeEl = document.getElementById('res-stat-time');
+  if (timeEl) {
+    timeEl.textContent = formatSecondsToTime(seconds);
+  }
+
+  const settingsEl = document.getElementById('res-stat-settings');
+  if (settingsEl) {
+    settingsEl.textContent = summaryStr;
+  }
+
+  const tryAgainConfirm = document.getElementById('results-try-again-confirm');
+  if (tryAgainConfirm) tryAgainConfirm.style.display = 'none';
+
+  // When the question had 100 numbers or fewer, show collapsed "Show the numbers" list
+  const detailsEl = document.getElementById('res-numbers-details');
+  const countSpan = document.getElementById('res-numbers-count');
+  const listEl = document.getElementById('res-numbers-list');
+
+  if (detailsEl && listEl) {
+    detailsEl.open = false;
+    if (
+      numbers.length > 0 &&
+      numbers.length <= FLASH_LIMITS.MAX_SHOW_NUMBERS_COUNT
+    ) {
+      if (countSpan) countSpan.textContent = String(numbers.length);
+      listEl.innerHTML = numbers
+        .map((n) => {
+          const val = Number(n);
+          const text = val < 0 ? `-${Math.abs(val)}` : `${Math.abs(val)}`;
+          return `<li>${escapeHtml(text)}</li>`;
+        })
+        .join('');
+      detailsEl.style.display = 'block';
+    } else {
+      listEl.innerHTML = '';
+      detailsEl.style.display = 'none';
+    }
+  }
+}
+
+/**
+ * Loads the student's `activity_results` (`activity_type = 'flash_anzan'`)
+ * and updates both the Last 20 Tries table and the Setup Screen stats tables.
+ */
+async function loadFlashHistory() {
+  const tbody = document.getElementById('flash-history-tbody');
+
+  try {
+    let rows = [];
+    if (isDemoMode() && !isSupabaseConfigured()) {
+      rows = DemoDB.getActivityResults(currentProfile?.id, 'flash_anzan');
+    } else {
+      const supabase = await getSupabase();
+      if (supabase && currentProfile?.id) {
+        const { data, error } = await supabase
+          .from('activity_results')
+          .select('id, activity_type, activity_name, correct, total, time_seconds, settings, created_at')
+          .eq('student_id', currentProfile.id)
+          .eq('activity_type', 'flash_anzan')
+          .order('created_at', { ascending: false })
+          .limit(200);
+
+        if (error) throw error;
+        rows = data || [];
+      }
+    }
+
+    cachedHistoryRows = rows;
+    renderSetupStatsTables();
+
+    if (!tbody) return;
+    const last20 = recentTries(rows, 20);
+
+    if (last20.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="4" style="text-align: center; padding: var(--space-6); color: var(--text-muted);">
+            No Flash Anzan tries completed yet. Start your first try above!
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    tbody.innerHTML = last20
+      .map((item) => {
+        const fb = getScoreFeedback(item.correct, item.total);
+        return `
+          <tr>
+            <td style="white-space: nowrap;">${escapeHtml(item.dateIST)}</td>
+            <td class="num">${escapeHtml(item.summary)}</td>
+            <td>
+              <span
+                class="badge"
+                style="background: ${fb.bgVar}; color: ${fb.colorVar}; font-weight: 700;"
+              >
+                ${escapeHtml(item.outcomeText)}
+              </span>
+            </td>
+            <td class="num" style="text-align: right;">${escapeHtml(
+              formatSecondsToTime(item.time_seconds)
+            )}</td>
+          </tr>
+        `;
+      })
+      .join('');
+  } catch (err) {
+    console.error('Failed to load Flash Anzan history:', err);
+    if (tbody) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="4" style="text-align: center; padding: var(--space-4); color: var(--color-score-danger);">
+            Could not load recent Flash Anzan history.
+          </td>
+        </tr>
+      `;
+    }
+  }
+}
+
+/**
+ * Binds all Setup, Play, and Results screen interactions
  */
 function setupEventListeners() {
-  // 1. Preset buttons
-  document.querySelectorAll('.flash-preset-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const presetKey = btn.getAttribute('data-preset');
-      const preset = FLASH_PRESETS[presetKey];
-      if (preset && preset.settings) {
-        currentSettings = { ...preset.settings };
-        syncSetupControlsUI(false);
-        savePreferences();
-      } else {
-        syncSetupControlsUI(true);
-      }
-    });
-  });
+  // Visibility change listener to cancel active tries when leaving the tab
+  document.addEventListener('visibilitychange', handleVisibilityChange);
 
-  // 2. Digits buttons (1 to 5)
+  // 1. Digits pills (1 to 5)
   document.querySelectorAll('[data-digits]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const val = Number(btn.getAttribute('data-digits'));
-      if (val >= FLASH_LIMITS.DIGITS_MIN && val <= FLASH_LIMITS.DIGITS_MAX) {
+      if (Number.isInteger(val)) {
         currentSettings.digits = val;
         syncSetupControlsUI();
         savePreferences();
@@ -861,207 +847,243 @@ function setupEventListeners() {
     });
   });
 
-  // 3. Mode buttons ('add' | 'add_sub')
+  // 2. Mode pills ('add' | 'add_sub')
   document.querySelectorAll('[data-mode]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      const val = btn.getAttribute('data-mode');
-      if (FLASH_LIMITS.MODES.includes(val)) {
-        currentSettings.mode = val;
+      const m = btn.getAttribute('data-mode');
+      if (m === 'add' || m === 'add_sub') {
+        currentSettings.mode = m;
         syncSetupControlsUI();
         savePreferences();
       }
     });
   });
 
-  // 4. Numbers per question (count: 3 to 30)
-  const updateCount = (val) => {
-    const clamped = Math.max(
+  // 3. Numbers in the question (2 to 1000) with -, +, and quick steps (-100, -10, +10, +100)
+  const countInput = document.getElementById('flash-count');
+  const applyCount = (val) => {
+    const num = Number(val);
+    if (!Number.isFinite(num)) return;
+    currentSettings.count = Math.max(
       FLASH_LIMITS.COUNT_MIN,
-      Math.min(FLASH_LIMITS.COUNT_MAX, Math.round(Number(val) || 5))
+      Math.min(FLASH_LIMITS.COUNT_MAX, Math.round(num))
     );
-    currentSettings.count = clamped;
     syncSetupControlsUI();
     savePreferences();
   };
 
   document.getElementById('btn-count-dec')?.addEventListener('click', () => {
-    updateCount(currentSettings.count - 1);
+    applyCount(currentSettings.count - 1);
   });
   document.getElementById('btn-count-inc')?.addEventListener('click', () => {
-    updateCount(currentSettings.count + 1);
-  });
-  document.getElementById('flash-count-range')?.addEventListener('input', (e) => {
-    updateCount(e.target.value);
-  });
-  document.getElementById('flash-count')?.addEventListener('change', (e) => {
-    updateCount(e.target.value);
+    applyCount(currentSettings.count + 1);
   });
 
-  // 5. Speed per number (200ms to 5000ms in steps of 100ms / 0.2s to 5.0s in steps of 0.1s)
-  const updateSpeedMs = (msVal) => {
-    const rounded = Math.round(Number(msVal) / 100) * 100;
-    const clamped = Math.max(
+  document.querySelectorAll('[data-count-step]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const delta = Number(btn.getAttribute('data-count-step'));
+      if (Number.isFinite(delta)) {
+        applyCount(currentSettings.count + delta);
+      }
+    });
+  });
+
+  countInput?.addEventListener('input', () => {
+    const raw = countInput.value.trim();
+    if (raw === '') return;
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed)) {
+      currentSettings.count = Math.max(
+        FLASH_LIMITS.COUNT_MIN,
+        Math.min(FLASH_LIMITS.COUNT_MAX, Math.round(parsed))
+      );
+      syncSetupControlsUI();
+      savePreferences();
+    }
+  });
+
+  countInput?.addEventListener('blur', () => {
+    applyCount(countInput.value);
+    if (countInput) countInput.value = String(currentSettings.count);
+  });
+
+  // 4. Speed per number (0.2 to 5.0 seconds in steps of 0.1)
+  const speedInput = document.getElementById('flash-speed-seconds');
+  const speedRange = document.getElementById('flash-speed-range');
+
+  const applySpeedMs = (ms) => {
+    const num = Number(ms);
+    if (!Number.isFinite(num)) return;
+    const rounded = Math.round(num / 100) * 100;
+    currentSettings.speed_ms = Math.max(
       FLASH_LIMITS.SPEED_MS_MIN,
-      Math.min(FLASH_LIMITS.SPEED_MS_MAX, rounded || 1500)
+      Math.min(FLASH_LIMITS.SPEED_MS_MAX, rounded)
     );
-    currentSettings.speed_ms = clamped;
     syncSetupControlsUI();
     savePreferences();
   };
 
   document.getElementById('btn-speed-dec')?.addEventListener('click', () => {
-    updateSpeedMs(currentSettings.speed_ms - 100);
+    applySpeedMs(currentSettings.speed_ms - FLASH_LIMITS.SPEED_MS_STEP);
   });
   document.getElementById('btn-speed-inc')?.addEventListener('click', () => {
-    updateSpeedMs(currentSettings.speed_ms + 100);
+    applySpeedMs(currentSettings.speed_ms + FLASH_LIMITS.SPEED_MS_STEP);
   });
-  document.getElementById('flash-speed-range')?.addEventListener('input', (e) => {
-    updateSpeedMs(e.target.value);
+
+  speedRange?.addEventListener('input', () => {
+    applySpeedMs(speedRange.value);
   });
-  document.getElementById('flash-speed-seconds')?.addEventListener('change', (e) => {
-    const ms = secondsToSpeedMs(e.target.value);
+
+  speedInput?.addEventListener('change', () => {
+    const ms = secondsToSpeedMs(speedInput.value);
     if (Number.isFinite(ms)) {
-      updateSpeedMs(ms);
+      applySpeedMs(ms);
+      speedInput.value = speedMsToSeconds(currentSettings.speed_ms).toFixed(1);
     } else {
-      syncSetupControlsUI();
+      speedInput.value = speedMsToSeconds(currentSettings.speed_ms).toFixed(1);
     }
   });
 
-  // 6. Questions per set (3 to 30)
-  const updateQuestions = (val) => {
-    const clamped = Math.max(
-      FLASH_LIMITS.QUESTIONS_MIN,
-      Math.min(FLASH_LIMITS.QUESTIONS_MAX, Math.round(Number(val) || 10))
-    );
-    currentSettings.questions = clamped;
-    syncSetupControlsUI();
-    savePreferences();
-  };
-
-  document.getElementById('btn-questions-dec')?.addEventListener('click', () => {
-    updateQuestions(currentSettings.questions - 1);
-  });
-  document.getElementById('btn-questions-inc')?.addEventListener('click', () => {
-    updateQuestions(currentSettings.questions + 1);
-  });
-  document.getElementById('flash-questions-range')?.addEventListener('input', (e) => {
-    updateQuestions(e.target.value);
-  });
-  document.getElementById('flash-questions')?.addEventListener('change', (e) => {
-    updateQuestions(e.target.value);
-  });
-
-  // 7. Sound toggle (Setup & Play screens)
-  document.getElementById('flash-sound-toggle')?.addEventListener('change', (e) => {
-    soundEnabled = Boolean(e.target.checked);
-    updatePlaySoundButtonUI();
+  // 5. Sound toggle
+  const soundToggle = document.getElementById('flash-sound-toggle');
+  soundToggle?.addEventListener('change', () => {
+    soundEnabled = Boolean(soundToggle.checked);
     savePreferences();
     if (soundEnabled) {
       playFlashBeep(false);
     }
   });
 
-  document.getElementById('btn-play-sound-toggle')?.addEventListener('click', () => {
-    soundEnabled = !soundEnabled;
-    const setupToggle = document.getElementById('flash-sound-toggle');
-    if (setupToggle) setupToggle.checked = soundEnabled;
-    updatePlaySoundButtonUI();
-    savePreferences();
-    if (soundEnabled) {
-      playFlashBeep(false);
-    }
-  });
-
-  // 8. Start Set Form Submit
-  document.getElementById('flash-setup-form')?.addEventListener('submit', async (e) => {
+  // 6. Setup form submit -> check duration (> 5 minutes requires confirmation)
+  const setupForm = document.getElementById('flash-setup-form');
+  setupForm?.addEventListener('submit', async (e) => {
     e.preventDefault();
-    await startFlashSession();
+    if (countInput && countInput.value.trim() !== '') {
+      currentSettings.count = Math.max(
+        FLASH_LIMITS.COUNT_MIN,
+        Math.min(FLASH_LIMITS.COUNT_MAX, Math.round(Number(countInput.value) || currentSettings.count))
+      );
+    }
+    syncSetupControlsUI();
+
+    const durationInfo = getExpectedDurationInfo(currentSettings);
+    if (durationInfo.requiresConfirmation) {
+      const longBox = document.getElementById('flash-long-confirm-box');
+      const longText = document.getElementById('flash-long-confirm-text');
+      if (longBox && longText) {
+        longText.textContent = durationInfo.confirmMessage;
+        longBox.style.display = 'block';
+        return;
+      }
+    }
+
+    await startTryExecution();
   });
 
-  // 9. Abandon / Stop Set button
-  document.getElementById('btn-abandon-set')?.addEventListener('click', () => {
-    if (activeSession) {
-      activeSession.cancelled = true;
-      activeSession = null;
+  document.getElementById('btn-confirm-long-cancel')?.addEventListener('click', () => {
+    const longBox = document.getElementById('flash-long-confirm-box');
+    if (longBox) longBox.style.display = 'none';
+  });
+
+  document.getElementById('btn-confirm-long-yes')?.addEventListener('click', async () => {
+    const longBox = document.getElementById('flash-long-confirm-box');
+    if (longBox) longBox.style.display = 'none';
+    await startTryExecution();
+  });
+
+  // 7. Stop button with confirmation (abandons try and saves nothing)
+  const stopConfirmBar = document.getElementById('flash-stop-confirm-bar');
+  document.getElementById('btn-flash-stop')?.addEventListener('click', () => {
+    if (stopConfirmBar) {
+      stopConfirmBar.style.display =
+        stopConfirmBar.style.display === 'flex' ? 'none' : 'flex';
+    }
+  });
+
+  document.getElementById('btn-stop-cancel')?.addEventListener('click', () => {
+    if (stopConfirmBar) stopConfirmBar.style.display = 'none';
+  });
+
+  document.getElementById('btn-stop-confirm')?.addEventListener('click', () => {
+    if (activeTry) {
+      activeTry.cancelled = true;
     }
     clearActiveTimers();
+    activeTry = null;
+    if (stopConfirmBar) stopConfirmBar.style.display = 'none';
     showScreen('setup');
+    showToast('Try abandoned. Nothing was saved.', 'info');
   });
 
-  // 10. Answer Form Submit & Skip Question
-  document.getElementById('flash-answer-form')?.addEventListener('submit', async (e) => {
+  // 8. Answer box: digits only (no minus sign), up to 10 digits, Enter confirms
+  const answerInput = document.getElementById('flash-answer-input');
+  answerInput?.addEventListener('input', () => {
+    const digitsOnly = answerInput.value.replace(/\D+/g, '').slice(0, 10);
+    if (answerInput.value !== digitsOnly) {
+      answerInput.value = digitsOnly;
+    }
+  });
+
+  const answerForm = document.getElementById('flash-answer-form');
+  answerForm?.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const inputEl = document.getElementById('flash-answer-input');
-    const errorEl = document.getElementById('flash-answer-error');
-    const raw = inputEl ? inputEl.value : '';
+    if (!activeTry || activeTry.phase !== 'answering' || isSubmitting) return;
 
-    if (!raw || raw.trim() === '') {
-      if (errorEl) {
-        errorEl.textContent = 'Enter a whole number or click "Skip Question".';
-        errorEl.style.display = 'block';
-      }
-      return;
-    }
-
-    const parsed = parseFlashAnswerInput(raw);
+    const rawVal = answerInput ? answerInput.value : '';
+    const parsed = parseFlashAnswerInput(rawVal);
+    const errEl = document.getElementById('flash-answer-error');
     if (!parsed.ok) {
-      if (errorEl) {
-        errorEl.textContent = parsed.error || 'Please enter a valid whole number.';
-        errorEl.style.display = 'block';
+      if (errEl) {
+        errEl.textContent = parsed.error || 'Please enter digits only.';
+        errEl.style.display = 'block';
       }
       return;
     }
 
-    await recordAnswerAndAdvance(parsed.value);
+    await submitTryAnswer(parsed.value);
   });
 
-  document.getElementById('btn-skip-question')?.addEventListener('click', async () => {
-    await recordAnswerAndAdvance(null);
+  // "I don't know" button submits null
+  document.getElementById('btn-answer-idk')?.addEventListener('click', async () => {
+    if (!activeTry || activeTry.phase !== 'answering' || isSubmitting) return;
+    await submitTryAnswer(null);
   });
 
-  // 11. Toggle +/- sign & On-screen numeric keypad
-  document.getElementById('btn-toggle-sign')?.addEventListener('click', () => {
-    const inputEl = document.getElementById('flash-answer-input');
-    if (!inputEl) return;
-    const val = inputEl.value.trim();
-    if (val.startsWith('-')) {
-      inputEl.value = val.slice(1);
-    } else if (val.startsWith('+')) {
-      inputEl.value = '-' + val.slice(1);
-    } else {
-      inputEl.value = '-' + val;
+  // Retry button if flash_submit failed
+  document.getElementById('btn-submit-retry')?.addEventListener('click', async () => {
+    if (!activeTry || isSubmitting) return;
+    await submitTryAnswer(
+      activeTry.pendingAnswer !== undefined ? activeTry.pendingAnswer : null
+    );
+  });
+
+  // 9. Result screen buttons: "Try again" (with short confirmation of settings) and "Change settings"
+  const tryAgainConfirm = document.getElementById('results-try-again-confirm');
+  const tryAgainConfirmText = document.getElementById('results-try-again-confirm-text');
+
+  document.getElementById('btn-results-try-again')?.addEventListener('click', () => {
+    if (tryAgainConfirm && tryAgainConfirmText) {
+      const durationInfo = getExpectedDurationInfo(currentSettings);
+      const extraWarn = durationInfo.requiresConfirmation
+        ? ` (${durationInfo.confirmMessage})`
+        : '';
+      tryAgainConfirmText.textContent = `Ready to start: ${formatFlashSettingsSummary(
+        currentSettings
+      )}${extraWarn}`;
+      tryAgainConfirm.style.display = 'flex';
     }
-    inputEl.focus();
   });
 
-  document.querySelectorAll('.flash-key-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const key = btn.getAttribute('data-key');
-      const inputEl = document.getElementById('flash-answer-input');
-      const errorEl = document.getElementById('flash-answer-error');
-      if (!inputEl) return;
-
-      if (errorEl) errorEl.style.display = 'none';
-
-      if (key === 'clear') {
-        inputEl.value = '';
-      } else if (key === 'backspace') {
-        inputEl.value = inputEl.value.slice(0, -1);
-      } else if (/^\d$/.test(key || '')) {
-        if (inputEl.value.length < 12) {
-          inputEl.value += key;
-        }
-      }
-    });
+  document.getElementById('btn-try-again-cancel')?.addEventListener('click', () => {
+    if (tryAgainConfirm) tryAgainConfirm.style.display = 'none';
   });
 
-  // 12. Results Screen Actions: Play Again & Change Settings
-  document.getElementById('btn-play-again')?.addEventListener('click', async () => {
-    await startFlashSession();
+  document.getElementById('btn-try-again-go')?.addEventListener('click', async () => {
+    if (tryAgainConfirm) tryAgainConfirm.style.display = 'none';
+    await startTryExecution();
   });
 
-  document.getElementById('btn-change-settings')?.addEventListener('click', () => {
-    showErrorBanner(null);
+  document.getElementById('btn-results-change-settings')?.addEventListener('click', () => {
     syncSetupControlsUI();
     showScreen('setup');
   });
@@ -1089,13 +1111,13 @@ function renderDemoBanner() {
       <span class="banner-icon" aria-hidden="true">ℹ️</span>
       <div class="banner-body">
         <strong>DEMO MODE &mdash; data is fake:</strong>
-        Flash Anzan sessions are simulated locally for preview testing.
+        Running with fixed sample numbers and results for local preview.
       </div>
     </div>
   `;
 }
 
-async function initFlashPage() {
+async function initFlashTrainerPage() {
   const profile = await requireAuth(['student', 'admin']);
   if (!profile) return;
 
@@ -1112,4 +1134,4 @@ async function initFlashPage() {
   await loadFlashHistory();
 }
 
-document.addEventListener('DOMContentLoaded', initFlashPage);
+document.addEventListener('DOMContentLoaded', initFlashTrainerPage);

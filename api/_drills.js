@@ -21,6 +21,23 @@ import crypto from 'node:crypto';
 export const MODULO_ENABLED = false;
 
 /**
+ * Phase 9a — Online Basics Practice Constants
+ */
+export const BASICS_QUESTION_COUNTS = [5, 10, 20];
+export const BASICS_DEFAULT_QUESTIONS = 10;
+export const BASICS_MIN_DIGITS = 1;
+export const BASICS_MAX_DIGITS = 4;
+export const BASICS_MIN_ROWS = 2;
+export const BASICS_MAX_ROWS = 10;
+export const BASICS_SUB_PROBABILITY = 0.4;
+export const BASICS_ROW_RETRY_LIMIT = 20;
+export const BASICS_SESSION_EXPIRY_MINUTES = 30;
+export const BASICS_SESSION_EXPIRY_SECONDS = 30 * 60;
+export const BASICS_MIN_SECONDS_PER_QUESTION = 0.6;
+export const BASICS_MAX_ANSWER_LENGTH = 20;
+export const BASICS_MAX_TIME_SECONDS = 14400;
+
+/**
  * Default random integer generator using Node's built-in crypto.randomInt.
  * Returns an integer in [min, max] inclusive.
  *
@@ -1258,3 +1275,465 @@ export function gradeDrillSubmission({
     detail,
   };
 }
+
+// ============================================================================
+// PHASE 9A: ONLINE BASICS QUESTION GENERATORS & SUBMISSION CHECKER
+// ============================================================================
+
+/**
+ * Computes the inclusive [min, max] range for an N-digit number in Basics drills.
+ * - When `avoidOne` is true and digits === 1, returns [2, 9] (used for 1-digit
+ *   multiplication factors and 1-digit divisors).
+ * - Otherwise, returns [1, 9] for 1-digit and [10^(N-1), 10^N - 1] for N >= 2.
+ *
+ * @param {number} digits
+ * @param {boolean} [avoidOne=false]
+ * @returns {[number, number]}
+ */
+export function getDigitRange(digits, avoidOne = false) {
+  if (digits === 1) {
+    return [avoidOne ? 2 : 1, 9];
+  }
+  const min = 10 ** (digits - 1);
+  const max = 10 ** digits - 1;
+  return [min, max];
+}
+
+/**
+ * Parses a Basics category name to determine if it is supported for online practice.
+ * Rules:
+ * - Case-insensitive, spaces ignored.
+ * - "<N>d<R>r" (e.g. 1d4r, 2d2r, 2d4r): N in 1..4, R in 2..10.
+ * - "<A>dx<B>d" (e.g. 1dx1d, 2dx1d): multiplication sign may be x, X, ×, or *; A, B in 1..4.
+ * - "<A>d/<B>d" (e.g. 2d/1d, 3d/1d): division sign may be / or ÷; A, B in 1..4,
+ *   and at least one valid divisor in the B-digit range must produce a valid positive
+ *   integer quotient whose product has exactly A digits (requires A >= B).
+ * - Any other name returns null ("not available online").
+ *
+ * @param {unknown} rawName
+ * @returns {{
+ *   type: 'add_sub' | 'mul' | 'div',
+ *   digits?: number,
+ *   rows?: number,
+ *   digitsA?: number,
+ *   digitsB?: number,
+ *   validDivisors?: Array<{ divisor: number, minQ: number, maxQ: number }>
+ * } | null}
+ */
+export function parseBasicsCategoryName(rawName) {
+  if (typeof rawName !== 'string') return null;
+  const cleaned = rawName.replace(/\s+/g, '').toLowerCase();
+  if (!cleaned) return null;
+
+  // 1. Add/Subtract rows: "<N>d<R>r"
+  const addSubMatch = cleaned.match(/^(\d+)d(\d+)r$/);
+  if (addSubMatch) {
+    const digits = Number(addSubMatch[1]);
+    const rows = Number(addSubMatch[2]);
+    if (
+      !Number.isInteger(digits) ||
+      digits < BASICS_MIN_DIGITS ||
+      digits > BASICS_MAX_DIGITS ||
+      !Number.isInteger(rows) ||
+      rows < BASICS_MIN_ROWS ||
+      rows > BASICS_MAX_ROWS
+    ) {
+      return null;
+    }
+    return { type: 'add_sub', digits, rows };
+  }
+
+  // 2. Multiplication: "<A>dx<B>d" (x, X, ×, ✕, ✖, *)
+  const mulMatch = cleaned.match(/^(\d+)d(?:x|\*|\u00d7|\u2715|\u2716)(\d+)d$/);
+  if (mulMatch) {
+    const digitsA = Number(mulMatch[1]);
+    const digitsB = Number(mulMatch[2]);
+    if (
+      !Number.isInteger(digitsA) ||
+      digitsA < BASICS_MIN_DIGITS ||
+      digitsA > BASICS_MAX_DIGITS ||
+      !Number.isInteger(digitsB) ||
+      digitsB < BASICS_MIN_DIGITS ||
+      digitsB > BASICS_MAX_DIGITS
+    ) {
+      return null;
+    }
+    return { type: 'mul', digitsA, digitsB };
+  }
+
+  // 3. Exact Division: "<A>d/<B>d" (/, ÷, ∕)
+  const divMatch = cleaned.match(/^(\d+)d(?:\/|\u00f7|\u2215)(\d+)d$/);
+  if (divMatch) {
+    const digitsA = Number(divMatch[1]);
+    const digitsB = Number(divMatch[2]);
+    if (
+      !Number.isInteger(digitsA) ||
+      digitsA < BASICS_MIN_DIGITS ||
+      digitsA > BASICS_MAX_DIGITS ||
+      !Number.isInteger(digitsB) ||
+      digitsB < BASICS_MIN_DIGITS ||
+      digitsB > BASICS_MAX_DIGITS
+    ) {
+      return null;
+    }
+
+    const [minDividend, maxDividend] = getDigitRange(digitsA, false);
+    const [minDivisor, maxDivisor] = getDigitRange(digitsB, true);
+
+    // Check if valid quotients exist such that divisor * quotient has A digits
+    // (When digitsA === 1 and digitsB === 1, require quotient >= 2 so dividend !== divisor, or >= 1)
+    const validDivisors = [];
+    for (let d = minDivisor; d <= maxDivisor; d++) {
+      const minQ = Math.max(1, Math.ceil(minDividend / d));
+      const maxQ = Math.floor(maxDividend / d);
+      if (minQ <= maxQ) {
+        validDivisors.push({ divisor: d, minQ, maxQ });
+      }
+    }
+
+    if (validDivisors.length === 0) {
+      return null;
+    }
+
+    return { type: 'div', digitsA, digitsB, validDivisors };
+  }
+
+  return null;
+}
+
+/**
+ * Returns true if the given category name or category object is supported for online Basics practice.
+ * An inactive category (`active === false`) is never available online.
+ *
+ * @param {string | { name?: string, active?: boolean, section?: string }} categoryOrName
+ * @returns {boolean}
+ */
+export function isBasicsCategorySupported(categoryOrName) {
+  if (!categoryOrName) return false;
+  if (typeof categoryOrName === 'object') {
+    if (categoryOrName.active === false) return false;
+    if (categoryOrName.section && categoryOrName.section !== 'basics') return false;
+    return parseBasicsCategoryName(categoryOrName.name) !== null;
+  }
+  return parseBasicsCategoryName(categoryOrName) !== null;
+}
+
+/**
+ * Generates a single Basics question from a parsed spec or category name.
+ *
+ * @param {string | ReturnType<typeof parseBasicsCategoryName>} specOrName
+ * @param {Function} [rng=defaultRng]
+ * @returns {{
+ *   type: 'add_sub' | 'mul' | 'div',
+ *   rows?: number[],
+ *   a?: number,
+ *   b?: number,
+ *   dividend?: number,
+ *   divisor?: number,
+ *   text: string,
+ *   expected: number
+ * }}
+ */
+export function generateBasicsQuestion(specOrName, rng = defaultRng) {
+  const spec =
+    typeof specOrName === 'string' ? parseBasicsCategoryName(specOrName) : specOrName;
+  if (!spec) {
+    throw new Error('Category is not available for online practice.');
+  }
+
+  if (spec.type === 'add_sub') {
+    const { digits, rows: rowCount } = spec;
+    const [minMag, maxMag] = getDigitRange(digits, false);
+    const rows = [];
+
+    // First row is always positive
+    const firstVal = randInt(rng, minMag, maxMag);
+    rows.push(firstVal);
+    let runningTotal = firstVal;
+    let prevMag = firstVal;
+
+    // Subsequent rows: subtracted with probability 40%, runningTotal >= 0, no equal neighbours
+    for (let r = 1; r < rowCount; r++) {
+      let chosenSigned = null;
+
+      for (let attempt = 0; attempt < BASICS_ROW_RETRY_LIMIT; attempt++) {
+        // Draw subtraction decision with 40% probability (1..100 <= 40)
+        const wantSub = randInt(rng, 1, 100) <= Math.round(BASICS_SUB_PROBABILITY * 100);
+        const canSub =
+          runningTotal >= minMag &&
+          !(Math.min(maxMag, runningTotal) === minMag && minMag === prevMag);
+
+        if (wantSub && canSub) {
+          const maxSub = Math.min(maxMag, runningTotal);
+          const mag = randInt(rng, minMag, maxSub);
+          if (mag !== prevMag && runningTotal - mag >= 0) {
+            chosenSigned = -mag;
+            break;
+          }
+        } else {
+          const mag = randInt(rng, minMag, maxMag);
+          if (mag !== prevMag) {
+            chosenSigned = mag;
+            break;
+          }
+        }
+      }
+
+      // Deterministic fallback if all 20 retries collided with prevMag
+      if (chosenSigned === null) {
+        const fallbackMag = prevMag === minMag ? minMag + 1 : minMag;
+        chosenSigned = fallbackMag;
+      }
+
+      rows.push(chosenSigned);
+      runningTotal += chosenSigned;
+      prevMag = Math.abs(chosenSigned);
+    }
+
+    const text = rows.map((n) => (n >= 0 ? `+${n}` : `${n}`)).join(' ');
+    return {
+      type: 'add_sub',
+      rows,
+      text,
+      expected: runningTotal,
+    };
+  }
+
+  if (spec.type === 'mul') {
+    const [minA, maxA] = getDigitRange(spec.digitsA, true);
+    const [minB, maxB] = getDigitRange(spec.digitsB, true);
+    const a = randInt(rng, minA, maxA);
+    const b = randInt(rng, minB, maxB);
+    return {
+      type: 'mul',
+      a,
+      b,
+      text: `${a} x ${b}`,
+      expected: a * b,
+    };
+  }
+
+  if (spec.type === 'div') {
+    const validList = spec.validDivisors;
+    const picked = pickRandom(rng, validList);
+    const divisor = picked.divisor;
+    const quotient = randInt(rng, picked.minQ, picked.maxQ);
+    const dividend = divisor * quotient;
+    return {
+      type: 'div',
+      dividend,
+      divisor,
+      text: `${dividend} / ${divisor}`,
+      expected: quotient,
+    };
+  }
+
+  throw new Error('Unsupported basics category specification.');
+}
+
+/**
+ * Generates a full set of Basics questions (5, 10, or 20, default 10).
+ *
+ * @param {string} categoryName
+ * @param {number} [count=BASICS_DEFAULT_QUESTIONS]
+ * @param {Function} [rng=defaultRng]
+ */
+export function generateBasicsSet(
+  categoryName,
+  count = BASICS_DEFAULT_QUESTIONS,
+  rng = defaultRng
+) {
+  const spec = parseBasicsCategoryName(categoryName);
+  if (!spec) {
+    throw new Error('Category is not available for online practice.');
+  }
+  const n = BASICS_QUESTION_COUNTS.includes(Number(count))
+    ? Number(count)
+    : BASICS_DEFAULT_QUESTIONS;
+
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    out.push(generateBasicsQuestion(spec, rng));
+  }
+  return out;
+}
+
+export const generateBasicsQuestions = generateBasicsSet;
+
+/**
+ * Strips `expected` from generated Basics questions before storing in `drill_sessions.questions`
+ * or returning to the browser on `start`.
+ *
+ * @param {Array<ReturnType<typeof generateBasicsQuestion>>} generated
+ */
+export function stripBasicsExpected(generated = []) {
+  return generated.map((q) => {
+    const copy = { type: q.type, text: q.text };
+    if (Array.isArray(q.rows)) copy.rows = [...q.rows];
+    if (typeof q.a === 'number') copy.a = q.a;
+    if (typeof q.b === 'number') copy.b = q.b;
+    if (typeof q.dividend === 'number') copy.dividend = q.dividend;
+    if (typeof q.divisor === 'number') copy.divisor = q.divisor;
+    return copy;
+  });
+}
+
+/**
+ * Pure submission validator and grader for online Basics practice (`checkSubmission(session, answers, now)`).
+ * Rules:
+ * - Session must be 'open' and not expired (`now <= expires_at`).
+ * - `answers` must be an array of the exact question length; each element is a string of up to 20 chars or `null`.
+ * - Rejects if `elapsed < questions * 0.6` seconds (`finished faster than possible, not saved`).
+ * - Skipped (`null`) or blank (`""`) answers count as wrong.
+ * - `total` is always the number of questions in the set.
+ * - `time_seconds = min(round(elapsed), 14400)`.
+ *
+ * @param {object} session
+ * @param {Array<string|null>} answers
+ * @param {number|string|Date} [now=Date.now()]
+ * @returns {{
+ *   ok: boolean,
+ *   statusCode?: number,
+ *   error?: string,
+ *   correct?: number,
+ *   total?: number,
+ *   accuracy?: number,
+ *   seconds?: number,
+ *   detail?: Array<{ question: string, question_data: object|null, expected_display: string, given: string|null, correct: boolean }>
+ * }}
+ */
+export function checkSubmission(session, answers, now = Date.now()) {
+  if (!session || typeof session !== 'object') {
+    return {
+      ok: false,
+      statusCode: 404,
+      error: 'Practice session not found. Please start a new set.',
+    };
+  }
+
+  if (session.status && session.status !== 'open') {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: 'already submitted',
+    };
+  }
+
+  const expected = Array.isArray(session.expected) ? session.expected : [];
+  const questions =
+    Array.isArray(session.questions) && session.questions.length > 0
+      ? session.questions
+      : expected;
+  const questionCount = expected.length || questions.length;
+
+  if (!Array.isArray(answers)) {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: 'Answers must be provided as a list.',
+    };
+  }
+
+  if (answers.length !== questionCount) {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: `Expected ${questionCount} answers, but received ${answers.length}.`,
+    };
+  }
+
+  for (let i = 0; i < answers.length; i++) {
+    const item = answers[i];
+    if (item === null) continue;
+    if (typeof item !== 'string') {
+      return {
+        ok: false,
+        statusCode: 400,
+        error: `Answer for question ${i + 1} must be text or null.`,
+      };
+    }
+    if (item.length > BASICS_MAX_ANSWER_LENGTH) {
+      return {
+        ok: false,
+        statusCode: 400,
+        error: `Answer for question ${i + 1} is too long (maximum ${BASICS_MAX_ANSWER_LENGTH} characters).`,
+      };
+    }
+  }
+
+  const nowMs =
+    typeof now === 'number' ? now : now instanceof Date ? now.getTime() : new Date(now).getTime();
+
+  if (session.expires_at !== undefined && session.expires_at !== null) {
+    const expiresMs =
+      typeof session.expires_at === 'number'
+        ? session.expires_at
+        : new Date(session.expires_at).getTime();
+    if (Number.isFinite(expiresMs) && nowMs > expiresMs) {
+      return {
+        ok: false,
+        statusCode: 400,
+        error: 'Time is up, please start a new set',
+      };
+    }
+  }
+
+  const startedMs =
+    typeof session.started_at === 'number'
+      ? session.started_at
+      : new Date(session.started_at).getTime();
+
+  const elapsedSeconds = Number.isFinite(startedMs) ? (nowMs - startedMs) / 1000 : 0;
+
+  if (elapsedSeconds < questionCount * BASICS_MIN_SECONDS_PER_QUESTION) {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: 'finished faster than possible, not saved',
+    };
+  }
+
+  let correct = 0;
+  const detail = [];
+
+  for (let i = 0; i < questionCount; i++) {
+    const qItem = questions[i];
+    const qText =
+      typeof qItem === 'object' && qItem !== null ? String(qItem.text || '') : String(qItem ?? '');
+    const expVal = Number(expected[i]);
+    const rawAns = answers[i];
+    const trimmed = rawAns === null || rawAns === undefined ? '' : String(rawAns).trim();
+    const isBlank = trimmed === '';
+
+    let isCorrect = false;
+    if (!isBlank) {
+      const parsed = parseIntegerAnswer(trimmed);
+      isCorrect = parsed !== null && equalIntegerAnswer(parsed, expVal);
+      if (isCorrect) {
+        correct += 1;
+      }
+    }
+
+    detail.push({
+      question: qText,
+      question_data: typeof qItem === 'object' && qItem !== null ? qItem : null,
+      expected_display: formatIntegerAnswer(expVal),
+      given: isBlank ? null : trimmed,
+      correct: isCorrect,
+    });
+  }
+
+  const total = questionCount;
+  const accuracy = total > 0 ? Math.round((correct / total) * 1000) / 10 : 0;
+  const seconds = Math.min(Math.max(0, Math.round(elapsedSeconds)), BASICS_MAX_TIME_SECONDS);
+
+  return {
+    ok: true,
+    correct,
+    total,
+    accuracy,
+    seconds,
+    detail,
+  };
+}
+

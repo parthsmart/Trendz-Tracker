@@ -15,7 +15,7 @@
  */
 
 import { getScoreFeedback } from './scoreColors.js';
-import { formatFlashSettingsSummary } from './flashPresets.js';
+import { buildFlashCardSummary } from './flashStats.js';
 import {
   formatDisplayDateIST,
   formatSecondsToTime,
@@ -238,12 +238,20 @@ export function renderBasicsThisWeek(results, categories, todayIST, containerId 
     return;
   }
 
+  // Collect recent Basics entries (up to 5) across the 7-day window to show individual source chips
+  const recentBasicsEntries = summary
+    .flatMap(item => item.entries || [])
+    .slice(0, 5);
+
   let html = `
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: var(--space-2);">
       ${summary.map(item => {
         const feedback = getScoreFeedback(item.totalCorrect, item.totalQuestions);
         const targetHtml = item.targetEvaluatedCount > 0
           ? `<div style="margin-top: 4px;"><span class="badge ${item.targetMetCount === item.targetEvaluatedCount ? 'badge-success' : 'badge-warning'}" style="font-size: 10px;">🎯 ${item.targetMetCount} of ${item.targetEvaluatedCount} met target</span></div>`
+          : '';
+        const siteChipHtml = item.siteCount > 0
+          ? `<div style="margin-top: 4px;"><span class="status-chip chip-verified" style="font-size: 10px;">Recorded by the site (${item.siteCount})</span></div>`
           : '';
         return `
           <div style="background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: var(--space-3); text-align: center;">
@@ -260,10 +268,37 @@ export function renderBasicsThisWeek(results, categories, todayIST, containerId 
               ${item.entryCount} drill${item.entryCount === 1 ? '' : 's'} (${item.totalCorrect}/${item.totalQuestions})
             </div>
             ${targetHtml}
+            ${siteChipHtml}
           </div>
         `;
       }).join('')}
     </div>
+    ${recentBasicsEntries.length > 0 ? `
+      <div style="margin-top: var(--space-3); border-top: 1px solid var(--border-hairline); padding-top: var(--space-2); display: flex; flex-direction: column; gap: 4px;">
+        ${recentBasicsEntries.map(entry => {
+          const fb = getScoreFeedback(entry.correct, entry.total);
+          const isSite = entry.source === 'site';
+          const statusChip = isSite
+            ? `<span class="status-chip chip-verified" style="font-size: 10px;">Recorded by the site</span>`
+            : entry.verified
+              ? `<span class="status-chip chip-verified" style="font-size: 10px;">🔒 Verified</span>`
+              : '';
+          return `
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--text-xs); padding: 2px 0; flex-wrap: wrap;">
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <strong style="color: var(--text-main);">${escapeHtml(entry.categoryName)}</strong>
+                <span class="num">${entry.correct}/${entry.total}</span>
+                <span class="score-tag ${fb.badgeClass}" style="font-size: 10px; padding: 1px 4px;">${fb.wrongText}</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                ${statusChip}
+                <span class="num" style="font-size: 11px; color: var(--text-dim);">${formatDisplayDateIST(entry.entryDate)}</span>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    ` : ''}
   `;
 
   container.innerHTML = html;
@@ -271,77 +306,82 @@ export function renderBasicsThisWeek(results, categories, todayIST, containerId 
 
 /**
  * --------------------------------------------------------------------------
- * 3b. Flash Anzan This Week Card (Past 7 Days, Phase 7)
+ * 3b. Shared Flash Anzan Card (Phase 7b: Tries This Week, Correct This Week,
+ *     and Success Rate of Most-Practised Settings)
  * --------------------------------------------------------------------------
  */
 export function renderFlashThisWeek(activityResults = [], todayIST, containerId = 'flash-week-container') {
   const container = document.getElementById(containerId);
   if (!container) return;
 
-  const cutoffMs = Date.now() - 7 * 86400000;
-  const cutoffDateStr = getISTDateString(new Date(cutoffMs));
+  const summary = buildFlashCardSummary(activityResults, todayIST || new Date());
+  const { triesThisWeek: triesCount, correctThisWeek: correctCount, mostPractised } = summary;
 
-  const recentSets = (activityResults || []).filter(r => {
-    if (r.activity_type && r.activity_type !== 'flash_anzan') return false;
-    if (!r.created_at) return true;
-    const dStr = getISTDateString(new Date(r.created_at));
-    return dStr >= cutoffDateStr;
-  });
-
-  if (recentSets.length === 0) {
+  if (!mostPractised && triesCount === 0) {
     container.innerHTML = `
       <div class="empty-state" style="padding: var(--space-4);">
-        No Flash Anzan sets completed in the last 7 days.
+        No Flash Anzan tries recorded yet.
       </div>
     `;
     return;
   }
 
-  let totalCorrect = 0;
-  let totalQuestions = 0;
-  recentSets.forEach(s => {
-    totalCorrect += Number(s.correct) || 0;
-    totalQuestions += Number(s.total) || 0;
-  });
-
-  const avgAcc = totalQuestions > 0 ? Math.round((totalCorrect / totalQuestions) * 1000) / 10 : 0;
-  const overallFeedback = getScoreFeedback(totalCorrect, totalQuestions);
-  const latestThree = recentSets.slice(0, 3);
+  const weekFeedback = triesCount > 0 ? getScoreFeedback(correctCount, triesCount) : null;
+  const topFeedback = mostPractised ? getScoreFeedback(mostPractised.correct, mostPractised.tries) : null;
 
   container.innerHTML = `
-    <div style="display: flex; justify-content: space-between; align-items: center; background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: var(--space-3); margin-bottom: var(--space-3);">
-      <div>
+    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-3); margin-bottom: var(--space-3);">
+      <div style="background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: var(--space-3);">
         <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted);">
-          7-Day Summary
+          Tries This Week
         </div>
-        <div style="font-size: var(--text-xs); color: var(--text-main); font-weight: 600; margin-top: 2px;">
-          ${recentSets.length} set${recentSets.length === 1 ? '' : 's'} (${totalCorrect}/${totalQuestions} correct)
+        <div class="num" style="font-size: 1.35rem; font-weight: 800; color: var(--text-main); margin-top: 2px;">
+          ${triesCount}
+        </div>
+        <div style="font-size: 11px; color: var(--text-dim);">
+          Monday–Sunday (IST)
         </div>
       </div>
-      <div style="text-align: right;">
-        <div class="num" style="font-size: 1.25rem; font-weight: 800; color: ${overallFeedback.colorVar};">
-          ${avgAcc}%
+
+      <div style="background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: var(--space-3);">
+        <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted);">
+          Correct This Week
         </div>
-        <div style="font-size: 10px; color: var(--text-dim);">Avg Accuracy</div>
+        <div class="num" style="font-size: 1.35rem; font-weight: 800; color: ${weekFeedback ? weekFeedback.colorVar : 'var(--text-main)'}; margin-top: 2px;">
+          ${correctCount}
+        </div>
+        <div style="font-size: 11px; color: var(--text-dim);">
+          ${triesCount > 0 ? `of ${triesCount} ${triesCount === 1 ? 'try' : 'tries'}` : 'No tries this week'}
+        </div>
       </div>
     </div>
-    <div style="display: flex; flex-direction: column; gap: var(--space-1);">
-      ${latestThree.map(row => {
-        const c = Number(row.correct) || 0;
-        const t = Number(row.total) || 0;
-        const fb = getScoreFeedback(c, t);
-        const summary = row.settings && typeof row.settings === 'object'
-          ? formatFlashSettingsSummary(row.settings)
-          : (row.activity_name || 'Flash Anzan');
-        return `
-          <div style="display: flex; justify-content: space-between; align-items: center; font-size: var(--text-xs); padding: 6px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-hairline);">
-            <span style="color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 72%;">
-              ${escapeHtml(summary)}
-            </span>
-            <strong class="num" style="color: ${fb.colorVar};">${c}/${t}</strong>
+
+    <div style="background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: var(--space-3);">
+      <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px;">
+        Most-Practised Settings
+      </div>
+      ${mostPractised ? `
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
+          <div>
+            <div style="font-size: var(--text-sm); font-weight: 700; color: var(--text-main);">
+              ${escapeHtml(mostPractised.summary)}
+            </div>
+            <div class="num" style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">
+              ${mostPractised.correct} correct of ${mostPractised.tries} ${mostPractised.tries === 1 ? 'try' : 'tries'}
+            </div>
           </div>
-        `;
-      }).join('')}
+          <div style="text-align: right;">
+            <div class="num" style="font-size: 1.25rem; font-weight: 800; color: ${topFeedback ? topFeedback.colorVar : 'var(--color-primary)'};">
+              ${mostPractised.successRate}%
+            </div>
+            <div style="font-size: 10px; color: var(--text-dim);">Success rate</div>
+          </div>
+        </div>
+      ` : `
+        <div style="font-size: var(--text-xs); color: var(--text-muted);">
+          No settings history yet.
+        </div>
+      `}
     </div>
   `;
 }

@@ -165,6 +165,14 @@ The serverless functions in `/api/create-student.js` and `/api/reset-password.js
       - **Expiry & Minimum Human Speed Enforcement**: Submissions arriving after `expires_at` (`started_at + time_limit_seconds + 30s`) are rejected as expired, and submissions where `elapsed < attempted * 0.25` seconds are rejected (`"That was faster than possible. Please answer the questions yourself."`) without writing to `activity_results`.
       - **Zero-Attempt Filtering**: Submitting an entirely blank worksheet (`attempted === 0`) marks the session submitted and returns the review breakdown with `saved: false` without inserting a zero-question row into `activity_results`.
 
+18. **Flash Anzan Number Visibility in Browser & Scripted Sum Calculation (Phase 7b Disclosure)**:
+    - *Risk*: Because the browser must display each number (`numbers: [signed integers]`) in real time from `flash_start(p_settings)` with zero network jitter, the sequence of numbers is visible to the client browser. A determined student could inspect the `flash_start` payload or run a browser script to sum the numbers automatically.
+    - *Mitigation in Place*:
+      - **Server-Side Minimum Duration & Expiry Gate**: `flash_submit(p_session, p_answer)` is a server-side RPC that rejects any answer submitted faster than the numbers could be shown (`count * speed_ms`), rejects sessions already submitted, rejects expired sessions, and caps `flash_start` at 300 tries per hour.
+      - **Foreground Tab Requirement**: If the browser tab becomes hidden (`document.hidden`) during the countdown or while numbers are flashing, the client immediately cancels the try without calling `flash_submit`.
+      - **Practice-Data Scope (Immune to Points Leaderboard)**: Flash Anzan records in `activity_results` are self-paced practice data (used for daily streaks, practice days, and personal settings progress). The flagship **Points** competition leaderboard is computed exclusively from teacher-entered `weekly_test_scores` and teacher-marked `attendance`, so Flash Anzan tries cannot inflate official competition points.
+
+
 
 
 

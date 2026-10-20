@@ -474,4 +474,19 @@ Every meaningful technical and architectural decision made for **Trendz Tracker*
      - **Why**: Because Elements worksheets have fixed question counts and time limits where students may leave questions blank, `activity_results.total` records `attempted` (non-blank answers). `bestForDrill` ranks completed sets by highest `correct` first, then fewest wrong answers (`total - correct`), then shortest `time_seconds`. If `attempted === 0`, the server marks the session submitted and returns the review breakdown (`saved: false`) without cluttering `activity_results` with 0-attempt rows.
 - **Rejected Options**: Client-side question generation or answer checking, using `Math.sqrt` or `Number()` coercion for answer parsing, or enabling `modulo` before teacher sign-off.
 
+---
+
+### ADR-032: Phase 7b — Flash Anzan Simplification: Why One Question Per Try, Why Presets Were Removed, and Why Leaving the Page Cancels the Try
+- **Date**: 2026-10-19
+- **Context**: Phase 7b simplifies the Flash Anzan trainer from multi-question sets (`3–30` questions of `3–30` numbers) to **one question per try** (`2–1,000` numbers per question), removes the fixed preset buttons (`js/flashPresets.js`), adds tab-visibility cancellation, and groups statistics by exact `(digits, count, speed_ms, mode)` settings (`js/flashStats.js`, `js/flashTimeline.js`).
+- **Decisions & Rationale**:
+  1. *Why One Question Per Try (`total = 1`, `count = 2..1000`)*:
+     - **Immediate Feedback & Endurance Range**: In real abacus Flash Anzan coaching, students adjust their speed (`0.2–5.0s`) or number count (`2–1,000`) immediately after seeing whether a single sequence succeeded. Bundling 3–30 questions into a set forced students to wait through an entire batch before getting feedback and prevented long endurance runs (e.g. 100 to 1,000 numbers in a single continuous stream). Saving each try with `total = 1` and `correct = 1 | 0` while computing `statsByKey` as `sum(correct) / sum(total)` keeps every new try atomic while preserving historical multi-question rows seamlessly.
+  2. *Why Fixed Presets (`Beginner`, `Intermediate`, `Advanced`, `Custom`) Were Removed*:
+     - **Granular Progression Over Arbitrary Tiers**: Flash Anzan skill progression varies independently across digits (`1–5`), number count (`2–1,000`), speed (`0.2–5.0s`), and mode (`add` vs `add_sub`). Fixed presets cluttered the setup screen and encouraged students to stay on three arbitrary combinations instead of dialing in their exact teacher-assigned parameters (supported by `localStorage` persistence and the `"Your results at these settings"` / `"Most-practised settings"` tables).
+  3. *Why Leaving the Page (`visibilitychange` / `document.hidden`) Cancels the Try*:
+     - **Timer Integrity & Fair Practice**: Modern browsers throttle background tab timers to $\ge 1,000\text{ ms}$, which breaks the exact `speed_ms + 80 ms` cadence of a running flash sequence, and switching away during flashing could allow a student to pause or inspect numbers outside the live mental drill. Immediately cancelling the try when `document.hidden` becomes `true` during the countdown or flashing phase (saving nothing and explaining why) guarantees that every completed try was watched continuously in the foreground.
+- **Rejected Options**: Keeping a `"questions per set"` selector, keeping arbitrary preset buttons, or pausing/resuming a flash sequence across tab switches.
+
+
 

@@ -8,6 +8,17 @@
 
 ## Current Status Overview
 
+### Session: 2026-10-19 (Phase 7b — Simplify Flash Anzan to One Question Per Try, Pure Timeline & Per-Settings Stats)
+
+#### 5-Line Session Summary
+- Simplified the Flash Anzan trainer (`/pages/flash.html`, `/js/flash.js`) to **one question per try** (`digits` 1–5, `count` 2–1000 with `−`, `+`, `-10`, `+10`, `-100`, `+100` and silent clamping, `speed` 0.2–5.0s, `mode` add/add_sub, beep toggle, expected duration with >5-minute confirmation), and removed `js/flashPresets.js` and the `"questions per set"` setting.
+- Built `/js/flashTimeline.js` (`buildTimeline(settings, count)` with `FLASH_BLANK_MS = 80`) to drive the `performance.now()` drift-corrected flash scheduler, a distraction-free progress bar, Stop confirmation, and automatic cancellation on `visibilitychange` (`"You left the page, so this try was cancelled. Start again when you are ready."`).
+- Updated the post-flash answer flow to a single digits-only input (up to 10 digits, no minus sign, `inputmode="numeric"`, `Enter` confirms) with **Submit** and **I don't know** (`null`) buttons, retry on RPC failure, and an immediate Result screen (`Correct`/`Wrong`, `Your answer`, `Correct answer`, time, `Try again`, `Change settings`, and collapsed `"Show the numbers"` when `count <= 100`).
+- Created `/js/flashStats.js` (`settingsKey`, `statsByKey` ignoring `questions` and `session_id` with `sum(correct)/sum(total)` for legacy row compatibility, `recentTries` for last 20 tries, and `triesThisWeek` in Indian time) and updated the shared Flash Anzan card in `js/dashboardComponents.js` and fixed demo fixtures in `js/demoDb.js`.
+- Replaced `tests/flash.test.js` with `tests/flashStats.test.js` and `tests/flashTimeline.test.js` (testing 2, 50, and 1000 numbers) — all unit tests pass via `node --test tests/*.test.js` — and updated `/docs` (`HANDOVER.md`, `DECISIONS.md` ADR-032, `DATA.md`, `THREAT.md`, `TESTING.md`, `ARCHITECTURE.md`).
+
+---
+
 ### Session: 2026-10-19 (Phase 8 — Elements Timed Worksheet Drills, Server-Side Generator/Grader & Dashboard Summaries)
 
 #### 5-Line Session Summary

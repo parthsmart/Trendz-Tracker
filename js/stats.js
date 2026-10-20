@@ -336,11 +336,13 @@ export function calculateBasicsWeeklySummary(results = [], categories = [], toda
         categoryName: c.name,
         sortOrder: c.sort_order || 0,
         entryCount: 0,
+        siteCount: 0,
         totalCorrect: 0,
         totalQuestions: 0,
         totalSeconds: 0,
         targetMetCount: 0,
-        targetEvaluatedCount: 0
+        targetEvaluatedCount: 0,
+        entries: []
       });
     });
 
@@ -356,6 +358,9 @@ export function calculateBasicsWeeklySummary(results = [], categories = [], toda
       const sec = Number(res.time_seconds) || 0;
 
       bucket.entryCount += 1;
+      if (res.source === 'site') {
+        bucket.siteCount += 1;
+      }
       bucket.totalCorrect += correct;
       bucket.totalQuestions += total;
       bucket.totalSeconds += sec;
@@ -366,6 +371,19 @@ export function calculateBasicsWeeklySummary(results = [], categories = [], toda
       } else if (res.meets_target === false) {
         bucket.targetEvaluatedCount += 1;
       }
+
+      bucket.entries.push({
+        id: res.id,
+        categoryId: res.category_id,
+        categoryName: bucket.categoryName,
+        correct,
+        total,
+        timeSeconds: sec,
+        entryDate: dateKey,
+        source: res.source || 'typed',
+        verified: res.verified === true || !!res.verified_at || !!res.verified_by,
+        meetsTarget: res.meets_target ?? null
+      });
     }
   });
 
@@ -385,13 +403,15 @@ export function calculateBasicsWeeklySummary(results = [], categories = [], toda
         categoryName: item.categoryName,
         sortOrder: item.sortOrder,
         entryCount: item.entryCount,
+        siteCount: item.siteCount,
         avgAccuracy,
         avgSpeed,
         totalCorrect: item.totalCorrect,
         totalQuestions: item.totalQuestions,
         totalSeconds: item.totalSeconds,
         targetMetCount: item.targetMetCount,
-        targetEvaluatedCount: item.targetEvaluatedCount
+        targetEvaluatedCount: item.targetEvaluatedCount,
+        entries: item.entries
       });
     }
   });

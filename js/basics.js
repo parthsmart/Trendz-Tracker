@@ -10,6 +10,7 @@ import { getScoreFeedback } from './scoreColors.js';
 import { DemoDB, getSupabase } from './supabaseClient.js';
 import { formatSecondsToMMSS, parseTimeToSeconds } from './timeUtils.js';
 import { formatSecondsToTime } from './stats.js';
+import { isBasicsOnlineAvailable } from './practiceStats.js';
 import { showToast } from './toast.js';
 
 let currentProfile = null;
@@ -94,6 +95,7 @@ async function loadBasicsCategories() {
       selectEl.value = catParam;
     }
 
+    renderOnlinePracticeButtons();
     updateCategoryTargetDisplay(selectEl.value);
   } catch (err) {
     console.warn('Error in loadBasicsCategories, falling back to local categories:', err);
@@ -108,6 +110,7 @@ async function loadBasicsCategories() {
       if (catParam && selectEl.querySelector(`option[value="${catParam}"]`)) {
         selectEl.value = catParam;
       }
+      renderOnlinePracticeButtons();
       updateCategoryTargetDisplay(selectEl.value);
     } else {
       showToast('error', 'Failed to load categories: ' + (err.message || 'Network error'));
@@ -118,6 +121,33 @@ async function loadBasicsCategories() {
   selectEl.addEventListener('change', () => {
     updateCategoryTargetDisplay(selectEl.value);
   });
+}
+
+/**
+ * Renders a "Practice online" button for each basics category that is available online
+ */
+function renderOnlinePracticeButtons() {
+  const cardEl = document.getElementById('online-practice-categories-card');
+  const listEl = document.getElementById('online-practice-buttons-list');
+  if (!cardEl || !listEl) return;
+
+  const onlineCats = basicsCategories.filter(c => isBasicsOnlineAvailable(c));
+  if (onlineCats.length === 0) {
+    cardEl.style.display = 'none';
+    listEl.innerHTML = '';
+    return;
+  }
+
+  listEl.innerHTML = onlineCats.map(c => `
+    <a
+      href="/pages/basics-practice.html?cat=${encodeURIComponent(c.id)}"
+      class="btn btn-primary btn-sm"
+      style="text-decoration: none;"
+    >
+      ${escapeHtml(c.name)} &middot; Practice online
+    </a>
+  `).join('');
+  cardEl.style.display = 'block';
 }
 
 /**
@@ -150,6 +180,19 @@ async function loadActiveThresholds() {
 function updateCategoryTargetDisplay(categoryId) {
   const container = document.getElementById('category-target-display');
   const textEl = document.getElementById('category-target-text');
+  const onlineBtn = document.getElementById('btn-selected-practice-online');
+
+  const selectedCat = basicsCategories.find(c => c.id === categoryId);
+  if (onlineBtn) {
+    if (selectedCat && isBasicsOnlineAvailable(selectedCat)) {
+      onlineBtn.href = `/pages/basics-practice.html?cat=${encodeURIComponent(selectedCat.id)}`;
+      onlineBtn.textContent = `Practice ${selectedCat.name} online →`;
+      onlineBtn.style.display = 'inline-flex';
+    } else {
+      onlineBtn.style.display = 'none';
+    }
+  }
+
   if (!container || !textEl) return;
 
   if (!categoryId) {
@@ -214,6 +257,7 @@ async function loadBasicsHistory() {
             time_seconds,
             note,
             entry_date,
+            source,
             verified,
             verified_at,
             verified_by,
@@ -350,11 +394,12 @@ function renderDrillRow(drill) {
   const catName = drill.categories?.name || basicsCategories.find(c => c.id === drill.category_id)?.name || 'Basics';
   const feedback = getScoreFeedback(drill.correct, drill.total);
   const timeFormatted = formatSecondsToMMSS(drill.time_seconds);
+  const isSite = drill.source === 'site';
   const isVerified = drill.verified === true || !!drill.verified_at || !!drill.verified_by;
   const isCorrected = !!drill.corrected_at || !!drill.corrected_by;
   const isFlagged = drill.flagged === true;
   const flagNote = drill.flag_note || '';
-  const isLocked = isVerified || isCorrected;
+  const isLocked = isSite || isVerified || isCorrected;
 
   return `
     <div class="category-item ${isLocked ? 'row-verified' : ''}" style="margin-bottom: 0; border-radius: 0; border-bottom: 1px solid var(--border-hairline);" data-drill-id="${drill.id}">
@@ -382,7 +427,11 @@ function renderDrillRow(drill) {
             ⚠️ Below target
           </span>
         ` : ''}
-        ${isVerified ? `
+        ${isSite ? `
+          <span class="status-chip chip-verified" title="Completed online and recorded by the site (locked)">
+            Recorded by the site
+          </span>
+        ` : isVerified ? `
           <span class="verified-lock-indicator" title="Verified by teacher (locked)">
             🔒 Verified
           </span>

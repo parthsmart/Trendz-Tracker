@@ -45,7 +45,7 @@ export const OLD_SIMULATOR_CATEGORIES = [
   'Cube root', 'Next cube', 'Calendar', 'Time Elapsed', 'Sum of Squares', 'Surprise Task'
 ];
 
-export const DEFAULT_BASICS_CATEGORIES = ['1d4r', '2d2r'];
+export const DEFAULT_BASICS_CATEGORIES = ['1d4r', '2d2r', '2dx1d', '3d/1d'];
 
 /**
  * Returns whether Demo Mode is currently active.
@@ -408,6 +408,7 @@ function initDemoStorage() {
     // Sample basics over the last 14 days
     for (let day = 0; day < 14; day++) {
       const dateStr = new Date(now.getTime() - day * 86400000).toISOString().split('T')[0];
+      const isSiteEntry = day === 0 || day === 3;
       // 1d4r entry
       sampleResults.push({
         id: `res-bas-1d-${day}`,
@@ -417,11 +418,14 @@ function initDemoStorage() {
         correct: 19 + (day % 2),
         total: 20,
         time_seconds: 32 + (day % 4),
-        note: 'Daily speed sprint',
+        note: isSiteEntry ? null : 'Daily speed sprint',
         entry_date: dateStr,
         created_at: new Date(now.getTime() - day * 86400000 + 3600000).toISOString(),
-        verified_by: day >= 7 ? 'usr-admin-1' : null,
-        verified_at: day >= 7 ? new Date(now.getTime() - (day - 1) * 86400000).toISOString() : null,
+        updated_at: new Date(now.getTime() - day * 86400000 + 3600000).toISOString(),
+        source: isSiteEntry ? 'site' : 'typed',
+        verified: isSiteEntry || day >= 7,
+        verified_by: isSiteEntry ? null : (day >= 7 ? 'usr-admin-1' : null),
+        verified_at: isSiteEntry ? null : (day >= 7 ? new Date(now.getTime() - (day - 1) * 86400000).toISOString() : null),
         corrected_by: null,
         corrected_at: null,
         flagged: false,
@@ -440,6 +444,9 @@ function initDemoStorage() {
           note: '2-digit concentration',
           entry_date: dateStr,
           created_at: new Date(now.getTime() - day * 86400000 + 7200000).toISOString(),
+          updated_at: new Date(now.getTime() - day * 86400000 + 7200000).toISOString(),
+          source: 'typed',
+          verified: false,
           verified_by: null,
           verified_at: null,
           corrected_by: null,
@@ -1182,9 +1189,10 @@ export const DemoDB = {
     let list = results.map(r => {
       const cat = catMap.get(r.category_id) || { name: 'Unknown Category', section: 'other' };
       const student = studentMap.get(r.student_id) || { full_name: 'Unknown Student', student_code: '—', level: '—' };
-      const isVerified = !!r.verified_at || !!r.verified_by;
+      const isVerified = r.verified === true || !!r.verified_at || !!r.verified_by;
       const isCorrected = !!r.corrected_at || !!r.corrected_by;
       const isFlagged = r.flagged === true;
+      const source = r.source || 'typed';
 
       let meetsTarget = null;
       if (cat.section === 'basics') {
@@ -1207,6 +1215,8 @@ export const DemoDB = {
 
       return {
         ...r,
+        source,
+        verified: isVerified,
         category: cat,
         student,
         isVerified,
@@ -1801,6 +1811,8 @@ export const DemoDB = {
 
         return {
           ...r,
+          source: r.source || 'typed',
+          verified: r.verified === true || !!r.verified_at || !!r.verified_by,
           categories: cat ? { id: cat.id, name: cat.name, section: cat.section } : null,
           min_accuracy: minAcc,
           max_time_seconds: maxTime,
@@ -2963,10 +2975,10 @@ export const DemoDB = {
           student_id: 'usr-101',
           activity_type: 'flash_anzan',
           activity_name: 'Flash Anzan',
-          correct: 9,
-          total: 10,
-          time_seconds: 112,
-          settings: { digits: 2, count: 7, speed_ms: 1500, questions: 10, mode: 'add' },
+          correct: 1,
+          total: 1,
+          time_seconds: 12,
+          settings: { digits: 2, count: 10, speed_ms: 1000, mode: 'add' },
           created_at: nowIso,
           updated_at: nowIso
         },
@@ -2975,10 +2987,10 @@ export const DemoDB = {
           student_id: 'usr-101',
           activity_type: 'flash_anzan',
           activity_name: 'Flash Anzan',
-          correct: 10,
+          correct: 9,
           total: 10,
-          time_seconds: 104,
-          settings: { digits: 1, count: 5, speed_ms: 2000, questions: 10, mode: 'add' },
+          time_seconds: 112,
+          settings: { digits: 2, count: 10, speed_ms: 1000, questions: 10, mode: 'add' },
           created_at: yestIso,
           updated_at: yestIso
         },
@@ -3045,149 +3057,69 @@ export const DemoDB = {
     });
   },
 
+  /**
+   * Phase 7b Demo Mode: Fixed sample Flash Anzan try (does NOT re-implement number generation or checking).
+   */
   mockFlashStart(p_settings = {}, studentId = 'usr-101') {
     if (!isDemoMode()) {
       throw new Error('Action blocked: Demo mode cannot mutate live database.');
     }
-    const digits = Number(p_settings.digits);
-    const count = Number(p_settings.count);
-    const speed_ms = Number(p_settings.speed_ms);
-    const questions = Number(p_settings.questions);
-    const mode = p_settings.mode;
-
-    if (
-      !Number.isInteger(digits) || digits < 1 || digits > 5 ||
-      !Number.isInteger(count) || count < 3 || count > 30 ||
-      !Number.isInteger(speed_ms) || speed_ms < 200 || speed_ms > 5000 ||
-      !Number.isInteger(questions) || questions < 3 || questions > 30 ||
-      (mode !== 'add' && mode !== 'add_sub')
-    ) {
-      throw new Error('Invalid Flash Anzan settings.');
-    }
-
-    const minVal = digits === 1 ? 1 : Math.pow(10, digits - 1);
-    const maxVal = Math.pow(10, digits) - 1;
-
-    const generatedQuestions = [];
-    const expectedAnswers = [];
-
-    for (let q = 0; q < questions; q++) {
-      const nums = [];
-      let runningSum = 0;
-      for (let i = 0; i < count; i++) {
-        let mag = Math.floor(Math.random() * (maxVal - minVal + 1)) + minVal;
-        let signed = mag;
-        if (mode === 'add_sub' && i > 0 && Math.random() < 0.4) {
-          // Keep running total non-negative when possible, or allow signed subtraction
-          if (runningSum > minVal) {
-            const subMax = Math.min(maxVal, runningSum);
-            mag = Math.floor(Math.random() * (subMax - minVal + 1)) + minVal;
-            signed = -mag;
-          }
-        }
-        nums.push(signed);
-        runningSum += signed;
-      }
-      generatedQuestions.push(nums);
-      expectedAnswers.push(runningSum);
-    }
-
-    const sessionId = `fsess-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const sessionsKey = 'trendz_demo_flash_sessions_v1';
-    const sessions = JSON.parse(localStorage.getItem(sessionsKey) || '{}');
-    sessions[sessionId] = {
-      session_id: sessionId,
-      student_id: studentId || 'usr-101',
-      settings: { digits, count, speed_ms, questions, mode },
-      questions: generatedQuestions,
-      expected: expectedAnswers,
-      started_at_ms: Date.now(),
-      min_duration_ms: questions * count * speed_ms,
-      submitted: false
+    const cleanSettings = {
+      digits: Number(p_settings?.digits) || 2,
+      count: Number(p_settings?.count) || 5,
+      speed_ms: Number(p_settings?.speed_ms) || 1000,
+      mode: p_settings?.mode === 'add_sub' ? 'add_sub' : 'add',
     };
-    localStorage.setItem(sessionsKey, JSON.stringify(sessions));
+    const fixedSampleNumbers =
+      cleanSettings.mode === 'add_sub'
+        ? [24, 15, -12, 31, -8]
+        : [12, 25, 18, 14, 21];
 
     return {
-      session_id: sessionId,
-      questions: generatedQuestions,
-      settings: { digits, count, speed_ms, questions, mode }
+      session_id: 'demo-flash-session-fixed',
+      numbers: fixedSampleNumbers,
+      settings: cleanSettings,
     };
   },
 
-  mockFlashSubmit(p_session, p_answers = [], studentId = 'usr-101') {
+  /**
+   * Phase 7b Demo Mode: Fixed fake Flash Anzan submission result (does NOT calculate sums or correctness).
+   */
+  mockFlashSubmit(p_session, p_answer = null, studentId = 'usr-101') {
     if (!isDemoMode()) {
       throw new Error('Action blocked: Demo mode cannot mutate live database.');
     }
-    const sessionsKey = 'trendz_demo_flash_sessions_v1';
-    const sessions = JSON.parse(localStorage.getItem(sessionsKey) || '{}');
-    const sess = sessions[p_session];
+    const givenVal =
+      p_answer === null || p_answer === undefined || p_answer === ''
+        ? null
+        : Number(p_answer);
 
-    if (!sess) {
-      throw new Error('Flash Anzan session not found.');
-    }
-    if (sess.submitted) {
-      throw new Error('This Flash Anzan set has already been submitted.');
-    }
+    // Fixed fake result in Demo Mode
+    const fixedResult = {
+      correct: true,
+      expected: 90,
+      given: givenVal !== null && Number.isFinite(givenVal) ? givenVal : 90,
+      seconds: 6,
+    };
 
-    const elapsedMs = Date.now() - sess.started_at_ms;
-    if (elapsedMs + 250 < sess.min_duration_ms) {
-      throw new Error('Set finished faster than the numbers were shown.');
-    }
-    if (elapsedMs > sess.min_duration_ms + 30 * 60 * 1000) {
-      throw new Error('This Flash Anzan session has expired (30 minutes after minimum time).');
-    }
-
-    const total = sess.questions.length;
-    if (!Array.isArray(p_answers) || p_answers.length !== total) {
-      throw new Error('Answer array length does not match question count.');
-    }
-
-    let correctCount = 0;
-    const detail = sess.questions.map((nums, idx) => {
-      const exp = sess.expected[idx];
-      const rawGiven = p_answers[idx];
-      const given = rawGiven === null || rawGiven === undefined ? null : Number(rawGiven);
-      const isCorrect = given !== null && Number.isInteger(given) && given === exp;
-      if (isCorrect) correctCount++;
-      return {
-        numbers: nums,
-        expected: exp,
-        given,
-        correct: isCorrect
-      };
-    });
-
-    sess.submitted = true;
-    localStorage.setItem(sessionsKey, JSON.stringify(sessions));
-
-    const seconds = Math.max(1, Math.round(elapsedMs / 1000));
-    const accuracy = total > 0 ? Math.round((correctCount / total) * 1000) / 10 : 0;
-
-    // Save into demo activity_results
     const actKey = 'trendz_demo_activity_results_v1';
     const currentList = this.getActivityResults();
     const nowIso = new Date().toISOString();
     currentList.unshift({
-      id: `act-${Date.now()}`,
-      student_id: sess.student_id || studentId || 'usr-101',
+      id: `act-demo-flash-${Date.now()}`,
+      student_id: studentId || 'usr-101',
       activity_type: 'flash_anzan',
       activity_name: 'Flash Anzan',
-      correct: correctCount,
-      total,
-      time_seconds: seconds,
-      settings: sess.settings,
+      correct: 1,
+      total: 1,
+      time_seconds: fixedResult.seconds,
+      settings: { digits: 2, count: 5, speed_ms: 1000, mode: 'add' },
       created_at: nowIso,
-      updated_at: nowIso
+      updated_at: nowIso,
     });
     localStorage.setItem(actKey, JSON.stringify(currentList));
 
-    return {
-      correct: correctCount,
-      total,
-      accuracy,
-      seconds,
-      detail
-    };
+    return fixedResult;
   },
 
   getBackupStatus() {
@@ -3374,7 +3306,136 @@ export const DemoDB = {
 
     return fixedResult;
   },
+
+  // ==================== PHASE 9A: ONLINE BASICS PRACTICE DEMO FIXTURES ====================
+  // Fixed demo practice set and fixed result (no generation or checking in the browser).
+  mockBasicsDrillStart(categoryId = 'cat-bas-1') {
+    if (!isDemoMode()) {
+      throw new Error('Action blocked: Demo mode cannot mutate live database.');
+    }
+    const cats = this.getCategories();
+    const cat = cats.find((c) => c.id === categoryId) || { id: categoryId, name: '1d4r' };
+    const nameLower = String(cat.name || '').toLowerCase();
+
+    // Fixed sample display questions (no expected answers returned)
+    let questions = [
+      { type: 'add_sub', rows: [4, 7, -3, 8], text: '+4 +7 -3 +8' },
+      { type: 'add_sub', rows: [9, -5, 6, 2], text: '+9 -5 +6 +2' },
+      { type: 'add_sub', rows: [6, 8, -4, 5], text: '+6 +8 -4 +5' },
+      { type: 'add_sub', rows: [7, -2, 9, -6], text: '+7 -2 +9 -6' },
+      { type: 'add_sub', rows: [5, 4, 8, -7], text: '+5 +4 +8 -7' },
+    ];
+
+    if (nameLower.includes('x') || nameLower.includes('*') || nameLower.includes('×')) {
+      questions = [
+        { type: 'mul', a: 47, b: 8, text: '47 x 8' },
+        { type: 'mul', a: 36, b: 7, text: '36 x 7' },
+        { type: 'mul', a: 64, b: 6, text: '64 x 6' },
+        { type: 'mul', a: 29, b: 9, text: '29 x 9' },
+        { type: 'mul', a: 83, b: 4, text: '83 x 4' },
+      ];
+    } else if (nameLower.includes('/') || nameLower.includes('÷')) {
+      questions = [
+        { type: 'div', dividend: 84, divisor: 7, text: '84 / 7' },
+        { type: 'div', dividend: 144, divisor: 6, text: '144 / 6' },
+        { type: 'div', dividend: 216, divisor: 8, text: '216 / 8' },
+        { type: 'div', dividend: 315, divisor: 9, text: '315 / 9' },
+        { type: 'div', dividend: 196, divisor: 4, text: '196 / 4' },
+      ];
+    }
+
+    return {
+      session_id: `demo-basics-session-${Date.now()}`,
+      title: cat.name,
+      questions,
+      target: { min_accuracy: 90, max_time_seconds: 120 },
+    };
+  },
+
+  mockBasicsDrillSubmit(
+    sessionId,
+    answers = [],
+    studentId = 'usr-101',
+    categoryId = 'cat-bas-1'
+  ) {
+    if (!isDemoMode()) {
+      throw new Error('Action blocked: Demo mode cannot mutate live database.');
+    }
+
+    const resultId = `res-bas-site-${Date.now()}`;
+    const fixedDetail = [
+      {
+        question: '+4 +7 -3 +8',
+        expected_display: '16',
+        given: answers[0] ?? '16',
+        correct: true,
+      },
+      {
+        question: '+9 -5 +6 +2',
+        expected_display: '12',
+        given: answers[1] ?? '12',
+        correct: true,
+      },
+      {
+        question: '+6 +8 -4 +5',
+        expected_display: '15',
+        given: answers[2] ?? '15',
+        correct: true,
+      },
+      {
+        question: '+7 -2 +9 -6',
+        expected_display: '8',
+        given: answers[3] ?? '8',
+        correct: true,
+      },
+      {
+        question: '+5 +4 +8 -7',
+        expected_display: '10',
+        given: answers[4] ?? '9',
+        correct: false,
+      },
+    ];
+
+    const nowIso = new Date().toISOString();
+    const todayIstStr = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+
+    initDemoStorage();
+    const results = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_RESULTS) || '[]');
+    results.unshift({
+      id: resultId,
+      student_id: studentId || 'usr-101',
+      student_round_id: null,
+      category_id: categoryId || 'cat-bas-1',
+      correct: 4,
+      total: 5,
+      time_seconds: 22,
+      note: null,
+      entry_date: todayIstStr,
+      created_at: nowIso,
+      updated_at: nowIso,
+      source: 'site',
+      verified: true,
+      verified_by: null,
+      verified_at: null,
+      corrected_by: null,
+      corrected_at: null,
+      flagged: false,
+      flag_note: null,
+    });
+    localStorage.setItem(DEMO_STORAGE_KEY_RESULTS, JSON.stringify(results));
+
+    return {
+      correct: 4,
+      total: 5,
+      accuracy: 80.0,
+      seconds: 22,
+      detail: fixedDetail,
+      result_id: resultId,
+    };
+  },
 };
-
-
-
