@@ -103,12 +103,15 @@ function renderModuleBestRow(label, summary, isCalendar = false) {
   const feedback = getScoreFeedback(best.correct, best.attempted);
   const datesSuffix = isCalendar && best.dates ? ` (${best.dates}d)` : '';
   const timeStr = `${Number(best.used_seconds).toFixed(2)}s`;
+  const mainScoreText = isCalendar
+    ? `Score ${best.score} (${best.correct}/${best.attempted})`
+    : `Score ${best.score} (${best.correct}/${best.attempted})`;
 
   return `
     <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); padding: 6px 0; border-bottom: 1px solid var(--border-hairline); flex-wrap: wrap;">
       <span style="font-size: var(--text-xs); font-weight: 600; color: var(--text-main);">${escapeHtml(label)}${escapeHtml(datesSuffix)}</span>
       <div class="num" style="display: flex; align-items: center; gap: 6px;">
-        <strong style="font-size: var(--text-xs); color: ${feedback.colorVar};">${best.correct}/${best.attempted}</strong>
+        <strong style="font-size: var(--text-xs); color: ${feedback.colorVar};">${escapeHtml(mainScoreText)}</strong>
         <span class="score-tag ${feedback.badgeClass}" style="font-size: 10px;">${escapeHtml(feedback.wrongText)}</span>
         <span style="font-size: 11px; color: var(--text-muted);">${escapeHtml(timeStr)}</span>
       </div>
@@ -184,6 +187,8 @@ export async function renderMemoriadCard(studentIdOrOpts, opts = {}) {
       </div>
       ${renderModuleBestRow('Calendar Dates', summary.modules.calendar, true)}
       ${renderModuleBestRow('Mental Additions', summary.modules.additions, false)}
+      ${renderModuleBestRow('Mental Multiplications', summary.modules.multiplications, false)}
+      ${renderModuleBestRow('Mental Square Roots', summary.modules.square_roots, false)}
     </div>
     ${linkHtml}
   `;

@@ -27,16 +27,16 @@ export const MEMORIAD_MODULE_CATALOG = [
   {
     key: 'multiplications',
     title: 'Mental Multiplications',
-    subtitle: 'High-precision multi-digit mental multiplication under competition conditions.',
-    badge: 'Coming soon',
-    available: false,
+    subtitle: '10 questions of two 8-digit numbers with cyclic step-box markers and 16 answer slots.',
+    badge: '10 × (8d × 8d)',
+    available: true,
   },
   {
     key: 'square_roots',
     title: 'Mental Square Roots',
-    subtitle: 'Competition square root extraction with decimal precision.',
-    badge: 'Coming soon',
-    available: false,
+    subtitle: '10 six-digit non-square radicands rounded half-up to 5 decimals (up to 360 points).',
+    badge: '10 × 6d Roots',
+    available: true,
   },
 ];
 
@@ -111,7 +111,18 @@ export function normalizeMemoriadRow(row) {
   const moduleKey = resolveRowModule(row);
   const correct = Number(row?.settings?.correct ?? row?.correct) || 0;
   const attempted = Number(row?.settings?.attempted ?? row?.total) || 0;
-  const score = Number(row?.settings?.score ?? correct) || 0;
+  const wrong =
+    row?.settings?.wrong !== undefined && row?.settings?.wrong !== null
+      ? Number(row.settings.wrong)
+      : Math.max(0, attempted - correct);
+  const score =
+    row?.settings?.score !== undefined && row?.settings?.score !== null
+      ? Number(row.settings.score)
+      : correct;
+  const digitsTotal =
+    row?.settings?.digits_total !== undefined && row?.settings?.digits_total !== null
+      ? Number(row.settings.digits_total)
+      : 0;
   const usedSeconds =
     row?.settings?.used_seconds !== undefined && row?.settings?.used_seconds !== null
       ? Number(row.settings.used_seconds)
@@ -129,8 +140,10 @@ export function normalizeMemoriadRow(row) {
     id: row?.id || null,
     module: moduleKey,
     correct,
+    wrong,
     attempted,
     score,
+    digits_total: digitsTotal,
     used_seconds: Number(usedSeconds.toFixed(2)),
     time_seconds: Number(row?.time_seconds ?? Math.round(usedSeconds)),
     dates,
@@ -144,9 +157,9 @@ export function normalizeMemoriadRow(row) {
 
 /**
  * Compares two normalized Memoriad attempts to determine which is better:
- * 1. Higher `correct`
- * 2. Higher `accuracy` (`correct / attempted`)
- * 3. Shorter `used_seconds`
+ * - For `square_roots`: highest `score`, then shorter `used_seconds`, then higher `correct`.
+ * - For `multiplications`: highest `correct`, then shorter `used_seconds`, then higher `accuracy`.
+ * - For `calendar` & `additions`: highest `score`, then highest `correct`, then higher `accuracy`, then shorter `used_seconds`.
  * Returns < 0 if `a` is better than `b`, > 0 if `b` is better than `a`, 0 if tied.
  *
  * @param {object} a
@@ -154,6 +167,25 @@ export function normalizeMemoriadRow(row) {
  * @returns {number}
  */
 export function compareMemoriadAttempts(a, b) {
+  const mod = a?.module || b?.module;
+  const aScore = a.score ?? a.correct;
+  const bScore = b.score ?? b.correct;
+
+  if (mod === 'square_roots') {
+    if (bScore !== aScore) return bScore - aScore;
+    if (a.used_seconds !== b.used_seconds) return a.used_seconds - b.used_seconds;
+    return b.correct - a.correct;
+  }
+
+  if (mod === 'multiplications') {
+    if (b.correct !== a.correct) return b.correct - a.correct;
+    if (a.used_seconds !== b.used_seconds) return a.used_seconds - b.used_seconds;
+    return b.accuracy - a.accuracy;
+  }
+
+  if (bScore !== aScore) {
+    return bScore - aScore;
+  }
   if (b.correct !== a.correct) {
     return b.correct - a.correct;
   }

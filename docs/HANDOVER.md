@@ -8,6 +8,17 @@
 
 ## Current Status Overview
 
+### Session: 2026-10-20 (Phase 9b-2 — Mental Multiplications, Mental Square Roots, Step Boxes & Exit Button Fix)
+
+#### 5-Line Session Summary
+- Extended `api/_memoriad.js` and `api/memoriad.js` with **Mental Multiplications** (10 questions of two 8-digit numbers, exact `BigInt` 15–16 digit product, 900s limit, `attempted * 5s` plausibility) and **Mental Square Roots** (10 distinct 6-digit non-square integers, exact `BigInt` half-up rounding to 5 decimals `"DDD.DDDDD"`, triangular $k(k+1)/2$ prefix-digit scoring up to 360 points, saving `correct` as fully correct roots and `settings.digits_total`).
+- Created the pure, DOM-free step-box state machine `js/stepBoxes.js` supporting both the 16-state cyclic cross-multiplication pattern (`*` or sequential click checks `1..8` boxes from the right then leaves `7..1` on the left before resetting to `0`; `/` ignored) and the 6-box bounded square-root pattern (`*` checks left to right, `/` unchecks right to left).
+- Updated `/pages/memoriad-play.html` and `js/memoriadPlay.js` with the Multiplications stage (5×2 overview grid, 8 step boxes highlighting both operand columns, 16 answer slots, disabled `"Side by side (coming later)"` format option) and the Square Roots stage (5×2 overview grid, 6 step boxes above the radicand, 8 answer slots with a fixed decimal point `___ . _____`, and per-question `Correct Digits` + `Points` results table).
+- Fixed the competition stage **Exit** button by adding the `.open` visibility class to `#comp-stage-inline-modal` (`modal-backdrop open active`) and wiring backdrop click and `Escape` dismissal.
+- Enabled all 4 modules on `/pages/memoriad.html` (`js/memoriad.js`), `js/memoriadCard.js`, `js/memoriadStats.js` (ranking Square Roots by highest `score` then shorter time, and Multiplications by highest `correct` then shorter time), and `js/demoDb.js`, and added unit tests in `tests/stepBoxes.test.js`, `tests/memoriadServer.test.js`, and `tests/memoriadStats.test.js`.
+
+---
+
 ### Session: 2026-10-20 (Phase 9b-1 — Memoriad-Style Competition Practice: Shared Desktop Stage, Mental Calendar Dates & Mental Additions)
 
 #### 5-Line Session Summary

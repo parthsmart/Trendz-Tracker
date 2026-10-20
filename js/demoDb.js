@@ -3092,6 +3092,49 @@ export const DemoDB = {
           },
           created_at: yestIso,
           updated_at: yestIso,
+        },
+        {
+          id: 'act-demo-mem-mul-1',
+          student_id: 'usr-101',
+          activity_type: 'memoriad',
+          activity_name: 'Mental Multiplications',
+          correct: 8,
+          total: 10,
+          time_seconds: 312,
+          settings: {
+            module: 'multiplications',
+            questions: 10,
+            attempted: 10,
+            correct: 8,
+            wrong: 2,
+            score: 8,
+            used_seconds: 312.4,
+            concentration_seconds: 5,
+          },
+          created_at: yestIso,
+          updated_at: yestIso,
+        },
+        {
+          id: 'act-demo-mem-sqrt-1',
+          student_id: 'usr-101',
+          activity_type: 'memoriad',
+          activity_name: 'Mental Square Roots',
+          correct: 6,
+          total: 9,
+          time_seconds: 420,
+          settings: {
+            module: 'square_roots',
+            questions: 10,
+            attempted: 9,
+            correct: 6,
+            wrong: 3,
+            score: 267,
+            digits_total: 62,
+            used_seconds: 420.15,
+            concentration_seconds: 5,
+          },
+          created_at: twoDaysIso,
+          updated_at: twoDaysIso,
         }
       );
       localStorage.setItem(key, JSON.stringify(list));
@@ -3492,7 +3535,8 @@ export const DemoDB = {
     if (!isDemoMode()) {
       throw new Error('Action blocked: Demo mode cannot mutate live database.');
     }
-    const mod = moduleKey === 'additions' ? 'additions' : 'calendar';
+    const allowedMods = ['calendar', 'additions', 'multiplications', 'square_roots'];
+    const mod = allowedMods.includes(moduleKey) ? moduleKey : 'calendar';
     const conc = Number.isInteger(Number(settings?.concentration_seconds))
       ? Number(settings.concentration_seconds)
       : 5;
@@ -3510,8 +3554,51 @@ export const DemoDB = {
         module: 'calendar',
         title: 'Mental Calendar Dates',
         questions: fixedDates25,
+        time_limit_seconds: 60,
         settings: {
           dates: 25,
+          concentration_seconds: conc,
+        },
+      };
+    }
+
+    if (mod === 'multiplications') {
+      const fixedMultiplications10 = [
+        ['39951857', '81044514'],
+        ['48291034', '62718392'],
+        ['71502948', '53829104'],
+        ['29481756', '91827364'],
+        ['64738291', '38475629'],
+        ['85940312', '47281935'],
+        ['51928374', '73645281'],
+        ['92837465', '26374859'],
+        ['37485961', '84930217'],
+        ['76543219', '59483726'],
+      ];
+      return {
+        session_id: 'demo-memoriad-mul-session',
+        module: 'multiplications',
+        title: 'Mental Multiplications',
+        questions: fixedMultiplications10,
+        time_limit_seconds: 900,
+        settings: {
+          concentration_seconds: conc,
+        },
+      };
+    }
+
+    if (mod === 'square_roots') {
+      const fixedSquareRoots10 = [
+        258524, 850772, 115456, 457832, 453077,
+        198432, 624518, 731905, 884210, 319482,
+      ];
+      return {
+        session_id: 'demo-memoriad-sqrt-session',
+        module: 'square_roots',
+        title: 'Mental Square Roots',
+        questions: fixedSquareRoots10,
+        time_limit_seconds: 900,
+        settings: {
           concentration_seconds: conc,
         },
       };
@@ -3535,29 +3622,52 @@ export const DemoDB = {
       module: 'additions',
       title: 'Mental Additions',
       questions: fixedAdditions10,
+      time_limit_seconds: 600,
       settings: {
         concentration_seconds: conc,
       },
     };
   },
 
-  mockMemoriadSubmit(sessionId, moduleKey = 'calendar', answers = [], studentId = 'usr-101', settings = {}) {
+  mockMemoriadSubmit(
+    sessionId,
+    moduleKey = 'calendar',
+    answers = [],
+    studentId = 'usr-101',
+    settings = {},
+    finishedBy = 'finish'
+  ) {
     if (!isDemoMode()) {
       throw new Error('Action blocked: Demo mode cannot mutate live database.');
     }
-    const mod = moduleKey === 'additions' ? 'additions' : 'calendar';
+    const allowedMods = ['calendar', 'additions', 'multiplications', 'square_roots'];
+    const mod = allowedMods.includes(moduleKey) ? moduleKey : 'calendar';
     const rawAnswers = Array.isArray(answers) ? answers : [];
-    const nonNullCount = rawAnswers.filter(a => a !== null && a !== undefined && String(a).trim() !== '').length;
+    const nonNullCount = rawAnswers.filter(
+      (a) => a !== null && a !== undefined && String(a).replace(/_/g, '').trim() !== ''
+    ).length;
+    const normFinishedBy = finishedBy === 'time_up' ? 'time_up' : 'finish';
+
+    const titleMap = {
+      calendar: 'Mental Calendar Dates',
+      additions: 'Mental Additions',
+      multiplications: 'Mental Multiplications',
+      square_roots: 'Mental Square Roots',
+    };
+    const title = titleMap[mod] || 'Mental Calendar Dates';
 
     if (nonNullCount === 0) {
       return {
         module: mod,
-        title: mod === 'calendar' ? 'Mental Calendar Dates' : 'Mental Additions',
+        title,
         questions_total: mod === 'calendar' ? 25 : 10,
         attempted: 0,
         correct: 0,
+        wrong: 0,
         score: 0,
+        ...(mod === 'square_roots' ? { digits_total: 0 } : {}),
         used_seconds: 12.5,
+        finished_by: normFinishedBy,
         saved: false,
         result_id: null,
         message: 'No questions were attempted, so no score was saved.',
@@ -3566,16 +3676,39 @@ export const DemoDB = {
     }
 
     const fixedAttempted = mod === 'calendar' ? 25 : 10;
-    const fixedCorrect = mod === 'calendar' ? 24 : 9;
-    const fixedUsedSeconds = mod === 'calendar' ? 31.42 : 118.65;
-    const title = mod === 'calendar' ? 'Mental Calendar Dates' : 'Mental Additions';
+    const fixedCorrect = mod === 'calendar' ? 24 : mod === 'square_roots' ? 8 : 9;
+    const fixedWrong = fixedAttempted - fixedCorrect;
+    const fixedScore = mod === 'square_roots' ? 312 : fixedCorrect;
+    const fixedDigitsTotal = mod === 'square_roots' ? 72 : undefined;
+    const fixedUsedSeconds =
+      mod === 'calendar'
+        ? 31.42
+        : mod === 'additions'
+          ? 118.65
+          : mod === 'multiplications'
+            ? 245.8
+            : 310.25;
 
     const actKey = 'trendz_demo_activity_results_v1';
     const currentList = this.getActivityResults();
     const nowIso = new Date().toISOString();
     const newId = `act-demo-mem-${Date.now()}`;
 
-    currentList.unshift({
+    const rowSettings = {
+      module: mod,
+      questions: fixedAttempted,
+      attempted: fixedAttempted,
+      correct: fixedCorrect,
+      wrong: fixedWrong,
+      score: fixedScore,
+      used_seconds: fixedUsedSeconds,
+      concentration_seconds: Number(settings?.concentration_seconds) || 5,
+      finished_by: normFinishedBy,
+      ...(mod === 'calendar' ? { dates: 25 } : {}),
+      ...(mod === 'square_roots' ? { digits_total: fixedDigitsTotal } : {}),
+    };
+
+    const newActivityRow = {
       id: newId,
       student_id: studentId || 'usr-101',
       activity_type: 'memoriad',
@@ -3583,31 +3716,65 @@ export const DemoDB = {
       correct: fixedCorrect,
       total: fixedAttempted,
       time_seconds: Math.round(fixedUsedSeconds),
-      settings: {
-        module: mod,
-        questions: fixedAttempted,
-        attempted: fixedAttempted,
-        correct: fixedCorrect,
-        score: fixedCorrect,
-        used_seconds: fixedUsedSeconds,
-        concentration_seconds: Number(settings?.concentration_seconds) || 5,
-        ...(mod === 'calendar' ? { dates: 25 } : {}),
-      },
+      settings: rowSettings,
       created_at: nowIso,
       updated_at: nowIso,
-    });
+    };
+
+    currentList.unshift(newActivityRow);
     localStorage.setItem(actKey, JSON.stringify(currentList));
 
-    const detail = Array.from({ length: fixedAttempted }, (_, idx) => ({
-      index: idx + 1,
-      question_summary: mod === 'calendar' ? `2000-01-${String((idx % 28) + 1).padStart(2, '0')}` : `Question ${idx + 1} (10 × 10d)`,
-      expected: mod === 'calendar' ? 5 : '51000000000',
-      expected_display: mod === 'calendar' ? 'Saturday' : '51000000000',
-      given: mod === 'calendar' ? (idx === 0 ? 4 : 5) : (idx === 0 ? '50000000000' : '51000000000'),
-      given_display: mod === 'calendar' ? (idx === 0 ? 'Friday' : 'Saturday') : (idx === 0 ? '50000000000' : '51000000000'),
-      attempted: true,
-      correct: idx !== 0,
-    }));
+    const detail = Array.from({ length: fixedAttempted }, (_, idx) => {
+      if (mod === 'calendar') {
+        return {
+          index: idx + 1,
+          question_summary: `2000-01-${String((idx % 28) + 1).padStart(2, '0')}`,
+          expected: 5,
+          expected_display: 'Saturday',
+          given: idx === 0 ? 4 : 5,
+          given_display: idx === 0 ? 'Friday' : 'Saturday',
+          attempted: true,
+          correct: idx !== 0,
+        };
+      }
+      if (mod === 'multiplications') {
+        return {
+          index: idx + 1,
+          question_summary: idx === 0 ? '39951857 × 81044514' : `Factor Pair ${idx + 1} (8d × 8d)`,
+          expected: '3237878833962498',
+          expected_display: '3237878833962498',
+          given: idx === 0 ? '3237878833962400' : '3237878833962498',
+          given_display: idx === 0 ? '3237878833962400' : '3237878833962498',
+          attempted: true,
+          correct: idx !== 0,
+        };
+      }
+      if (mod === 'square_roots') {
+        const isPartial = idx < 2;
+        return {
+          index: idx + 1,
+          question_summary: idx === 0 ? '√258524' : `√${100000 + idx * 75123}`,
+          expected: '508.45255',
+          expected_display: '508.45255',
+          given: isPartial ? '508.4__' : '508.45255',
+          given_display: isPartial ? '508.4' : '508.45255',
+          attempted: true,
+          correct: !isPartial,
+          correct_digits: isPartial ? 4 : 8,
+          points: isPartial ? 10 : 36,
+        };
+      }
+      return {
+        index: idx + 1,
+        question_summary: `Question ${idx + 1} (10 × 10d)`,
+        expected: '51000000000',
+        expected_display: '51000000000',
+        given: idx === 0 ? '50000000000' : '51000000000',
+        given_display: idx === 0 ? '50000000000' : '51000000000',
+        attempted: true,
+        correct: idx !== 0,
+      };
+    });
 
     return {
       module: mod,
@@ -3615,10 +3782,14 @@ export const DemoDB = {
       questions_total: fixedAttempted,
       attempted: fixedAttempted,
       correct: fixedCorrect,
-      score: fixedCorrect,
+      wrong: fixedWrong,
+      score: fixedScore,
+      ...(mod === 'square_roots' ? { digits_total: fixedDigitsTotal } : {}),
       used_seconds: fixedUsedSeconds,
+      finished_by: normFinishedBy,
       saved: true,
       result_id: newId,
+      activity_row: newActivityRow,
       message: 'Saved to your scores.',
       detail,
     };

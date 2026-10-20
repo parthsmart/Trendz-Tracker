@@ -101,7 +101,7 @@ function renderBestSection(mod, modSummary) {
         if (!tierBest) return '';
         return `
           <span class="memoriad-tier-chip num">
-            <strong>${d} dates:</strong> ${tierBest.correct}/${tierBest.attempted} in ${Number(tierBest.used_seconds).toFixed(2)}s
+            <strong>${d} dates:</strong> Score ${tierBest.score} (${tierBest.correct}/${tierBest.attempted}) in ${Number(tierBest.used_seconds).toFixed(2)}s
           </span>
         `;
       })
@@ -128,7 +128,7 @@ function renderBestSection(mod, modSummary) {
             Personal Best${mod.key === 'calendar' && best.dates ? ` (${best.dates} dates)` : ''}
           </div>
           <div class="num" style="font-size: 1.25rem; font-weight: 800; color: ${feedback.colorVar}; margin-top: 2px;">
-            Score ${best.score} &middot; ${best.correct}/${best.attempted} (${accuracyPct}%)
+            Score ${best.score} &middot; ${best.correct}/${best.attempted} (${accuracyPct}%)${mod.key === 'square_roots' && best.digits_total ? ` &middot; ${best.digits_total}d` : ''}
           </div>
         </div>
         <div class="num" style="text-align: right;">

@@ -83,6 +83,41 @@
         text-align: center;
       }
 
+      .comp-limit-badge {
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+        font-size: 0.85rem;
+        font-weight: 800;
+        color: var(--text-main);
+        padding: 5px 10px;
+        border-radius: var(--radius-md);
+        background: var(--bg-surface-subtle);
+        border: 1px solid var(--border-strong);
+        white-space: nowrap;
+      }
+
+      .comp-last10-notice {
+        display: none;
+        align-items: center;
+        gap: 6px;
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+        font-size: 0.88rem;
+        font-weight: 900;
+        color: var(--color-danger);
+        background: var(--color-danger-subtle);
+        border: 2px dashed var(--color-danger);
+        outline: 2px solid var(--color-danger);
+        outline-offset: 1px;
+        padding: 5px 12px;
+        border-radius: var(--radius-md);
+        white-space: nowrap;
+      }
+
+      .comp-last10-notice.is-visible {
+        display: inline-flex;
+      }
+
       .comp-stage-body {
         flex: 1;
         min-height: 0;
@@ -383,6 +418,141 @@
         border-color: var(--color-primary);
         border-bottom-width: 5px;
         box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+      }
+
+      /* Step Boxes & Multiplications / Square Roots Workbench */
+      .comp-step-box {
+        width: 30px;
+        height: 28px;
+        border: 2px solid var(--border-strong);
+        border-radius: 5px;
+        background: var(--bg-surface);
+        color: var(--color-primary);
+        font-family: var(--font-mono);
+        font-size: 0.95rem;
+        font-weight: 900;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        user-select: none;
+        transition: background-color 0.08s ease, border-color 0.08s ease;
+      }
+
+      .comp-step-box.is-checked {
+        background: var(--color-primary-subtle);
+        border-color: var(--color-primary);
+        box-shadow: inset 0 -3px 0 var(--color-primary);
+      }
+
+      .comp-step-box.is-next-target {
+        border-style: dashed;
+        border-color: var(--color-primary);
+      }
+
+      .mult-matrix-grid {
+        display: grid;
+        grid-template-columns: 32px repeat(8, 32px);
+        gap: 4px;
+        align-items: center;
+        justify-content: center;
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .mult-digit-cell {
+        text-align: center;
+        font-size: 1.65rem;
+        line-height: 1.35;
+        font-weight: 800;
+        border-radius: 5px;
+        padding: 2px 0;
+        color: var(--text-main);
+      }
+
+      .mult-digit-cell.is-col-highlighted {
+        background: var(--color-primary-subtle);
+        color: var(--color-primary);
+        font-weight: 900;
+        outline: 2px solid var(--color-primary);
+      }
+
+      .mult-slots-row {
+        display: grid;
+        grid-template-columns: repeat(16, 25px);
+        gap: 3px;
+        justify-content: center;
+        margin-top: var(--space-3);
+        padding-top: var(--space-3);
+        border-top: 2px solid var(--text-main);
+      }
+
+      .mult-slots-row .additions-slot-box {
+        height: 38px;
+        font-size: 1.15rem;
+      }
+
+      .roots-matrix-grid {
+        display: grid;
+        grid-template-columns: 38px repeat(6, 36px);
+        gap: 5px;
+        align-items: center;
+        justify-content: center;
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .roots-radical-sign {
+        font-size: 2rem;
+        font-weight: 900;
+        color: var(--color-primary);
+        text-align: right;
+        padding-right: 4px;
+        line-height: 1;
+      }
+
+      .roots-radicand-cell {
+        text-align: center;
+        font-size: 1.85rem;
+        line-height: 1.35;
+        font-weight: 800;
+        border-top: 3px solid var(--text-main);
+        border-radius: 0 0 5px 5px;
+        padding: 4px 0 2px 0;
+        color: var(--text-main);
+      }
+
+      .roots-radicand-cell.is-col-highlighted {
+        background: var(--color-primary-subtle);
+        color: var(--color-primary);
+        font-weight: 900;
+        outline: 2px solid var(--color-primary);
+      }
+
+      .roots-slots-row {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        margin-top: var(--space-3);
+        padding-top: var(--space-3);
+        border-top: 2px solid var(--text-main);
+      }
+
+      .roots-slots-row .additions-slot-box {
+        width: 36px;
+        height: 44px;
+        font-size: 1.45rem;
+      }
+
+      .roots-decimal-dot {
+        font-family: var(--font-mono);
+        font-size: 1.9rem;
+        font-weight: 900;
+        color: var(--text-main);
+        padding: 0 4px;
+        line-height: 1;
+        user-select: none;
       }
     </style>
   </head>

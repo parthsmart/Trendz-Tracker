@@ -532,3 +532,41 @@ Every meaningful technical and architectural decision made for **Trendz Tracker*
      - Extracting `js/answerSlots.js`, `js/columnHighlight.js`, `js/calendarKeys.js`, `js/memoriadFormat.js`, and `js/memoriadStats.js` as pure DOM-free ES modules enables deterministic `node --test` unit testing of all cursor, compacting, key-mapping, and ranking edge cases. For Mental Additions in `ltr` typing direction, `highlightedColumns` starts at the leftmost column(s) (`[0]` or `[0, 1]`) and advances rightward by `columnsPerStep` (`1` or `2`) per step, clamping at the rightmost column(s) (`[9]` or `[8, 9]`).
 - **Rejected Options**: Storing Memoriad practice runs in `public.results` under round categories, generating dates/sums or computing scores in browser JavaScript, or embedding slot-cursor and column-highlight math directly inside DOM event handlers.
 
+---
+
+## ADR-036: Phase 9b-1b — Official Calendar Two-Mistake Scoring Rule, Authoritative Round Time Limits, and Up-to-4-Column Group Typing
+- **Date**: 2026-10-20
+- **Status**: Accepted
+- **Context**: Phase 9b-1b updates the Memoriad competition practice engine with authoritative module round time limits (`calendar: 60s`, `additions: 600s`, `multiplications: 900s`, `square_roots: 900s`), the official Memoriad Calendar Dates scoring rule, and up-to-4-column group typing (`g = 1..4`) for Mental Additions.
+- **Decisions & Rationale**:
+  1. *Why Calendar Scoring Follows the Original Two-Mistake Stop Rule While Preserving Raw `# of Correct Answers`*:
+     - **Official Competition Fidelity**: In the real Memoriad Mental Calendar Dates competition, answers are evaluated in question order (`1..N`), skipped questions are ignored (neither right nor wrong), the first wrong answer is forgiven (`wrongCount = 1`), and from the second wrong answer onward (`wrongCount >= 2`) the official `SCORE` stops increasing even if subsequent answers are right. Meanwhile, the raw `# of Correct Answers` counter (`correctCount`) continues incrementing for every right answer.
+     - **Diagnostic Transparency in `activity_results`**: Persisting `correct = correctCount`, `total = attempted`, `settings.score = score`, and `settings.wrong = wrongCount` in `public.activity_results` — and displaying both **`SCORE`** and **`# of Correct Answers`** on the Results screen while showing `Score` as the main number on the Memoriad hub and dashboard cards — ensures students practice under authentic tournament pressure while teachers can still see how many total dates the student solved accurately after a second mistake.
+  2. *Why Round Time Limits Are Shared Between `api/_memoriad.js` and `js/memoriadConfig.js` with Parity Tests and a 30-Second Server Expiry Grace*:
+     - **Single Source of Truth Across Node and Browser**: Defining `MEMORIAD_TIME_LIMITS` (`calendar: 60`, `additions: 600`, `multiplications: 900`, `square_roots: 900`) and `MEMORIAD_EXPIRY_GRACE_SECONDS = 30` in `api/_memoriad.js` and mirroring them in `js/memoriadConfig.js` (verified by an automated unit test in `tests/memoriadServer.test.js`) guarantees zero drift without requiring bundler aliases in Node's native test runner. Setting `expires_at = start + concentration_seconds + limit + 30s` and clamping `used_seconds = min(limit, max(0, (now - started_at) - concentration_seconds))` allows automatic `finished_by: 'time_up'` submissions to succeed over slow connections while blocking late tampering.
+  3. *Why Right-to-Left Multi-Column Additions (`g = 2..4`) Uses Left-to-Right Intra-Group Typing with History-Backed `Backspace`*:
+     - **Authentic Multi-Column Mental Addition Workflow**: When a student adds `g` columns at a time (`g` in `2..4`) from right to left across 11 answer slots (`0..10`), each mental partial sum produces a `g`-digit chunk read from its tens/hundreds/thousands place to its units place. Starting the cursor at `11 - g`, moving left-to-right within the `g`-slot group, and jumping to the leftmost slot of the next group to the left after `g` digits matches the original training program, while recording each typed slot in `history` ensures `Backspace` always undoes the most recently typed digit and restores the cursor to that exact slot.
+- **Rejected Options**: Treating every wrong Calendar answer as a simple `-1` or counting all correct answers toward `score` after 2 mistakes, or moving the cursor strictly right-to-left one slot at a time when `g > 1`.
+
+
+---
+
+## ADR-037: Phase 9b-2 — Mental Multiplications, Exact Integer Square-Root Half-Up Rounding, Triangular Prefix Scoring, and Pure Step Boxes
+
+- **Date**: 2026-10-20
+- **Status**: Accepted
+- **Context**:
+  - Phase 9b-2 completes the four-module Memoriad practice suite with **Mental Multiplications** (10 questions of $8\text{-digit} \times 8\text{-digit}$ numbers, 900s limit) and **Mental Square Roots** (10 six-digit non-square integers, 900s limit, rounded half-up to 5 decimals), plus interactive step-box column markers and a fix for the stage **Exit** button.
+- **Decisions**:
+  1. **Exact `BigInt` Integer Square Root (`isqrt`) with Half-Up Rounding**:
+     - For a 6-digit integer $n \in [100000, 999999]$ (excluding perfect squares), the server computes $m = \text{BigInt}(n) \times 10^{10}\text{n}$ and $r = \lfloor\sqrt{m}\rfloor$ via Newton's method in `BigInt`.
+     - Because $(r + 0.5)^2 = r^2 + r + 0.25$, the exact half-up condition $\sqrt{m} \ge r + 0.5$ is equivalent in integer arithmetic to $m - r^2 \ge r + 1$. When true, the 8-digit integer is $r + 1$; otherwise $r$, formatted as `"DDD.DDDDD"`.
+     - *Rationale*: Avoids IEEE-754 floating-point precision loss (`n * 10^10` can reach $10^{16} > \text{Number.MAX\_SAFE\_INTEGER}$) and guarantees deterministic half-up rounding (e.g. `850772 -> 922.37303`).
+  2. **Square Roots Triangular Prefix-Digit Scoring (`k * (k + 1) / 2`, Stopping at First Mistake)**:
+     - Named constants `SQUARE_ROOT_STOP_AT_FIRST_MISTAKE = true` and `SQUARE_ROOT_POINTS_BY_CORRECT_DIGITS = [0, 1, 3, 6, 10, 15, 21, 28, 36]` document that the rule was inferred from published Memoriad championship results and a simulator screenshot where 2 correct leading digits awarded 3 points, 6 awarded 21 points, and all 8 awarded 36 points (up to 360 total).
+     - `activity_results` stores `correct` (number of fully correct 8-digit roots), `total` (`attempted`), `settings.score` (sum of triangular points), and `settings.digits_total` (sum of $k$).
+  3. **Pure Step-Box State Machine (`js/stepBoxes.js`)**:
+     - Multiplications uses a 16-state cyclic state $s \in [0..15]$ (`n = 8`): for $0 \le s \le 8$, the rightmost $s$ boxes are checked; for $9 \le s \le 15$, the leftmost $16 - s$ boxes are checked; clicking a box acts as `*` only if it is the next box in the sequence (`7 - s` while growing, `15 - s` while shrinking); `/` is a no-op.
+     - Square Roots uses a bounded state $c \in [0..6]$ (`n = 6`): `*` (or clicking box $c$) checks the next box from the left; `/` (or clicking box $c - 1$) unchecks the rightmost checked box, with no wrap-around.
+  4. **Stage Exit Modal Visibility Fix**:
+     - `openStageModal` in `js/memoriadPlay.js` applies `.modal-backdrop.open.active` so the shared CSS rule `.modal-backdrop.open` (`opacity: 1; visibility: visible; pointer-events: auto`) displays the discard confirmation dialog immediately when **Exit** is clicked during Concentration or Stage.

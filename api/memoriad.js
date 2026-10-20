@@ -18,11 +18,13 @@
 import { getDrillServerClient, verifyStudentCaller } from './_supabaseAdmin.js';
 import {
   MODULES,
-  MEMORIAD_SESSION_EXPIRY_SECONDS,
   validateMemoriadSettings,
   generateMemoriadSet,
   buildMemoriadStartResponse,
   evaluateMemoriadSubmission,
+  computeMemoriadExpiresAtMs,
+  computeMemoriadUsedSeconds,
+  validateFinishedBy,
 } from './_memoriad.js';
 
 const RATE_LIMIT_PER_HOUR = 60;
@@ -103,7 +105,13 @@ async function handleStart(body, student, adminClient, res) {
   const generated = generateMemoriadSet(moduleKey, validation.settings);
   const nowMs = Date.now();
   const startedAtIso = new Date(nowMs).toISOString();
-  const expiresAtIso = new Date(nowMs + MEMORIAD_SESSION_EXPIRY_SECONDS * 1000).toISOString();
+  const expiresAtIso = new Date(
+    computeMemoriadExpiresAtMs(
+      nowMs,
+      generated.settings.concentration_seconds,
+      generated.module
+    )
+  ).toISOString();
 
   const sessionSettings = {
     module: generated.module,
@@ -154,6 +162,11 @@ async function handleSubmit(body, student, adminClient, res) {
   if (!Array.isArray(rawAnswers)) {
     return res.status(400).json({ error: 'Answers must be provided as an array.' });
   }
+  const finishedCheck = validateFinishedBy(body.finished_by);
+  if (!finishedCheck.ok) {
+    return res.status(400).json({ error: finishedCheck.error });
+  }
+  const finishedBy = finishedCheck.finishedBy;
 
   // Load the student's own session
   const { data: session, error: sessionErr } = await adminClient
@@ -188,19 +201,28 @@ async function handleSubmit(body, student, adminClient, res) {
       .eq('status', 'open');
 
     return res.status(410).json({
-      error: 'This practice session expired (sessions stay open for 3 hours). Please start a new try.',
+      error: 'Time is up — this practice session has expired. Please start a new try.',
     });
   }
 
-  const startedAtMs = new Date(session.started_at).getTime();
-  const concentrationSeconds = Number(session.settings?.concentration_seconds) || 0;
-  const rawElapsedSeconds = Number.isFinite(startedAtMs) ? (nowMs - startedAtMs) / 1000 : 0;
-  const usedSecondsRaw = Math.max(0, rawElapsedSeconds - concentrationSeconds);
-  const usedSeconds = Number(usedSecondsRaw.toFixed(2));
-
   const moduleKey =
     session.settings?.module ||
-    (session.activity_name === MODULES.calendar.title ? 'calendar' : 'additions');
+    (session.activity_name === MODULES.calendar.title
+      ? 'calendar'
+      : session.activity_name === MODULES.multiplications.title
+        ? 'multiplications'
+        : session.activity_name === MODULES.square_roots.title
+          ? 'square_roots'
+          : 'additions');
+
+  const startedAtMs = new Date(session.started_at).getTime();
+  const concentrationSeconds = Number(session.settings?.concentration_seconds) || 0;
+  const usedSeconds = computeMemoriadUsedSeconds(
+    startedAtMs,
+    nowMs,
+    concentrationSeconds,
+    moduleKey
+  );
 
   const evalResult = evaluateMemoriadSubmission(
     {
@@ -243,6 +265,7 @@ async function handleSubmit(body, student, adminClient, res) {
     return res.status(200).json({
       ...evaluation,
       used_seconds: usedSeconds,
+      finished_by: finishedBy,
       saved: false,
       result_id: null,
       message: 'No questions were attempted, so no score was saved.',
@@ -254,12 +277,17 @@ async function handleSubmit(body, student, adminClient, res) {
     questions: evaluation.questions_total,
     attempted: evaluation.attempted,
     correct: evaluation.correct,
+    wrong: evaluation.wrong,
     score: evaluation.score,
     used_seconds: usedSeconds,
     concentration_seconds: concentrationSeconds,
+    finished_by: finishedBy,
   };
   if (moduleKey === 'calendar') {
     resultSettings.dates = Number(session.settings?.dates) || evaluation.questions_total;
+  }
+  if (moduleKey === 'square_roots') {
+    resultSettings.digits_total = Number(evaluation.digits_total) || 0;
   }
 
   const { data: resultRow, error: resultErr } = await adminClient
@@ -296,6 +324,7 @@ async function handleSubmit(body, student, adminClient, res) {
   return res.status(200).json({
     ...evaluation,
     used_seconds: usedSeconds,
+    finished_by: finishedBy,
     saved: true,
     result_id: resultRow.id,
     activity_row: {

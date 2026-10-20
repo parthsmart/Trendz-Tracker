@@ -977,3 +977,58 @@ This document contains step-by-step test scenarios to verify security boundaries
      - Click **FINISH** and verify the Results screen, then check `/pages/student.html` and `/pages/student-detail.html` (as Admin) to confirm the **Memoriad Practice** card updates and Admin **Daily To-Do** (`Setup ▾ → Daily To-Do`) includes the `Memoriad` section option.
   5. Resize the browser window narrower than `1000 px` on `/pages/memoriad-play.html`: verify the friendly message *"Use a laptop or desktop with a keyboard for this practice"* is shown with a link back to `/pages/memoriad.html`.
 
+---
+
+## Phase 9b-1b Test Cases (Time Limits, Official Calendar Two-Mistake Scoring Rule & Up-to-4-Column Group Typing)
+
+### Test Case 52: Automated Unit Test Suite for Phase 9b-1b (`tests/memoriadServer.test.js`, `tests/answerSlots.test.js`, `tests/columnHighlight.test.js`, `tests/memoriadStats.test.js`)
+- **Action**:
+  1. Run `node --test tests/*.test.js` in the terminal.
+- **Expected Result**:
+  - All unit tests across the repository pass (`0 fail`), verifying:
+    - **Config Parity & Time Limits (`tests/memoriadServer.test.js`)**: `api/_memoriad.js` and `js/memoriadConfig.js` match (`calendar: 60`, `additions: 600`, `multiplications: 900`, `square_roots: 900`, `MEMORIAD_EXPIRY_GRACE_SECONDS: 30`); `computeMemoriadExpiresAtMs` computes `start + concentration_seconds + limit + 30s`; `computeMemoriadUsedSeconds` caps at `limit` and never drops below `0`; `validateFinishedBy` accepts only `'finish'` or `'time_up'`.
+    - **Official Calendar Scoring Rule (`tests/memoriadServer.test.js`)**:
+      - `[C, W, C, C]` $\to$ `score: 3, correct: 3, wrong: 1`
+      - `[C, W, C, W, C, C]` $\to$ `score: 2, correct: 4, wrong: 2`
+      - `[W, W, C]` $\to$ `score: 0, correct: 1, wrong: 2`
+      - Skipped questions (`null` or `''`) in between change nothing.
+    - **Additions Group Typing (`tests/answerSlots.test.js`)**:
+      - `g = 2` on `11` slots: typing `1, 2, 3, 4` fills slots `7..10` with `3, 4, 1, 2` (`"3412"`); typing 5 pairs (10 digits) reaches slot `1` and the 11th digit lands in slot `0`.
+      - `g = 3` and `g = 4` group typing including leftmost partial groups (`[0, 1]` for `g = 3`, `[0, 1, 2]` for `g = 4`).
+      - `Backspace` in the middle of a group removes the most recently typed digit via `history` and moves the cursor back to its slot.
+      - Arrow keys (`Left` / `Right`) move the cursor one slot freely and typing overwrites and continues by the same group rules; `Enter` (`compact`) closes blank gaps.
+    - **Additions Column Highlight (`tests/columnHighlight.test.js`)**:
+      - `g = 1, 2, 3, 4` on `10` columns in both `rtl` and `ltr` modes, including shorter leftmost blocks (`[0]` for `g = 3`, `[0, 1]` for `g = 4`) and keeping the last block highlighted after all columns are completed.
+
+### Test Case 53: End-to-End Time Limits, Last-10s Notice, Calendar Two-Mistake Scoring & 1–4 Column Group Typing (`/pages/memoriad-play.html`, `/pages/memoriad.html`)
+- **Action**:
+  1. Open **Mental Calendar Dates** (`/pages/memoriad-play.html?module=calendar`) and verify the Settings card displays fixed information **`Time limit: 1 minute`** alongside Concentration countdown (`0–120s`).
+  2. Set **Show timer during stage** to `No (hide stopwatch display)` and **Concentration countdown** to `0`, then click **Start Competition Stage →**.
+  3. Verify the top bar shows **`Limit 01:00`**. Enter a pattern of answers with 2 wrong answers followed by additional correct answers (e.g. Q1 right, Q2 wrong, Q3 right, Q4 wrong, Q5 right) and wait until the last 10 seconds (`00:50` elapsed):
+     - Confirm the high-contrast **`⚠ TIME ENDING: Xs left`** countdown notice appears in the last 10 seconds **even though the stopwatch display is hidden**.
+     - Let the 60-second limit expire: verify inputs lock immediately and the session submits automatically with `finished_by = 'time_up'`.
+  4. On the Results screen, verify **`SCORE`** and **`# of Correct Answers`** are shown in separate metric cards (e.g. `SCORE = 2` and `# of Correct Answers = 3`), and check `/pages/memoriad.html` and the Student Home **Memoriad Practice** card to confirm `Score` is displayed as the primary number for Calendar.
+  5. Open **Mental Additions** (`/pages/memoriad-play.html?module=additions`):
+     - Verify the Settings card displays fixed information **`Time limit: 10 minutes`** and **Number of columns to be highlighted** offers `1`, `2`, `3`, and `4`.
+     - Select `2 columns` (or `3` / `4` columns) with `Right to left` typing and start the stage: verify the top bar shows **`Limit 10:00`**, the rightmost `g` columns are highlighted, the cursor starts at slot `11 - g`, typing `1, 2, 3, 4` with `g = 2` produces `3412` in slots `7..10`, and pressing `Backspace` removes the most recently typed digit and returns the cursor to that slot.
+
+
+---
+
+### Phase 9b-2 — Mental Multiplications, Mental Square Roots, Step Boxes & Exit Button Fix
+
+57. **Automated Unit Tests for Multiplications, Square Roots & Step Boxes (`node --test`)**
+    - **Action**: Run `node --test tests/memoriadServer.test.js tests/stepBoxes.test.js tests/memoriadStats.test.js` (or `node --test tests/*.test.js`).
+    - **Expected**:
+      - `tests/memoriadServer.test.js` passes all tests for:
+        - `multiplications`: 10 pairs of 8-digit numbers, exact `BigInt` product (`39951857 * 81044514 = 3237878833962498`), leading zero stripping, trailing zero significance, and `attempted * 5s` plausibility.
+        - `square_roots`: seeded generator never produces perfect squares and keeps radicands in `100000..999999`; exact half-up rounding matches known values (`258524 -> 508.45255`, `850772 -> 922.37303`, `115456 -> 339.78817`, `457832 -> 676.63284`, `453077 -> 673.10995`); triangular prefix-digit points (`673.10995` with `675` -> `k=2, 3 pts`; 6 right + 2 wrong -> `21 pts`; all 8 right -> `36 pts`; wrong 3rd digit with later digits right -> `k=2, 3 pts`; blank -> `0 pts`).
+      - `tests/stepBoxes.test.js` passes all tests for Multiplications (`n = 8`, presses `1..16` checking `1..8` from the right then leaving `7..1` on the left then `0`, repeating, `/` ignored, sequential click guard) and Square Roots (`n = 6`, `*` checks left-to-right up to 6, `/` unchecks right-to-left down to 0, no wrap-around).
+      - `tests/memoriadStats.test.js` verifies that Square Roots ranks by highest `score` then shorter time, and Multiplications ranks by highest `correct` then shorter time.
+
+58. **Interactive Stage Verification for Exit Button, Multiplications & Square Roots**
+    - **Action**:
+      - Open `/pages/memoriad.html` and verify all 4 competition modules (**Mental Calendar Dates**, **Mental Additions**, **Mental Multiplications**, **Mental Square Roots**) are active.
+      - Start any module, click **Exit** during Concentration or Stage, and confirm the **"Discard This Practice Try?"** dialog opens immediately and returns to Settings when confirmed.
+      - Open `/pages/memoriad-play.html?module=multiplications`, verify `"Time limit: 15 minutes"` and the disabled `"Side by side (coming later)"` option, start the stage, press `*` 1 to 16 times (or click the dashed step box in sequence) to verify the 8 step boxes and operand digit columns highlight from right to left and then uncheck from right to left, type into the 16 answer slots, and click **FINISH**.
+      - Open `/pages/memoriad-play.html?module=square_roots`, start the stage, press `*` and `/` to check/uncheck the 6 step boxes from left to right, type digits into the `___ . _____` answer slots, and click **FINISH** to verify the Results table displays **Correct Digits (`k / 8`)** and **Points** per question.
