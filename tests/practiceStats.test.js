@@ -13,6 +13,7 @@ import { describe, it } from 'node:test';
 import {
   bestByCategoryAndCount,
   bestResult,
+  getBasicsQuestionCounts,
   isBasicsOnlineAvailable,
   setsThisWeek,
 } from '../js/practiceStats.js';
@@ -142,7 +143,7 @@ describe('Phase 9a — js/practiceStats.js (Personal Bests & Weekly Sets in IST)
     );
   });
 
-  it('handles empty or null data gracefully', () => {
+  it('handles empty or null data gracefully and returns per-category question slabs', () => {
     assert.equal(bestResult([], 'cat-1d4r', 10), null);
     assert.equal(bestResult(null, 'cat-1d4r', 10), null);
     assert.deepEqual(bestByCategoryAndCount([]), {});
@@ -150,5 +151,14 @@ describe('Phase 9a — js/practiceStats.js (Personal Bests & Weekly Sets in IST)
     assert.deepEqual(setsThisWeek([], '2026-10-20'), []);
     assert.deepEqual(setsThisWeek(null, '2026-10-20'), []);
     assert.equal(isBasicsOnlineAvailable(null), false);
+    assert.equal(isBasicsOnlineAvailable('2dby1d'), true);
+
+    assert.deepEqual(getBasicsQuestionCounts('1d4r'), [20, 50, 100, 200]);
+    assert.deepEqual(getBasicsQuestionCounts('2d2r'), [20, 50, 100, 200]);
+    assert.deepEqual(getBasicsQuestionCounts('1dx1d'), [20, 50, 100, 200]);
+    assert.deepEqual(getBasicsQuestionCounts('2dx1d'), [20, 50, 100, 200]);
+    assert.deepEqual(getBasicsQuestionCounts('2dby1d'), [20, 50, 100, 200]);
+    assert.deepEqual(getBasicsQuestionCounts('2d4r'), [10, 20, 30, 50]);
+    assert.deepEqual(getBasicsQuestionCounts('3d/1d'), [10, 50, 100]);
   });
 });

@@ -110,7 +110,7 @@
             </div>
 
             <div class="card-body" style="display: flex; flex-direction: column; gap: var(--space-5);">
-              <!-- Question Count Selector (5 / 10 / 20, default 10) -->
+              <!-- Question Count Selector (per-category slabs: 20/50/100/200, 10/20/30/50 for 2d4r, 10/50/100 for 3d/1d) -->
               <div>
                 <label class="form-label" style="margin-bottom: var(--space-2); display: block;">
                   Number of Questions
@@ -123,24 +123,31 @@
                 >
                   <button
                     type="button"
-                    class="btn btn-outline btn-qcount"
-                    data-count="5"
-                  >
-                    5 Questions
-                  </button>
-                  <button
-                    type="button"
                     class="btn btn-primary btn-qcount"
-                    data-count="10"
-                  >
-                    10 Questions
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn-outline btn-qcount"
                     data-count="20"
                   >
                     20 Questions
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-outline btn-qcount"
+                    data-count="50"
+                  >
+                    50 Questions
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-outline btn-qcount"
+                    data-count="100"
+                  >
+                    100 Questions
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-outline btn-qcount"
+                    data-count="200"
+                  >
+                    200 Questions
                   </button>
                 </div>
               </div>
@@ -174,7 +181,7 @@
                   <div
                     style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 4px;"
                   >
-                    🏆 Personal Best (<span id="setup-best-qcount-label" class="num">10</span> Qs)
+                    🏆 Personal Best (<span id="setup-best-qcount-label" class="num">20</span> Qs)
                   </div>
                   <div
                     id="setup-best-text"

@@ -22,8 +22,9 @@ import { createDrillPlayer } from './drillPlayer.js';
 import { requireAuth } from './guard.js';
 import {
   BASICS_DEFAULT_QUESTIONS,
-  BASICS_QUESTION_COUNTS,
   bestResult,
+  getBasicsDefaultQuestions,
+  getBasicsQuestionCounts,
   isBasicsOnlineAvailable,
 } from './practiceStats.js';
 import { getScoreFeedback } from './scoreColors.js';
@@ -173,6 +174,13 @@ async function loadSetupData(categoryIdParam) {
     titleEl.textContent = selectedCategory.name;
   }
 
+  // Render the exact question slabs for this category (e.g. 20/50/100/200, 10/20/30/50 for 2d4r, 10/50/100 for 3d/1d)
+  const categorySlabs = getBasicsQuestionCounts(selectedCategory);
+  if (!categorySlabs.includes(selectedQuestionCount)) {
+    selectedQuestionCount = getBasicsDefaultQuestions(selectedCategory);
+  }
+  renderQuestionCountButtons(categorySlabs);
+
   // Resolve student's target (level-specific rule beats default rule)
   const studentLevel = String(currentProfile?.level || '').trim().toLowerCase();
   let rule = null;
@@ -201,6 +209,40 @@ async function loadSetupData(categoryIdParam) {
 
   await refreshCategoryResults();
   renderSetupSummary();
+}
+
+/**
+ * Renders the question count buttons for the selected category's slabs.
+ */
+function renderQuestionCountButtons(slabs) {
+  const groupEl = document.getElementById('question-count-group');
+  if (!groupEl || !Array.isArray(slabs) || slabs.length === 0) return;
+
+  groupEl.innerHTML = slabs
+    .map((count) => {
+      const isSelected = count === selectedQuestionCount;
+      return `
+        <button
+          type="button"
+          class="btn ${isSelected ? 'btn-primary' : 'btn-outline'} btn-qcount"
+          data-count="${count}"
+          aria-pressed="${isSelected ? 'true' : 'false'}"
+        >
+          ${count} Questions
+        </button>
+      `;
+    })
+    .join('');
+
+  groupEl.querySelectorAll('.btn-qcount').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const count = Number(btn.getAttribute('data-count'));
+      if (slabs.includes(count)) {
+        selectedQuestionCount = count;
+        renderSetupSummary();
+      }
+    });
+  });
 }
 
 /**
@@ -668,17 +710,6 @@ async function initBasicsPracticePage() {
   });
 
   renderDemoBannerIfNeeded();
-
-  // Question count selector buttons (5 / 10 / 20)
-  document.querySelectorAll('.btn-qcount').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const count = Number(btn.getAttribute('data-count'));
-      if (BASICS_QUESTION_COUNTS.includes(count)) {
-        selectedQuestionCount = count;
-        renderSetupSummary();
-      }
-    });
-  });
 
   // Start Practice button
   document

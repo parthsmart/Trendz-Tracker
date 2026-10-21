@@ -26,10 +26,12 @@ import {
   BASICS_QUESTION_COUNTS,
   BASICS_DEFAULT_QUESTIONS,
   BASICS_SESSION_EXPIRY_SECONDS,
-   BASICS_MIN_SECONDS_PER_QUESTION,
+  BASICS_MIN_SECONDS_PER_QUESTION,
   buildDrillStartResponse,
   gradeDrillSubmission,
   parseBasicsCategoryName,
+  getBasicsQuestionCounts,
+  getBasicsDefaultQuestions,
   generateBasicsSet,
   stripBasicsExpected,
   checkSubmission,
@@ -135,17 +137,6 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
     return res.status(400).json({ error: 'Please select a basics category.' });
   }
 
-  const requestedQuestions =
-    body.questions === undefined || body.questions === null
-      ? BASICS_DEFAULT_QUESTIONS
-      : Number(body.questions);
-
-  if (!BASICS_QUESTION_COUNTS.includes(requestedQuestions)) {
-    return res.status(400).json({
-      error: `Number of questions must be ${BASICS_QUESTION_COUNTS.join(', ')}.`,
-    });
-  }
-
   // Validate category: section === 'basics', active === true, supported name
   const { data: category, error: catErr } = await adminSupabase
     .from('categories')
@@ -167,6 +158,18 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
   if (!spec) {
     return res.status(400).json({
       error: 'This category is not available online and uses typed entry only.',
+    });
+  }
+
+  const allowedCounts = getBasicsQuestionCounts(category.name);
+  const requestedQuestions =
+    body.questions === undefined || body.questions === null
+      ? getBasicsDefaultQuestions(category.name)
+      : Number(body.questions);
+
+  if (!allowedCounts.includes(requestedQuestions)) {
+    return res.status(400).json({
+      error: `Number of questions for ${category.name} must be ${allowedCounts.join(', ')}.`,
     });
   }
 

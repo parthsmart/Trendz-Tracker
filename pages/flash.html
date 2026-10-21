@@ -56,7 +56,7 @@
           <div id="config-banner-placeholder"></div>
 
           <!-- Page Heading -->
-          <div class="section-header-row" style="margin-bottom: var(--space-5);">
+          <div id="flash-page-header" class="section-header-row" style="margin-bottom: var(--space-5);">
             <div>
               <h1>Flash Anzan Trainer</h1>
               <p style="font-size: var(--text-sm); color: var(--text-muted);">
@@ -344,17 +344,14 @@
             style="display: none; margin-bottom: var(--space-8);"
             aria-labelledby="play-settings-summary"
           >
-            <div class="card-header">
-              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3);">
-                <div>
-                  <span
-                    class="num"
-                    id="play-settings-summary"
-                    style="font-size: var(--text-sm); font-weight: 700; color: var(--text-main);"
-                  >
-                    1 digit - 10 numbers - 1.0 s - add
-                  </span>
-                </div>
+            <div style="padding: var(--space-3) var(--space-5) 0;">
+              <div style="display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: var(--space-3);">
+                <span
+                  class="num sr-only"
+                  id="play-settings-summary"
+                >
+                  1 digit - 10 numbers - 1.0 s - add
+                </span>
 
                 <button
                   type="button"
@@ -379,27 +376,22 @@
                   <button type="button" id="btn-stop-confirm" class="btn btn-danger btn-sm">Yes, abandon try</button>
                 </div>
               </div>
-
-              <!-- Thin distraction-free progress bar showing how far through the numbers it is -->
-              <div class="flash-progress-track" style="margin-top: var(--space-3); height: 6px;" aria-hidden="true">
-                <div class="flash-progress-fill" id="play-progress-fill" style="width: 0%;"></div>
-              </div>
             </div>
 
-            <div class="card-body">
+            <div class="card-body" style="padding-top: 0;">
               <!-- Sub-view A: Countdown & Number Display Stage -->
-              <div class="flash-stage" id="flash-stage-box" aria-live="off">
+              <div class="flash-stage flash-stage-box" id="flash-stage-box" aria-live="off">
                 <div class="flash-stage-sub" id="flash-stage-caption">Get Ready</div>
                 <div class="flash-number-display num" id="flash-number-display">3</div>
               </div>
 
               <!-- Sub-view B: Answer Input Panel (shown after last number finishes flashing) -->
-              <div id="flash-answer-panel" style="display: none; padding: var(--space-4) 0;">
-                <div style="text-align: center; margin-bottom: var(--space-4);">
-                  <h3 style="font-size: var(--text-lg); margin-bottom: 4px;">
+              <div id="flash-answer-panel" class="flash-answer-panel" style="display: none;">
+                <div style="text-align: center; margin-bottom: var(--space-5);">
+                  <h3 style="font-size: var(--text-2xl); font-weight: 800; margin-bottom: 6px;">
                     What is the final total?
                   </h3>
-                  <p style="font-size: var(--text-xs); color: var(--text-muted);">
+                  <p style="font-size: var(--text-sm); color: var(--text-muted);">
                     Type your answer in digits only (up to 10 digits) and press Enter, or click &ldquo;I don&rsquo;t know&rdquo;.
                   </p>
                 </div>
@@ -583,7 +575,7 @@
           <!-- ================================================================
                RECENT HISTORY SECTION (Last 20 Tries)
                ================================================================ -->
-          <section class="card" aria-labelledby="history-card-title">
+          <section id="flash-history-section" class="card" aria-labelledby="history-card-title">
             <div class="card-header">
               <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2);">
                 <div>

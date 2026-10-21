@@ -25,6 +25,8 @@ import {
   buildDrillStartResponse,
   gradeDrillSubmission,
   parseBasicsCategoryName,
+  getBasicsQuestionCounts,
+  getBasicsDefaultQuestions,
   isBasicsCategorySupported,
   generateBasicsSet,
   stripBasicsExpected,
@@ -443,7 +445,7 @@ describe('Phase 8 — 5. Start Response Security & Submission Grading', () => {
 });
 
 describe('Phase 9a — Online Basics Category Name Recognition', () => {
-  it('recognises valid <N>d<R>r, <A>dx<B>d (with x, X, *, ×), and <A>d/<B>d (with /, ÷) names', () => {
+  it('recognises valid <N>d<R>r, <A>dx<B>d (with x, X, *, ×), and <A>d/<B>d (with /, ÷, by) names and returns exact question slabs', () => {
     const validNames = [
       '1d4r',
       '2D2R',
@@ -452,6 +454,7 @@ describe('Phase 9a — Online Basics Category Name Recognition', () => {
       '2dX1d',
       '2d*1d',
       '2d×1d',
+      '2dby1d',
       '3d/1d',
       '3d÷1d',
       '2d / 1d',
@@ -462,6 +465,18 @@ describe('Phase 9a — Online Basics Category Name Recognition', () => {
       assert.ok(parsed, `Expected "${name}" to be recognised`);
       assert.equal(isBasicsCategorySupported(name), true);
     }
+
+    assert.deepEqual(getBasicsQuestionCounts('1d4r'), [20, 50, 100, 200]);
+    assert.deepEqual(getBasicsQuestionCounts('2d2r'), [20, 50, 100, 200]);
+    assert.deepEqual(getBasicsQuestionCounts('1dx1d'), [20, 50, 100, 200]);
+    assert.deepEqual(getBasicsQuestionCounts('2dx1d'), [20, 50, 100, 200]);
+    assert.deepEqual(getBasicsQuestionCounts('2dby1d'), [20, 50, 100, 200]);
+    assert.deepEqual(getBasicsQuestionCounts('2d/1d'), [20, 50, 100, 200]);
+    assert.deepEqual(getBasicsQuestionCounts('2d4r'), [10, 20, 30, 50]);
+    assert.deepEqual(getBasicsQuestionCounts('3d/1d'), [10, 50, 100]);
+    assert.equal(getBasicsDefaultQuestions('1d4r'), 20);
+    assert.equal(getBasicsDefaultQuestions('2d4r'), 10);
+    assert.equal(getBasicsDefaultQuestions('3d/1d'), 10);
   });
 
   it('rejects unsupported names ("weird", "0d3r", "9d9r", "1d/2d") and inactive categories', () => {

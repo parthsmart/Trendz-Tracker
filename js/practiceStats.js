@@ -14,8 +14,19 @@
 
 import { getISTDateString } from './stats.js';
 
-export const BASICS_QUESTION_COUNTS = [5, 10, 20];
-export const BASICS_DEFAULT_QUESTIONS = 10;
+export const BASICS_QUESTION_COUNTS = [20, 50, 100, 200];
+export const BASICS_DEFAULT_QUESTIONS = 20;
+export const BASICS_CATEGORY_QUESTION_SLABS = {
+  '1d4r': [20, 50, 100, 200],
+  '2d2r': [20, 50, 100, 200],
+  '1dx1d': [20, 50, 100, 200],
+  '2dx1d': [20, 50, 100, 200],
+  '2d/1d': [20, 50, 100, 200],
+  '2dby1d': [20, 50, 100, 200],
+  '2d4r': [10, 20, 30, 50],
+  '3d/1d': [10, 50, 100],
+  '3dby1d': [10, 50, 100],
+};
 export const BASICS_MIN_DIGITS = 1;
 export const BASICS_MAX_DIGITS = 4;
 export const BASICS_MIN_ROWS = 2;
@@ -26,7 +37,7 @@ export const BASICS_MAX_ROWS = 10;
  * - Case-insensitive, spaces ignored.
  * - "<N>d<R>r": N in 1..4, R in 2..10.
  * - "<A>dx<B>d": multiplication sign x, X, ×, or *; A, B in 1..4.
- * - "<A>d/<B>d": division sign / or ÷; A, B in 1..4 with valid quotients (A >= B).
+ * - "<A>d/<B>d" or "<A>dby<B>d": division sign /, ÷, or "by"; A, B in 1..4 with valid quotients (A >= B).
  *
  * @param {unknown} rawName
  * @returns {{ type: 'add_sub'|'mul'|'div', digits?: number, rows?: number, digitsA?: number, digitsB?: number } | null}
@@ -66,7 +77,7 @@ export function parseBasicsCategorySpec(rawName) {
     return null;
   }
 
-  const divMatch = cleaned.match(/^(\d+)d(?:\/|\u00f7|\u2215)(\d+)d$/);
+  const divMatch = cleaned.match(/^(\d+)d(?:\/|\u00f7|\u2215|by)(\d+)d$/);
   if (divMatch) {
     const digitsA = Number(divMatch[1]);
     const digitsB = Number(divMatch[2]);
@@ -83,6 +94,49 @@ export function parseBasicsCategorySpec(rawName) {
   }
 
   return null;
+}
+
+/**
+ * Returns the allowed question count slabs for a given Basics category:
+ * - 1d4r, 2d2r, 1dx1d, 2dx1d, 2dby1d (2d/1d): [20, 50, 100, 200]
+ * - 2d4r: [10, 20, 30, 50]
+ * - 3d/1d (3dby1d): [10, 50, 100]
+ *
+ * @param {string | { name?: string }} categoryOrName
+ * @returns {number[]}
+ */
+export function getBasicsQuestionCounts(categoryOrName) {
+  const rawName =
+    typeof categoryOrName === 'object' && categoryOrName !== null
+      ? categoryOrName.name
+      : categoryOrName;
+  const spec = parseBasicsCategorySpec(rawName);
+  if (!spec) return [...BASICS_QUESTION_COUNTS];
+
+  let canonicalKey = '';
+  if (spec.type === 'add_sub') {
+    canonicalKey = `${spec.digits}d${spec.rows}r`;
+  } else if (spec.type === 'mul') {
+    canonicalKey = `${spec.digitsA}dx${spec.digitsB}d`;
+  } else if (spec.type === 'div') {
+    canonicalKey = `${spec.digitsA}d/${spec.digitsB}d`;
+  }
+
+  if (BASICS_CATEGORY_QUESTION_SLABS[canonicalKey]) {
+    return [...BASICS_CATEGORY_QUESTION_SLABS[canonicalKey]];
+  }
+  return [...BASICS_QUESTION_COUNTS];
+}
+
+/**
+ * Returns the default question count for a given Basics category (the first slab).
+ *
+ * @param {string | { name?: string }} categoryOrName
+ * @returns {number}
+ */
+export function getBasicsDefaultQuestions(categoryOrName) {
+  const slabs = getBasicsQuestionCounts(categoryOrName);
+  return slabs[0] || BASICS_DEFAULT_QUESTIONS;
 }
 
 /**

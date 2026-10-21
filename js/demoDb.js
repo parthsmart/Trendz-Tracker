@@ -45,7 +45,15 @@ export const OLD_SIMULATOR_CATEGORIES = [
   'Cube root', 'Next cube', 'Calendar', 'Time Elapsed', 'Sum of Squares', 'Surprise Task'
 ];
 
-export const DEFAULT_BASICS_CATEGORIES = ['1d4r', '2d2r', '2dx1d', '3d/1d'];
+export const DEFAULT_BASICS_CATEGORIES = [
+  '1d4r',
+  '2d2r',
+  '2d4r',
+  '1dx1d',
+  '2dx1d',
+  '2dby1d',
+  '3d/1d',
+];
 
 /**
  * Returns whether Demo Mode is currently active.
