@@ -570,3 +570,51 @@ Every meaningful technical and architectural decision made for **Trendz Tracker*
      - Square Roots uses a bounded state $c \in [0..6]$ (`n = 6`): `*` (or clicking box $c$) checks the next box from the left; `/` (or clicking box $c - 1$) unchecks the rightmost checked box, with no wrap-around.
   4. **Stage Exit Modal Visibility Fix**:
      - `openStageModal` in `js/memoriadPlay.js` applies `.modal-backdrop.open.active` so the shared CSS rule `.modal-backdrop.open` (`opacity: 1; visibility: visible; pointer-events: auto`) displays the discard confirmation dialog immediately when **Exit** is clicked during Concentration or Stage.
+
+---
+
+## ADR-038: Phase 10b — Admin Daily To-Do Fixes (`daily_tasks`, `showToast` Signature, Polymorphic Section Targets in `js/todoForm.js`, and Student Deep Links)
+- **Date**: 2026-10-25
+- **Status**: Accepted
+- **Context**:
+  - Testers reported three issues on the Admin Daily To-Do page (`/pages/todos.html`, `js/todos.js`):
+    1. **(a)** Saving a task showed only a toast saying `"error"`.
+    2. **(b)** Task rows displayed `"Unknown Category"` when a task had no specific category.
+    3. **(c)** The second modal dropdown (`"Category filter (optional)"`) showed only `"Any category in this section"` for every section except Basics and Round (`elements`, `memoriad`, `flash`).
+- **Root-Cause Diagnosis**:
+  1. **Wrong table name (`'todos'` instead of `'daily_tasks'`) + Reversed `showToast` arguments**:
+     - `js/todos.js` queried `supabase.from('todos')`, whereas the PostgreSQL table is `public.daily_tasks` (`code: "PGRST205"`, `message: "Could not find the table 'public.todos' in the schema cache"`, `hint: "Perhaps you meant the table 'public.daily_tasks'"`).
+     - In addition, `js/toast.js` defines `showToast(type, message, durationMs)`, but every call in `js/todos.js` passed `showToast(message, 'error')` backwards, causing `toast.js` to render `'error'` as the message text.
+  2. **Silent fallback to `DemoDB.getTodos()` on load**:
+     - When `supabase.from('todos').select('*')` failed on page load, `js/todos.js` caught the error and populated `allTodos = DemoDB.getTodos()`, whose fake demo IDs (`'cat-rnd-1'`, `'cat-bas-1'`) did not match real UUIDs in `allCategories`, causing `renderTodosTable()` to display `"Unknown Category"`.
+  3. **Category-only dropdown logic**:
+     - `updateCategoryDropdown` only filtered `categories` (which holds `'basics'` and `'round'` rows), ignoring `DRILL_CATALOG` for `'elements'` and the four Memoriad modules for `'memoriad'`.
+- **Decisions & Rationale**:
+  1. *Pure Form Normalization, Section Options, and Student Link Module (`js/todoForm.js`)*:
+     - `normalizeTaskInput(input, section)` trims all text values, converts `""` to `null` for `category_id`, `activity_key`, and `level` (satisfying `daily_tasks` `CHECK` constraints that reject `level = ''` or both target columns set), validates `title` (`1..80` chars) and `level` (`<= 30` chars), sets `category_id` only for `'basics'`/`'round'`, `activity_key` only for `'elements'`/`'memoriad'`, and neither for `'flash'`.
+     - `optionsForSection(section, categories, drillCatalog, memoriadModules)` returns strictly active section categories for `'basics'`/`'round'`, enabled drills from `js/drillCatalog.js` for `'elements'`, the 4 modules (`calendar`, `additions`, `multiplications`, `square_roots`) for `'memoriad'`, and `[]` for `'flash'`.
+     - `taskLink(task)` computes the exact student deep link (`/pages/basics.html?cat=<id>`, `/pages/basics.html`, `/pages/round-scores.html`, `/pages/element-drill.html?drill=<key>`, `/pages/elements.html`, `/pages/memoriad-play.html?module=<key>`, `/pages/memoriad.html`, `/pages/flash.html`).
+     - `formatTaskTarget(task, ...)` formats section-wide tasks as `"Any activity in <Section>"` so `"Unknown Category"` never appears.
+  2. *Authoritative `todo_for(p_student)` RPC Completion Status*:
+     - Task completion (`done`) continues to be evaluated exclusively by the PostgreSQL RPC `todo_for(p_student)` (never computed in browser JavaScript).
+
+---
+
+## ADR-039: Phase 10c — Admin Profile Editing & Audit Log (`js/profileForm.js`), English Month Calendar Date Formats, and Hiding Per-Category Time for Flat Rounds (`js/roundType.js`)
+
+- **Date**: 2026-10-25
+- **Status**: Accepted
+- **Context**:
+  - Phase 10c introduces three targeted enhancements:
+    1. Admin profile editing (`full_name`, `level`, `leaderboard_visible`, `active`) and a **Change history** drawer (`profile_audit`) on `/pages/students.html` and `/pages/student-detail.html`.
+    2. Two new English month-name date formats (`"DD Mon YYYY"` and `"DD-Mon-YYYY"`) for Memoriad Mental Calendar Dates (`js/memoriadFormat.js`, `js/memoriadPlay.js`).
+    3. Hiding per-category time inputs and cells for Flat Rounds (`js/roundType.js`, `/pages/round-scores.html`, `js/roundScores.js`, `js/stats.js`, `js/dashboardComponents.js`).
+- **Decisions & Rationale**:
+  1. **Why `student_code` (Student ID) and `role` Cannot Be Edited from the Site**:
+     - `student_code` is the student's login username and maps deterministically to the internal Supabase Auth synthetic email (`<student_code>@trendz.local`) created when the account is provisioned. Mutating `profiles.student_code` in-place from the frontend would desynchronize `profiles.student_code` from `auth.users.email`, breaking login and password resets.
+     - `role` (`'student'` vs `'admin'`) governs Row-Level Security (RLS) and administrative privileges across every table and serverless endpoint. Allowing role elevation from the client profile form would create a privilege-escalation risk; a PostgreSQL trigger on `profiles` therefore rejects any application-level change to `student_code` or `role`.
+     - Consequently, the Edit Profile modal displays `student_code` as read-only with the tooltip *"The student ID is the login name and cannot be changed here"*, omits `role` altogether, and sends a single `.update(changedFields)` containing only modified fields among `full_name`, `level`, `leaderboard_visible`, and `active`.
+  2. **Why Flat Rounds Hide Per-Category Time Without Deleting Existing Stored Times**:
+     - In a **Flat Round** (`isFlatRound(roundType) === true` when the trimmed, lower-cased round type starts with `"flat"`), students complete the entire competition paper under a single continuous stopwatch rather than timing each category separately. Only the round's overall **Total Time Taken** (`student_rounds.time_taken_seconds`) is meaningful.
+     - Showing per-category `Time (mm:ss)` inputs during a Flat Round adds visual clutter and slows down score entry, and showing `—` on every category cell in the dashboard and student-detail score tables wastes vertical space.
+     - However, if a student or teacher temporarily switches the Round Type dropdown between `"Category wise"` and `"Flat Round"`, or if a round already has historical category times stored in `results.time_seconds`, those stored values must never be erased or overwritten with `null`. Therefore, flat mode hides `.cell-time` via CSS on the entry screen, omits `time_seconds` from `results` insert/update payloads, and hides the per-category time line in score sheet cells while preserving the round's **Time Taken** summary row.

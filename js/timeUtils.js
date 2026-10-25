@@ -104,7 +104,9 @@ export function setupEnterKeyNavigation(root = document, inputSelector = 'input:
 
       e.preventDefault();
 
-      const inputs = Array.from(root.querySelectorAll(inputSelector));
+      const inputs = Array.from(root.querySelectorAll(inputSelector)).filter(
+        el => el.offsetParent !== null && !el.disabled
+      );
       const currentIndex = inputs.indexOf(target);
 
       if (currentIndex !== -1 && currentIndex < inputs.length - 1) {

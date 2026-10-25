@@ -16,6 +16,7 @@
 import { isSupabaseConfigured } from './config.js';
 import { isDemoMode } from './demoDb.js';
 import { requireAuth } from './guard.js';
+import { isFlatRound } from './roundType.js';
 import { getScoreFeedback } from './scoreColors.js';
 import { formatDisplayDateIST, getISTDateString } from './stats.js';
 import { DemoDB, getSupabase } from './supabaseClient.js';
@@ -267,6 +268,16 @@ async function loadStudentRounds(preselectRoundId = null) {
 }
 
 /**
+ * Toggles the per-category Time column visibility based on whether the selected round type is flat.
+ * Uses CSS class toggling so typed values in Correct, Total, and Time inputs are never lost.
+ */
+function applyRoundTypeVisibility(roundType) {
+  const tableCard = document.getElementById('round-scores-table-card');
+  if (!tableCard) return;
+  tableCard.classList.toggle('is-flat-round', isFlatRound(roundType));
+}
+
+/**
  * Renders the Round Type & Time Taken bar for the selected round
  */
 function renderSelectedRoundMeta() {
@@ -308,6 +319,8 @@ function renderSelectedRoundMeta() {
     round_type: roundTypeVal,
     time_taken: timeFormatted
   };
+
+  applyRoundTypeVisibility(roundTypeVal);
 
   // Students can update round_type and time_taken_seconds on their own rounds from the last 7 days
   const canEditMeta = currentProfile.role === 'admin' || isRoundWithinLast7Days(roundObj.round_date, todayIST);
@@ -532,7 +545,7 @@ function renderCategoryRows() {
         </div>
 
         <!-- Time Input (mm:ss or seconds) -->
-        <div>
+        <div class="cell-time">
           <input
             type="text"
             inputmode="numeric"
@@ -582,6 +595,9 @@ function renderCategoryRows() {
   });
 
   container.innerHTML = html;
+
+  const typeSelect = document.getElementById('input-round-type');
+  applyRoundTypeVisibility(typeSelect?.value || initialRoundMeta.round_type);
 
   attachLiveInputListeners();
   setupEnterKeyNavigation(container);
@@ -712,6 +728,7 @@ async function saveRoundScores() {
       newTimeTakenRaw !== initialRoundMeta.time_taken;
 
     // 2. Check score rows
+    const flatMode = isFlatRound(newRoundType);
     const rows = Array.from(document.querySelectorAll('#score-rows-container .score-entry-row'));
     const updates = [];
     const inserts = [];
@@ -728,22 +745,34 @@ async function saveRoundScores() {
       const timeRaw = row.querySelector('.input-time')?.value.trim() || '';
       const noteRaw = row.querySelector('.input-note')?.value.trim() || '';
 
-      const isDirty = (
-        correctRaw !== String(initial.correct ?? '') ||
-        totalRaw !== String(initial.total ?? '') ||
-        timeRaw !== String(initial.time ?? '') ||
-        noteRaw !== String(initial.note ?? '')
-      );
+      const isDirty = flatMode
+        ? (
+            correctRaw !== String(initial.correct ?? '') ||
+            totalRaw !== String(initial.total ?? '') ||
+            noteRaw !== String(initial.note ?? '')
+          )
+        : (
+            correctRaw !== String(initial.correct ?? '') ||
+            totalRaw !== String(initial.total ?? '') ||
+            timeRaw !== String(initial.time ?? '') ||
+            noteRaw !== String(initial.note ?? '')
+          );
 
       if (!isDirty) continue;
 
-      if (correctRaw === '' && totalRaw === '' && timeRaw === '' && noteRaw === '') {
-        continue;
+      if (flatMode) {
+        if (correctRaw === '' && totalRaw === '' && noteRaw === '') {
+          continue;
+        }
+      } else {
+        if (correctRaw === '' && totalRaw === '' && timeRaw === '' && noteRaw === '') {
+          continue;
+        }
       }
 
       const correctNum = correctRaw !== '' ? parseInt(correctRaw, 10) : null;
       const totalNum = totalRaw !== '' ? parseInt(totalRaw, 10) : null;
-      const timeSeconds = timeRaw !== '' ? parseTimeToSeconds(timeRaw) : null;
+      const timeSeconds = !flatMode && timeRaw !== '' ? parseTimeToSeconds(timeRaw) : null;
 
       if (correctRaw !== '' && (correctNum === null || isNaN(correctNum) || correctNum < 0)) {
         throw new Error('Correct answers must be a whole number.');
@@ -751,7 +780,7 @@ async function saveRoundScores() {
       if (totalRaw !== '' && (totalNum === null || isNaN(totalNum) || totalNum < 0)) {
         throw new Error('Total attempted must be a whole number.');
       }
-      if (timeRaw !== '' && timeSeconds === null) {
+      if (!flatMode && timeRaw !== '' && timeSeconds === null) {
         throw new Error('Category time must be formatted as mm:ss or seconds.');
       }
       if (correctNum !== null && totalNum !== null && correctNum > totalNum) {
@@ -767,10 +796,14 @@ async function saveRoundScores() {
         category_id: catId,
         correct: correctNum,
         total: totalNum,
-        time_seconds: timeSeconds,
         note: noteRaw || null
         // CRITICAL DATABASE RULE: Never send entry_date on updates or today's inserts!
       };
+
+      // For flat rounds, never send per-category time so existing stored times are never deleted or changed
+      if (!flatMode) {
+        payload.time_seconds = timeSeconds;
+      }
 
       if (initial.existingId) {
         updates.push({ id: initial.existingId, ...payload });
@@ -913,6 +946,11 @@ async function initRoundScores() {
       renderSelectedRoundMeta();
       await loadRoundResults();
     }
+  });
+
+  // Round type change updates the screen immediately without losing typed values
+  document.getElementById('input-round-type')?.addEventListener('change', (e) => {
+    applyRoundTypeVisibility(e.target.value);
   });
 
   // Start today's round button

@@ -300,13 +300,13 @@ function initDemoStorage() {
   // 4. Initial To-Dos
   if (!localStorage.getItem(DEMO_STORAGE_KEY_TODOS)) {
     const initialTodos = [
-      { id: 'todo-1', title: 'Round Drill: Addition (ADD)', section: 'round', category_id: 'cat-rnd-1', level: null, sort_order: 1, active: true },
-      { id: 'todo-2', title: 'Round Drill: Subtraction (SUB)', section: 'round', category_id: 'cat-rnd-2', level: null, sort_order: 2, active: true },
-      { id: 'todo-3', title: 'Round Drill: Multiplication (MULT)', section: 'round', category_id: 'cat-rnd-4', level: null, sort_order: 3, active: true },
-      { id: 'todo-4', title: 'Round Drill: Division (DIV)', section: 'round', category_id: 'cat-rnd-5', level: null, sort_order: 4, active: true },
-      { id: 'todo-5', title: 'Mental Basics: 1-digit 4-rows (1d4r)', section: 'basics', category_id: 'cat-bas-1', level: null, sort_order: 5, active: true },
-      { id: 'todo-6', title: 'Mental Basics: 2-digit 2-rows (2d2r)', section: 'basics', category_id: 'cat-bas-2', level: null, sort_order: 6, active: true },
-      { id: 'todo-7', title: 'Any Round Competition Task', section: 'round', category_id: null, level: null, sort_order: 7, active: true }
+      { id: 'todo-1', title: 'Round Drill: Addition (ADD)', section: 'round', category_id: 'cat-rnd-1', activity_key: null, level: null, sort_order: 1, active: true },
+      { id: 'todo-2', title: 'Round Drill: Subtraction (SUB)', section: 'round', category_id: 'cat-rnd-2', activity_key: null, level: null, sort_order: 2, active: true },
+      { id: 'todo-3', title: 'Round Drill: Multiplication (MULT)', section: 'round', category_id: 'cat-rnd-4', activity_key: null, level: null, sort_order: 3, active: true },
+      { id: 'todo-4', title: 'Round Drill: Division (DIV)', section: 'round', category_id: 'cat-rnd-5', activity_key: null, level: null, sort_order: 4, active: true },
+      { id: 'todo-5', title: 'Mental Basics: 1-digit 4-rows (1d4r)', section: 'basics', category_id: 'cat-bas-1', activity_key: null, level: null, sort_order: 5, active: true },
+      { id: 'todo-6', title: 'Mental Basics: 2-digit 2-rows (2d2r)', section: 'basics', category_id: 'cat-bas-2', activity_key: null, level: null, sort_order: 6, active: true },
+      { id: 'todo-7', title: 'Any Round Competition Task', section: 'round', category_id: null, activity_key: null, level: null, sort_order: 7, active: true }
     ];
     localStorage.setItem(DEMO_STORAGE_KEY_TODOS, JSON.stringify(initialTodos));
   }
@@ -798,6 +798,55 @@ export const DemoDB = {
     if (!student) throw new Error('Student not found');
     return true;
   },
+  updateStudentProfile(studentId, changedFields = {}, adminId = 'usr-admin-1') {
+    initDemoStorage();
+    if ('student_code' in changedFields || 'role' in changedFields) {
+      throw new Error('student_code and role cannot be changed from the application.');
+    }
+    const students = this.getStudents();
+    const index = students.findIndex(s => s.id === studentId || s.student_code === studentId);
+    if (index === -1) throw new Error('Student not found.');
+
+    const current = students[index];
+    const oldValues = {};
+    const newValues = {};
+    const allowedKeys = ['full_name', 'level', 'active', 'leaderboard_visible'];
+
+    for (const key of allowedKeys) {
+      if (Object.prototype.hasOwnProperty.call(changedFields, key)) {
+        oldValues[key] = current[key] ?? null;
+        newValues[key] = changedFields[key];
+        current[key] = changedFields[key];
+      }
+    }
+
+    students[index] = current;
+    this.saveStudents(students);
+
+    if (Object.keys(newValues).length > 0) {
+      const auditKey = 'trendz_demo_profile_audit_v1';
+      const auditList = JSON.parse(localStorage.getItem(auditKey) || '[]');
+      auditList.unshift({
+        id: `pa-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        profile_id: current.id,
+        changed_by: adminId,
+        changed_at: new Date().toISOString(),
+        old_values: oldValues,
+        new_values: newValues
+      });
+      localStorage.setItem(auditKey, JSON.stringify(auditList));
+    }
+
+    return current;
+  },
+  getProfileAudit(studentId) {
+    initDemoStorage();
+    const auditKey = 'trendz_demo_profile_audit_v1';
+    const auditList = JSON.parse(localStorage.getItem(auditKey) || '[]');
+    return auditList
+      .filter(a => a.profile_id === studentId)
+      .sort((a, b) => String(b.changed_at || '').localeCompare(String(a.changed_at || '')));
+  },
   getCategories() {
     initDemoStorage();
     return JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_CATEGORIES) || '[]');
@@ -915,7 +964,8 @@ export const DemoDB = {
       task_id: t.id,
       task_title: t.title,
       task_section: t.section,
-      task_category_id: t.category_id,
+      task_category_id: t.category_id || null,
+      task_activity_key: t.activity_key || null,
       done: idx < 4 // 4 of 7 done
     }));
   },
@@ -993,7 +1043,7 @@ export const DemoDB = {
   saveTodos(todos) {
     localStorage.setItem(DEMO_STORAGE_KEY_TODOS, JSON.stringify(todos));
   },
-  addTodo({ title, section, category_id, level }) {
+  addTodo({ title, section, category_id, activity_key, level, active = true }) {
     if (!isDemoMode()) throw new Error('Blocked in production mode');
     const todos = this.getTodos();
     const newTodo = {
@@ -1001,9 +1051,10 @@ export const DemoDB = {
       title: title.trim(),
       section,
       category_id: category_id || null,
+      activity_key: activity_key || null,
       level: level ? level.trim() : null,
       sort_order: todos.length + 1,
-      active: true,
+      active: Boolean(active),
       created_at: new Date().toISOString()
     };
     todos.push(newTodo);

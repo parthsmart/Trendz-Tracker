@@ -11,6 +11,7 @@
 import { requireAuth } from './guard.js';
 import { isDemoMode } from './demoDb.js';
 import { setupAdminNav } from './modal.js';
+import { initProfileEditor, openEditProfileModal, openProfileAuditDrawer } from './profileEditor.js';
 import { formatDisplayDateIST } from './stats.js';
 import { fetchStudentDashboardData, resolveStudentProfile } from './dashboardData.js';
 import {
@@ -27,6 +28,8 @@ import {
 } from './dashboardComponents.js';
 import { renderElementsCard } from './elementsCard.js';
 import { renderMemoriadCard } from './memoriadCard.js';
+
+let currentStudentProfile = null;
 
 async function initStudentDetail() {
   // 1. Guard check: Strictly admin-only.
@@ -63,12 +66,46 @@ async function initStudentDetail() {
     return;
   }
 
+  currentStudentProfile = profile;
+
   // Render Student Hero Details
-  renderStudentDetails(profile);
+  renderStudentDetails(currentStudentProfile);
+
+  // Initialize shared profile editor & change history drawer
+  initProfileEditor({
+    onProfileSaved: async (updatedProfile) => {
+      const refreshed = (await resolveStudentProfile(updatedProfile.id || currentStudentProfile.id)) || updatedProfile;
+      currentStudentProfile = refreshed;
+      renderStudentDetails(currentStudentProfile);
+      await loadAndRenderStudentDashboard(currentStudentProfile.id);
+    }
+  });
+
+  document.getElementById('btn-edit-student-profile')?.addEventListener('click', () => {
+    if (currentStudentProfile) {
+      openEditProfileModal(currentStudentProfile);
+    }
+  });
+
+  document.getElementById('btn-student-change-history')?.addEventListener('click', () => {
+    if (currentStudentProfile) {
+      openProfileAuditDrawer(currentStudentProfile);
+    }
+  });
 
   // 4. Fetch and render dashboard data
+  await loadAndRenderStudentDashboard(currentStudentProfile.id);
+
+  function showStudentNotFound(message) {
+    if (contentBox) contentBox.style.display = 'none';
+    if (notFoundBox) notFoundBox.style.display = 'block';
+    if (notFoundMsg && message) notFoundMsg.textContent = message;
+  }
+}
+
+async function loadAndRenderStudentDashboard(studentId) {
   try {
-    const data = await fetchStudentDashboardData(profile.id);
+    const data = await fetchStudentDashboardData(studentId);
 
     // Date
     const todayEl = document.getElementById('display-today-ist');
@@ -88,7 +125,7 @@ async function initStudentDetail() {
 
     // Elements Worksheet Drills Card (Phase 8, read-only for admin)
     await renderElementsCard({
-      studentId: profile.id,
+      studentId,
       containerId: 'elements-week-container',
       isReadOnly: true,
       todayIST: data.todayIST,
@@ -97,7 +134,7 @@ async function initStudentDetail() {
 
     // Memoriad Competition Practice Card (Phase 9b-1, read-only for admin)
     await renderMemoriadCard({
-      studentId: profile.id,
+      studentId,
       containerId: 'memoriad-week-container',
       isReadOnly: true,
       todayIST: data.todayIST,
@@ -132,12 +169,6 @@ async function initStudentDetail() {
   } catch (err) {
     console.error('Failed to load student detail dashboard:', err);
   }
-
-  function showStudentNotFound(message) {
-    if (contentBox) contentBox.style.display = 'none';
-    if (notFoundBox) notFoundBox.style.display = 'block';
-    if (notFoundMsg && message) notFoundMsg.textContent = message;
-  }
 }
 
 function renderStudentDetails(profile) {
@@ -149,11 +180,13 @@ function renderStudentDetails(profile) {
   const cardNameEl = document.getElementById('card-student-name');
   const cardCodeEl = document.getElementById('card-student-code');
   const cardLevelEl = document.getElementById('card-student-level');
+  const cardLeaderboardEl = document.getElementById('card-student-leaderboard');
 
   const fullName = profile.full_name || profile.name || 'Unnamed Student';
   const code = profile.student_code || profile.id || '—';
   const level = profile.level || 'Unassigned';
   const isActive = profile.active !== false;
+  const isLeaderboardVisible = profile.leaderboard_visible !== false;
 
   if (nameEl) nameEl.textContent = fullName;
   if (codeEl) codeEl.textContent = code;
@@ -162,6 +195,10 @@ function renderStudentDetails(profile) {
   if (cardNameEl) cardNameEl.textContent = fullName;
   if (cardCodeEl) cardCodeEl.textContent = code;
   if (cardLevelEl) cardLevelEl.textContent = level;
+  if (cardLeaderboardEl) {
+    cardLeaderboardEl.textContent = isLeaderboardVisible ? 'Shown' : 'Hidden';
+    cardLeaderboardEl.style.color = isLeaderboardVisible ? 'var(--color-accent-text)' : 'var(--text-dim)';
+  }
 
   if (statusEl) {
     if (isActive) {

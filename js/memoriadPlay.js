@@ -25,6 +25,7 @@ import {
   formatDayLabel,
   getOrderedWeekdays,
   DAY_LABELS,
+  DATE_FORMATS,
 } from './memoriadFormat.js';
 import {
   createAnswerSlots,
@@ -120,7 +121,11 @@ function loadModuleSettings(moduleKey) {
     if (!raw) return defaults;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return defaults;
-    return { ...defaults, ...parsed };
+    const merged = { ...defaults, ...parsed };
+    if (moduleKey === 'calendar' && !DATE_FORMATS.includes(merged.date_format)) {
+      merged.date_format = 'DD-MM-YYYY';
+    }
+    return merged;
   } catch {
     return defaults;
   }
@@ -266,9 +271,11 @@ function renderSettingsView() {
         <div class="form-group">
           <label for="setting-date-format" class="form-label">Question date format</label>
           <select id="setting-date-format" class="form-control">
-            <option value="DD-MM-YYYY" ${s.date_format === 'DD-MM-YYYY' ? 'selected' : ''}>DD-MM-YYYY (e.g. 24-11-1873)</option>
+            <option value="DD-MM-YYYY" ${!s.date_format || s.date_format === 'DD-MM-YYYY' ? 'selected' : ''}>DD-MM-YYYY (e.g. 24-11-1873)</option>
             <option value="MM-DD-YYYY" ${s.date_format === 'MM-DD-YYYY' ? 'selected' : ''}>MM-DD-YYYY (e.g. 11-24-1873)</option>
             <option value="YYYY-MM-DD" ${s.date_format === 'YYYY-MM-DD' ? 'selected' : ''}>YYYY-MM-DD (e.g. 1873-11-24)</option>
+            <option value="DD Mon YYYY" ${s.date_format === 'DD Mon YYYY' ? 'selected' : ''}>DD Mon YYYY (e.g. 24 Nov 1873)</option>
+            <option value="DD-Mon-YYYY" ${s.date_format === 'DD-Mon-YYYY' ? 'selected' : ''}>DD-Mon-YYYY (e.g. 24-Nov-1873)</option>
           </select>
         </div>
 

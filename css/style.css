@@ -1525,8 +1525,17 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   opacity: 0.85;
 }
 
+.is-flat-round .score-entry-row {
+  grid-template-columns: 140px 1fr 1fr 110px 80px;
+}
+
+.is-flat-round .score-entry-row .cell-time {
+  display: none !important;
+}
+
 @media (max-width: 768px) {
-  .score-entry-row {
+  .score-entry-row,
+  .is-flat-round .score-entry-row {
     grid-template-columns: 1fr 1fr;
     gap: var(--space-2);
     padding: var(--space-4);

@@ -17,6 +17,7 @@
 import { getScoreFeedback } from './scoreColors.js';
 import { buildFlashCardSummary } from './flashStats.js';
 import { isBasicsOnlineAvailable } from './practiceStats.js';
+import { taskLink } from './todoForm.js';
 import {
   formatDisplayDateIST,
   formatSecondsToTime,
@@ -182,15 +183,7 @@ export function renderTodoList(todos = [], containerId = 'todo-list-container', 
         <div style="display: flex; flex-direction: column; gap: var(--space-1);">
           ${items.map(t => {
             const isDone = !!t.done;
-            const targetLink = t.task_section === 'basics'
-              ? `/pages/basics.html?cat=${encodeURIComponent(t.task_category_id || '')}`
-              : t.task_section === 'flash'
-                ? `/pages/flash.html`
-                : t.task_section === 'elements'
-                  ? `/pages/elements.html`
-                  : t.task_section === 'memoriad'
-                    ? `/pages/memoriad.html`
-                    : `/pages/round-scores.html?cat=${encodeURIComponent(t.task_category_id || '')}`;
+            const targetLink = taskLink(t);
 
             const matchedBasicsCat = t.task_section === 'basics' && t.task_category_id && Array.isArray(categories)
               ? categories.find(c => String(c.id) === String(t.task_category_id))
@@ -798,7 +791,7 @@ export function setupScoreSheetController({
               return `
                 <td>
                   <div style="font-size: 11px; font-weight: 600; color: var(--text-main);">${escapeHtml(cell.note)}</div>
-                  <div style="font-size: 10px; color: var(--text-dim);">${cell.formattedTime}</div>
+                  ${cell.isFlat ? '' : `<div style="font-size: 10px; color: var(--text-dim);">${cell.formattedTime}</div>`}
                 </td>
               `;
             }
@@ -812,7 +805,7 @@ export function setupScoreSheetController({
                   ${verifiedMarker}
                   ${correctedMarker}
                 </div>
-                <div style="font-size: 10px; color: var(--text-dim);">${cell.formattedTime}</div>
+                ${cell.isFlat ? '' : `<div style="font-size: 10px; color: var(--text-dim);">${cell.formattedTime}</div>`}
               </td>
             `;
           }).join('')}

@@ -1032,3 +1032,52 @@ This document contains step-by-step test scenarios to verify security boundaries
       - Start any module, click **Exit** during Concentration or Stage, and confirm the **"Discard This Practice Try?"** dialog opens immediately and returns to Settings when confirmed.
       - Open `/pages/memoriad-play.html?module=multiplications`, verify `"Time limit: 15 minutes"` and the disabled `"Side by side (coming later)"` option, start the stage, press `*` 1 to 16 times (or click the dashed step box in sequence) to verify the 8 step boxes and operand digit columns highlight from right to left and then uncheck from right to left, type into the 16 answer slots, and click **FINISH**.
       - Open `/pages/memoriad-play.html?module=square_roots`, start the stage, press `*` and `/` to check/uncheck the 6 step boxes from left to right, type digits into the `___ . _____` answer slots, and click **FINISH** to verify the Results table displays **Correct Digits (`k / 8`)** and **Points** per question.
+
+---
+
+### Phase 10b — Admin Daily To-Do Fixes (`js/todoForm.js`, `/pages/todos.html`, `js/todos.js`, Student Deep Links)
+
+59. **Automated Unit Tests for Daily To-Do Form, Section Options & Student Links (`tests/todoForm.test.js`)**
+    - **Action**: Run `node --test tests/todoForm.test.js` (or `node --test tests/*.test.js`).
+    - **Expected**:
+      - `normalizeTaskInput`: turns `""` and whitespace-only strings into `null` for `category_id`, `activity_key`, and `level`; never sets both `category_id` and `activity_key` across all 5 sections (`basics`, `round`, `elements`, `memoriad`, `flash`); rejects empty titles, 81-character titles (allows 80), and 31-character levels (allows 30).
+      - `optionsForSection`: returns only active categories of that exact section for `'basics'` and `'round'` (never mixed); returns only enabled drills from `js/drillCatalog.js` for `'elements'` (excludes disabled `modulo`); returns the 4 modules (`calendar`, `additions`, `multiplications`, `square_roots`) for `'memoriad'`; returns `[]` for `'flash'`.
+      - `taskLink`: returns `/pages/basics.html?cat=<id>` (basics with category), `/pages/basics.html` (basics without), `/pages/round-scores.html` (round), `/pages/element-drill.html?drill=<key>` (elements with key), `/pages/elements.html` (elements without), `/pages/memoriad-play.html?module=<key>` (memoriad with key), `/pages/memoriad.html` (memoriad without), and `/pages/flash.html` (flash).
+      - `formatTaskTarget`: returns `"Any activity in <Section>"` when no specific category or activity key is set, never `"Unknown Category"`.
+
+60. **End-to-End Admin Daily To-Do & Student To-Do Links Verification (`/pages/todos.html`, `/pages/student.html`)**
+    - **Action**:
+      - Log in as Admin and open **Setup ▾ → Daily To-Do** (`/pages/todos.html`).
+      - Click **+ Add Task**, switch **Section Track** across `Round`, `Basics`, `Elements`, `Memoriad`, and `Flash Anzan`, and verify the second dropdown updates its label and options (`active round categories`, `active basics categories`, `enabled Elements drills`, `4 Memoriad modules`, and disabled `"Any Flash Anzan round"` for Flash Anzan).
+      - Save tasks with and without a specific category/drill/module and verify the success toast displays `"Task added successfully"` (not `"error"`) and the table displays either the specific category/drill/module title or *"Any activity in <Section>"* (never *"Unknown Category"*).
+      - Log in as Student (`STU101`), inspect the **Today's To-Do** card on `/pages/student.html`, and verify each **Start →** button links to the exact target page computed by `taskLink`.
+
+---
+
+### Phase 10c — Admin Profile Editing & Audit Log, New Calendar Date Formats, and Flat Rounds
+
+61. **Automated Unit Tests for Profile Form, Calendar Date Formats & Flat Rounds (`node --test`)**
+    - **Action**: Run `node --test tests/profileForm.test.js tests/memoriadFormat.test.js tests/roundType.test.js` (or `node --test tests/*.test.js`).
+    - **Expected**:
+      - `tests/profileForm.test.js`: verifies trimming, `full_name` length limits (`2..60`), `level` length limits (`1..30`), empty `level` becoming `null`, case-insensitive `suggestLevel(levels, typed)` (`"junior 1"` -> `"Junior 1"`), and `diffProfileFields` returning only changed fields.
+      - `tests/memoriadFormat.test.js`: verifies `formatCalendarDate(1873, 11, 24, 'DD Mon YYYY') === '24 Nov 1873'`, `formatCalendarDate(1873, 11, 24, 'DD-Mon-YYYY') === '24-Nov-1873'`, zero-padded single-digit days (`04 Nov 1873`, `04-Nov-1873`), all twelve English 3-letter month names (`Jan..Dec`), and fallback to `'DD-MM-YYYY'` when the saved setting is missing.
+      - `tests/roundType.test.js`: verifies `isFlatRound` returns `true` for `'Flat Round'`, `'Flat round'`, `'  FLAT  '` and `false` for `'Category wise'`, `''`, `null`, or unknown strings, and verifies `buildRoundScoreMatrix` flags flat cells while keeping the round's total time in the `Time Taken` summary row.
+
+62. **End-to-End Admin Profile Edit & Change History Verification (`/pages/students.html`, `/pages/student-detail.html`)**
+    - **Action**:
+      - Log in as Admin and open **Students** (`/pages/students.html`).
+      - Click **Edit** on a student row:
+        - Verify **Student ID** is read-only and hovering over it shows *"The student ID is the login name and cannot be changed here"*, and verify no Role field is shown.
+        - Verify the note above the **Level** field reads: *"Changing the level moves this student to another leaderboard group and changes which targets and tasks apply."*
+        - Type an existing level with different casing (e.g. `level 2` when `Level 2` exists): verify *"Did you mean 'Level 2'?"* appears with a button that fills `Level 2`.
+        - Update the student's Full Name, Level, Show on leaderboards, or Active status and click **Save Changes**: verify a single `profiles` update saves only changed fields and refreshes the table.
+      - Click **Change history** on that student (or open `/pages/student-detail.html?id=<id>` and click **Edit** / **Change history**):
+        - Verify the drawer opens showing `profile_audit` entries newest-first with the date in India time (`IST`), the admin's name, and each changed field as `old value → new value`.
+
+63. **End-to-End Memoriad Calendar Date Formats & Flat Round Time Hiding Verification**
+    - **Action**:
+      - Open **Memoriad → Mental Calendar Dates** (`/pages/memoriad-play.html?module=calendar`), open the **Date format** dropdown, and verify **`DD Mon YYYY (24 Nov 1873)`** and **`DD-Mon-YYYY (24-Nov-1873)`** are available alongside the default `DD-MM-YYYY`. Start a stage with `DD Mon YYYY` and verify the question list, large display, and results table all format dates as `24 Nov 1873`.
+      - Open **Round Scores** (`/pages/round-scores.html`):
+        - Type values into **Correct**, **Total**, and **Time (mm:ss)** for a category while **Round Type** is `Category wise`.
+        - Switch **Round Type** to `Flat Round`: verify the per-category **Time (mm:ss)** column and inputs hide immediately while **Correct**, **Total**, and **Total Time Taken** remain intact and typed values are preserved when switching back.
+        - Save a `Flat Round` entry and inspect the **Competition Round Score Sheet** on `/pages/student.html` and `/pages/student-detail.html`: verify flat round cells show only `correct/total` (no per-category time) while the **Time Taken** summary row continues to show the round's total time.

@@ -527,8 +527,8 @@ describe('Phase 9a — Online Basics Question Generators (300 Seeded Sets Each)'
     it(`${spec.name}: 300 seeded sets have ${spec.rows} rows, ${spec.digits}-digit magnitudes, positive first row, non-negative running total, no equal neighbours, and exact expected total`, () => {
       for (let seed = 1; seed <= 300; seed++) {
         const rng = createSeededRng(seed * 7919);
-        const set = generateBasicsSet(spec.name, 10, rng);
-        assert.equal(set.length, 10);
+        const set = generateBasicsSet(spec.name, 20, rng);
+        assert.equal(set.length, 20);
 
         for (const q of set) {
           assert.equal(q.type, 'add_sub');
@@ -610,9 +610,9 @@ describe('Phase 9a — Online Basics Question Generators (300 Seeded Sets Each)'
   });
 
   it('stripBasicsExpected strips expected answers from start payload', () => {
-    const generated = generateBasicsSet('1d4r', 5, createSeededRng(42));
+    const generated = generateBasicsSet('1d4r', 20, createSeededRng(42));
     const stripped = stripBasicsExpected(generated);
-    assert.equal(stripped.length, 5);
+    assert.equal(stripped.length, 20);
     for (const item of stripped) {
       assert.equal('expected' in item, false);
       assert.ok(Array.isArray(item.rows));
