@@ -35,6 +35,7 @@ import { fetchStudentElementResults } from './elementsCard.js';
 import { getScoreFeedback } from './scoreColors.js';
 import { formatSecondsToMMSS } from './timeUtils.js';
 import { keyAction } from './competitionKeys.js';
+import { questionLayout, formatQuestionText } from './questionLayout.js';
 
 const TIMER_INTERVAL_MS = 250;
 const EXPIRY_GRACE_SECONDS = 30;
@@ -155,7 +156,7 @@ async function initElementDrillPage() {
   });
 
   if (!currentDrillMeta) {
-    showIntroError('Unknown drill selected. Please choose a drill from the Elements catalog.');
+    showIntroError('Activity no longer available. Please choose a drill from the Elements catalog.');
     if (startBtn) startBtn.disabled = true;
     return;
   }
@@ -390,14 +391,12 @@ function renderWorksheet(payload) {
     gridEl.innerHTML = activeQuestions
       .map((qText, idx) => {
         const qNum = idx + 1;
+        const layout = questionLayout(qText);
+        const displayText = formatQuestionText(qText);
         return `
           <div class="element-question-row" data-row-index="${idx}">
-            <span class="num" style="font-size: var(--text-xs); font-weight: 700; color: var(--text-muted); min-width: 28px;">
-              ${qNum}.
-            </span>
-            <label for="element-ans-${qNum}" class="element-question-prompt">
-              ${escapeHtml(qText)}
-            </label>
+            <span class="element-question-num num">${qNum}.</span>
+            <label for="element-ans-${qNum}" class="element-question-prompt"><span class="element-question-text element-question-text--${layout}" data-layout="${layout}">${escapeHtml(displayText)}</span></label>
             <input
               type="text"
               id="element-ans-${qNum}"
@@ -862,10 +861,13 @@ function renderResultScreen(result) {
         const statusWord = isCorrect ? 'Correct' : 'Wrong';
         const statusClass = isCorrect ? 'score-tag-perfect' : 'score-tag-alert';
 
+        const qLayout = questionLayout(item.question);
+        const qDisplay = formatQuestionText(item.question);
+
         return `
           <tr>
             <td class="num" style="color: var(--text-muted); font-weight: 600;">${idx + 1}</td>
-            <td class="num" style="font-family: var(--font-mono); font-weight: 700; white-space: pre-wrap;">${escapeHtml(item.question)}</td>
+            <td class="num"><span class="element-question-text element-question-text--${qLayout}">${escapeHtml(qDisplay)}</span></td>
             <td class="num" style="font-family: var(--font-mono); color: ${item.given ? 'var(--text-main)' : 'var(--text-dim)'};">
               ${escapeHtml(givenStr)}
             </td>

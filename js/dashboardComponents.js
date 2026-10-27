@@ -17,6 +17,7 @@
 import { getScoreFeedback } from './scoreColors.js';
 import { buildFlashCardSummary } from './flashStats.js';
 import { isBasicsOnlineAvailable } from './practiceStats.js';
+import { taskLink, isTaskActivityAvailable } from './todoForm.js';
 import {
   formatDisplayDateIST,
   formatSecondsToTime,
@@ -182,15 +183,8 @@ export function renderTodoList(todos = [], containerId = 'todo-list-container', 
         <div style="display: flex; flex-direction: column; gap: var(--space-1);">
           ${items.map(t => {
             const isDone = !!t.done;
-            const targetLink = t.task_section === 'basics'
-              ? `/pages/basics.html?cat=${encodeURIComponent(t.task_category_id || '')}`
-              : t.task_section === 'flash'
-                ? `/pages/flash.html`
-                : t.task_section === 'elements'
-                  ? `/pages/elements.html`
-                  : t.task_section === 'memoriad'
-                    ? `/pages/memoriad.html`
-                    : `/pages/round-scores.html?cat=${encodeURIComponent(t.task_category_id || '')}`;
+            const isAvailable = isTaskActivityAvailable(t, categories);
+            const targetLink = taskLink(t);
 
             const matchedBasicsCat = t.task_section === 'basics' && t.task_category_id && Array.isArray(categories)
               ? categories.find(c => String(c.id) === String(t.task_category_id))
@@ -211,11 +205,14 @@ export function renderTodoList(todos = [], containerId = 'todo-list-container', 
                   </span>
                 </div>
                 <div style="display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;">
-                  ${isReadOnly
-                    ? `<span class="badge ${isDone ? 'badge-active' : 'badge-inactive'}" style="font-size: 10px;">${isDone ? 'Done' : 'Pending'}</span>`
-                    : (isDone
-                        ? `<span class="badge badge-active" style="font-size: 10px;">Done</span>`
-                        : `${onlineLink ? `<a href="${onlineLink}" class="btn btn-primary btn-sm" style="font-size: 10px; padding: 2px 8px; text-decoration: none;">Practice online</a>` : ''}<a href="${targetLink}" class="btn ${onlineLink ? 'btn-outline' : 'btn-primary'} btn-sm" style="font-size: 10px; padding: 2px 8px; text-decoration: none;">Start &rarr;</a>`
+                  ${!isAvailable
+                    ? `<span style="font-size: var(--text-xs); color: var(--text-muted); font-style: italic;">Activity no longer available</span>`
+                    : (isReadOnly
+                        ? `<span class="badge ${isDone ? 'badge-active' : 'badge-inactive'}" style="font-size: 10px;">${isDone ? 'Done' : 'Pending'}</span>`
+                        : (isDone
+                            ? `<span class="badge badge-active" style="font-size: 10px;">Done</span>`
+                            : `${onlineLink ? `<a href="${onlineLink}" class="btn btn-primary btn-sm" style="font-size: 10px; padding: 2px 8px; text-decoration: none;">Practice online</a>` : ''}<a href="${targetLink}" class="btn ${onlineLink ? 'btn-outline' : 'btn-primary'} btn-sm" style="font-size: 10px; padding: 2px 8px; text-decoration: none;">Start &rarr;</a>`
+                          )
                       )
                   }
                 </div>
@@ -291,15 +288,23 @@ export function renderBasicsThisWeek(results, categories, todayIST, containerId 
         ${recentBasicsEntries.map(entry => {
           const fb = getScoreFeedback(entry.correct, entry.total);
           const isSite = entry.source === 'site';
+          const modeLabel = entry.practiceMode === 'timed' ? 'Timed' : (entry.practiceMode === 'unlimited' ? 'Unlimited' : null);
+          const attemptedPerMinute = modeLabel && Number(entry.total) > 0 && Number(entry.timeSeconds) > 0
+            ? (Math.round((Number(entry.total) / (Number(entry.timeSeconds) / 60)) * 10) / 10).toFixed(1)
+            : null;
+          const modeChip = modeLabel
+            ? ` <span class="status-chip chip-unverified" style="font-size: 10px;">${modeLabel}</span>`
+            : '';
           const statusChip = isSite
-            ? `<span class="status-chip chip-verified" style="font-size: 10px;">Recorded by the site</span>`
-            : `<span class="status-chip chip-unverified" style="font-size: 10px;">Typed</span>${entry.verified ? ` <span class="status-chip chip-verified" style="font-size: 10px;">🔒 Verified</span>` : ''}`;
+            ? `<span class="status-chip chip-verified" style="font-size: 10px;">Recorded by the site</span>${modeChip}`
+            : `<span class="status-chip chip-unverified" style="font-size: 10px;">Typed</span>${modeChip}${entry.verified ? ` <span class="status-chip chip-verified" style="font-size: 10px;">🔒 Verified</span>` : ''}`;
           return `
             <div style="display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--text-xs); padding: 2px 0; flex-wrap: wrap;">
               <div style="display: flex; align-items: center; gap: 6px;">
                 <strong style="color: var(--text-main);">${escapeHtml(entry.categoryName)}</strong>
                 <span class="num">${entry.correct}/${entry.total}</span>
                 <span class="score-tag ${fb.badgeClass}" style="font-size: 10px; padding: 1px 4px;">${fb.wrongText}</span>
+                ${attemptedPerMinute ? `<span class="num" style="font-size: 11px; color: var(--text-muted);">${attemptedPerMinute} / min</span>` : ''}
               </div>
               <div style="display: flex; align-items: center; gap: 6px;">
                 ${statusChip}
@@ -798,7 +803,7 @@ export function setupScoreSheetController({
               return `
                 <td>
                   <div style="font-size: 11px; font-weight: 600; color: var(--text-main);">${escapeHtml(cell.note)}</div>
-                  <div style="font-size: 10px; color: var(--text-dim);">${cell.formattedTime}</div>
+                  ${cell.isFlat ? '' : `<div style="font-size: 10px; color: var(--text-dim);">${cell.formattedTime}</div>`}
                 </td>
               `;
             }
@@ -812,7 +817,7 @@ export function setupScoreSheetController({
                   ${verifiedMarker}
                   ${correctedMarker}
                 </div>
-                <div style="font-size: 10px; color: var(--text-dim);">${cell.formattedTime}</div>
+                ${cell.isFlat ? '' : `<div style="font-size: 10px; color: var(--text-dim);">${cell.formattedTime}</div>`}
               </td>
             `;
           }).join('')}

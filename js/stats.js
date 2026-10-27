@@ -7,6 +7,8 @@
  * All functions can be unit-tested in isolation in any JS environment.
  */
 
+import { isFlatRound } from './roundType.js';
+
 /**
  * Normalizes an ISO date or timestamp into an Indian Standard Time (Asia/Kolkata)
  * YYYY-MM-DD date key.
@@ -381,6 +383,7 @@ export function calculateBasicsWeeklySummary(results = [], categories = [], toda
         timeSeconds: sec,
         entryDate: dateKey,
         source: res.source || 'typed',
+        practiceMode: res.practice_mode || null,
         verified: res.verified === true || !!res.verified_at || !!res.verified_by,
         meetsTarget: res.meets_target ?? null
       });
@@ -460,11 +463,13 @@ export function buildRoundScoreMatrix(results = [], seriesCategories = [], targe
     const dateKey = getISTDateString(sr.round_date || sr.created_at || '');
     const count = roundCountMap.get(srId) || 0;
     const isPartial = count > 0 && count < totalCatCount;
+    const roundTypeVal = sr.round_type || 'Category wise';
 
     return {
       studentRoundId: srId,
       roundNumber: sr.round_number,
-      roundType: sr.round_type || 'Category wise',
+      roundType: roundTypeVal,
+      isFlat: isFlatRound(roundTypeVal),
       timeTakenSeconds: sr.time_taken_seconds !== undefined && sr.time_taken_seconds !== null ? Number(sr.time_taken_seconds) : null,
       dateStr: dateKey,
       displayDate: formatDisplayDateIST(dateKey),
@@ -479,6 +484,7 @@ export function buildRoundScoreMatrix(results = [], seriesCategories = [], targe
       const srId = String(sr.id);
       const key = `${srId}_${cat.id}`;
       const entry = roundResultMap.get(key);
+      const flat = isFlatRound(sr.round_type);
 
       if (entry) {
         const correct = entry.correct !== null && entry.correct !== undefined ? Number(entry.correct) : null;
@@ -489,6 +495,7 @@ export function buildRoundScoreMatrix(results = [], seriesCategories = [], targe
         return {
           studentRoundId: srId,
           roundNumber: sr.round_number,
+          isFlat: flat,
           correct,
           total,
           timeSeconds,
@@ -505,6 +512,7 @@ export function buildRoundScoreMatrix(results = [], seriesCategories = [], targe
       return {
         studentRoundId: srId,
         roundNumber: sr.round_number,
+        isFlat: flat,
         correct: null,
         total: null,
         timeSeconds: null,

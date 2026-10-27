@@ -145,14 +145,21 @@ function populateLevelsDatalist() {
 
 /**
  * Formats a target rule into human-readable text
- * e.g. "Accuracy at least 90% and time at most 2:00"
+ * e.g. "Accuracy at least 90%, at least 40 questions per minute in timed rounds, time at most 2:00 in fixed sets"
+ * (showing whichever parts are configured).
  */
-function formatRuleDescription(rule) {
-  const acc = `Accuracy at least ${rule.min_accuracy}%`;
-  if (rule.max_time_seconds) {
-    return `${acc} and time at most ${formatSecondsToTime(rule.max_time_seconds)}`;
+export function formatRuleDescription(rule) {
+  const parts = [];
+  if (rule && rule.min_accuracy !== null && rule.min_accuracy !== undefined) {
+    parts.push(`Accuracy at least ${rule.min_accuracy}%`);
   }
-  return acc;
+  if (rule && rule.min_questions_per_minute !== null && rule.min_questions_per_minute !== undefined && Number(rule.min_questions_per_minute) > 0) {
+    parts.push(`at least ${Number(rule.min_questions_per_minute)} questions per minute in timed rounds`);
+  }
+  if (rule && rule.max_time_seconds) {
+    parts.push(`time at most ${formatSecondsToTime(rule.max_time_seconds)} in fixed sets`);
+  }
+  return parts.join(', ');
 }
 
 /**
@@ -361,6 +368,7 @@ function setupTargetModalHandlers() {
     const levelRaw = document.getElementById('target-level-input').value.trim();
     const levelVal = levelRaw.length > 0 ? levelRaw : null;
     const accuracyVal = Number(document.getElementById('target-accuracy-input').value);
+    const qpmRaw = (document.getElementById('target-qpm-input')?.value || '').trim();
     const timeRaw = document.getElementById('target-time-input').value.trim();
     const activeVal = document.getElementById('target-active-input').checked;
 
@@ -373,6 +381,16 @@ function setupTargetModalHandlers() {
     if (isNaN(accuracyVal) || accuracyVal < 0 || accuracyVal > 100) {
       showModalError('Minimum accuracy must be an integer between 0 and 100.');
       return;
+    }
+
+    let qpmVal = null;
+    if (qpmRaw.length > 0) {
+      const parsedQpm = Number(qpmRaw);
+      if (!Number.isFinite(parsedQpm) || parsedQpm <= 0 || parsedQpm > 500) {
+        showModalError('Minimum questions per minute must be a positive number up to 500.');
+        return;
+      }
+      qpmVal = Math.round(parsedQpm * 10) / 10;
     }
 
     let timeSecondsVal = null;
@@ -397,6 +415,7 @@ function setupTargetModalHandlers() {
               category_id: categoryId,
               level: levelVal,
               min_accuracy: Math.round(accuracyVal),
+              min_questions_per_minute: qpmVal,
               max_time_seconds: timeSecondsVal,
               active: activeVal
             })
@@ -408,6 +427,7 @@ function setupTargetModalHandlers() {
             category_id: categoryId,
             level: levelVal,
             min_accuracy: Math.round(accuracyVal),
+            min_questions_per_minute: qpmVal,
             max_time_seconds: timeSecondsVal,
             active: activeVal
           });
@@ -423,6 +443,7 @@ function setupTargetModalHandlers() {
               category_id: categoryId,
               level: levelVal,
               min_accuracy: Math.round(accuracyVal),
+              min_questions_per_minute: qpmVal,
               max_time_seconds: timeSecondsVal,
               active: activeVal
             });
@@ -433,6 +454,7 @@ function setupTargetModalHandlers() {
             category_id: categoryId,
             level: levelVal,
             min_accuracy: Math.round(accuracyVal),
+            min_questions_per_minute: qpmVal,
             max_time_seconds: timeSecondsVal,
             active: activeVal
           });
@@ -480,6 +502,7 @@ function openTargetModal(rule = null, preselectedCatId = null) {
   const catSelect = document.getElementById('target-category-select');
   const levelInput = document.getElementById('target-level-input');
   const accInput = document.getElementById('target-accuracy-input');
+  const qpmInput = document.getElementById('target-qpm-input');
   const timeInput = document.getElementById('target-time-input');
   const activeInput = document.getElementById('target-active-input');
   const errBanner = document.getElementById('target-error-banner');
@@ -493,6 +516,7 @@ function openTargetModal(rule = null, preselectedCatId = null) {
     if (catSelect) catSelect.value = rule.category_id;
     if (levelInput) levelInput.value = rule.level || '';
     if (accInput) accInput.value = rule.min_accuracy;
+    if (qpmInput) qpmInput.value = rule.min_questions_per_minute !== null && rule.min_questions_per_minute !== undefined ? String(rule.min_questions_per_minute) : '';
     if (timeInput) timeInput.value = rule.max_time_seconds ? formatSecondsToTime(rule.max_time_seconds) : '';
     if (activeInput) activeInput.checked = rule.active !== false;
   } else {
@@ -502,6 +526,7 @@ function openTargetModal(rule = null, preselectedCatId = null) {
     if (catSelect) catSelect.value = preselectedCatId || (basicsCategories[0]?.id || '');
     if (levelInput) levelInput.value = '';
     if (accInput) accInput.value = '90';
+    if (qpmInput) qpmInput.value = '';
     if (timeInput) timeInput.value = '';
     if (activeInput) activeInput.checked = true;
   }

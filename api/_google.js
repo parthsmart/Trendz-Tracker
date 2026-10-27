@@ -13,9 +13,19 @@
  */
 
 import crypto from 'node:crypto';
-import { getGoogleBackupConfig, hasGoogleBackupConfig } from './_configHelper.js';
+import {
+  getGoogleBackupConfig,
+  hasGoogleBackupConfig,
+  getGoogleMirrorConfig,
+  hasGoogleMirrorConfig,
+} from './_configHelper.js';
 
-export { getGoogleBackupConfig, hasGoogleBackupConfig };
+export {
+  getGoogleBackupConfig,
+  hasGoogleBackupConfig,
+  getGoogleMirrorConfig,
+  hasGoogleMirrorConfig,
+};
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
@@ -478,3 +488,302 @@ export async function valuesClear(sheetId, range, opts = {}) {
     }
   );
 }
+
+/**
+ * Converts a `#RRGGBB` hex string to a Google Sheets RGB Color object (`0..1` floats).
+ * @param {string|null|undefined} hex
+ * @returns {{ red: number, green: number, blue: number } | null}
+ */
+export function hexToGoogleRgb(hex) {
+  if (!hex || typeof hex !== 'string') return null;
+  const clean = hex.trim().replace(/^#/, '');
+  if (!/^[0-9A-Fa-f]{6}$/.test(clean)) return null;
+  const r = parseInt(clean.slice(0, 2), 16) / 255;
+  const g = parseInt(clean.slice(2, 4), 16) / 255;
+  const b = parseInt(clean.slice(4, 6), 16) / 255;
+  return {
+    red: Math.round(r * 1000) / 1000,
+    green: Math.round(g * 1000) / 1000,
+    blue: Math.round(b * 1000) / 1000,
+  };
+}
+
+/**
+ * Converts a mirror model cell (`{ text, number, bg, bold, align }`) to Google Sheets `CellData`.
+ * Strictly uses `stringValue` or `numberValue` (never `formulaValue`).
+ *
+ * @param {{ text?: string, number?: number, bg?: string|null, bold?: boolean, align?: string|null } | null | undefined} cell
+ * @returns {object}
+ */
+export function toGoogleCellData(cell) {
+  if (!cell || typeof cell !== 'object') {
+    return {};
+  }
+
+  const cellData = {};
+
+  if (typeof cell.number === 'number' && Number.isFinite(cell.number)) {
+    cellData.userEnteredValue = { numberValue: cell.number };
+  } else if (typeof cell.text === 'string' && cell.text.length > 0) {
+    cellData.userEnteredValue = { stringValue: cell.text };
+  }
+
+  const format = {};
+  let hasFormat = false;
+
+  const rgb = hexToGoogleRgb(cell.bg);
+  if (rgb) {
+    format.backgroundColor = rgb;
+    hasFormat = true;
+  }
+
+  if (cell.bold) {
+    format.textFormat = { bold: true };
+    hasFormat = true;
+  }
+
+  if (cell.align === 'LEFT' || cell.align === 'CENTER' || cell.align === 'RIGHT') {
+    format.horizontalAlignment = cell.align;
+    hasFormat = true;
+  }
+
+  if (hasFormat) {
+    cellData.userEnteredFormat = format;
+  }
+
+  return cellData;
+}
+
+/**
+ * Sends a `spreadsheets.batchUpdate` request to Google Sheets REST API v4.
+ *
+ * @param {string} spreadsheetId
+ * @param {Array<object>} requests
+ * @param {{ env?: NodeJS.ProcessEnv, fetchImpl?: typeof fetch, retryDelayMs?: number }} [opts]
+ * @returns {Promise<any>}
+ */
+export async function spreadsheetsBatchUpdate(spreadsheetId, requests, opts = {}) {
+  const token = await getAccessToken(opts);
+  const url = `${GOOGLE_SHEETS_BASE_URL}/${encodeURIComponent(spreadsheetId)}:batchUpdate`;
+
+  return googleFetchWithRetry(
+    url,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ requests }),
+    },
+    {
+      fetchImpl: opts.fetchImpl,
+      retryDelayMs: opts.retryDelayMs,
+      secrets: [token],
+    }
+  );
+}
+
+/**
+ * Generates a deterministic positive 31-bit integer sheetId for a new tab
+ * that does not collide with any existing tab's `sheetId`.
+ *
+ * @param {string} tabName
+ * @param {Set<number>} usedSheetIds
+ * @returns {number}
+ */
+function allocateNewSheetId(tabName, usedSheetIds) {
+  const hashBuf = crypto.createHash('sha256').update(String(tabName || 'tab')).digest();
+  // Positive 30-bit integer (1 .. 1,073,741,823)
+  let candidate = (hashBuf.readUInt32BE(0) & 0x3fffffff) || 1001;
+  while (usedSheetIds.has(candidate)) {
+    candidate = ((candidate + 1) & 0x3fffffff) || 1001;
+  }
+  usedSheetIds.add(candidate);
+  return candidate;
+}
+
+/**
+ * Writes a complete student (or INFO) tab in the mirror spreadsheet using ONE `batchUpdate`:
+ * (a) creates the tab if missing, or renames it when the student's name changed (using stored `sheet_id`),
+ *     resizes rows and columns when needed, and sets frozen rows and columns;
+ * (b) clears the whole tab;
+ * (c) writes the new cells with `updateCells` (`stringValue` and `numberValue` only, never formulas);
+ * (d) sets column widths.
+ *
+ * Mutates `existingTabs` in-place so subsequent student tabs in the same pass know the updated tab state.
+ *
+ * @param {string} spreadsheetId
+ * @param {{
+ *   tabName: string,
+ *   storedSheetId?: number|string|null,
+ *   sheetIndex?: number,
+ *   model: {
+ *     cells: Array<Array<object>>,
+ *     rowCount: number,
+ *     columnCount: number,
+ *     frozenRows?: number,
+ *     frozenColumns?: number,
+ *     columnWidths?: Array<{ colIndex: number, width: number }>
+ *   }
+ * }} tabSpec
+ * @param {Array<{ sheetId: number, title: string, rowCount: number, columnCount: number }>} existingTabs
+ * @param {{ env?: NodeJS.ProcessEnv, fetchImpl?: typeof fetch, retryDelayMs?: number }} [opts]
+ * @returns {Promise<{ sheetId: number, tabName: string }>}
+ */
+export async function writeMirrorTab(spreadsheetId, tabSpec, existingTabs = [], opts = {}) {
+  const { tabName, storedSheetId, sheetIndex, model } = tabSpec;
+  const frozenRowCount = Math.max(0, Number(model?.frozenRows ?? 0));
+  const frozenColumnCount = Math.max(0, Number(model?.frozenColumns ?? 0));
+  const desiredRows = Math.max(frozenRowCount + 2, Number(model?.rowCount || 10) + 4, 25);
+  const desiredCols = Math.max(frozenColumnCount + 2, Number(model?.columnCount || 5) + 2, 10);
+
+  const usedIds = new Set(
+    existingTabs
+      .map((t) => Number(t?.sheetId))
+      .filter((n) => Number.isInteger(n) && n >= 0)
+  );
+
+  // 1. Locate existing tab by storedSheetId first (handles student rename), then by exact title
+  let matchedTab = null;
+  if (storedSheetId !== null && storedSheetId !== undefined && storedSheetId !== '') {
+    const numericStored = Number(storedSheetId);
+    if (Number.isInteger(numericStored) && numericStored >= 0) {
+      matchedTab = existingTabs.find((t) => Number(t.sheetId) === numericStored) || null;
+    }
+  }
+  if (!matchedTab) {
+    matchedTab =
+      existingTabs.find(
+        (t) => String(t.title || '').toLowerCase() === String(tabName || '').toLowerCase()
+      ) || null;
+  }
+
+  const requests = [];
+  let targetSheetId;
+
+  if (!matchedTab) {
+    targetSheetId = allocateNewSheetId(tabName, usedIds);
+    const addProps = {
+      sheetId: targetSheetId,
+      title: tabName,
+      gridProperties: {
+        rowCount: desiredRows,
+        columnCount: desiredCols,
+        frozenRowCount,
+        frozenColumnCount,
+      },
+    };
+    if (typeof sheetIndex === 'number' && sheetIndex >= 0) {
+      addProps.index = sheetIndex;
+    }
+    requests.push({
+      addSheet: {
+        properties: addProps,
+      },
+    });
+  } else {
+    targetSheetId = Number(matchedTab.sheetId);
+    const newRowCount = Math.max(Number(matchedTab.rowCount) || 0, desiredRows);
+    const newColCount = Math.max(Number(matchedTab.columnCount) || 0, desiredCols);
+    const updateProps = {
+      sheetId: targetSheetId,
+      title: tabName,
+      gridProperties: {
+        rowCount: newRowCount,
+        columnCount: newColCount,
+        frozenRowCount,
+        frozenColumnCount,
+      },
+    };
+    const fieldsList = [
+      'title',
+      'gridProperties.rowCount',
+      'gridProperties.columnCount',
+      'gridProperties.frozenRowCount',
+      'gridProperties.frozenColumnCount',
+    ];
+    if (typeof sheetIndex === 'number' && sheetIndex >= 0) {
+      updateProps.index = sheetIndex;
+      fieldsList.push('index');
+    }
+    requests.push({
+      updateSheetProperties: {
+        properties: updateProps,
+        fields: fieldsList.join(','),
+      },
+    });
+  }
+
+  // (b) Clear the whole tab (values + formats)
+  requests.push({
+    updateCells: {
+      range: { sheetId: targetSheetId },
+      fields: 'userEnteredValue,userEnteredFormat',
+    },
+  });
+
+  // (c) Write the new cells with updateCells
+  const rows = Array.isArray(model?.cells) ? model.cells : [];
+  if (rows.length > 0) {
+    requests.push({
+      updateCells: {
+        start: {
+          sheetId: targetSheetId,
+          rowIndex: 0,
+          columnIndex: 0,
+        },
+        rows: rows.map((row) => ({
+          values: (Array.isArray(row) ? row : []).map((cell) => toGoogleCellData(cell)),
+        })),
+        fields:
+          'userEnteredValue,userEnteredFormat(backgroundColor,textFormat.bold,horizontalAlignment)',
+      },
+    });
+  }
+
+  // (d) Set column widths
+  const colWidths = Array.isArray(model?.columnWidths) ? model.columnWidths : [];
+  for (const cw of colWidths) {
+    const colIdx = Number(cw?.colIndex);
+    const width = Number(cw?.width);
+    if (Number.isInteger(colIdx) && colIdx >= 0 && Number.isFinite(width) && width > 0) {
+      requests.push({
+        updateDimensionProperties: {
+          range: {
+            sheetId: targetSheetId,
+            dimension: 'COLUMNS',
+            startIndex: colIdx,
+            endIndex: colIdx + 1,
+          },
+          properties: {
+            pixelSize: Math.round(width),
+          },
+          fields: 'pixelSize',
+        },
+      });
+    }
+  }
+
+  await spreadsheetsBatchUpdate(spreadsheetId, requests, opts);
+
+  // Update existingTabs in place
+  if (!matchedTab) {
+    existingTabs.push({
+      sheetId: targetSheetId,
+      title: tabName,
+      rowCount: desiredRows,
+      columnCount: desiredCols,
+    });
+  } else {
+    matchedTab.title = tabName;
+    matchedTab.rowCount = Math.max(Number(matchedTab.rowCount) || 0, desiredRows);
+    matchedTab.columnCount = Math.max(Number(matchedTab.columnCount) || 0, desiredCols);
+  }
+
+  return {
+    sheetId: targetSheetId,
+    tabName,
+  };
+}
+

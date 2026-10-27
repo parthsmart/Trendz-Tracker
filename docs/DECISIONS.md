@@ -570,3 +570,121 @@ Every meaningful technical and architectural decision made for **Trendz Tracker*
      - Square Roots uses a bounded state $c \in [0..6]$ (`n = 6`): `*` (or clicking box $c$) checks the next box from the left; `/` (or clicking box $c - 1$) unchecks the rightmost checked box, with no wrap-around.
   4. **Stage Exit Modal Visibility Fix**:
      - `openStageModal` in `js/memoriadPlay.js` applies `.modal-backdrop.open.active` so the shared CSS rule `.modal-backdrop.open` (`opacity: 1; visibility: visible; pointer-events: auto`) displays the discard confirmation dialog immediately when **Exit** is clicked during Concentration or Stage.
+
+---
+
+## ADR-038: Phase 10b — Admin Daily To-Do Fixes (`daily_tasks`, `showToast` Signature, Polymorphic Section Targets in `js/todoForm.js`, and Student Deep Links)
+- **Date**: 2026-10-25
+- **Status**: Accepted
+- **Context**:
+  - Testers reported three issues on the Admin Daily To-Do page (`/pages/todos.html`, `js/todos.js`):
+    1. **(a)** Saving a task showed only a toast saying `"error"`.
+    2. **(b)** Task rows displayed `"Unknown Category"` when a task had no specific category.
+    3. **(c)** The second modal dropdown (`"Category filter (optional)"`) showed only `"Any category in this section"` for every section except Basics and Round (`elements`, `memoriad`, `flash`).
+- **Root-Cause Diagnosis**:
+  1. **Wrong table name (`'todos'` instead of `'daily_tasks'`) + Reversed `showToast` arguments**:
+     - `js/todos.js` queried `supabase.from('todos')`, whereas the PostgreSQL table is `public.daily_tasks` (`code: "PGRST205"`, `message: "Could not find the table 'public.todos' in the schema cache"`, `hint: "Perhaps you meant the table 'public.daily_tasks'"`).
+     - In addition, `js/toast.js` defines `showToast(type, message, durationMs)`, but every call in `js/todos.js` passed `showToast(message, 'error')` backwards, causing `toast.js` to render `'error'` as the message text.
+  2. **Silent fallback to `DemoDB.getTodos()` on load**:
+     - When `supabase.from('todos').select('*')` failed on page load, `js/todos.js` caught the error and populated `allTodos = DemoDB.getTodos()`, whose fake demo IDs (`'cat-rnd-1'`, `'cat-bas-1'`) did not match real UUIDs in `allCategories`, causing `renderTodosTable()` to display `"Unknown Category"`.
+  3. **Category-only dropdown logic**:
+     - `updateCategoryDropdown` only filtered `categories` (which holds `'basics'` and `'round'` rows), ignoring `DRILL_CATALOG` for `'elements'` and the four Memoriad modules for `'memoriad'`.
+- **Decisions & Rationale**:
+  1. *Pure Form Normalization, Section Options, and Student Link Module (`js/todoForm.js`)*:
+     - `normalizeTaskInput(input, section)` trims all text values, converts `""` to `null` for `category_id`, `activity_key`, and `level` (satisfying `daily_tasks` `CHECK` constraints that reject `level = ''` or both target columns set), validates `title` (`1..80` chars) and `level` (`<= 30` chars), sets `category_id` only for `'basics'`/`'round'`, `activity_key` only for `'elements'`/`'memoriad'`, and neither for `'flash'`.
+     - `optionsForSection(section, categories, drillCatalog, memoriadModules)` returns strictly active section categories for `'basics'`/`'round'`, enabled drills from `js/drillCatalog.js` for `'elements'`, the 4 modules (`calendar`, `additions`, `multiplications`, `square_roots`) for `'memoriad'`, and `[]` for `'flash'`.
+     - `taskLink(task)` computes the exact student deep link (`/pages/basics.html?cat=<id>`, `/pages/basics.html`, `/pages/round-scores.html`, `/pages/element-drill.html?drill=<key>`, `/pages/elements.html`, `/pages/memoriad-play.html?module=<key>`, `/pages/memoriad.html`, `/pages/flash.html`).
+     - `formatTaskTarget(task, ...)` formats section-wide tasks as `"Any activity in <Section>"` so `"Unknown Category"` never appears.
+  2. *Authoritative `todo_for(p_student)` RPC Completion Status*:
+     - Task completion (`done`) continues to be evaluated exclusively by the PostgreSQL RPC `todo_for(p_student)` (never computed in browser JavaScript).
+
+---
+
+## ADR-039: Phase 10c — Admin Profile Editing & Audit Log (`js/profileForm.js`), English Month Calendar Date Formats, and Hiding Per-Category Time for Flat Rounds (`js/roundType.js`)
+
+- **Date**: 2026-10-25
+- **Status**: Accepted
+- **Context**:
+  - Phase 10c introduces three targeted enhancements:
+    1. Admin profile editing (`full_name`, `level`, `leaderboard_visible`, `active`) and a **Change history** drawer (`profile_audit`) on `/pages/students.html` and `/pages/student-detail.html`.
+    2. Two new English month-name date formats (`"DD Mon YYYY"` and `"DD-Mon-YYYY"`) for Memoriad Mental Calendar Dates (`js/memoriadFormat.js`, `js/memoriadPlay.js`).
+    3. Hiding per-category time inputs and cells for Flat Rounds (`js/roundType.js`, `/pages/round-scores.html`, `js/roundScores.js`, `js/stats.js`, `js/dashboardComponents.js`).
+- **Decisions & Rationale**:
+  1. **Why `student_code` (Student ID) and `role` Cannot Be Edited from the Site**:
+     - `student_code` is the student's login username and maps deterministically to the internal Supabase Auth synthetic email (`<student_code>@trendz.local`) created when the account is provisioned. Mutating `profiles.student_code` in-place from the frontend would desynchronize `profiles.student_code` from `auth.users.email`, breaking login and password resets.
+     - `role` (`'student'` vs `'admin'`) governs Row-Level Security (RLS) and administrative privileges across every table and serverless endpoint. Allowing role elevation from the client profile form would create a privilege-escalation risk; a PostgreSQL trigger on `profiles` therefore rejects any application-level change to `student_code` or `role`.
+     - Consequently, the Edit Profile modal displays `student_code` as read-only with the tooltip *"The student ID is the login name and cannot be changed here"*, omits `role` altogether, and sends a single `.update(changedFields)` containing only modified fields among `full_name`, `level`, `leaderboard_visible`, and `active`.
+  2. **Why Flat Rounds Hide Per-Category Time Without Deleting Existing Stored Times**:
+     - In a **Flat Round** (`isFlatRound(roundType) === true` when the trimmed, lower-cased round type starts with `"flat"`), students complete the entire competition paper under a single continuous stopwatch rather than timing each category separately. Only the round's overall **Total Time Taken** (`student_rounds.time_taken_seconds`) is meaningful.
+     - Showing per-category `Time (mm:ss)` inputs during a Flat Round adds visual clutter and slows down score entry, and showing `—` on every category cell in the dashboard and student-detail score tables wastes vertical space.
+     - However, if a student or teacher temporarily switches the Round Type dropdown between `"Category wise"` and `"Flat Round"`, or if a round already has historical category times stored in `results.time_seconds`, those stored values must never be erased or overwritten with `null`. Therefore, flat mode hides `.cell-time` via CSS on the entry screen, omits `time_seconds` from `results` insert/update payloads, and hides the per-category time line in score sheet cells while preserving the round's **Time Taken** summary row.
+
+
+---
+
+## ADR-040: Phase 10d — One-Way Readable Google Sheets Score-Sheet Mirror & Static Values Instead of Formulas
+
+- **Date**: 2026-10-27
+- **Status**: Accepted
+- **Context**:
+  - Teachers and administrators wanted a human-readable Google Spreadsheet (`MIRROR_SHEET_ID`) with one tab per active student laid out identically to the classic Jr. MCWC score sheets, both for quick inspection and as a familiar fallback during a website outage.
+- **Decisions & Rationale**:
+  1. **Why the Mirror Is Strictly One-Way (Website $\rightarrow$ Sheet)**:
+     - Two-way synchronization between a free-form Google Sheet and a relational PostgreSQL database with Row-Level Security, teacher verification locks (`verified`, `corrected_by`), and audit trails (`result_audit`) introduces severe conflict-resolution hazards: accidental edits in Google Sheets could overwrite verified scores, bypass database constraints, or lose audit attribution.
+     - Making the mirror strictly **one-way (website to sheet)** guarantees that PostgreSQL remains the single authoritative source of truth. During an outage, teachers follow the 4-step workflow in `/docs/OUTAGE-PLAN.md`: they make a copy of the mirror sheet (`File -> Make a copy`), record new rounds in the copy, export modified tabs as CSV when the website returns, and import them through `/pages/import.html` (which validates every cell and skips existing rounds automatically).
+  2. **Why the Mirror Writes Static Values (`stringValue` and `numberValue`) Instead of Spreadsheet Formulas**:
+     - Writing pre-computed values (`Final Score`, `Total Attempt`, `Marks TO BE CORRECTED`, `Time Taken`) as plain numbers and strings (`userEnteredValue.numberValue` / `userEnteredValue.stringValue`, never `formulaValue`) guarantees 100% parity with the database, prevents formula-injection vulnerabilities if student notes contain `=`, avoids Google Sheets recalculation overhead across dozens of student tabs, and ensures that exporting any tab to CSV round-trips cleanly through `parseScoreSheetCsv` (`js/importParser.js`).
+  3. **Shared Colour Rule (`shared/scoreColors.js` Re-exported by `js/scoreColors.js`)**:
+     - Centralizing the boundary logic (`0` wrong & `total > 0` $\rightarrow$ `green` `#00E000`; `1..10` wrong $\rightarrow$ `orange` `#FF9900`; `> 10` wrong $\rightarrow$ `cyan` `#00E5FF`; `total = 0` or no data $\rightarrow$ `null`) in `shared/scoreColors.js` ensures the website UI and the Google Sheets mirror never diverge.
+
+---
+
+## ADR-041: Phase 10e — Elements Worksheet Question Layout (`js/questionLayout.js`) & Non-Breaking Operators
+
+- **Date**: 2026-10-27
+- **Status**: Accepted
+- **Context**:
+  - In Elements Division drills (`divide_by_4`, `divide_by_7`), short prompts such as `"72 / 7"` wrapped inside `.element-question-row` at narrower column widths, dropping the divisor onto a second line below the dividend and slash.
+- **Decisions & Rationale**:
+  1. **Single Inline Question Span with Threshold `<= 18` Characters (`js/questionLayout.js`)**:
+     - `questionLayout(text)` returns `'nowrap'` when the trimmed prompt is `18` characters or fewer and `'wrap'` when it is `19` characters or longer.
+     - Short prompts render with `white-space: nowrap` and `font-variant-numeric: tabular-nums` inside a 3-part CSS Grid row (`question number`, `question text`, `fixed-width answer input`), guaranteeing that prompts like `"72 / 4"` and `"888 / 1554"` never split across lines.
+     - Longer prompts (`days_to_seconds`, `"Jan. 10, 1700 - March 5, 1800"`) use `formatQuestionText(text)` to bind operators (`-`, `/`, `-->`) to their preceding token with `\u00A0` so line breaks only occur at spaces and never leave an operator alone on a line.
+
+---
+
+## ADR-042: Phase 10f — Replacing the Four Random Square/Cube Drills with Ten Staged Non-Repeating Range Drills
+
+- **Date**: 2026-10-27
+- **Status**: Accepted
+- **Context**:
+  - Previously, the Elements catalog had four Square and Cube drills (`squares_11_50`, `squares_51_100`, `cubes_11_50`, `cubes_51_100`) that sampled 50 random numbers with replacement from `11..50` or `51..100`. That left `1..10` unpractised, repeated some numbers multiple times in a single worksheet while skipping others, and jumped across too wide a difficulty gap (`11..50` vs `51..100`) for students learning squares and cubes incrementally.
+- **Decisions & Rationale**:
+  1. **Why Staged Non-Repeating Ranges Replace the Old Four Drills**:
+     - Splitting `1..100` into four 25-number stages (`Stage 1: 1–25`, `Stage 2: 26–50`, `Stage 3: 51–75`, `Stage 4: 76–100`) plus a 100-question `Combined (1–100)` worksheet for both **Squares** and **Cubes** (10 drills total) lets students master one 25-number block at a time before attempting the full `1–100` combined sheet.
+     - Because each stage generates **every integer in its range `[min..max]` exactly once** in Fisher-Yates shuffled order (`generateRangePowerSet` in `api/_drills.js`), a single attempt tests 100% of that stage's numbers with zero duplicates and zero gaps.
+  2. **Why Question Counts and Time Limits Are Kept as Named Placeholder Constants in One Place (`js/drillCatalog.js`)**:
+     - The question counts (`25` per stage, `100` combined) and time limits (`60s, 75s, 100s, 120s, 360s` for Squares; `90s, 110s, 130s, 150s, 480s` for Cubes) are initial teacher placeholders that may be tuned after classroom timing trials. Defining them as named constants (`SQUARES_STAGE_1_TIME_SECONDS`, `SQUARE_CUBE_STAGE_SPECS`, etc.) in `js/drillCatalog.js` and importing them directly into `api/_drills.js` guarantees a single source of truth between client and server.
+  3. **Non-Destructive Archiving of Historical Results & Old To-Do Tasks**:
+     - Historical `activity_results` rows with `squares_11_50`, `squares_51_100`, `cubes_11_50`, or `cubes_51_100` are never deleted or modified in the database. On history lists (`formatDrillHistoryName`, `recentSets`) they are displayed as `"<name> (old drill)"`, and `bestForDrill` excludes keys not in `DRILL_CATALOG` so old 50-question sets do not mix with the new 25-question or 100-question stage personal bests.
+     - Any old `daily_tasks` row pointing to a removed `activity_key` resolves to `"Activity no longer available"` (`formatTaskTarget`, `isTaskActivityAvailable`) so neither the student dashboard nor the admin To-Do page ever breaks.
+
+---
+
+## ADR-043: Phase 10g — Timed Online Basics Practice (`mode: 'timed' | 'unlimited'`), Pool Sizing, and Questions-Per-Minute Target Evaluation
+
+- **Date**: 2026-10-27
+- **Status**: Accepted
+- **Context**:
+  - Previously, online Basics practice (`/pages/basics-practice.html`) asked students to pick a fixed number of questions (`10, 20, 30, 50, 100, 200`) and raced a stopwatch to finish that fixed set. In classroom coaching, however, students have different calculation speeds: a fixed 100-question set can take a beginner 6 minutes while a senior student finishes in 90 seconds. Teachers wanted standardized **time modes** (`30 seconds`, `1 minute`, `2 minutes`, `5 minutes`, and `Unlimited (stopwatch)`) where students answer as many questions as they can before the clock hits zero.
+- **Decisions & Rationale**:
+  1. **Why Time Modes Replace Fixed Question Counts**:
+     - Fixed-duration sprints (`30s`, `60s`, `120s`, `300s`) give every student a predictable, bounded practice window and make speed comparisons (`correct per minute` and `attempted per minute`) directly comparable across durations.
+     - Retaining `"Unlimited (stopwatch)"` (`mode: 'unlimited'`) alongside `"Timed"` (`mode: 'timed'`) lets students practice open-ended endurance sessions while keeping personal bests cleanly separated between `'timed'` and `'unlimited'` (`results.practice_mode`).
+  2. **How Question Pools Are Sized (`50 / 100 / 200 / 500 / 1000`) & Non-Repeating Adjacency**:
+     - Generating the entire pool on the server at `start` avoids per-question network round-trips during play while keeping expected answers strictly server-side in `drill_sessions`.
+     - Pool sizes are set to `BASICS_TIMED_POOLS = { 30: 50, 60: 100, 120: 200, 300: 500 }` (equivalent to 100 questions/minute ceiling, 1.67 questions/second) and `BASICS_UNLIMITED_POOL = 1000` for stopwatch mode, with consecutive duplicate prevention (`q[i].text !== q[i-1].text`) so two identical questions never appear back-to-back.
+     - When the countdown reaches zero (or the student clicks `Finish` early), the client submits only the prefix of questions actually reached (`answers.length = attempted`), excluding the question still on screen when the timer expired.
+  3. **Why Targets Use `min_questions_per_minute` for Timed/Stopwatch Rounds (`results_with_target`)**:
+     - A fixed `max_time_seconds` rule (e.g. `"time at most 2:00"`) only makes sense when every set has the same fixed question count. In timed rounds (`30s` to `5m`) and stopwatch rounds, speed is independent of round duration when measured as **questions per minute** (`total / (time_seconds / 60)`).
+     - Adding optional `basics_thresholds.min_questions_per_minute` and evaluating `meets_target` authoritatively inside the PostgreSQL view `results_with_target` (checking `min_accuracy` and `min_questions_per_minute` when `practice_mode IS NOT NULL`, and `min_accuracy` and `max_time_seconds` when `practice_mode IS NULL`) guarantees that JavaScript never computes `meets_target` and that both new timed rounds and historical/typed entries are evaluated by their appropriate benchmark.

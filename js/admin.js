@@ -7,6 +7,8 @@ import { createStudent, resetStudentPassword, toggleStudentActive, toggleStudent
 import { isSupabaseConfigured } from './config.js';
 import { requireAuth } from './guard.js';
 import { closeModal, openModal, setupModalListeners, setupAdminNav } from './modal.js';
+import { initProfileEditor, openEditProfileModal, openProfileAuditDrawer } from './profileEditor.js';
+import { collectExistingLevels } from './profileForm.js';
 import { DemoDB, getSupabase, clearStaleSupabaseSession } from './supabaseClient.js';
 import { showToast } from './toast.js';
 
@@ -63,6 +65,7 @@ async function loadStudents() {
       allStudents = DemoDB.getStudents();
     }
 
+    syncLevelFilterOptions();
     renderTable();
     updateStats();
   } catch (err) {
@@ -110,6 +113,30 @@ function updateStats() {
   if (totalEl) totalEl.textContent = total;
   if (activeEl) activeEl.textContent = active;
   if (inactiveEl) inactiveEl.textContent = inactive;
+}
+
+/**
+ * Sync the #filter-level dropdown options with levels present on student profiles
+ */
+function syncLevelFilterOptions() {
+  const selectEl = document.getElementById('filter-level');
+  if (!selectEl) return;
+  const currentVal = selectEl.value;
+  const defaultLevels = ['Level 1', 'Level 2', 'Level 3', 'Level 4', 'Master'];
+  const existing = collectExistingLevels(allStudents);
+  const merged = collectExistingLevels([
+    ...defaultLevels,
+    ...existing
+  ]);
+
+  selectEl.innerHTML = [
+    '<option value="">All Levels</option>',
+    ...merged.map(lvl => `<option value="${escapeHtml(lvl)}">${escapeHtml(lvl)}</option>`)
+  ].join('');
+
+  if (currentVal && merged.some(l => l.toLowerCase() === currentVal.toLowerCase())) {
+    selectEl.value = currentVal;
+  }
 }
 
 /**
@@ -178,7 +205,23 @@ function renderTable() {
         </label>
       </td>
       <td style="text-align: right;">
-        <div style="display: inline-flex; gap: var(--space-2);">
+        <div style="display: inline-flex; gap: var(--space-2); flex-wrap: wrap; justify-content: flex-end;">
+          <button
+            type="button"
+            class="btn btn-outline btn-sm btn-edit-profile"
+            data-id="${student.id}"
+            title="Edit student profile"
+          >
+            Edit
+          </button>
+          <button
+            type="button"
+            class="btn btn-outline btn-sm btn-profile-history"
+            data-id="${student.id}"
+            title="View profile change history"
+          >
+            Change history
+          </button>
           <button
             type="button"
             class="btn btn-outline btn-sm btn-reset-pwd"
@@ -212,6 +255,26 @@ function renderTable() {
  * Attach button click handlers for Reset Password and Toggle Active
  */
 function attachRowListeners() {
+  document.querySelectorAll('.btn-edit-profile').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const studentId = btn.getAttribute('data-id');
+      const student = allStudents.find(s => s.id === studentId);
+      if (student) {
+        openEditProfileModal(student);
+      }
+    });
+  });
+
+  document.querySelectorAll('.btn-profile-history').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const studentId = btn.getAttribute('data-id');
+      const student = allStudents.find(s => s.id === studentId);
+      if (student) {
+        openProfileAuditDrawer(student);
+      }
+    });
+  });
+
   document.querySelectorAll('.btn-reset-pwd').forEach(btn => {
     btn.addEventListener('click', () => {
       const studentId = btn.getAttribute('data-id');
@@ -293,6 +356,13 @@ async function initAdmin() {
 
   setupModalListeners();
   setupAdminNav();
+
+  initProfileEditor({
+    getExistingLevels: () => collectExistingLevels(allStudents),
+    onProfileSaved: async () => {
+      await loadStudents();
+    }
+  });
 
   // "Add Student" modal trigger
   document.getElementById('btn-open-create-modal')?.addEventListener('click', () => {

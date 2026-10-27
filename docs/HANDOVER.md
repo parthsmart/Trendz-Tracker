@@ -481,3 +481,25 @@
 - Built Vercel serverless functions in `/api` to safely execute administrative user creation and password resets.
 - Established the `/docs` governance and architecture suite prioritizing child data protection and strict row isolation.
 - Maintained a zero-external-dependency frontend using vanilla HTML/CSS/JS and pinned Supabase CDN scripts.
+
+
+---
+
+## Phase 10d: Readable Score-Sheet Mirror (`MIRROR_SHEET_ID`) Setup & Handover
+
+### 1. Creating & Sharing the Mirror Spreadsheet
+1. In Google Drive / Google Sheets, create a **new blank Google Spreadsheet** (separate from `BACKUP_SHEET_ID`), e.g. named `Trendz Tracker — Score Sheet Mirror (Read-Only)`.
+2. Copy the Spreadsheet ID from its URL:
+   `https://docs.google.com/spreadsheets/d/<MIRROR_SHEET_ID>/edit`
+3. Click **Share** in the top-right corner of Google Sheets and share the spreadsheet with the **exact same service account email** (`client_email` inside `GOOGLE_SERVICE_ACCOUNT_JSON`) with **Editor** permission.
+4. Set the optional environment variable `MIRROR_SHEET_ID` in Vercel (and in `.env` for local server runs):
+   ```env
+   MIRROR_SHEET_ID=your_google_mirror_spreadsheet_id_here
+   ```
+   - If `MIRROR_SHEET_ID` is not set, the mirror feature is simply off and table backups continue normally with no error.
+
+### 2. How the Score-Sheet Mirror Works
+- **Incremental Fingerprint Sync**: After Phase A (12 snapshot tables) and Phase B (6 append tables) in `/api/backup.js`, if time remains in the 8-second budget and `MIRROR_SHEET_ID` is set, the server calls `mirror_fingerprints()` and compares against `public.mirror_state` using `staleStudents(fingerprints, stateRows)` (never-built students first, then oldest `last_built_at` first).
+- **Single `batchUpdate` Per Student**: For each stale student, the server calls `mirror_student_data(student_id)`, builds the pure cell grid via `buildStudentTabModel(data)` (`api/_mirror.js`), and sends one `batchUpdate` (`writeMirrorTab` in `api/_google.js`) to create/rename/resize the tab, set frozen rows (`4`) and columns (`3`), clear old values/formats, write all cells (`stringValue` and `numberValue` only, never formulas) with background colours (`#00E000` green, `#FF9900` orange, `#00E5FF` cyan), and set column widths.
+- **No Automatic Tab Deletion**: Tabs are never deleted automatically, even when a student is marked inactive.
+- **Emergency Outage Plan**: See [`/docs/OUTAGE-PLAN.md`](./OUTAGE-PLAN.md) and the collapsed *"If the website is down"* guide on `/pages/backup.html`.

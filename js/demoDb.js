@@ -45,7 +45,15 @@ export const OLD_SIMULATOR_CATEGORIES = [
   'Cube root', 'Next cube', 'Calendar', 'Time Elapsed', 'Sum of Squares', 'Surprise Task'
 ];
 
-export const DEFAULT_BASICS_CATEGORIES = ['1d4r', '2d2r', '2dx1d', '3d/1d'];
+export const DEFAULT_BASICS_CATEGORIES = [
+  '1d4r',
+  '2d2r',
+  '2d4r',
+  '1dx1d',
+  '2dx1d',
+  '2dby1d',
+  '3d/1d',
+];
 
 /**
  * Returns whether Demo Mode is currently active.
@@ -292,13 +300,13 @@ function initDemoStorage() {
   // 4. Initial To-Dos
   if (!localStorage.getItem(DEMO_STORAGE_KEY_TODOS)) {
     const initialTodos = [
-      { id: 'todo-1', title: 'Round Drill: Addition (ADD)', section: 'round', category_id: 'cat-rnd-1', level: null, sort_order: 1, active: true },
-      { id: 'todo-2', title: 'Round Drill: Subtraction (SUB)', section: 'round', category_id: 'cat-rnd-2', level: null, sort_order: 2, active: true },
-      { id: 'todo-3', title: 'Round Drill: Multiplication (MULT)', section: 'round', category_id: 'cat-rnd-4', level: null, sort_order: 3, active: true },
-      { id: 'todo-4', title: 'Round Drill: Division (DIV)', section: 'round', category_id: 'cat-rnd-5', level: null, sort_order: 4, active: true },
-      { id: 'todo-5', title: 'Mental Basics: 1-digit 4-rows (1d4r)', section: 'basics', category_id: 'cat-bas-1', level: null, sort_order: 5, active: true },
-      { id: 'todo-6', title: 'Mental Basics: 2-digit 2-rows (2d2r)', section: 'basics', category_id: 'cat-bas-2', level: null, sort_order: 6, active: true },
-      { id: 'todo-7', title: 'Any Round Competition Task', section: 'round', category_id: null, level: null, sort_order: 7, active: true }
+      { id: 'todo-1', title: 'Round Drill: Addition (ADD)', section: 'round', category_id: 'cat-rnd-1', activity_key: null, level: null, sort_order: 1, active: true },
+      { id: 'todo-2', title: 'Round Drill: Subtraction (SUB)', section: 'round', category_id: 'cat-rnd-2', activity_key: null, level: null, sort_order: 2, active: true },
+      { id: 'todo-3', title: 'Round Drill: Multiplication (MULT)', section: 'round', category_id: 'cat-rnd-4', activity_key: null, level: null, sort_order: 3, active: true },
+      { id: 'todo-4', title: 'Round Drill: Division (DIV)', section: 'round', category_id: 'cat-rnd-5', activity_key: null, level: null, sort_order: 4, active: true },
+      { id: 'todo-5', title: 'Mental Basics: 1-digit 4-rows (1d4r)', section: 'basics', category_id: 'cat-bas-1', activity_key: null, level: null, sort_order: 5, active: true },
+      { id: 'todo-6', title: 'Mental Basics: 2-digit 2-rows (2d2r)', section: 'basics', category_id: 'cat-bas-2', activity_key: null, level: null, sort_order: 6, active: true },
+      { id: 'todo-7', title: 'Any Round Competition Task', section: 'round', category_id: null, activity_key: null, level: null, sort_order: 7, active: true }
     ];
     localStorage.setItem(DEMO_STORAGE_KEY_TODOS, JSON.stringify(initialTodos));
   }
@@ -790,6 +798,55 @@ export const DemoDB = {
     if (!student) throw new Error('Student not found');
     return true;
   },
+  updateStudentProfile(studentId, changedFields = {}, adminId = 'usr-admin-1') {
+    initDemoStorage();
+    if ('student_code' in changedFields || 'role' in changedFields) {
+      throw new Error('student_code and role cannot be changed from the application.');
+    }
+    const students = this.getStudents();
+    const index = students.findIndex(s => s.id === studentId || s.student_code === studentId);
+    if (index === -1) throw new Error('Student not found.');
+
+    const current = students[index];
+    const oldValues = {};
+    const newValues = {};
+    const allowedKeys = ['full_name', 'level', 'active', 'leaderboard_visible'];
+
+    for (const key of allowedKeys) {
+      if (Object.prototype.hasOwnProperty.call(changedFields, key)) {
+        oldValues[key] = current[key] ?? null;
+        newValues[key] = changedFields[key];
+        current[key] = changedFields[key];
+      }
+    }
+
+    students[index] = current;
+    this.saveStudents(students);
+
+    if (Object.keys(newValues).length > 0) {
+      const auditKey = 'trendz_demo_profile_audit_v1';
+      const auditList = JSON.parse(localStorage.getItem(auditKey) || '[]');
+      auditList.unshift({
+        id: `pa-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        profile_id: current.id,
+        changed_by: adminId,
+        changed_at: new Date().toISOString(),
+        old_values: oldValues,
+        new_values: newValues
+      });
+      localStorage.setItem(auditKey, JSON.stringify(auditList));
+    }
+
+    return current;
+  },
+  getProfileAudit(studentId) {
+    initDemoStorage();
+    const auditKey = 'trendz_demo_profile_audit_v1';
+    const auditList = JSON.parse(localStorage.getItem(auditKey) || '[]');
+    return auditList
+      .filter(a => a.profile_id === studentId)
+      .sort((a, b) => String(b.changed_at || '').localeCompare(String(a.changed_at || '')));
+  },
   getCategories() {
     initDemoStorage();
     return JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_CATEGORIES) || '[]');
@@ -907,7 +964,8 @@ export const DemoDB = {
       task_id: t.id,
       task_title: t.title,
       task_section: t.section,
-      task_category_id: t.category_id,
+      task_category_id: t.category_id || null,
+      task_activity_key: t.activity_key || null,
       done: idx < 4 // 4 of 7 done
     }));
   },
@@ -985,7 +1043,7 @@ export const DemoDB = {
   saveTodos(todos) {
     localStorage.setItem(DEMO_STORAGE_KEY_TODOS, JSON.stringify(todos));
   },
-  addTodo({ title, section, category_id, level }) {
+  addTodo({ title, section, category_id, activity_key, level, active = true }) {
     if (!isDemoMode()) throw new Error('Blocked in production mode');
     const todos = this.getTodos();
     const newTodo = {
@@ -993,9 +1051,10 @@ export const DemoDB = {
       title: title.trim(),
       section,
       category_id: category_id || null,
+      activity_key: activity_key || null,
       level: level ? level.trim() : null,
       sort_order: todos.length + 1,
-      active: true,
+      active: Boolean(active),
       created_at: new Date().toISOString()
     };
     todos.push(newTodo);
@@ -1194,24 +1253,7 @@ export const DemoDB = {
       const isFlagged = r.flagged === true;
       const source = r.source || 'typed';
 
-      let meetsTarget = null;
-      if (cat.section === 'basics') {
-        const studentLevel = (student.level || '').trim().toLowerCase();
-        const levelRule = targets.find(t => t.category_id === r.category_id && t.level && t.level.trim().toLowerCase() === studentLevel);
-        const defaultRule = targets.find(t => t.category_id === r.category_id && !t.level);
-        const effective = levelRule || defaultRule;
-        if (effective) {
-          const minAcc = effective.min_accuracy;
-          const maxTime = effective.max_time_seconds;
-          if (maxTime !== null && (r.time_seconds === null || r.time_seconds > maxTime)) {
-            meetsTarget = false;
-          } else if (r.total && r.total > 0) {
-            meetsTarget = ((r.correct / r.total) * 100) >= minAcc;
-          } else {
-            meetsTarget = false;
-          }
-        }
-      }
+      const meetsTarget = r.meets_target !== undefined ? r.meets_target : null;
 
       return {
         ...r,
@@ -1609,6 +1651,12 @@ export const DemoDB = {
       category_id: data.category_id,
       level: normLevel,
       min_accuracy: Math.max(0, Math.min(100, Math.round(Number(data.min_accuracy) || 0))),
+      min_questions_per_minute:
+        data.min_questions_per_minute !== undefined &&
+        data.min_questions_per_minute !== null &&
+        data.min_questions_per_minute !== ''
+          ? Number(data.min_questions_per_minute)
+          : null,
       max_time_seconds: data.max_time_seconds ? Number(data.max_time_seconds) : null,
       active: data.active !== false,
       created_at: new Date().toISOString()
@@ -1647,6 +1695,12 @@ export const DemoDB = {
       category_id: catId,
       level: normLevel,
       min_accuracy: updates.min_accuracy !== undefined ? Math.max(0, Math.min(100, Math.round(Number(updates.min_accuracy) || 0))) : current.min_accuracy,
+      min_questions_per_minute:
+        updates.min_questions_per_minute !== undefined
+          ? updates.min_questions_per_minute !== null && updates.min_questions_per_minute !== ''
+            ? Number(updates.min_questions_per_minute)
+            : null
+          : current.min_questions_per_minute ?? null,
       max_time_seconds: updates.max_time_seconds !== undefined ? (updates.max_time_seconds ? Number(updates.max_time_seconds) : null) : current.max_time_seconds,
       active: updates.active !== undefined ? Boolean(updates.active) : current.active
     };
@@ -1791,30 +1845,19 @@ export const DemoDB = {
         const defaultRule = targets.find(t => t.category_id === r.category_id && !t.level);
         const effective = levelRule || defaultRule;
 
-        let meets = null;
-        let minAcc = null;
-        let maxTime = null;
-
-        if (effective) {
-          minAcc = effective.min_accuracy;
-          maxTime = effective.max_time_seconds;
-
-          if (maxTime !== null && (r.time_seconds === null || r.time_seconds > maxTime)) {
-            meets = false;
-          } else if (r.total && r.total > 0) {
-            const acc = (r.correct / r.total) * 100;
-            meets = acc >= minAcc;
-          } else {
-            meets = false;
-          }
-        }
+        const minAcc = effective ? effective.min_accuracy : null;
+        const maxTime = effective ? effective.max_time_seconds : null;
+        const minQpm = effective ? (effective.min_questions_per_minute ?? null) : null;
+        const meets = r.meets_target !== undefined ? r.meets_target : (effective ? true : null);
 
         return {
           ...r,
           source: r.source || 'typed',
+          practice_mode: r.practice_mode || null,
           verified: r.verified === true || !!r.verified_at || !!r.verified_by,
           categories: cat ? { id: cat.id, name: cat.name, section: cat.section } : null,
           min_accuracy: minAcc,
+          min_questions_per_minute: minQpm,
           max_time_seconds: maxTime,
           meets_target: meets
         };
@@ -3007,6 +3050,18 @@ export const DemoDB = {
           updated_at: nowIso
         },
         {
+          id: 'act-demo-elem-stage-1',
+          student_id: 'usr-101',
+          activity_type: 'element',
+          activity_name: 'Square - Stage 1 (1-25)',
+          correct: 25,
+          total: 25,
+          time_seconds: 42,
+          settings: { drill: 'squares_stage_1', questions: 25, time_limit_seconds: 60, attempted: 25 },
+          created_at: yestIso,
+          updated_at: yestIso
+        },
+        {
           id: 'act-demo-elem-2',
           student_id: 'usr-101',
           activity_type: 'element',
@@ -3033,6 +3088,18 @@ export const DemoDB = {
           settings: { drill: 'day_codes', questions: 56, time_limit_seconds: 60, attempted: 56 },
           created_at: nowIso,
           updated_at: nowIso
+        },
+        {
+          id: 'act-demo-elem-stage-1',
+          student_id: 'usr-101',
+          activity_type: 'element',
+          activity_name: 'Square - Stage 1 (1-25)',
+          correct: 25,
+          total: 25,
+          time_seconds: 42,
+          settings: { drill: 'squares_stage_1', questions: 25, time_limit_seconds: 60, attempted: 25 },
+          created_at: yestIso,
+          updated_at: yestIso
         },
         {
           id: 'act-demo-elem-2',
@@ -3298,7 +3365,18 @@ export const DemoDB = {
       cellLimit: 10000000,
       cellWarnRatio: 0.7,
       tables,
-      runs: runs.slice(0, 10)
+      runs: runs.slice(0, 10),
+      mirror: {
+        configured: false,
+        sheetUrl: null,
+        total: 4,
+        upToDate: 4,
+        rebuilt: 0,
+        remaining: 0,
+        lastBuiltAt: lastGoogle?.finished_at || '2026-10-18T20:30:06.000Z',
+        lastError: null,
+        errors: []
+      }
     };
   },
 
@@ -3399,7 +3477,7 @@ export const DemoDB = {
 
   // ==================== PHASE 9A: ONLINE BASICS PRACTICE DEMO FIXTURES ====================
   // Fixed demo practice set and fixed result (no generation or checking in the browser).
-  mockBasicsDrillStart(categoryId = 'cat-bas-1') {
+  mockBasicsDrillStart(categoryId = 'cat-bas-1', mode = 'timed', seconds = 60) {
     if (!isDemoMode()) {
       throw new Error('Action blocked: Demo mode cannot mutate live database.');
     }
@@ -3434,11 +3512,19 @@ export const DemoDB = {
       ];
     }
 
+    const poolMap = { 30: 50, 60: 100, 120: 200, 300: 500 };
+    const normMode = mode === 'unlimited' ? 'unlimited' : 'timed';
+    const normSeconds = normMode === 'timed' ? (Number(seconds) || 60) : null;
+    const pool = normMode === 'unlimited' ? 1000 : (poolMap[normSeconds] || 100);
+
     return {
       session_id: `demo-basics-session-${Date.now()}`,
       title: cat.name,
       questions,
-      target: { min_accuracy: 90, max_time_seconds: 120 },
+      mode: normMode,
+      seconds: normSeconds,
+      pool,
+      target: { min_accuracy: 90, min_questions_per_minute: 40 },
     };
   },
 
@@ -3446,7 +3532,8 @@ export const DemoDB = {
     sessionId,
     answers = [],
     studentId = 'usr-101',
-    categoryId = 'cat-bas-1'
+    categoryId = 'cat-bas-1',
+    mode = 'timed'
   ) {
     if (!isDemoMode()) {
       throw new Error('Action blocked: Demo mode cannot mutate live database.');
@@ -3494,6 +3581,8 @@ export const DemoDB = {
       day: '2-digit',
     }).format(new Date());
 
+    const practiceMode = mode === 'unlimited' ? 'unlimited' : 'timed';
+
     initDemoStorage();
     const results = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_RESULTS) || '[]');
     results.unshift({
@@ -3503,12 +3592,13 @@ export const DemoDB = {
       category_id: categoryId || 'cat-bas-1',
       correct: 4,
       total: 5,
-      time_seconds: 22,
+      time_seconds: 30,
       note: null,
       entry_date: todayIstStr,
       created_at: nowIso,
       updated_at: nowIso,
       source: 'site',
+      practice_mode: practiceMode,
       verified: true,
       verified_by: null,
       verified_at: null,
@@ -3516,14 +3606,17 @@ export const DemoDB = {
       corrected_at: null,
       flagged: false,
       flag_note: null,
+      meets_target: true,
     });
     localStorage.setItem(DEMO_STORAGE_KEY_RESULTS, JSON.stringify(results));
 
     return {
       correct: 4,
-      total: 5,
+      attempted: 5,
       accuracy: 80.0,
-      seconds: 22,
+      used_seconds: 30,
+      correct_per_minute: 8.0,
+      attempted_per_minute: 10.0,
       detail: fixedDetail,
       result_id: resultId,
     };

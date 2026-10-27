@@ -12,7 +12,11 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { createDrillPlayer } from '../js/drillPlayer.js';
+import {
+  createDrillPlayer,
+  computeRemainingSeconds,
+  getRemainingSeconds,
+} from '../js/drillPlayer.js';
 
 describe('Phase 9a — js/drillPlayer.js (Pure One-Question-at-a-Time Player)', () => {
   const sampleQuestions = [
@@ -112,3 +116,76 @@ describe('Phase 9a — js/drillPlayer.js (Pure One-Question-at-a-Time Player)', 
     assert.deepEqual(player.getAnswers(), ['12', null, null, null]);
   });
 });
+
+describe('Phase 10g — Pool Mode (revisitSkipped: false) & Timer Remaining-Seconds Helper', () => {
+  const poolQuestions = [
+    { type: 'mul', a: 2, b: 3, text: '2 x 3' },
+    { type: 'mul', a: 4, b: 5, text: '4 x 5' },
+    { type: 'mul', a: 6, b: 7, text: '6 x 7' },
+    { type: 'mul', a: 8, b: 9, text: '8 x 9' },
+    { type: 'mul', a: 3, b: 9, text: '3 x 9' },
+  ];
+
+  it('in pool mode (timed/unlimited), skip records null immediately and finish() returns only reached answers excluding the on-screen question', () => {
+    const player = createDrillPlayer(poolQuestions, { mode: 'timed' });
+
+    // Q0: answered
+    player.answer('6');
+    assert.equal(player.getAttemptedCount(), 1);
+    assert.equal(player.getAnsweredCount(), 1);
+
+    // Q1: skipped -> counts as attempted (null), advances to Q2
+    player.skip();
+    assert.equal(player.getAttemptedCount(), 2);
+    assert.equal(player.getAnsweredCount(), 1);
+    assert.equal(player.getCurrentIndex(), 2);
+
+    // Q2: answered
+    player.answer('42');
+    assert.equal(player.getAttemptedCount(), 3);
+    assert.equal(player.getAnsweredCount(), 2);
+    assert.equal(player.getCurrentIndex(), 3);
+
+    // Q3 is currently on screen when timer hits zero -> finish() excludes Q3 and Q4
+    const reached = player.finish();
+    assert.deepEqual(reached, ['6', null, '42']);
+    assert.deepEqual(player.getReachedAnswers(), ['6', null, '42']);
+  });
+
+  it('computeRemainingSeconds and getRemainingSeconds compute exact countdown state with a fixed clock', () => {
+    const startMs = 100000;
+    const endTimeMs = startMs + 60000; // 60-second round
+
+    // At start (0s elapsed)
+    const t0 = computeRemainingSeconds(endTimeMs, 100000, 60);
+    assert.equal(t0.remainingSeconds, 60);
+    assert.equal(t0.progressFraction, 1);
+    assert.equal(t0.expired, false);
+    assert.equal(getRemainingSeconds(endTimeMs, 100000), 60);
+
+    // Halfway (30s elapsed)
+    const tHalf = computeRemainingSeconds(endTimeMs, 130000, 60);
+    assert.equal(tHalf.remainingSeconds, 30);
+    assert.equal(tHalf.progressFraction, 0.5);
+    assert.equal(tHalf.expired, false);
+
+    // Fractional second (59.2s elapsed -> 0.8s left -> ceil to 1s)
+    const tNearEnd = computeRemainingSeconds(endTimeMs, 159200, 60);
+    assert.equal(tNearEnd.remainingSeconds, 1);
+    assert.equal(tNearEnd.expired, false);
+
+    // Exactly at end (60s elapsed -> 0s left, expired = true)
+    const tEnd = computeRemainingSeconds(endTimeMs, 160000, 60);
+    assert.equal(tEnd.remainingSeconds, 0);
+    assert.equal(tEnd.progressFraction, 0);
+    assert.equal(tEnd.expired, true);
+    assert.equal(getRemainingSeconds(endTimeMs, 160000), 0);
+
+    // Past end (62s elapsed -> clamped at 0)
+    const tPast = computeRemainingSeconds(endTimeMs, 162000, 60);
+    assert.equal(tPast.remainingSeconds, 0);
+    assert.equal(tPast.progressFraction, 0);
+    assert.equal(tPast.expired, true);
+  });
+});
+

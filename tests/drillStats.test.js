@@ -18,6 +18,9 @@ import {
   recentSets,
   setsThisWeek,
   summaryByDrill,
+  formatDrillHistoryName,
+  isArchivedDrillRow,
+  isCatalogDrillRow,
 } from '../js/drillStats.js';
 
 describe('Phase 8 — drillStats.js: bestForDrill & isNewPersonalBest', () => {
@@ -181,10 +184,10 @@ describe('Phase 8 — drillStats.js: recentSets & setsThisWeek (India time)', ()
   });
 });
 
-describe('Phase 8 — drillStats.js: summaryByDrill', () => {
-  it('returns summaries for all 18 catalog drills with accurate count, best, and last', () => {
+describe('Phase 8 & 10f — drillStats.js: summaryByDrill & Archived Old Drill Keys', () => {
+  it('returns summaries for all 24 catalog drills with accurate count, best, and last', () => {
     const emptySummary = summaryByDrill([]);
-    assert.equal(Object.keys(emptySummary).length, 18);
+    assert.equal(Object.keys(emptySummary).length, 24);
     assert.equal(emptySummary.day_codes.count, 0);
     assert.equal(emptySummary.day_codes.best, null);
     assert.equal(emptySummary.day_codes.last, null);
@@ -193,28 +196,93 @@ describe('Phase 8 — drillStats.js: summaryByDrill', () => {
       {
         id: 's1',
         activity_type: 'element',
-        activity_name: 'Square (11-50)',
-        settings: { drill: 'squares_11_50' },
-        correct: 48,
-        total: 50,
-        time_seconds: 95,
+        activity_name: 'Square - Stage 1 (1-25)',
+        settings: { drill: 'squares_stage_1' },
+        correct: 24,
+        total: 25,
+        time_seconds: 48,
         created_at: '2026-10-17T10:00:00.000Z',
       },
       {
         id: 's2',
         activity_type: 'element',
-        activity_name: 'Square (11-50)',
-        settings: { drill: 'squares_11_50' },
-        correct: 45,
-        total: 50,
-        time_seconds: 80,
+        activity_name: 'Square - Stage 1 (1-25)',
+        settings: { drill: 'squares_stage_1' },
+        correct: 22,
+        total: 25,
+        time_seconds: 40,
         created_at: '2026-10-19T10:00:00.000Z',
       },
     ];
 
     const summary = summaryByDrill(rows);
-    assert.equal(summary.squares_11_50.count, 2);
-    assert.equal(summary.squares_11_50.best.id, 's1');
-    assert.equal(summary.squares_11_50.last.id, 's2');
+    assert.equal(summary.squares_stage_1.count, 2);
+    assert.equal(summary.squares_stage_1.best.id, 's1');
+    assert.equal(summary.squares_stage_1.last.id, 's2');
+  });
+
+  it('treats old removed keys (squares_11_50, squares_51_100, cubes_11_50, cubes_51_100) as archived: keeps stored activity_name, displays "<name> (old drill)", and excludes from bestForDrill', () => {
+    const archivedRows = [
+      {
+        id: 'old-sq-1',
+        activity_type: 'element',
+        activity_name: 'Square (11-50)',
+        settings: { drill: 'squares_11_50' },
+        correct: 50,
+        total: 50,
+        time_seconds: 75,
+        created_at: '2026-10-20T10:00:00.000Z',
+      },
+      {
+        id: 'old-cb-1',
+        activity_type: 'element',
+        activity_name: 'Cube (51-100)',
+        settings: { drill: 'cubes_51_100' },
+        correct: 50,
+        total: 50,
+        time_seconds: 120,
+        created_at: '2026-10-19T10:00:00.000Z',
+      },
+      {
+        id: 'active-st-1',
+        activity_type: 'element',
+        activity_name: 'Square - Stage 1 (1-25)',
+        settings: { drill: 'squares_stage_1' },
+        correct: 23,
+        total: 25,
+        time_seconds: 50,
+        created_at: '2026-10-18T10:00:00.000Z',
+      },
+    ];
+
+    // Archived vs catalog classification
+    assert.equal(isArchivedDrillRow(archivedRows[0]), true);
+    assert.equal(isCatalogDrillRow(archivedRows[0]), false);
+    assert.equal(isArchivedDrillRow(archivedRows[2]), false);
+    assert.equal(isCatalogDrillRow(archivedRows[2]), true);
+
+    // Display formatting for history list
+    assert.equal(formatDrillHistoryName(archivedRows[0]), 'Square (11-50) (old drill)');
+    assert.equal(formatDrillHistoryName(archivedRows[1]), 'Cube (51-100) (old drill)');
+    assert.equal(formatDrillHistoryName(archivedRows[2]), 'Square - Stage 1 (1-25)');
+
+    // Stored activity_name on recentSets rows is never mutated, while display_name has "(old drill)"
+    const history = recentSets(archivedRows, 10);
+    assert.equal(history.length, 3);
+    assert.equal(history[0].activity_name, 'Square (11-50)');
+    assert.equal(history[0].display_name, 'Square (11-50) (old drill)');
+    assert.equal(history[0].is_old_drill, true);
+    assert.equal(history[2].activity_name, 'Square - Stage 1 (1-25)');
+    assert.equal(history[2].display_name, 'Square - Stage 1 (1-25)');
+    assert.equal(history[2].is_old_drill, false);
+
+    // Old results are NOT counted in any drill's best
+    assert.equal(bestForDrill(archivedRows, 'squares_11_50'), null);
+    assert.equal(bestForDrill(archivedRows, 'cubes_51_100'), null);
+    assert.equal(bestForDrill(archivedRows, 'squares_stage_1')?.id, 'active-st-1');
+
+    // Even when drillKey is omitted, archived rows are ignored by bestForDrill
+    assert.equal(bestForDrill([archivedRows[0], archivedRows[1]]), null);
+    assert.equal(bestForDrill(archivedRows)?.id, 'active-st-1');
   });
 });

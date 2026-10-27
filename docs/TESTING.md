@@ -1032,3 +1032,144 @@ This document contains step-by-step test scenarios to verify security boundaries
       - Start any module, click **Exit** during Concentration or Stage, and confirm the **"Discard This Practice Try?"** dialog opens immediately and returns to Settings when confirmed.
       - Open `/pages/memoriad-play.html?module=multiplications`, verify `"Time limit: 15 minutes"` and the disabled `"Side by side (coming later)"` option, start the stage, press `*` 1 to 16 times (or click the dashed step box in sequence) to verify the 8 step boxes and operand digit columns highlight from right to left and then uncheck from right to left, type into the 16 answer slots, and click **FINISH**.
       - Open `/pages/memoriad-play.html?module=square_roots`, start the stage, press `*` and `/` to check/uncheck the 6 step boxes from left to right, type digits into the `___ . _____` answer slots, and click **FINISH** to verify the Results table displays **Correct Digits (`k / 8`)** and **Points** per question.
+
+---
+
+### Phase 10b — Admin Daily To-Do Fixes (`js/todoForm.js`, `/pages/todos.html`, `js/todos.js`, Student Deep Links)
+
+59. **Automated Unit Tests for Daily To-Do Form, Section Options & Student Links (`tests/todoForm.test.js`)**
+    - **Action**: Run `node --test tests/todoForm.test.js` (or `node --test tests/*.test.js`).
+    - **Expected**:
+      - `normalizeTaskInput`: turns `""` and whitespace-only strings into `null` for `category_id`, `activity_key`, and `level`; never sets both `category_id` and `activity_key` across all 5 sections (`basics`, `round`, `elements`, `memoriad`, `flash`); rejects empty titles, 81-character titles (allows 80), and 31-character levels (allows 30).
+      - `optionsForSection`: returns only active categories of that exact section for `'basics'` and `'round'` (never mixed); returns only enabled drills from `js/drillCatalog.js` for `'elements'` (excludes disabled `modulo`); returns the 4 modules (`calendar`, `additions`, `multiplications`, `square_roots`) for `'memoriad'`; returns `[]` for `'flash'`.
+      - `taskLink`: returns `/pages/basics.html?cat=<id>` (basics with category), `/pages/basics.html` (basics without), `/pages/round-scores.html` (round), `/pages/element-drill.html?drill=<key>` (elements with key), `/pages/elements.html` (elements without), `/pages/memoriad-play.html?module=<key>` (memoriad with key), `/pages/memoriad.html` (memoriad without), and `/pages/flash.html` (flash).
+      - `formatTaskTarget`: returns `"Any activity in <Section>"` when no specific category or activity key is set, never `"Unknown Category"`.
+
+60. **End-to-End Admin Daily To-Do & Student To-Do Links Verification (`/pages/todos.html`, `/pages/student.html`)**
+    - **Action**:
+      - Log in as Admin and open **Setup ▾ → Daily To-Do** (`/pages/todos.html`).
+      - Click **+ Add Task**, switch **Section Track** across `Round`, `Basics`, `Elements`, `Memoriad`, and `Flash Anzan`, and verify the second dropdown updates its label and options (`active round categories`, `active basics categories`, `enabled Elements drills`, `4 Memoriad modules`, and disabled `"Any Flash Anzan round"` for Flash Anzan).
+      - Save tasks with and without a specific category/drill/module and verify the success toast displays `"Task added successfully"` (not `"error"`) and the table displays either the specific category/drill/module title or *"Any activity in <Section>"* (never *"Unknown Category"*).
+      - Log in as Student (`STU101`), inspect the **Today's To-Do** card on `/pages/student.html`, and verify each **Start →** button links to the exact target page computed by `taskLink`.
+
+---
+
+### Phase 10c — Admin Profile Editing & Audit Log, New Calendar Date Formats, and Flat Rounds
+
+61. **Automated Unit Tests for Profile Form, Calendar Date Formats & Flat Rounds (`node --test`)**
+    - **Action**: Run `node --test tests/profileForm.test.js tests/memoriadFormat.test.js tests/roundType.test.js` (or `node --test tests/*.test.js`).
+    - **Expected**:
+      - `tests/profileForm.test.js`: verifies trimming, `full_name` length limits (`2..60`), `level` length limits (`1..30`), empty `level` becoming `null`, case-insensitive `suggestLevel(levels, typed)` (`"junior 1"` -> `"Junior 1"`), and `diffProfileFields` returning only changed fields.
+      - `tests/memoriadFormat.test.js`: verifies `formatCalendarDate(1873, 11, 24, 'DD Mon YYYY') === '24 Nov 1873'`, `formatCalendarDate(1873, 11, 24, 'DD-Mon-YYYY') === '24-Nov-1873'`, zero-padded single-digit days (`04 Nov 1873`, `04-Nov-1873`), all twelve English 3-letter month names (`Jan..Dec`), and fallback to `'DD-MM-YYYY'` when the saved setting is missing.
+      - `tests/roundType.test.js`: verifies `isFlatRound` returns `true` for `'Flat Round'`, `'Flat round'`, `'  FLAT  '` and `false` for `'Category wise'`, `''`, `null`, or unknown strings, and verifies `buildRoundScoreMatrix` flags flat cells while keeping the round's total time in the `Time Taken` summary row.
+
+62. **End-to-End Admin Profile Edit & Change History Verification (`/pages/students.html`, `/pages/student-detail.html`)**
+    - **Action**:
+      - Log in as Admin and open **Students** (`/pages/students.html`).
+      - Click **Edit** on a student row:
+        - Verify **Student ID** is read-only and hovering over it shows *"The student ID is the login name and cannot be changed here"*, and verify no Role field is shown.
+        - Verify the note above the **Level** field reads: *"Changing the level moves this student to another leaderboard group and changes which targets and tasks apply."*
+        - Type an existing level with different casing (e.g. `level 2` when `Level 2` exists): verify *"Did you mean 'Level 2'?"* appears with a button that fills `Level 2`.
+        - Update the student's Full Name, Level, Show on leaderboards, or Active status and click **Save Changes**: verify a single `profiles` update saves only changed fields and refreshes the table.
+      - Click **Change history** on that student (or open `/pages/student-detail.html?id=<id>` and click **Edit** / **Change history**):
+        - Verify the drawer opens showing `profile_audit` entries newest-first with the date in India time (`IST`), the admin's name, and each changed field as `old value → new value`.
+
+63. **End-to-End Memoriad Calendar Date Formats & Flat Round Time Hiding Verification**
+    - **Action**:
+      - Open **Memoriad → Mental Calendar Dates** (`/pages/memoriad-play.html?module=calendar`), open the **Date format** dropdown, and verify **`DD Mon YYYY (24 Nov 1873)`** and **`DD-Mon-YYYY (24-Nov-1873)`** are available alongside the default `DD-MM-YYYY`. Start a stage with `DD Mon YYYY` and verify the question list, large display, and results table all format dates as `24 Nov 1873`.
+      - Open **Round Scores** (`/pages/round-scores.html`):
+        - Type values into **Correct**, **Total**, and **Time (mm:ss)** for a category while **Round Type** is `Category wise`.
+        - Switch **Round Type** to `Flat Round`: verify the per-category **Time (mm:ss)** column and inputs hide immediately while **Correct**, **Total**, and **Total Time Taken** remain intact and typed values are preserved when switching back.
+        - Save a `Flat Round` entry and inspect the **Competition Round Score Sheet** on `/pages/student.html` and `/pages/student-detail.html`: verify flat round cells show only `correct/total` (no per-category time) while the **Time Taken** summary row continues to show the round's total time.
+
+
+---
+
+## Phase 10d Test Cases (Readable Google Sheets Score-Sheet Mirror)
+
+### Test Case 54: Automated Unit & Round-Trip Test Suite (`tests/mirror.test.js` & `tests/reportEmail.test.js`)
+- **Action**:
+  1. Run `node --test tests/mirror.test.js tests/reportEmail.test.js` in the terminal.
+- **Expected Result**:
+  - All unit tests pass (`0 fail`), verifying:
+    - Colour boundaries (`0` wrong $\rightarrow$ `green` `#00E000`; `1` wrong $\rightarrow$ `orange` `#FF9900`; `10` wrong $\rightarrow$ `orange` `#FF9900`; `11` wrong $\rightarrow$ `cyan` `#00E5FF`; `total = 0` $\rightarrow$ `null`).
+    - Single series with two rounds (newest on the left): exact cell coordinates for `Name -- <FULL NAME IN CAPITALS>`, student level in capitals above each Score column, `ROUND 2` and `ROUND 1`, `Date - dd/mm/yyyy`, `Score` / `Time` headers, category rows, 1 empty separator row, and 5 bold uncoloured summary rows (`Round Type`, `Time Taken`, `Final Score`, `Total Attempt`, `Marks TO BE CORRECTED`).
+    - Flat round: per-category `Time` cells are empty while `Time Taken` displays `hh:mm:ss`.
+    - Round without time: `Time Taken` displays `"Without time"`.
+    - Surprise Task: numeric score (`"5/6"`) is coloured and counted in `Final Score` and `Total Attempt`; text note is uncoloured and not counted; empty is `"........"`.
+    - Two series (current + old): current series is placed on the left, separated by two empty columns (`30 px` each), and shorter blocks are padded with empty rows so the 5 summary rows line up across all blocks.
+    - `tabNameFor`: strips `trendz_`, removes `[ ] * ? : / \`, caps length at 95 characters, and disambiguates duplicates (`" 2"`, `" 3"`).
+    - `staleStudents`: returns only students whose fingerprint differs or who have no row in `mirror_state`, ordered never-built first, then oldest `last_built_at` first.
+    - Round-trip CSV verification: converting `buildStudentTabModel(data)` to CSV via `modelToCsv` and feeding it into `parseScoreSheetCsv` (`js/importParser.js`) produces matching rounds, dates, round types, category scores/times, and `Final Score` with `finalScoreMismatch === false`.
+    - Weekly report email (`buildWeeklyEmail`): includes `Score-sheet mirror: <up_to_date> of <total> up to date | Last built: <date>` and emits a warning when `> 3` days old or never built.
+
+### Test Case 55: Admin Backup Page — Score Sheet Mirror Card (`/pages/backup.html`)
+- **Action**:
+  1. Log in as Admin and open **Setup ▾ → Backup** (`/pages/backup.html`).
+  2. Locate the **Score sheet mirror** card (`#mirror-card`).
+  3. Inspect the read-only warning banner, the 4 mirror status cards (**Mirror Configured**, **Students Up to Date**, **Last Built (IST)**, **Last Mirror Error**), and click **"If the website is down (4-step emergency workflow)"** to expand the instructions.
+  4. Click **↻ Rebuild all tabs** (`#btn-rebuild-mirror-all`) to verify the confirmation modal (`#modal-rebuild-mirror`) opens, and click **📊 Update score sheets now** (`#btn-update-mirror-now`) when configured.
+- **Expected Result**:
+  - The card displays the read-only warning: *"This sheet is read-only. Anything typed on the sheet will be overwritten the next time the backup runs. To work in the sheet during an outage, make a copy first (File → Make a copy)."*
+  - Expanding **"If the website is down"** shows the 4-step outage plan matching `/docs/OUTAGE-PLAN.md`.
+  - Clicking **Rebuild all tabs** opens the confirmation modal; confirming resets `mirror_state.fingerprint` to `null` via `POST /api/backup` `{ action: 'rebuild_mirror' }` and runs backup passes until `remaining = 0`.
+
+---
+
+## Phase 10e & Phase 10f Test Cases (Division Worksheet Layout & Staged Square/Cube Drills)
+
+### Test Case 56: Automated Unit Tests for Question Layout & Staged Square/Cube Drills (`tests/questionLayout.test.js`, `tests/drills.test.js`, `tests/drillStats.test.js`, `tests/todoForm.test.js`)
+- **Action**:
+  1. Run `node --test tests/*.test.js` in the terminal.
+- **Expected Result**:
+  - `tests/questionLayout.test.js`: verifies `questionLayout(text)` returns `'nowrap'` for 7-character (`"72 / 7"`) and 18-character (`"12:30:00 - 23:45:0"`) texts and `'wrap'` for 19-character (`"Jan. 10, 1700 - Mar"`) texts, and `formatQuestionText(text)` binds operators (`-`, `/`, `-->`) with `\u00A0` on long prompts.
+  - `tests/drills.test.js`: verifies:
+    - Exact 1:1 parity between `js/drillCatalog.js` and `api/_drills.js` across all 24 drills (keys, titles, question counts, and time limits), and confirms `squares_11_50`, `squares_51_100`, `cubes_11_50`, and `cubes_51_100` are removed from both.
+    - Each of the 8 stage drills (`squares_stage_1..4`, `cubes_stage_1..4`) generates its 25 numbers (`1..25`, `26..50`, `51..75`, `76..100`) **exactly once** (sorted array equals `[min..max]`), and both combined drills (`squares_combined`, `cubes_combined`) generate `1..100` **exactly once**.
+    - Answers match exact integer arithmetic (`25 -> 625`, `100 -> 10000`, `99 cubed -> 970299`, `76 cubed -> 438976`).
+    - Different RNG seeds produce different shuffled question orders.
+  - `tests/drillStats.test.js`: verifies old results keep their stored `activity_name`, format as `"<name> (old drill)"` on history lists, and are excluded from `bestForDrill`.
+  - `tests/todoForm.test.js`: verifies `optionsForSection('elements')` includes all 10 new staged drills and excludes the 4 old drills, and `formatTaskTarget` / `isTaskActivityAvailable` return `"Activity no longer available"` for tasks pointing to removed keys.
+
+### Test Case 57: End-to-End Elements Staged Square & Cube Drills, History & To-Do Verification (`/pages/elements.html`, `/pages/element-drill.html`, `/pages/todos.html`)
+- **Action**:
+  1. Log in as a Student (`STU101` / `student123`) and open **Elements** (`/pages/elements.html`).
+  2. Locate the **Squares and cubes** section and verify the **Squares** and **Cubes** sub-headings.
+  3. Confirm the 10 new drills appear with their exact titles, question counts, and time limits (`Square - Stage 1 (1-25)` through `Square - Combined (1-100)` and `Cube - Stage 1 (1-25)` through `Cube - Combined (1-100)`), and confirm the 4 old drills (`Square (11-50)`, `Square (51-100)`, `Cube (11-50)`, `Cube (51-100)`) are no longer in the catalog.
+  4. Start **Square - Stage 1 (1-25)** (`/pages/element-drill.html?drill=squares_stage_1`), verify all 25 numbers from `1` to `25` appear once in random order, type answers (e.g. `25 -> 625`), and submit.
+  5. Scroll to **Recent Elements History** on `/pages/elements.html`: verify any historical set from a removed drill displays as `"<name> (old drill)"` (e.g. `"Square (11-50) (old drill)"`) while not affecting personal bests of current drills.
+  6. Log in as Admin (`ADMIN01` / `admin123`), open **Setup ▾ → Daily To-Do** (`/pages/todos.html`), click **+ Add Task**, and select **Elements**: verify the activity dropdown lists the 10 new staged drills and none of the 4 old drills, and any old task pointing to a removed key shows `"Activity no longer available"`.
+
+---
+
+## Phase 10g Test Cases (Timed & Unlimited Online Basics Practice)
+
+### Test Case 58: Automated Unit Tests for Timed Basics Pools, Player Countdown & Mode Personal Bests (`tests/drills.test.js`, `tests/drillPlayer.test.js`, `tests/practiceStats.test.js`)
+- **Action**:
+  1. Run `node --test tests/drills.test.js tests/drillPlayer.test.js tests/practiceStats.test.js` in the terminal.
+- **Expected Result**:
+  - `tests/drills.test.js`: verifies:
+    - Pool sizes and expiry limits (`30s -> 50`, `60s -> 100`, `120s -> 200`, `300s -> 500`, `unlimited -> 1000`).
+    - `generateBasicsSet` never produces two identical questions in a row across all basics categories.
+    - `checkTimedBasicsSubmission` grades correct, wrong, and skipped (`null`) answers in reached prefixes, caps `used_seconds = min(elapsed, seconds)` for timed rounds and uses `elapsed` for unlimited rounds, caps `detail` at the first 100 attempted questions, and rejects `attempted === 0`, too-fast (`elapsed < attempted * 0.25s`), and expired (`now > expires_at`) submissions.
+  - `tests/drillPlayer.test.js`: verifies pool mode (`mode: 'timed'`) records `null` on skip without revisiting at the end, `finish()` returns only reached answers (excluding the on-screen question when time expires), and `computeRemainingSeconds` computes exact remaining seconds and progress fraction with a fixed clock.
+  - `tests/practiceStats.test.js`: verifies `computePerMinuteRates`, separate personal bests for `'timed'` vs `'unlimited'` (`bestForMode`, `bestByCategoryAndMode`), and tie-breaking (`correct_per_minute`, then `accuracy`, then `attempted`).
+
+### Test Case 59: End-to-End Timed & Unlimited Online Basics Practice, Targets & Chips (`/pages/basics-practice.html`, `/pages/targets.html`, `/pages/basics.html`, `/pages/review.html`)
+- **Action**:
+  1. Log in as Admin (`ADMIN01` / `admin123`) and open **Setup ▾ → Targets** (`/pages/targets.html`).
+  2. Click **+ Add Target Rule** (or **Edit** on an existing rule for `1d4r`):
+     - Enter **Minimum Accuracy (%)**: `90`, **Minimum questions per minute**: `40`, **Maximum Time (mm:ss)**: `2:00`, and click **Save Rule**.
+     - Verify the rule row displays: `"Accuracy at least 90%, at least 40 questions per minute in timed rounds, time at most 2:00 in fixed sets"`.
+  3. Log in as Student (`STU101` / `student123`) and open **Basics → Practice online** (`/pages/basics-practice.html`).
+  4. On the **Setup** card:
+     - Verify the 5 time mode buttons appear (`30 seconds`, `1 minute` [default], `2 minutes`, `5 minutes`, `Unlimited (stopwatch)`) and are remembered per category in `localStorage`.
+     - Verify the student's target benchmark and personal best for the selected category and mode (`Timed` vs `Unlimited`) are displayed.
+  5. Select **30 seconds** and click **Start Practice**:
+     - Verify the countdown clock (`00:30` down to `00:00`) and shrinking progress bar appear at the top along with `"Answered n"`.
+     - Answer several questions (`Enter`), skip one (`Space` or `Skip`), and either let the timer reach `00:00` (auto-submits reached questions, excluding the on-screen question) or click **Finish** early and confirm.
+  6. On the **Results** card:
+     - Verify `Correct / Attempted`, `Accuracy`, `Time used`, `Correct per minute` (1 decimal place), `Attempted per minute` (1 decimal place), the score colour tag (`"n wrong"`), the authoritative target badge (`🎯 Target met` or `⚠️ Below target` from `results_with_target`), `"New personal best"` when beaten, `"This round was saved to your scores."`, the wrong-first review table with **Show all**, and the **Same mode again** / **Change mode** buttons.
+  7. Open `/pages/basics.html`, `/pages/student.html`, `/pages/student-detail.html`, and `/pages/review.html`:
+     - Verify rows saved from timed/unlimited practice show the **`Timed`** or **`Unlimited`** chip next to **`Recorded by the site`** and display their speed as `attempted / min`.
+

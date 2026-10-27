@@ -337,16 +337,38 @@ function renderSetupStatsTables() {
 }
 
 /**
- * Switches visible screen between 'setup', 'play', and 'results'
+ * Switches visible screen between 'setup', 'play', and 'results'.
+ * During an active round ('play'), hides the history dashboard and page header
+ * so the flashing number stage fills the screen without distraction.
  */
 function showScreen(screenName) {
   const setupEl = document.getElementById('flash-setup-screen');
   const playEl = document.getElementById('flash-play-screen');
   const resultsEl = document.getElementById('flash-results-screen');
+  const historyEl = document.getElementById('flash-history-section');
+  const pageHeaderEl = document.getElementById('flash-page-header');
+  const bannerEl = document.getElementById('config-banner-placeholder');
+  const appHeaderEl = document.querySelector('.app-header');
+
+  const isPlaying = screenName === 'play';
 
   if (setupEl) setupEl.style.display = screenName === 'setup' ? 'block' : 'none';
-  if (playEl) playEl.style.display = screenName === 'play' ? 'block' : 'none';
+  if (playEl) playEl.style.display = isPlaying ? 'block' : 'none';
   if (resultsEl) resultsEl.style.display = screenName === 'results' ? 'block' : 'none';
+
+  // Hide dashboard/history below, page heading, and top navigation bar during an active Flash Anzan round
+  if (historyEl) historyEl.style.display = isPlaying ? 'none' : 'block';
+  if (pageHeaderEl) pageHeaderEl.style.display = isPlaying ? 'none' : '';
+  if (bannerEl) bannerEl.style.display = isPlaying ? 'none' : '';
+  if (appHeaderEl) appHeaderEl.style.display = isPlaying ? 'none' : '';
+
+  if (isPlaying) {
+    try {
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    } catch {
+      window.scrollTo(0, 0);
+    }
+  }
 }
 
 /**
@@ -519,7 +541,7 @@ async function runTrySequence() {
   // 3. Transition to Answer Input Panel
   activeTry.phase = 'answering';
   if (stageBox) stageBox.style.display = 'none';
-  if (answerPanel) answerPanel.style.display = 'block';
+  if (answerPanel) answerPanel.style.display = 'flex';
 
   const answerInput = document.getElementById('flash-answer-input');
   const answerErr = document.getElementById('flash-answer-error');

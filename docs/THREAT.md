@@ -189,3 +189,32 @@ The serverless functions in `/api/create-student.js` and `/api/reset-password.js
       - **Practice-Data Scope**: Memoriad rows in `public.activity_results` (`activity_type = 'memoriad'`) are self-paced practice data (used for personal bests, streaks, and daily to-do ticks); official competition points on the Points leaderboard remain driven exclusively by teacher-verified weekly tests and attendance.
 
 
+
+
+---
+
+## Phase 10d: Score-Sheet Mirror Threat Model & Security Controls
+
+1. **Formula Injection Prevention (`stringValue` / `numberValue` Only)**:
+   - `toGoogleCellData` in `api/_google.js` writes cell values exclusively via `userEnteredValue: { stringValue }` or `userEnteredValue: { numberValue }` inside `updateCells` (never `formulaValue` and never `USER_ENTERED` value parsing). Even if a student's `Surprise Task` note starts with `=`, `+`, `-`, or `@`, Google Sheets stores it strictly as a literal string and never executes it as a formula.
+2. **Service-Role & Secret Isolation**:
+   - `mirror_fingerprints()`, `mirror_student_data(p_student)`, and writes to `public.mirror_state` are restricted to the Supabase `service_role` on the server (`/api/backup.js`).
+   - `POST /api/backup` with `{ action: 'rebuild_mirror' }` requires a verified active admin caller (`verifyAdminCaller(req)`).
+   - Per-student build errors stored in `mirror_state.last_error` pass through `sanitizeBackupError` / `sanitizeGoogleErrorMessage`, which scrub OAuth tokens, private keys, and student row data and truncate messages to 200 characters.
+3. **Non-Destructive Tab Lifecycle**:
+   - `api/backup.js` never sends `deleteSheet` requests. Making a student inactive or renaming a student preserves all existing tabs (`storedSheetId` renames the tab in place via `updateSheetProperties`).
+
+---
+
+## Phase 10g: Timed & Unlimited Online Basics Practice Threat Model & Controls
+
+1. **Server-Side Clock Authority & `used_seconds` Capping**:
+   - The server records `started_at` and `expires_at` (`started_at + seconds + 60s` for timed rounds; `started_at + 2 hours` for unlimited stopwatch rounds) in `public.drill_sessions`.
+   - On `submit`, the server computes `elapsed = (now - started_at) / 1000` and sets `used_seconds = min(elapsed, seconds)` for `'timed'` mode and `elapsed` for `'unlimited'` mode. Even if a client modifies its local countdown timer, `expires_at` and server-measured `elapsed` are enforced on the server.
+2. **Minimum Human Speed Gate (`0.25s` per Attempted Question) & Zero-Attempt Rejection**:
+   - `checkTimedBasicsSubmission` rejects any submission with `attempted === 0`, any submission where `elapsed < attempted * 0.25` seconds (`"That was faster than possible. Please answer the questions yourself."`), and any submission arriving after `expires_at`.
+   - Each answer entry is bounded to at most `20` characters and total entries are bounded to `pool` (`50 / 100 / 200 / 500 / 1000`).
+3. **Server-Only `practice_mode` & Authoritative `meets_target`**:
+   - Students cannot set `results.practice_mode` from client-side writes (`NULL` is enforced for student-typed rows). Only `POST /api/drill` using the Supabase `service_role` writes `practice_mode = 'timed' | 'unlimited'`, `source = 'site'`, and `verified = true`.
+   - `meets_target` is read exclusively from the database view `results_with_target` and is never computed in client-side JavaScript.
+

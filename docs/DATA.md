@@ -338,3 +338,30 @@ This catalog outlines every database table in the Trendz Tracker PostgreSQL sche
 - **Who Reads**: Students can `SELECT` only their own rows (`student_id = auth.uid()`); admins can `SELECT` all rows.
 - **Who Writes**: Students can **never** `INSERT`, `UPDATE`, or `DELETE` rows in `activity_results`. Only `flash_submit`, `POST /api/drill`, and `POST /api/memoriad` (using the service role) insert rows after verifying session ownership, expiry, atomic `status = 'open' -> 'submitted'` transition, and minimum human plausibility time.
 
+
+
+---
+
+## Phase 10d: Score-Sheet Mirror Schema & RPCs (`mirror_state`, `mirror_fingerprints`, `mirror_student_data`)
+
+### 1. Table: `public.mirror_state`
+Tracks the per-student sync state for the readable Google Sheets score-sheet mirror (`MIRROR_SHEET_ID`):
+- `student_id` (`uuid`, primary key, references `profiles(id)`): Active student ID.
+- `fingerprint` (`text`, nullable): Hash returned by `mirror_fingerprints()` at the time the student's tab was last built. Set to `NULL` by `POST /api/backup` `{ action: 'rebuild_mirror' }` to force a full rebuild.
+- `sheet_id` (`integer`, nullable): Google Sheets internal numeric `sheetId` for this student's tab (used to rename the tab in place if the student's name or code changes).
+- `tab_name` (`text`, nullable): Current tab title in the mirror spreadsheet (e.g. `Riya (riya)`).
+- `last_built_at` (`timestamptz`, nullable): Timestamp when the tab was last successfully written.
+- `last_error` (`text`, nullable): Short sanitized error message if the last build for this student failed (`NULL` when healthy).
+- **Access Control**: Admins can `SELECT`; only the `service_role` writes.
+
+### 2. RPC: `mirror_fingerprints()`
+- **Access**: `service_role` only.
+- **Returns**: One row per active student: `{ student_id uuid, fingerprint text }`, where `fingerprint` changes whenever anything displayed on the student's score sheet changes.
+
+### 3. RPC: `mirror_student_data(p_student uuid)`
+- **Access**: `service_role` only.
+- **Returns**: `jsonb` containing:
+  - `student`: `{ id, code, name, level }`
+  - `series`: `[{ id, name, is_current }]` (current series first)
+  - `categories`: `[{ id, name, series_id, sort_order }]` (round categories per series, in order)
+  - `rounds`: `[{ id, series_id, number, date, type, time_taken_seconds, cells: [{ category_id, correct, total, time_seconds, note }] }]` (newest round first within each series).

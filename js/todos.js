@@ -7,6 +7,13 @@ import { isSupabaseConfigured } from './config.js';
 import { getSupabase, DemoDB } from './supabaseClient.js';
 import { openModal, closeModal, setupModalListeners, setupAdminNav } from './modal.js';
 import { showToast } from './toast.js';
+import { DRILL_CATALOG } from './drillCatalog.js';
+import {
+  MEMORIAD_MODULES,
+  normalizeTaskInput,
+  optionsForSection,
+  formatTaskTarget,
+} from './todoForm.js';
 
 let allCategories = [];
 let allTodos = [];
@@ -20,35 +27,41 @@ async function loadCategories() {
           .from('categories')
           .select('*')
           .order('sort_order', { ascending: true });
-        if (!error && data) {
-          allCategories = data;
+        if (error) {
+          console.warn('Could not load categories:', error.message);
+          allCategories = [];
           return;
         }
+        allCategories = data || [];
+        return;
       }
     }
     allCategories = DemoDB.getCategories();
   } catch (err) {
     console.warn('Could not load categories:', err);
-    allCategories = DemoDB.getCategories();
+    allCategories = isSupabaseConfigured() ? [] : DemoDB.getCategories();
   }
 }
 
 async function loadTodos() {
   const tbody = document.getElementById('todos-tbody');
-  tbody.innerHTML = '<tr><td colspan="7" class="loading-state">Loading daily tasks...</td></tr>';
+  if (tbody) {
+    tbody.innerHTML = '<tr><td colspan="7" class="loading-state">Loading daily tasks...</td></tr>';
+  }
 
   try {
     if (isSupabaseConfigured()) {
       const supabase = await getSupabase();
       if (supabase) {
         const { data, error } = await supabase
-          .from('todos')
+          .from('daily_tasks')
           .select('*')
           .order('sort_order', { ascending: true });
 
         if (error) {
-          console.warn('Database error loading todos:', error.message);
-          allTodos = DemoDB.getTodos();
+          console.error('Database error loading daily_tasks:', error);
+          showToast('error', `Failed to load daily tasks: ${error.message}`);
+          allTodos = [];
         } else {
           allTodos = data || [];
         }
@@ -60,22 +73,75 @@ async function loadTodos() {
     allTodos = DemoDB.getTodos();
     renderTodosTable();
   } catch (err) {
-    console.warn('Error loading todos:', err);
-    allTodos = DemoDB.getTodos();
+    console.error('Error loading daily_tasks:', err);
+    showToast('error', `Failed to load daily tasks: ${err.message || 'Unknown error'}`);
+    allTodos = isSupabaseConfigured() ? [] : DemoDB.getTodos();
     renderTodosTable();
   }
 }
 
-function updateCategoryDropdown(selectedSection, currentCatId = '') {
+function clearFormErrors() {
+  const errBox = document.getElementById('todo-form-errors');
+  if (errBox) {
+    errBox.style.display = 'none';
+    errBox.textContent = '';
+  }
+}
+
+function showFormErrors(errors) {
+  const messages = Object.values(errors || {}).filter(Boolean);
+  if (messages.length === 0) return;
+
+  const errBox = document.getElementById('todo-form-errors');
+  if (errBox) {
+    errBox.innerHTML = messages.map((m) => `<div>• ${escapeHtml(m)}</div>`).join('');
+    errBox.style.display = 'block';
+  }
+  showToast('error', messages[0]);
+}
+
+function updateTargetDropdown(selectedSection, currentTargetValue = '') {
   const catSelect = document.getElementById('todo-category');
+  const catLabel = document.getElementById('todo-category-label');
+  const catHint = document.getElementById('todo-category-hint');
   if (!catSelect) return;
 
-  const filtered = allCategories.filter(c => c.section === selectedSection && c.active !== false);
+  const sec = String(selectedSection || 'round').trim().toLowerCase();
+  const options = optionsForSection(sec, allCategories, DRILL_CATALOG, MEMORIAD_MODULES);
 
-  let html = '<option value="">Any category in this section</option>';
-  filtered.forEach(cat => {
-    const isSelected = cat.id === currentCatId ? 'selected' : '';
-    html += `<option value="${cat.id}" ${isSelected}>${cat.name}</option>`;
+  if (sec === 'flash') {
+    if (catLabel) catLabel.textContent = 'Activity Filter';
+    if (catHint) {
+      catHint.textContent = 'Flash Anzan has no sub-categories; any completed round ticks this task.';
+    }
+    catSelect.innerHTML = '<option value="">Any Flash Anzan round</option>';
+    catSelect.value = '';
+    catSelect.disabled = true;
+    return;
+  }
+
+  catSelect.disabled = false;
+
+  let placeholder = 'Any category in this section';
+  if (sec === 'elements') {
+    if (catLabel) catLabel.textContent = 'Specific Drill (Optional)';
+    if (catHint) catHint.textContent = 'Pick an enabled Elements worksheet drill or leave as any.';
+    placeholder = 'Any drill in Elements';
+  } else if (sec === 'memoriad') {
+    if (catLabel) catLabel.textContent = 'Specific Module (Optional)';
+    if (catHint) catHint.textContent = 'Pick one of the four Memoriad modules or leave as any.';
+    placeholder = 'Any module in Memoriad';
+  } else {
+    if (catLabel) catLabel.textContent = 'Category Filter (Optional)';
+    if (catHint) catHint.textContent = 'Dropdown shows active categories matching the chosen section.';
+    placeholder = 'Any category in this section';
+  }
+
+  const normalizedCurrent = String(currentTargetValue || '').trim();
+  let html = `<option value="">${escapeHtml(placeholder)}</option>`;
+  options.forEach((opt) => {
+    const isSelected = String(opt.value) === normalizedCurrent ? 'selected' : '';
+    html += `<option value="${escapeHtml(opt.value)}" ${isSelected}>${escapeHtml(opt.label)}</option>`;
   });
   catSelect.innerHTML = html;
 }
@@ -104,14 +170,14 @@ function renderTodosTable() {
     { key: 'basics', label: '⚡ Basics Speed Drills' },
     { key: 'elements', label: '🧩 Elements' },
     { key: 'memoriad', label: '🧠 Memoriad' },
-    { key: 'flash', label: '⚡ Flash Anzan' }
+    { key: 'flash', label: '⚡ Flash Anzan' },
   ];
 
   let html = '';
 
-  sectionDefs.forEach(sec => {
+  sectionDefs.forEach((sec) => {
     const tasks = allTodos
-      .filter(t => t.section === sec.key)
+      .filter((t) => t.section === sec.key)
       .sort((a, b) => (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0));
 
     if (tasks.length === 0) return;
@@ -123,27 +189,31 @@ function renderTodosTable() {
     `;
 
     tasks.forEach((todo, idx) => {
-      const cat = allCategories.find(c => c.id === todo.category_id);
-      const catName = cat ? cat.name : (todo.category_id ? 'Unknown Category' : '<em>Any in section</em>');
-      const levelDisplay = todo.level ? escapeHtml(todo.level) : '<span style="color: var(--text-dim);">All Levels</span>';
+      const targetInfo = formatTaskTarget(todo, allCategories, DRILL_CATALOG, MEMORIAD_MODULES);
+      const targetDisplay = targetInfo.isAny || targetInfo.unavailable
+        ? `<em style="color: var(--text-muted);">${escapeHtml(targetInfo.text)}</em>`
+        : escapeHtml(targetInfo.text);
+      const levelDisplay = todo.level
+        ? escapeHtml(todo.level)
+        : '<span style="color: var(--text-dim);">All Levels</span>';
       const isFirst = idx === 0;
       const isLast = idx === tasks.length - 1;
 
       html += `
-        <tr data-todo-id="${todo.id}">
+        <tr data-todo-id="${escapeHtml(todo.id)}">
           <td>
             <div style="display: flex; gap: 4px; align-items: center;">
-              <button type="button" class="btn btn-outline btn-xs btn-reorder" data-dir="up" data-id="${todo.id}" ${isFirst ? 'disabled' : ''} title="Move up within ${sec.label}" aria-label="Move task up">▲</button>
-              <button type="button" class="btn btn-outline btn-xs btn-reorder" data-dir="down" data-id="${todo.id}" ${isLast ? 'disabled' : ''} title="Move down within ${sec.label}" aria-label="Move task down">▼</button>
+              <button type="button" class="btn btn-outline btn-xs btn-reorder" data-dir="up" data-id="${escapeHtml(todo.id)}" ${isFirst ? 'disabled' : ''} title="Move up within ${escapeHtml(sec.label)}" aria-label="Move task up">▲</button>
+              <button type="button" class="btn btn-outline btn-xs btn-reorder" data-dir="down" data-id="${escapeHtml(todo.id)}" ${isLast ? 'disabled' : ''} title="Move down within ${escapeHtml(sec.label)}" aria-label="Move task down">▼</button>
             </div>
           </td>
           <td>
             <strong style="color: var(--text-main);">${escapeHtml(todo.title)}</strong>
           </td>
           <td>
-            <span style="font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; color: var(--color-primary);">${sec.key}</span>
+            <span style="font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; color: var(--color-primary);">${escapeHtml(sec.key)}</span>
           </td>
-          <td>${catName}</td>
+          <td>${targetDisplay}</td>
           <td>${levelDisplay}</td>
           <td>
             <span class="badge ${todo.active ? 'badge-success' : 'badge-neutral'}">
@@ -152,10 +222,10 @@ function renderTodosTable() {
           </td>
           <td style="text-align: right;">
             <div style="display: inline-flex; gap: 6px;">
-              <button type="button" class="btn btn-outline btn-sm btn-edit-todo" data-id="${todo.id}">
+              <button type="button" class="btn btn-outline btn-sm btn-edit-todo" data-id="${escapeHtml(todo.id)}">
                 Edit
               </button>
-              <button type="button" class="btn ${todo.active ? 'btn-outline' : 'btn-primary'} btn-sm btn-toggle-todo" data-id="${todo.id}" data-active="${todo.active}">
+              <button type="button" class="btn ${todo.active ? 'btn-outline' : 'btn-primary'} btn-sm btn-toggle-todo" data-id="${escapeHtml(todo.id)}" data-active="${Boolean(todo.active)}">
                 ${todo.active ? 'Deactivate' : 'Activate'}
               </button>
             </div>
@@ -172,7 +242,7 @@ function renderTodosTable() {
 
 function attachTableEventListeners() {
   // Reorder buttons
-  document.querySelectorAll('.btn-reorder').forEach(btn => {
+  document.querySelectorAll('.btn-reorder').forEach((btn) => {
     btn.addEventListener('click', async (e) => {
       const target = e.currentTarget;
       const id = target.getAttribute('data-id');
@@ -182,7 +252,7 @@ function attachTableEventListeners() {
   });
 
   // Edit buttons
-  document.querySelectorAll('.btn-edit-todo').forEach(btn => {
+  document.querySelectorAll('.btn-edit-todo').forEach((btn) => {
     btn.addEventListener('click', (e) => {
       const id = e.currentTarget.getAttribute('data-id');
       openEditModal(id);
@@ -190,7 +260,7 @@ function attachTableEventListeners() {
   });
 
   // Toggle active buttons
-  document.querySelectorAll('.btn-toggle-todo').forEach(btn => {
+  document.querySelectorAll('.btn-toggle-todo').forEach((btn) => {
     btn.addEventListener('click', async (e) => {
       const id = e.currentTarget.getAttribute('data-id');
       const currentActive = e.currentTarget.getAttribute('data-active') === 'true';
@@ -200,45 +270,71 @@ function attachTableEventListeners() {
 }
 
 function openEditModal(todoId) {
-  const todo = allTodos.find(t => t.id === todoId);
+  const todo = allTodos.find((t) => String(t.id) === String(todoId));
   if (!todo) return;
 
+  clearFormErrors();
   document.getElementById('modal-todo-title').textContent = 'Edit Daily Task';
   document.getElementById('todo-id').value = todo.id;
-  document.getElementById('todo-title').value = todo.title;
-  document.getElementById('todo-section').value = todo.section;
-  updateCategoryDropdown(todo.section, todo.category_id || '');
+  document.getElementById('todo-title').value = todo.title || '';
+  document.getElementById('todo-section').value = todo.section || 'round';
+
+  const currentTarget =
+    todo.section === 'basics' || todo.section === 'round'
+      ? todo.category_id || ''
+      : todo.section === 'elements' || todo.section === 'memoriad'
+        ? todo.activity_key || ''
+        : '';
+
+  updateTargetDropdown(todo.section, currentTarget);
   document.getElementById('todo-level').value = todo.level || '';
-  document.getElementById('todo-active').checked = !!todo.active;
+  document.getElementById('todo-active').checked = Boolean(todo.active);
 
   openModal('modal-todo');
 }
 
 function openAddModal() {
+  clearFormErrors();
   document.getElementById('modal-todo-title').textContent = 'Add Daily Task';
   document.getElementById('form-todo').reset();
   document.getElementById('todo-id').value = '';
   document.getElementById('todo-active').checked = true;
   const sectionSelect = document.getElementById('todo-section');
   sectionSelect.value = 'round';
-  updateCategoryDropdown('round', '');
+  updateTargetDropdown('round', '');
 
   openModal('modal-todo');
 }
 
 async function handleFormSubmit(e) {
   e.preventDefault();
-  const id = document.getElementById('todo-id').value;
-  const title = document.getElementById('todo-title').value.trim();
-  const section = document.getElementById('todo-section').value;
-  const category_id = document.getElementById('todo-category').value || null;
-  const level = document.getElementById('todo-level').value.trim() || null;
-  const active = document.getElementById('todo-active').checked;
+  clearFormErrors();
 
-  if (!title) {
-    showToast('Please enter a task title', 'warning');
+  const id = document.getElementById('todo-id').value.trim();
+  const rawTitle = document.getElementById('todo-title').value;
+  const rawSection = document.getElementById('todo-section').value;
+  const rawTarget = document.getElementById('todo-category').value;
+  const rawLevel = document.getElementById('todo-level').value;
+  const rawActive = document.getElementById('todo-active').checked;
+
+  const normalized = normalizeTaskInput(
+    {
+      title: rawTitle,
+      section: rawSection,
+      category_id: rawTarget,
+      activity_key: rawTarget,
+      level: rawLevel,
+      active: rawActive,
+    },
+    rawSection
+  );
+
+  if (normalized.errors) {
+    showFormErrors(normalized.errors);
     return;
   }
+
+  const { title, section, category_id, activity_key, level, active } = normalized.value;
 
   const saveBtn = document.getElementById('btn-save-todo');
   saveBtn.disabled = true;
@@ -249,21 +345,29 @@ async function handleFormSubmit(e) {
       const supabase = await getSupabase();
       if (supabase) {
         if (id) {
-          // Update
           const { error } = await supabase
-            .from('todos')
-            .update({ title, section, category_id, level, active })
+            .from('daily_tasks')
+            .update({ title, section, category_id, activity_key, level, active })
             .eq('id', id);
           if (error) throw error;
-          showToast('Task updated successfully', 'success');
+          showToast('success', 'Task updated successfully');
         } else {
-          // Insert
-          const maxSort = allTodos.reduce((max, t) => Math.max(max, t.sort_order || 0), 0);
+          const maxSort = allTodos.reduce((max, t) => Math.max(max, Number(t.sort_order) || 0), 0);
           const { error } = await supabase
-            .from('todos')
-            .insert([{ title, section, category_id, level, active, sort_order: maxSort + 1 }]);
+            .from('daily_tasks')
+            .insert([
+              {
+                title,
+                section,
+                category_id,
+                activity_key,
+                level,
+                active,
+                sort_order: maxSort + 1,
+              },
+            ]);
           if (error) throw error;
-          showToast('Task added successfully', 'success');
+          showToast('success', 'Task added successfully');
         }
         closeModal('modal-todo');
         await loadTodos();
@@ -273,17 +377,17 @@ async function handleFormSubmit(e) {
 
     // Demo Mode fallback
     if (id) {
-      DemoDB.updateTodo(id, { title, section, category_id, level, active });
-      showToast('Task updated (Demo Mode)', 'success');
+      DemoDB.updateTodo(id, { title, section, category_id, activity_key, level, active });
+      showToast('success', 'Task updated (Demo Mode)');
     } else {
-      DemoDB.addTodo({ title, section, category_id, level });
-      showToast('Task added (Demo Mode)', 'success');
+      DemoDB.addTodo({ title, section, category_id, activity_key, level, active });
+      showToast('success', 'Task added (Demo Mode)');
     }
     closeModal('modal-todo');
     await loadTodos();
   } catch (err) {
     console.error('Error saving task:', err);
-    showToast(`Error saving task: ${err.message}`, 'error');
+    showToast('error', `Error saving task: ${err.message || 'Unknown error'}`);
   } finally {
     saveBtn.disabled = false;
     saveBtn.textContent = 'Save Task';
@@ -291,27 +395,38 @@ async function handleFormSubmit(e) {
 }
 
 async function handleReorder(todoId, direction) {
-  const index = allTodos.findIndex(t => t.id === todoId);
+  const current = allTodos.find((t) => String(t.id) === String(todoId));
+  if (!current) return;
+
+  const sectionTasks = allTodos
+    .filter((t) => t.section === current.section)
+    .sort((a, b) => (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0));
+
+  const index = sectionTasks.findIndex((t) => String(t.id) === String(todoId));
   if (index === -1) return;
 
   const targetIndex = direction === 'up' ? index - 1 : index + 1;
-  if (targetIndex < 0 || targetIndex >= allTodos.length) return;
+  if (targetIndex < 0 || targetIndex >= sectionTasks.length) return;
 
-  const current = allTodos[index];
-  const neighbor = allTodos[targetIndex];
+  const neighbor = sectionTasks[targetIndex];
 
   try {
     if (isSupabaseConfigured()) {
       const supabase = await getSupabase();
       if (supabase) {
-        // Swap sort_order
-        const curOrder = current.sort_order;
-        const nbrOrder = neighbor.sort_order;
+        let curOrder = Number(current.sort_order) || index + 1;
+        let nbrOrder = Number(neighbor.sort_order) || targetIndex + 1;
+        if (curOrder === nbrOrder) {
+          curOrder = index + 1;
+          nbrOrder = targetIndex + 1;
+        }
 
-        await Promise.all([
-          supabase.from('todos').update({ sort_order: nbrOrder }).eq('id', current.id),
-          supabase.from('todos').update({ sort_order: curOrder }).eq('id', neighbor.id)
+        const [res1, res2] = await Promise.all([
+          supabase.from('daily_tasks').update({ sort_order: nbrOrder }).eq('id', current.id),
+          supabase.from('daily_tasks').update({ sort_order: curOrder }).eq('id', neighbor.id),
         ]);
+        if (res1.error) throw res1.error;
+        if (res2.error) throw res2.error;
         await loadTodos();
         return;
       }
@@ -321,7 +436,7 @@ async function handleReorder(todoId, direction) {
     await loadTodos();
   } catch (err) {
     console.error('Reorder error:', err);
-    showToast('Failed to reorder task', 'error');
+    showToast('error', `Failed to reorder task: ${err.message || 'Unknown error'}`);
   }
 }
 
@@ -331,27 +446,27 @@ async function handleToggleActive(todoId, newActive) {
       const supabase = await getSupabase();
       if (supabase) {
         const { error } = await supabase
-          .from('todos')
+          .from('daily_tasks')
           .update({ active: newActive })
           .eq('id', todoId);
         if (error) throw error;
-        showToast(newActive ? 'Task activated' : 'Task deactivated', 'info');
+        showToast('info', newActive ? 'Task activated' : 'Task deactivated');
         await loadTodos();
         return;
       }
     }
 
     DemoDB.toggleTodoActive(todoId);
-    showToast(newActive ? 'Task activated (Demo)' : 'Task deactivated (Demo)', 'info');
+    showToast('info', newActive ? 'Task activated (Demo)' : 'Task deactivated (Demo)');
     await loadTodos();
   } catch (err) {
     console.error('Toggle active error:', err);
-    showToast('Failed to update status', 'error');
+    showToast('error', `Failed to update status: ${err.message || 'Unknown error'}`);
   }
 }
 
 function escapeHtml(str) {
-  if (!str) return '';
+  if (str === null || str === undefined) return '';
   return String(str)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -377,9 +492,10 @@ async function initTodosPage() {
   document.getElementById('btn-open-add-todo')?.addEventListener('click', openAddModal);
   document.getElementById('form-todo')?.addEventListener('submit', handleFormSubmit);
 
-  // Dynamic category selector reacting to section change
+  // Dynamic target selector reacting to section change
   document.getElementById('todo-section')?.addEventListener('change', (e) => {
-    updateCategoryDropdown(e.target.value, '');
+    clearFormErrors();
+    updateTargetDropdown(e.target.value, '');
   });
 
   await loadCategories();

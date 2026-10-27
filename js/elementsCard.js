@@ -12,8 +12,7 @@
 
 import { getSupabase, DemoDB } from './supabaseClient.js';
 import { isSupabaseConfigured } from './config.js';
-import { setsThisWeek, recentSets } from './drillStats.js';
-import { DRILL_CATALOG } from './drillCatalog.js';
+import { setsThisWeek, recentSets, formatDrillHistoryName } from './drillStats.js';
 import { getScoreFeedback } from './scoreColors.js';
 import { formatSecondsToMMSS } from './timeUtils.js';
 
@@ -104,9 +103,7 @@ export async function renderElementsCard(studentIdOrOpts, opts = {}) {
   `;
 
   if (lastSet) {
-    const drillKey = lastSet.settings?.drill;
-    const drillTitle =
-      lastSet.activity_name || DRILL_CATALOG[drillKey]?.title || 'Elements Drill';
+    const drillTitle = formatDrillHistoryName(lastSet);
     const correct = Number(lastSet.correct) || 0;
     const total = Number(lastSet.total) || 0;
     const timeSec =

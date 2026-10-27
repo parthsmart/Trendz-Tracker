@@ -128,13 +128,26 @@ export function getCronSecret(env = process.env) {
 }
 
 /**
+ * Extracts a clean Google Spreadsheet ID whether the env var contains a bare ID
+ * or a full https://docs.google.com/spreadsheets/d/<ID>/... URL.
+ */
+function extractSpreadsheetId(rawValue) {
+  const trimmed = String(rawValue || '').trim();
+  const match = trimmed.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (match && match[1]) {
+    return match[1];
+  }
+  return trimmed;
+}
+
+/**
  * Validates and extracts Google Service Account credentials and Backup Sheet ID.
  * Never logs or includes the key or JSON content in error messages.
  * Never falls back to any default values.
  */
 export function getGoogleBackupConfig(env = process.env) {
   const rawJson = (env.GOOGLE_SERVICE_ACCOUNT_JSON || '').trim();
-  const rawSheetId = (env.BACKUP_SHEET_ID || '').trim();
+  const rawSheetId = extractSpreadsheetId(env.BACKUP_SHEET_ID);
 
   if (isPlaceholder(rawJson)) {
     throw new Error('Backup configuration error: GOOGLE_SERVICE_ACCOUNT_JSON must be configured in environment variables.');
@@ -186,5 +199,67 @@ export function hasGoogleBackupConfig(env = process.env) {
     return false;
   }
 }
+
+/**
+ * Validates and extracts Google Service Account credentials and optional Mirror Sheet ID (`MIRROR_SHEET_ID`).
+ * If `MIRROR_SHEET_ID` is not set, `hasGoogleMirrorConfig(env)` returns `false` without error.
+ */
+export function getGoogleMirrorConfig(env = process.env) {
+  const rawJson = (env.GOOGLE_SERVICE_ACCOUNT_JSON || '').trim();
+  const rawMirrorSheetId = extractSpreadsheetId(env.MIRROR_SHEET_ID);
+
+  if (isPlaceholder(rawJson)) {
+    throw new Error('Mirror configuration error: GOOGLE_SERVICE_ACCOUNT_JSON must be configured in environment variables.');
+  }
+
+  if (isPlaceholder(rawMirrorSheetId)) {
+    throw new Error('Mirror configuration error: MIRROR_SHEET_ID must be configured in environment variables.');
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(rawJson);
+  } catch {
+    throw new Error('Mirror configuration error: GOOGLE_SERVICE_ACCOUNT_JSON is not valid JSON.');
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('Mirror configuration error: GOOGLE_SERVICE_ACCOUNT_JSON must be a JSON object.');
+  }
+
+  const clientEmail = typeof parsed.client_email === 'string' ? parsed.client_email.trim() : '';
+  const rawPrivateKey = typeof parsed.private_key === 'string' ? parsed.private_key.trim() : '';
+
+  if (isPlaceholder(clientEmail) || !clientEmail.includes('@')) {
+    throw new Error('Mirror configuration error: GOOGLE_SERVICE_ACCOUNT_JSON must contain a valid client_email.');
+  }
+
+  if (isPlaceholder(rawPrivateKey) || !rawPrivateKey.includes('PRIVATE KEY')) {
+    throw new Error('Mirror configuration error: GOOGLE_SERVICE_ACCOUNT_JSON must contain a valid PEM private_key.');
+  }
+
+  const privateKey = rawPrivateKey.replace(/\\n/g, '\n');
+
+  return {
+    clientEmail,
+    privateKey,
+    sheetId: rawMirrorSheetId,
+    mirrorSheetId: rawMirrorSheetId,
+  };
+}
+
+/**
+ * Checks whether optional MIRROR_SHEET_ID (and GOOGLE_SERVICE_ACCOUNT_JSON) is configured.
+ * If MIRROR_SHEET_ID is not set, returns false cleanly with no error.
+ */
+export function hasGoogleMirrorConfig(env = process.env) {
+  try {
+    getGoogleMirrorConfig(env);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 
 

@@ -30,7 +30,7 @@ import {
 import { isSupabaseConfigured, isDemoAllowedHost } from './config.js';
 import { isDemoMode } from './demoDb.js';
 import { requireAuth } from './guard.js';
-import { setupAdminNav } from './modal.js';
+import { setupAdminNav, openModal, closeModal, setupModalListeners } from './modal.js';
 import { getSupabase, DemoDB } from './supabaseClient.js';
 import { showToast } from './toast.js';
 
@@ -423,6 +423,80 @@ function renderBackupStatus(statusData) {
       }
     }
   }
+
+  // 5. Score Sheet Mirror Card (Phase 10d)
+  const mirror = data.mirror && typeof data.mirror === 'object' ? data.mirror : {};
+  const mirrorCfgEl = document.getElementById('stat-mirror-configured');
+  const mirrorCfgSubEl = document.getElementById('stat-mirror-configured-sub');
+  const mirrorLinkEl = document.getElementById('link-open-mirror-sheet');
+  const mirrorUpEl = document.getElementById('stat-mirror-uptodate');
+  const mirrorUpSubEl = document.getElementById('stat-mirror-uptodate-sub');
+  const mirrorLastBuiltEl = document.getElementById('stat-mirror-last-built');
+  const mirrorErrEl = document.getElementById('stat-mirror-last-error');
+  const mirrorErrSubEl = document.getElementById('stat-mirror-error-sub');
+
+  const isMirrorConfigured = Boolean(mirror.configured);
+  if (mirrorCfgEl) {
+    mirrorCfgEl.textContent = isMirrorConfigured ? 'Yes' : 'No';
+    mirrorCfgEl.style.color = isMirrorConfigured
+      ? 'var(--color-accent-text)'
+      : 'var(--text-muted)';
+  }
+  if (mirrorCfgSubEl) {
+    mirrorCfgSubEl.textContent = isMirrorConfigured
+      ? 'MIRROR_SHEET_ID active'
+      : 'Set MIRROR_SHEET_ID to enable';
+  }
+  if (mirrorLinkEl) {
+    if (isMirrorConfigured && mirror.sheetUrl) {
+      mirrorLinkEl.href = mirror.sheetUrl;
+      mirrorLinkEl.style.display = 'inline-flex';
+    } else {
+      mirrorLinkEl.style.display = 'none';
+    }
+  }
+
+  const mTotal = Number(mirror.total) || 0;
+  const mUpToDate = Number(mirror.upToDate) || 0;
+  const mRemaining = Number(mirror.remaining) || 0;
+
+  if (mirrorUpEl) {
+    mirrorUpEl.textContent = `${formatNum(mUpToDate)} of ${formatNum(mTotal)}`;
+  }
+  if (mirrorUpSubEl) {
+    mirrorUpSubEl.textContent =
+      mRemaining > 0
+        ? `${formatNum(mRemaining)} waiting to build`
+        : mTotal > 0
+          ? 'All active students up to date'
+          : 'No active students';
+    mirrorUpSubEl.style.color =
+      mRemaining > 0 ? 'var(--color-warning-text)' : 'var(--text-muted)';
+  }
+
+  if (mirrorLastBuiltEl) {
+    mirrorLastBuiltEl.textContent = mirror.lastBuiltAt
+      ? formatTimestampIST(mirror.lastBuiltAt)
+      : 'Never';
+  }
+
+  const errList = Array.isArray(mirror.errors) ? mirror.errors : [];
+  const primaryErr = mirror.lastError || (errList[0] && errList[0].error) || null;
+  if (mirrorErrEl) {
+    if (primaryErr) {
+      mirrorErrEl.textContent = String(primaryErr);
+      mirrorErrEl.style.color = 'var(--color-danger-text)';
+    } else {
+      mirrorErrEl.textContent = 'None';
+      mirrorErrEl.style.color = 'var(--color-accent-text)';
+    }
+  }
+  if (mirrorErrSubEl) {
+    mirrorErrSubEl.textContent =
+      errList.length > 0
+        ? `${errList.length} student tab${errList.length === 1 ? '' : 's'} reported an error`
+        : 'All student tabs healthy';
+  }
 }
 
 /**
@@ -440,15 +514,19 @@ async function loadBackupStatus() {
 }
 
 /**
- * Runs multi-pass Google Sheet backup (`{ action: 'run' }`) up to 300 passes while `status === 'partial'`.
+ * Runs multi-pass Google Sheet backup (`{ action: 'run' }`) up to 300 passes while `status === 'partial'`
+ * (or until `mirror.remaining === 0`).
  * Stops immediately on `done`, `busy`, user cancel, or error.
  */
-async function handleRunGoogleBackup() {
+async function handleRunGoogleBackup(options = {}) {
   if (isRunningSheetBackup || isRunningZipExport) return;
 
+  const isMirrorFocus = Boolean(options.mirrorFocus);
   const btnRun = document.getElementById('btn-run-google-backup');
   const btnCancel = document.getElementById('btn-cancel-google-backup');
   const btnZip = document.getElementById('btn-download-zip');
+  const btnUpdateMirror = document.getElementById('btn-update-mirror-now');
+  const btnRebuildMirror = document.getElementById('btn-rebuild-mirror-all');
 
   isRunningSheetBackup = true;
   cancelSheetBackupRequested = false;
@@ -456,27 +534,32 @@ async function handleRunGoogleBackup() {
 
   if (btnRun) btnRun.disabled = true;
   if (btnZip) btnZip.disabled = true;
+  if (btnUpdateMirror) btnUpdateMirror.disabled = true;
+  if (btnRebuildMirror) btnRebuildMirror.disabled = true;
   if (btnCancel) {
     btnCancel.style.display = 'inline-flex';
     btnCancel.disabled = false;
   }
 
   let totalRowsAcrossPasses = 0;
+  let totalMirrorRebuiltAcrossPasses = 0;
 
   try {
     for (let pass = 1; pass <= MAX_BACKUP_PASSES; pass++) {
       if (cancelSheetBackupRequested) {
         showActionAlert(
           'warning',
-          `Backup paused by user before pass ${pass} (${formatNum(totalRowsAcrossPasses)} rows written so far).`
+          `Backup paused by user before pass ${pass} (${formatNum(totalRowsAcrossPasses)} rows written, ${formatNum(totalMirrorRebuiltAcrossPasses)} score sheets updated).`
         );
         break;
       }
 
       updateProgressPanel({
         visible: true,
-        title: 'Backing up tables to Google Sheet...',
-        detail: `Pass ${pass} · ${formatNum(totalRowsAcrossPasses)} rows written`,
+        title: isMirrorFocus
+          ? 'Updating Google Sheet backup & score-sheet mirror...'
+          : 'Backing up tables to Google Sheet...',
+        detail: `Pass ${pass} · ${formatNum(totalRowsAcrossPasses)} rows · ${formatNum(totalMirrorRebuiltAcrossPasses)} score sheets built`,
         percent: Math.min(95, 10 + pass * 12),
       });
 
@@ -491,7 +574,9 @@ async function handleRunGoogleBackup() {
       }
 
       const passRows = Number(res?.rows_written) || 0;
+      const passRebuilt = Number(res?.mirror?.rebuilt) || 0;
       totalRowsAcrossPasses += passRows;
+      totalMirrorRebuiltAcrossPasses += passRebuilt;
 
       if (!res?.ok || res?.status === 'failed' || (res?.error && res.error !== 'more to do')) {
         const errMsg = res?.error || 'Google Sheet backup stopped due to an error.';
@@ -500,18 +585,33 @@ async function handleRunGoogleBackup() {
         break;
       }
 
-      if (res?.status === 'done') {
+      const mirrorRemaining = Number(res?.mirror?.remaining) || 0;
+      const mirrorLastError = res?.mirror?.lastError || null;
+      if (res?.status === 'done' && (mirrorRemaining === 0 || (passRebuilt === 0 && mirrorLastError))) {
         updateProgressPanel({
           visible: true,
-          title: 'Google Sheet backup complete!',
-          detail: `${formatNum(totalRowsAcrossPasses)} rows written in ${pass} pass${pass === 1 ? '' : 'es'}`,
+          title: mirrorLastError
+            ? 'Google Sheet backup finished (mirror reported an error)'
+            : 'Google Sheet backup & score-sheet mirror complete!',
+          detail: `${formatNum(totalRowsAcrossPasses)} rows written · ${formatNum(totalMirrorRebuiltAcrossPasses)} score sheets built in ${pass} pass${pass === 1 ? '' : 'es'}`,
           percent: 100,
         });
-        showActionAlert(
-          'success',
-          `Google Sheet backup completed (${formatNum(totalRowsAcrossPasses)} rows written across ${pass} pass${pass === 1 ? '' : 'es'}).`
-        );
-        showToast('success', 'Google Sheet backup completed!');
+        if (mirrorLastError) {
+          showActionAlert(
+            'warning',
+            `Raw backup completed (${formatNum(totalRowsAcrossPasses)} rows), but the score-sheet mirror reported an error: ${mirrorLastError}`
+          );
+          showToast('warning', `Mirror error: ${mirrorLastError}`);
+        } else {
+          const mirrorNote = res?.mirror?.configured
+            ? `, ${formatNum(totalMirrorRebuiltAcrossPasses)} student score sheet${totalMirrorRebuiltAcrossPasses === 1 ? '' : 's'} updated`
+            : '';
+          showActionAlert(
+            'success',
+            `Google Sheet backup completed (${formatNum(totalRowsAcrossPasses)} rows written${mirrorNote} across ${pass} pass${pass === 1 ? '' : 'es'}).`
+          );
+          showToast('success', 'Backup & score sheets updated!');
+        }
         break;
       }
 
@@ -542,6 +642,8 @@ async function handleRunGoogleBackup() {
     cancelSheetBackupRequested = false;
     if (btnRun) btnRun.disabled = false;
     if (btnZip) btnZip.disabled = false;
+    if (btnUpdateMirror) btnUpdateMirror.disabled = false;
+    if (btnRebuildMirror) btnRebuildMirror.disabled = false;
     if (btnCancel) btnCancel.style.display = 'none';
     setTimeout(() => {
       if (!isRunningSheetBackup && !isRunningZipExport) {
@@ -549,6 +651,26 @@ async function handleRunGoogleBackup() {
       }
     }, 1500);
     await loadBackupStatus();
+  }
+}
+
+/**
+ * Resets all fingerprints in `mirror_state` to `null` via `POST { action: 'rebuild_mirror' }`
+ * and then runs the multi-pass backup loop until `remaining === 0`.
+ */
+async function handleRebuildAllMirrorTabs() {
+  closeModal('modal-rebuild-mirror');
+  if (isRunningSheetBackup || isRunningZipExport) return;
+
+  try {
+    hideActionAlert();
+    await callBackupApi('rebuild_mirror');
+    showToast('info', 'All student tabs queued for rebuild. Starting update...');
+    await handleRunGoogleBackup({ mirrorFocus: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Failed to trigger mirror rebuild.';
+    showActionAlert('error', msg);
+    showToast('error', msg);
   }
 }
 
@@ -737,6 +859,7 @@ async function initBackupPage() {
   if (!profile) return;
 
   setupAdminNav();
+  setupModalListeners();
 
   // Populate Header User Info
   const userPill = document.getElementById('user-pill-container');
@@ -780,6 +903,27 @@ async function initBackupPage() {
     });
   }
 
+  const btnUpdateMirror = document.getElementById('btn-update-mirror-now');
+  if (btnUpdateMirror) {
+    btnUpdateMirror.addEventListener('click', () => {
+      handleRunGoogleBackup({ mirrorFocus: true });
+    });
+  }
+
+  const btnRebuildMirror = document.getElementById('btn-rebuild-mirror-all');
+  if (btnRebuildMirror) {
+    btnRebuildMirror.addEventListener('click', () => {
+      openModal('modal-rebuild-mirror');
+    });
+  }
+
+  const btnConfirmRebuildMirror = document.getElementById('btn-confirm-rebuild-mirror');
+  if (btnConfirmRebuildMirror) {
+    btnConfirmRebuildMirror.addEventListener('click', () => {
+      handleRebuildAllMirrorTabs();
+    });
+  }
+
   const btnCancel = document.getElementById('btn-cancel-google-backup');
   if (btnCancel) {
     btnCancel.addEventListener('click', () => {
@@ -801,3 +945,4 @@ async function initBackupPage() {
 }
 
 document.addEventListener('DOMContentLoaded', initBackupPage);
+
