@@ -16,9 +16,19 @@ import { DRILL_CATALOG, DRILL_CATALOG_LIST } from './drillCatalog.js';
 import { getISTDateString } from './stats.js';
 
 /**
+ * Known titles for historical Elements drills removed from the active catalog.
+ */
+export const ARCHIVED_DRILL_TITLES = Object.freeze({
+  squares_11_50: 'Square (11-50)',
+  squares_51_100: 'Square (51-100)',
+  cubes_11_50: 'Cube (11-50)',
+  cubes_51_100: 'Cube (51-100)',
+});
+
+/**
  * Extracts the canonical drill key from an `activity_results` row if possible.
  * Matches `row.settings.drill`, `row.drill`, or maps `row.activity_name` back
- * to the catalog key.
+ * to the catalog key (or known archived key).
  *
  * @param {object} row
  * @returns {string|null}
@@ -36,8 +46,57 @@ export function resolveRowDrillKey(row) {
     if (DRILL_CATALOG[name]) return name;
     const found = DRILL_CATALOG_LIST.find((d) => d.title.toLowerCase() === name);
     if (found) return found.key;
+    if (ARCHIVED_DRILL_TITLES[name]) return name;
+    const archivedEntry = Object.entries(ARCHIVED_DRILL_TITLES).find(
+      ([, title]) => title.toLowerCase() === name
+    );
+    if (archivedEntry) return archivedEntry[0];
   }
   return null;
+}
+
+/**
+ * Returns true when an `activity_results` row belongs to a drill currently in `DRILL_CATALOG`.
+ *
+ * @param {object} row
+ * @returns {boolean}
+ */
+export function isCatalogDrillRow(row) {
+  if (!row || typeof row !== 'object') return false;
+  const key = resolveRowDrillKey(row);
+  return Boolean(key && Object.prototype.hasOwnProperty.call(DRILL_CATALOG, key));
+}
+
+/**
+ * Returns true when an `activity_results` row is a valid Elements result whose
+ * drill key is no longer in `DRILL_CATALOG` (an archived / old drill).
+ *
+ * @param {object} row
+ * @returns {boolean}
+ */
+export function isArchivedDrillRow(row) {
+  return isElementDrillRow(row) && !isCatalogDrillRow(row);
+}
+
+/**
+ * Formats the display name of an Elements result row for history lists without
+ * mutating the stored `activity_name`. Results whose drill key is no longer in
+ * `DRILL_CATALOG` are shown as `"<name> (old drill)"`.
+ *
+ * @param {object} row
+ * @returns {string}
+ */
+export function formatDrillHistoryName(row) {
+  if (!row || typeof row !== 'object') return 'Elements Drill';
+  const key = resolveRowDrillKey(row);
+  if (key && DRILL_CATALOG[key]) {
+    return String(row.activity_name || DRILL_CATALOG[key].title).trim();
+  }
+  const baseName = String(
+    row.activity_name || (key && ARCHIVED_DRILL_TITLES[key]) || key || 'Elements Drill'
+  ).trim();
+  if (!baseName) return 'Elements Drill (old drill)';
+  return baseName.endsWith('(old drill)') ? baseName : `${baseName} (old drill)`;
 }
 
 /**
@@ -130,8 +189,10 @@ export function compareDrillResults(a, b) {
 }
 
 /**
- * Returns the student's best result for a specific drill (or across all provided
- * element rows if `drillKey` is omitted).
+ * Returns the student's best result for a specific drill (or across all active
+ * catalog element rows if `drillKey` is omitted).
+ * Results whose drill key is no longer in `DRILL_CATALOG` are never counted
+ * in any drill's best.
  *
  * Ranking:
  * 1. Highest `correct`
@@ -146,7 +207,14 @@ export function compareDrillResults(a, b) {
 export function bestForDrill(rows = [], drillKey) {
   if (!Array.isArray(rows) || rows.length === 0) return null;
 
-  const candidates = rows.filter((r) => isElementDrillRow(r, drillKey));
+  if (drillKey !== undefined && drillKey !== null) {
+    const targetKey = String(drillKey).trim();
+    if (!Object.prototype.hasOwnProperty.call(DRILL_CATALOG, targetKey)) {
+      return null;
+    }
+  }
+
+  const candidates = rows.filter((r) => isElementDrillRow(r, drillKey) && isCatalogDrillRow(r));
   if (candidates.length === 0) return null;
 
   let best = candidates[0];
@@ -194,6 +262,8 @@ export function isNewPersonalBest(newResult, previousBest) {
 
 /**
  * Returns the most recent Elements drill sets sorted newest first (`created_at` DESC).
+ * Old results keep their stored `activity_name` and also expose `display_name`
+ * (which appends `" (old drill)"` when the drill key is no longer in `DRILL_CATALOG`).
  *
  * @param {Array<object>} rows
  * @param {number} [limit=10]
@@ -219,7 +289,11 @@ export function recentSets(rows = [], limit = 10) {
     return a.idx - b.idx; // Stable tie-breaker
   });
 
-  return indexed.slice(0, limit).map((x) => x.item);
+  return indexed.slice(0, limit).map((x) => ({
+    ...x.item,
+    display_name: formatDrillHistoryName(x.item),
+    is_old_drill: isArchivedDrillRow(x.item),
+  }));
 }
 
 /**

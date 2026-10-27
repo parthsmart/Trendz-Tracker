@@ -23,17 +23,13 @@
 import { getDrillServerClient, verifyStudentCaller } from './_supabaseAdmin.js';
 import {
   DRILLS,
-  BASICS_QUESTION_COUNTS,
-  BASICS_DEFAULT_QUESTIONS,
-  BASICS_SESSION_EXPIRY_SECONDS,
-  BASICS_MIN_SECONDS_PER_QUESTION,
   buildDrillStartResponse,
   gradeDrillSubmission,
   parseBasicsCategoryName,
-  getBasicsQuestionCounts,
-  getBasicsDefaultQuestions,
   generateBasicsSet,
   stripBasicsExpected,
+  resolveBasicsModeSpec,
+  checkTimedBasicsSubmission,
   checkSubmission,
 } from './_drills.js';
 
@@ -137,6 +133,11 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
     return res.status(400).json({ error: 'Please select a basics category.' });
   }
 
+  const modeSpec = resolveBasicsModeSpec(body.mode, body.seconds);
+  if (!modeSpec.ok) {
+    return res.status(400).json({ error: modeSpec.error });
+  }
+
   // Validate category: section === 'basics', active === true, supported name
   const { data: category, error: catErr } = await adminSupabase
     .from('categories')
@@ -161,19 +162,7 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
     });
   }
 
-  const allowedCounts = getBasicsQuestionCounts(category.name);
-  const requestedQuestions =
-    body.questions === undefined || body.questions === null
-      ? getBasicsDefaultQuestions(category.name)
-      : Number(body.questions);
-
-  if (!allowedCounts.includes(requestedQuestions)) {
-    return res.status(400).json({
-      error: `Number of questions for ${category.name} must be ${allowedCounts.join(', ')}.`,
-    });
-  }
-
-  // Rate limit: 60 sets per hour per student (activity_type = 'basics')
+  // Rate limit: 60 starts per hour per student (activity_type = 'basics')
   const oneHourAgoIso = new Date(Date.now() - 3600 * 1000).toISOString();
   const { count: recentCount, error: countErr } = await adminSupabase
     .from('drill_sessions')
@@ -194,17 +183,14 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
     });
   }
 
-  // Generate questions and expected answers on the server
-  const generated = generateBasicsSet(category.name, requestedQuestions);
+  // Generate the entire question pool and expected answers on the server
+  const generated = generateBasicsSet(category.name, modeSpec.pool);
   const displayQuestions = stripBasicsExpected(generated);
   const expectedAnswers = generated.map((q) => q.expected);
 
   const nowMs = Date.now();
   const startedAtIso = new Date(nowMs).toISOString();
-  const expiresAtIso = new Date(
-    nowMs + BASICS_SESSION_EXPIRY_SECONDS * 1000
-  ).toISOString();
-  const minSeconds = Math.ceil(requestedQuestions * BASICS_MIN_SECONDS_PER_QUESTION);
+  const expiresAtIso = new Date(nowMs + modeSpec.expirySeconds * 1000).toISOString();
 
   const { data: sessionRow, error: insertErr } = await adminSupabase
     .from('drill_sessions')
@@ -215,11 +201,13 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
       settings: {
         kind: 'basics',
         category_id: category.id,
-        questions: requestedQuestions,
+        mode: modeSpec.mode,
+        seconds: modeSpec.seconds,
+        pool: modeSpec.pool,
       },
       questions: displayQuestions,
       expected: expectedAnswers,
-      min_seconds: minSeconds,
+      min_seconds: 1,
       started_at: startedAtIso,
       expires_at: expiresAtIso,
       status: 'open',
@@ -238,7 +226,7 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
   try {
     const { data: thresholds } = await adminSupabase
       .from('basics_thresholds')
-      .select('category_id, level, min_accuracy, max_time_seconds, active')
+      .select('category_id, level, min_accuracy, min_questions_per_minute, active')
       .eq('category_id', category.id)
       .eq('active', true);
 
@@ -255,10 +243,14 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
       }
       if (matched) {
         target = {
-          min_accuracy: Number(matched.min_accuracy),
-          max_time_seconds:
-            matched.max_time_seconds !== null && matched.max_time_seconds !== undefined
-              ? Number(matched.max_time_seconds)
+          min_accuracy:
+            matched.min_accuracy !== null && matched.min_accuracy !== undefined
+              ? Number(matched.min_accuracy)
+              : null,
+          min_questions_per_minute:
+            matched.min_questions_per_minute !== null &&
+            matched.min_questions_per_minute !== undefined
+              ? Number(matched.min_questions_per_minute)
               : null,
         };
       }
@@ -271,6 +263,9 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
     session_id: sessionRow.id,
     title: category.name,
     questions: displayQuestions,
+    mode: modeSpec.mode,
+    seconds: modeSpec.seconds,
+    pool: modeSpec.pool,
     target,
   });
 }
@@ -519,7 +514,7 @@ async function handleSubmitBasicsSession({
   res,
 }) {
   const nowMs = Date.now();
-  const check = checkSubmission(session, answers, nowMs);
+  const check = checkTimedBasicsSubmission(session, answers, nowMs);
 
   if (!check.ok) {
     return res.status(check.statusCode || 400).json({
@@ -533,6 +528,11 @@ async function handleSubmitBasicsSession({
       error: 'Session is missing a basics category reference.',
     });
   }
+
+  const practiceMode =
+    session.settings?.mode === 'unlimited' || session.mode === 'unlimited'
+      ? 'unlimited'
+      : 'timed';
 
   // Claim the session atomically (update only where status is 'open')
   const nowIso = new Date(nowMs).toISOString();
@@ -565,18 +565,20 @@ async function handleSubmitBasicsSession({
   }
 
   // Insert into results with the service role:
-  // verified = true, source = 'site', verified_by = null, student_round_id = null
+  // student_id, category_id, correct, total = attempted, time_seconds = round(used_seconds),
+  // entry_date = today in India time, verified: true, source: 'site', practice_mode: mode
   const { data: insertedResult, error: insertErr } = await adminSupabase
     .from('results')
     .insert({
       student_id: student.id,
       category_id: categoryId,
       correct: check.correct,
-      total: check.total,
-      time_seconds: check.seconds,
+      total: check.attempted,
+      time_seconds: check.time_seconds,
       entry_date: entryDate,
       verified: true,
       source: 'site',
+      practice_mode: practiceMode,
       verified_by: null,
       student_round_id: null,
     })
@@ -594,7 +596,7 @@ async function handleSubmitBasicsSession({
       .eq('id', session.id);
 
     return res.status(500).json({
-      error: 'Could not save your basics practice score. Please try submitting again.',
+      error: 'Could not save your basics practice score. Please try sending again.',
     });
   }
 
@@ -609,9 +611,11 @@ async function handleSubmitBasicsSession({
 
   return res.status(200).json({
     correct: check.correct,
-    total: check.total,
+    attempted: check.attempted,
     accuracy: check.accuracy,
-    seconds: check.seconds,
+    used_seconds: check.used_seconds,
+    correct_per_minute: check.correct_per_minute,
+    attempted_per_minute: check.attempted_per_minute,
     detail: check.detail,
     result_id: insertedResult.id,
   });

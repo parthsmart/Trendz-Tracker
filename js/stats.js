@@ -383,6 +383,7 @@ export function calculateBasicsWeeklySummary(results = [], categories = [], toda
         timeSeconds: sec,
         entryDate: dateKey,
         source: res.source || 'typed',
+        practiceMode: res.practice_mode || null,
         verified: res.verified === true || !!res.verified_at || !!res.verified_by,
         meetsTarget: res.meets_target ?? null
       });

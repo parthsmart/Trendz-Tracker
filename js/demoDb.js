@@ -1253,24 +1253,7 @@ export const DemoDB = {
       const isFlagged = r.flagged === true;
       const source = r.source || 'typed';
 
-      let meetsTarget = null;
-      if (cat.section === 'basics') {
-        const studentLevel = (student.level || '').trim().toLowerCase();
-        const levelRule = targets.find(t => t.category_id === r.category_id && t.level && t.level.trim().toLowerCase() === studentLevel);
-        const defaultRule = targets.find(t => t.category_id === r.category_id && !t.level);
-        const effective = levelRule || defaultRule;
-        if (effective) {
-          const minAcc = effective.min_accuracy;
-          const maxTime = effective.max_time_seconds;
-          if (maxTime !== null && (r.time_seconds === null || r.time_seconds > maxTime)) {
-            meetsTarget = false;
-          } else if (r.total && r.total > 0) {
-            meetsTarget = ((r.correct / r.total) * 100) >= minAcc;
-          } else {
-            meetsTarget = false;
-          }
-        }
-      }
+      const meetsTarget = r.meets_target !== undefined ? r.meets_target : null;
 
       return {
         ...r,
@@ -1668,6 +1651,12 @@ export const DemoDB = {
       category_id: data.category_id,
       level: normLevel,
       min_accuracy: Math.max(0, Math.min(100, Math.round(Number(data.min_accuracy) || 0))),
+      min_questions_per_minute:
+        data.min_questions_per_minute !== undefined &&
+        data.min_questions_per_minute !== null &&
+        data.min_questions_per_minute !== ''
+          ? Number(data.min_questions_per_minute)
+          : null,
       max_time_seconds: data.max_time_seconds ? Number(data.max_time_seconds) : null,
       active: data.active !== false,
       created_at: new Date().toISOString()
@@ -1706,6 +1695,12 @@ export const DemoDB = {
       category_id: catId,
       level: normLevel,
       min_accuracy: updates.min_accuracy !== undefined ? Math.max(0, Math.min(100, Math.round(Number(updates.min_accuracy) || 0))) : current.min_accuracy,
+      min_questions_per_minute:
+        updates.min_questions_per_minute !== undefined
+          ? updates.min_questions_per_minute !== null && updates.min_questions_per_minute !== ''
+            ? Number(updates.min_questions_per_minute)
+            : null
+          : current.min_questions_per_minute ?? null,
       max_time_seconds: updates.max_time_seconds !== undefined ? (updates.max_time_seconds ? Number(updates.max_time_seconds) : null) : current.max_time_seconds,
       active: updates.active !== undefined ? Boolean(updates.active) : current.active
     };
@@ -1850,30 +1845,19 @@ export const DemoDB = {
         const defaultRule = targets.find(t => t.category_id === r.category_id && !t.level);
         const effective = levelRule || defaultRule;
 
-        let meets = null;
-        let minAcc = null;
-        let maxTime = null;
-
-        if (effective) {
-          minAcc = effective.min_accuracy;
-          maxTime = effective.max_time_seconds;
-
-          if (maxTime !== null && (r.time_seconds === null || r.time_seconds > maxTime)) {
-            meets = false;
-          } else if (r.total && r.total > 0) {
-            const acc = (r.correct / r.total) * 100;
-            meets = acc >= minAcc;
-          } else {
-            meets = false;
-          }
-        }
+        const minAcc = effective ? effective.min_accuracy : null;
+        const maxTime = effective ? effective.max_time_seconds : null;
+        const minQpm = effective ? (effective.min_questions_per_minute ?? null) : null;
+        const meets = r.meets_target !== undefined ? r.meets_target : (effective ? true : null);
 
         return {
           ...r,
           source: r.source || 'typed',
+          practice_mode: r.practice_mode || null,
           verified: r.verified === true || !!r.verified_at || !!r.verified_by,
           categories: cat ? { id: cat.id, name: cat.name, section: cat.section } : null,
           min_accuracy: minAcc,
+          min_questions_per_minute: minQpm,
           max_time_seconds: maxTime,
           meets_target: meets
         };
@@ -3066,6 +3050,18 @@ export const DemoDB = {
           updated_at: nowIso
         },
         {
+          id: 'act-demo-elem-stage-1',
+          student_id: 'usr-101',
+          activity_type: 'element',
+          activity_name: 'Square - Stage 1 (1-25)',
+          correct: 25,
+          total: 25,
+          time_seconds: 42,
+          settings: { drill: 'squares_stage_1', questions: 25, time_limit_seconds: 60, attempted: 25 },
+          created_at: yestIso,
+          updated_at: yestIso
+        },
+        {
           id: 'act-demo-elem-2',
           student_id: 'usr-101',
           activity_type: 'element',
@@ -3092,6 +3088,18 @@ export const DemoDB = {
           settings: { drill: 'day_codes', questions: 56, time_limit_seconds: 60, attempted: 56 },
           created_at: nowIso,
           updated_at: nowIso
+        },
+        {
+          id: 'act-demo-elem-stage-1',
+          student_id: 'usr-101',
+          activity_type: 'element',
+          activity_name: 'Square - Stage 1 (1-25)',
+          correct: 25,
+          total: 25,
+          time_seconds: 42,
+          settings: { drill: 'squares_stage_1', questions: 25, time_limit_seconds: 60, attempted: 25 },
+          created_at: yestIso,
+          updated_at: yestIso
         },
         {
           id: 'act-demo-elem-2',
@@ -3357,7 +3365,18 @@ export const DemoDB = {
       cellLimit: 10000000,
       cellWarnRatio: 0.7,
       tables,
-      runs: runs.slice(0, 10)
+      runs: runs.slice(0, 10),
+      mirror: {
+        configured: false,
+        sheetUrl: null,
+        total: 4,
+        upToDate: 4,
+        rebuilt: 0,
+        remaining: 0,
+        lastBuiltAt: lastGoogle?.finished_at || '2026-10-18T20:30:06.000Z',
+        lastError: null,
+        errors: []
+      }
     };
   },
 
@@ -3458,7 +3477,7 @@ export const DemoDB = {
 
   // ==================== PHASE 9A: ONLINE BASICS PRACTICE DEMO FIXTURES ====================
   // Fixed demo practice set and fixed result (no generation or checking in the browser).
-  mockBasicsDrillStart(categoryId = 'cat-bas-1') {
+  mockBasicsDrillStart(categoryId = 'cat-bas-1', mode = 'timed', seconds = 60) {
     if (!isDemoMode()) {
       throw new Error('Action blocked: Demo mode cannot mutate live database.');
     }
@@ -3493,11 +3512,19 @@ export const DemoDB = {
       ];
     }
 
+    const poolMap = { 30: 50, 60: 100, 120: 200, 300: 500 };
+    const normMode = mode === 'unlimited' ? 'unlimited' : 'timed';
+    const normSeconds = normMode === 'timed' ? (Number(seconds) || 60) : null;
+    const pool = normMode === 'unlimited' ? 1000 : (poolMap[normSeconds] || 100);
+
     return {
       session_id: `demo-basics-session-${Date.now()}`,
       title: cat.name,
       questions,
-      target: { min_accuracy: 90, max_time_seconds: 120 },
+      mode: normMode,
+      seconds: normSeconds,
+      pool,
+      target: { min_accuracy: 90, min_questions_per_minute: 40 },
     };
   },
 
@@ -3505,7 +3532,8 @@ export const DemoDB = {
     sessionId,
     answers = [],
     studentId = 'usr-101',
-    categoryId = 'cat-bas-1'
+    categoryId = 'cat-bas-1',
+    mode = 'timed'
   ) {
     if (!isDemoMode()) {
       throw new Error('Action blocked: Demo mode cannot mutate live database.');
@@ -3553,6 +3581,8 @@ export const DemoDB = {
       day: '2-digit',
     }).format(new Date());
 
+    const practiceMode = mode === 'unlimited' ? 'unlimited' : 'timed';
+
     initDemoStorage();
     const results = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_RESULTS) || '[]');
     results.unshift({
@@ -3562,12 +3592,13 @@ export const DemoDB = {
       category_id: categoryId || 'cat-bas-1',
       correct: 4,
       total: 5,
-      time_seconds: 22,
+      time_seconds: 30,
       note: null,
       entry_date: todayIstStr,
       created_at: nowIso,
       updated_at: nowIso,
       source: 'site',
+      practice_mode: practiceMode,
       verified: true,
       verified_by: null,
       verified_at: null,
@@ -3575,14 +3606,17 @@ export const DemoDB = {
       corrected_at: null,
       flagged: false,
       flag_note: null,
+      meets_target: true,
     });
     localStorage.setItem(DEMO_STORAGE_KEY_RESULTS, JSON.stringify(results));
 
     return {
       correct: 4,
-      total: 5,
+      attempted: 5,
       accuracy: 80.0,
-      seconds: 22,
+      used_seconds: 30,
+      correct_per_minute: 8.0,
+      attempted_per_minute: 10.0,
       detail: fixedDetail,
       result_id: resultId,
     };

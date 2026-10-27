@@ -286,12 +286,16 @@ export function formatTaskTarget(
   const categoryId = trimText(
     safeTask.category_id !== undefined && safeTask.category_id !== null
       ? String(safeTask.category_id)
-      : ''
+      : safeTask.task_category_id !== undefined && safeTask.task_category_id !== null
+        ? String(safeTask.task_category_id)
+        : ''
   );
   const activityKey = trimText(
     safeTask.activity_key !== undefined && safeTask.activity_key !== null
       ? String(safeTask.activity_key)
-      : ''
+      : safeTask.task_activity_key !== undefined && safeTask.task_activity_key !== null
+        ? String(safeTask.task_activity_key)
+        : ''
   );
 
   if (section === 'basics' || section === 'round') {
@@ -316,11 +320,13 @@ export function formatTaskTarget(
       : drillCatalog && typeof drillCatalog === 'object'
         ? Object.values(drillCatalog)
         : [];
-    const matched = list.find((d) => d && trimText(d.key) === activityKey);
+    const matched = list.find(
+      (d) => d && trimText(d.key) === activityKey && d.enabled !== false
+    );
     if (matched && trimText(matched.title)) {
       return { text: trimText(matched.title), isAny: false };
     }
-    return { text: activityKey, isAny: false };
+    return { text: 'Activity no longer available', isAny: false, unavailable: true };
   }
 
   if (section === 'memoriad') {
@@ -333,8 +339,28 @@ export function formatTaskTarget(
     if (matched && trimText(matched.title ?? matched.label)) {
       return { text: trimText(matched.title ?? matched.label), isAny: false };
     }
-    return { text: activityKey, isAny: false };
+    return { text: 'Activity no longer available', isAny: false, unavailable: true };
   }
 
   return { text: `Any activity in ${sectionTitle}`, isAny: true };
+}
+
+/**
+ * Returns false when a task points to a specific `activity_key` that has been
+ * removed from the catalog, true otherwise.
+ *
+ * @param {object} task
+ * @param {Array<object>} [categories=[]]
+ * @param {Record<string, object>|Array<object>} [drillCatalog=DRILL_CATALOG]
+ * @param {Array<object>} [memoriadModules=MEMORIAD_MODULES]
+ * @returns {boolean}
+ */
+export function isTaskActivityAvailable(
+  task = {},
+  categories = [],
+  drillCatalog = DRILL_CATALOG,
+  memoriadModules = MEMORIAD_MODULES
+) {
+  const target = formatTaskTarget(task, categories, drillCatalog, memoriadModules);
+  return !target.unavailable;
 }

@@ -289,7 +289,7 @@ export function buildWeeklyEmail(data = {}) {
   }
   textLines.push('');
 
-  // 7. Backup status
+  // 7. Backup status & Score-sheet mirror status
   const backupInfo = safeData.backup && typeof safeData.backup === 'object' ? safeData.backup : null;
   const lastGoogleAt = backupInfo?.last_google_at || backupInfo?.last_run_at || null;
   const lastExportAt = backupInfo?.last_export_at || null;
@@ -297,6 +297,35 @@ export function buildWeeklyEmail(data = {}) {
     backupInfo?.days_since_backup !== undefined && backupInfo?.days_since_backup !== null
       ? Number(backupInfo.days_since_backup)
       : null;
+
+  const mirrorInfo =
+    (backupInfo?.mirror && typeof backupInfo.mirror === 'object' ? backupInfo.mirror : null) ||
+    (safeData.mirror && typeof safeData.mirror === 'object' ? safeData.mirror : null);
+
+  const mirrorUpToDate = Number(
+    mirrorInfo?.up_to_date ?? mirrorInfo?.upToDate ?? backupInfo?.mirror_up_to_date ?? 0
+  );
+  const mirrorTotal = Number(
+    mirrorInfo?.total ?? backupInfo?.mirror_total ?? activeCount
+  );
+  const mirrorLastBuiltAt =
+    mirrorInfo?.last_built_at ??
+    mirrorInfo?.lastBuiltAt ??
+    backupInfo?.mirror_last_built_at ??
+    null;
+
+  let daysSinceMirrorBuilt = null;
+  if (mirrorInfo?.days_since_built !== undefined && mirrorInfo?.days_since_built !== null) {
+    daysSinceMirrorBuilt = Number(mirrorInfo.days_since_built);
+  } else if (mirrorLastBuiltAt) {
+    const refParts = parseISTDateParts(safeData.generated_on || safeData.week_end);
+    const builtParts = parseISTDateParts(mirrorLastBuiltAt);
+    if (refParts && builtParts) {
+      const refUtc = Date.UTC(refParts.year, refParts.month - 1, refParts.day);
+      const builtUtc = Date.UTC(builtParts.year, builtParts.month - 1, builtParts.day);
+      daysSinceMirrorBuilt = Math.max(0, Math.round((refUtc - builtUtc) / 86400000));
+    }
+  }
 
   textLines.push('BACKUP');
   if (!lastGoogleAt && !lastExportAt) {
@@ -311,6 +340,20 @@ export function buildWeeklyEmail(data = {}) {
     if (daysSinceBackup !== null && Number.isFinite(daysSinceBackup) && daysSinceBackup > 3) {
       textLines.push(`- Warning: Last completed backup was ${daysSinceBackup} days ago.`);
     }
+  }
+
+  // Score-sheet mirror status line & staleness warning (> 3 days old or never built)
+  textLines.push(
+    `- Score-sheet mirror: ${mirrorUpToDate} of ${mirrorTotal} up to date | Last built: ${mirrorLastBuiltAt ? formatReportDateIST(mirrorLastBuiltAt) : 'Never'}`
+  );
+  if (!mirrorLastBuiltAt) {
+    textLines.push('- Warning: Score-sheet mirror has never been built.');
+  } else if (
+    daysSinceMirrorBuilt !== null &&
+    Number.isFinite(daysSinceMirrorBuilt) &&
+    daysSinceMirrorBuilt > 3
+  ) {
+    textLines.push(`- Warning: Score-sheet mirror last built ${daysSinceMirrorBuilt} days ago.`);
   }
 
   const text = textLines.join('\n');
@@ -459,6 +502,18 @@ export function buildWeeklyEmail(data = {}) {
           </tbody>
         </table>`;
 
+  const mirrorHtmlBlock = `<p style="margin: 8px 0 0 0; color: #1e293b; font-size: 14px; line-height: 1.6;">
+    Score-sheet mirror: <strong>${mirrorUpToDate} of ${mirrorTotal} up to date</strong>
+    &middot; Last built: <strong>${escapeHtml(mirrorLastBuiltAt ? formatReportDateIST(mirrorLastBuiltAt) : 'Never')}</strong>
+    ${
+      !mirrorLastBuiltAt
+        ? `<br /><span style="color: #b45309;"><strong>Warning:</strong> Score-sheet mirror has never been built.</span>`
+        : daysSinceMirrorBuilt !== null && Number.isFinite(daysSinceMirrorBuilt) && daysSinceMirrorBuilt > 3
+          ? `<br /><span style="color: #b45309;"><strong>Warning:</strong> Score-sheet mirror last built ${daysSinceMirrorBuilt} days ago.</span>`
+          : ''
+    }
+  </p>`;
+
   const html = `<!doctype html>
 <html lang="en">
 <head>
@@ -525,6 +580,7 @@ export function buildWeeklyEmail(data = {}) {
               }
             </p>`
       }
+      ${mirrorHtmlBlock}
     </div>
   </div>
 </body>

@@ -190,7 +190,7 @@ function renderTodosTable() {
 
     tasks.forEach((todo, idx) => {
       const targetInfo = formatTaskTarget(todo, allCategories, DRILL_CATALOG, MEMORIAD_MODULES);
-      const targetDisplay = targetInfo.isAny
+      const targetDisplay = targetInfo.isAny || targetInfo.unavailable
         ? `<em style="color: var(--text-muted);">${escapeHtml(targetInfo.text)}</em>`
         : escapeHtml(targetInfo.text);
       const levelDisplay = todo.level

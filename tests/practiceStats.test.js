@@ -16,6 +16,11 @@ import {
   getBasicsQuestionCounts,
   isBasicsOnlineAvailable,
   setsThisWeek,
+  computePerMinuteRates,
+  bestForMode,
+  bestByCategoryAndMode,
+  triesThisWeek,
+  formatBasicsTargetText,
 } from '../js/practiceStats.js';
 
 describe('Phase 9a — js/practiceStats.js (Personal Bests & Weekly Sets in IST)', () => {
@@ -162,3 +167,137 @@ describe('Phase 9a — js/practiceStats.js (Personal Bests & Weekly Sets in IST)
     assert.deepEqual(getBasicsQuestionCounts('3d/1d'), [10, 50, 100]);
   });
 });
+
+describe('Phase 10g — Practice Stats: Per-Minute Maths, Best per Mode (Timed vs Unlimited) & Tie-Breaking', () => {
+  it('computes correct_per_minute and attempted_per_minute to 1 decimal place', () => {
+    const rates1 = computePerMinuteRates(22, 25, 30);
+    // 22 in 0.5 min = 44.0/min; 25 in 0.5 min = 50.0/min; accuracy = 88%
+    assert.equal(rates1.correct_per_minute, 44);
+    assert.equal(rates1.attempted_per_minute, 50);
+    assert.equal(rates1.accuracy, 88);
+
+    const rates2 = computePerMinuteRates(37, 41, 60);
+    assert.equal(rates2.correct_per_minute, 37);
+    assert.equal(rates2.attempted_per_minute, 41);
+    assert.equal(rates2.accuracy, 90.2);
+
+    const ratesZero = computePerMinuteRates(10, 10, 0);
+    assert.equal(ratesZero.correct_per_minute, 0);
+    assert.equal(ratesZero.attempted_per_minute, 0);
+  });
+
+  it('tracks personal best separately for timed (most correct -> accuracy -> attempted) and unlimited (highest correct_per_minute -> accuracy -> correct)', () => {
+    const modeRows = [
+      // Timed row 1: 20/25 in 30s -> 20 correct, 80% accuracy
+      {
+        id: 't1',
+        category_id: 'cat-1d4r',
+        student_round_id: null,
+        practice_mode: 'timed',
+        correct: 20,
+        total: 25,
+        time_seconds: 30,
+      },
+      // Timed row 2: 22/25 in 30s -> 22 correct, 88% accuracy (more correct than t1)
+      {
+        id: 't2',
+        category_id: 'cat-1d4r',
+        student_round_id: null,
+        practice_mode: 'timed',
+        correct: 22,
+        total: 25,
+        time_seconds: 30,
+      },
+      // Timed row 3: 22/22 in 30s -> 22 correct, 100% accuracy (tie on correct=22 with t2, higher accuracy -> wins!)
+      {
+        id: 't3',
+        category_id: 'cat-1d4r',
+        student_round_id: null,
+        practice_mode: 'timed',
+        correct: 22,
+        total: 22,
+        time_seconds: 30,
+      },
+      // Unlimited row 1: 22/25 in 30s -> 44.0 correct/min, 88% accuracy
+      {
+        id: 'u1',
+        category_id: 'cat-1d4r',
+        student_round_id: null,
+        practice_mode: 'unlimited',
+        correct: 22,
+        total: 25,
+        time_seconds: 30,
+      },
+      // Unlimited row 2: 44/50 in 60s -> 44.0 correct/min, 88% accuracy, 44 correct (tie on cpm & accuracy, more correct -> beats u1)
+      {
+        id: 'u2',
+        category_id: 'cat-1d4r',
+        student_round_id: null,
+        practice_mode: 'unlimited',
+        correct: 44,
+        total: 50,
+        time_seconds: 60,
+      },
+      // Unlimited row 3: 22/22 in 30s -> 44.0 correct/min, 100% accuracy (tie on cpm, higher accuracy -> beats u2)
+      {
+        id: 'u3',
+        category_id: 'cat-1d4r',
+        student_round_id: null,
+        practice_mode: 'unlimited',
+        correct: 22,
+        total: 22,
+        time_seconds: 30,
+      },
+      // Old fixed/typed row with practice_mode = null (must be ignored by bestForMode)
+      {
+        id: 'old-fixed',
+        category_id: 'cat-1d4r',
+        student_round_id: null,
+        practice_mode: null,
+        correct: 100,
+        total: 100,
+        time_seconds: 30,
+      },
+    ];
+
+    // Timed best is t3 (22 correct, 100% accuracy > t2's 88%)
+    const bestTimed = bestForMode(modeRows, 'cat-1d4r', 'timed');
+    assert.ok(bestTimed);
+    assert.equal(bestTimed.id, 't3');
+    assert.equal(bestTimed.correct, 22);
+    assert.equal(bestTimed.accuracy, 100);
+
+    // Unlimited best is u3 (44/min, 100% accuracy)
+    const bestUnlimited = bestForMode(modeRows, 'cat-1d4r', 'unlimited');
+    assert.ok(bestUnlimited);
+    assert.equal(bestUnlimited.id, 'u3');
+    assert.equal(bestUnlimited.correct_per_minute, 44);
+    assert.equal(bestUnlimited.accuracy, 100);
+
+    // Without u3, u2 beats u1 on more correct answers (44 > 22)
+    const bestUnlimWithoutU3 = bestForMode(
+      modeRows.filter((r) => r.id !== 'u3'),
+      'cat-1d4r',
+      'unlimited'
+    );
+    assert.equal(bestUnlimWithoutU3.id, 'u2');
+    assert.equal(bestUnlimWithoutU3.correct, 44);
+
+    const grouped = bestByCategoryAndMode(modeRows);
+    assert.equal(grouped['cat-1d4r|timed'].id, 't3');
+    assert.equal(grouped['cat-1d4r|unlimited'].id, 'u3');
+
+    // Target text formatting
+    assert.equal(
+      formatBasicsTargetText({ min_accuracy: 90, min_questions_per_minute: 40 }),
+      'Target: at least 90% accuracy and 40 questions per minute'
+    );
+    assert.equal(
+      formatBasicsTargetText({ min_accuracy: 95, min_questions_per_minute: null }),
+      'Target: at least 95% accuracy'
+    );
+    assert.equal(formatBasicsTargetText(null), '');
+    assert.equal(triesThisWeek([], '2026-10-27').length, 0);
+  });
+});
+

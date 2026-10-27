@@ -1,51 +1,69 @@
 /**
  * Trendz Tracker — Online Basics Practice Controller (js/basicsPractice.js)
  *
- * Powers /pages/basics-practice.html?cat=<category_id>:
+ * Powers /pages/basics-practice.html?cat=<category_id> (Phase 10g):
  * - Protected by requireAuth(['student', 'admin']).
- * - Setup screen: category name, question count selector (5, 10, 20; default 10),
- *   student's target benchmark from `basics_thresholds`, and Personal Best for
- *   this category + question count (`bestResult` from `js/practiceStats.js`).
- * - Active player screen: driven by `createDrillPlayer` (`js/drillPlayer.js`),
- *   showing vertical signed rows with a horizontal line for `<N>d<R>r`,
- *   `"47 x 8"` for multiplication, and `"84 / 7"` for division, a visible
- *   count-up stopwatch, Enter/Next and Skip controls (no Back button).
- * - Results screen: `"This set was saved to your scores."`, score, accuracy,
- *   time, `getScoreFeedback` badge (`"n wrong"`), `"Target met"` / `"Below target"`
- *   chip read from `results_with_target` for the saved `result_id`, review table,
- *   and `"Again"` / `"Back to basics"` buttons.
+ * - Setup screen: category name, single choice of time ("30 seconds", "1 minute",
+ *   "2 minutes", "5 minutes", "Unlimited (stopwatch)"), student's target benchmark
+ *   from `basics_thresholds`, and Personal Best for this category and chosen mode
+ *   (`timed` vs `unlimited`) from `js/practiceStats.js`.
+ * - Active player screen: one question at a time (`createDrillPlayer` with
+ *   `revisitSkipped: false`), numeric answer box (`autofocus`, Enter submits),
+ *   Skip button (counts as wrong, moves on), no Back button.
+ * - Top bar: for timed modes, remaining time counting down from a fixed end time
+ *   (`performance.now()`, refreshed every 250 ms) with a progress bar; for unlimited,
+ *   a stopwatch counting up. Always shows "Answered n" (never shows correct count
+ *   during play) and a "Finish" button with confirmation.
+ * - When time reaches zero, the round stops immediately and submits what has been
+ *   answered (the question on screen at that moment is not counted).
+ * - Results screen: correct out of attempted, accuracy, time used, correct per minute
+ *   and attempted per minute (1 decimal place), colour from `js/scoreColors.js`
+ *   ("n wrong"), target chip ("Target met" or "Below target") read from
+ *   `results_with_target` for the saved row, review list of the first 100 attempted
+ *   questions (wrong ones first, with a "Show all" toggle), "New personal best" note,
+ *   "This round was saved to your scores.", and buttons "Same mode again" & "Change mode".
  */
 
 import { isSupabaseConfigured } from './config.js';
 import { isDemoMode } from './demoDb.js';
-import { createDrillPlayer } from './drillPlayer.js';
+import { computeRemainingSeconds, createDrillPlayer } from './drillPlayer.js';
 import { requireAuth } from './guard.js';
 import {
-  BASICS_DEFAULT_QUESTIONS,
-  bestResult,
-  getBasicsDefaultQuestions,
-  getBasicsQuestionCounts,
+  BASICS_TIME_MODES,
+  bestForMode,
+  compareModeResults,
+  computePerMinuteRates,
+  formatBasicsTargetText,
   isBasicsOnlineAvailable,
 } from './practiceStats.js';
 import { getScoreFeedback } from './scoreColors.js';
-import { formatSecondsToTime } from './stats.js';
 import { DemoDB, getSupabase } from './supabaseClient.js';
 import { formatSecondsToMMSS } from './timeUtils.js';
 import { showToast } from './toast.js';
 
 let currentProfile = null;
 let selectedCategory = null;
-let selectedQuestionCount = BASICS_DEFAULT_QUESTIONS;
+let selectedMode = 'timed'; // 'timed' | 'unlimited'
+let selectedSeconds = 60; // 30 | 60 | 120 | 300 | null
 let categoryResults = [];
 let effectiveTarget = null;
 
 // Active session & player state
 let activeSessionId = null;
 let activePlayer = null;
-let stopwatchStartMs = 0;
-let stopwatchTimerId = null;
+let activeMode = 'timed';
+let activeSeconds = 60;
+let timerStartMs = 0;
+let countdownEndMs = 0;
+let roundTimerId = null;
+let roundEnded = false;
 let pendingSubmissionAnswers = null;
+let previousBestBeforeSubmit = null;
 let isSubmitting = false;
+
+// Review state
+let currentReviewItems = [];
+let showAllReviewItems = false;
 
 function escapeHtml(str) {
   if (str === null || str === undefined) return '';
@@ -80,7 +98,7 @@ function renderDemoBannerIfNeeded() {
     <div class="banner banner-demo" style="margin-bottom: var(--space-4);">
       <span class="banner-icon" aria-hidden="true">ℹ️</span>
       <div class="banner-body">
-        <strong>DEMO MODE &mdash; sample practice set:</strong>
+        <strong>DEMO MODE &mdash; sample practice round:</strong>
         Running fixed sample questions and fixed result on localhost / preview host.
       </div>
     </div>
@@ -174,12 +192,7 @@ async function loadSetupData(categoryIdParam) {
     titleEl.textContent = selectedCategory.name;
   }
 
-  // Render the exact question slabs for this category (e.g. 20/50/100/200, 10/20/30/50 for 2d4r, 10/50/100 for 3d/1d)
-  const categorySlabs = getBasicsQuestionCounts(selectedCategory);
-  if (!categorySlabs.includes(selectedQuestionCount)) {
-    selectedQuestionCount = getBasicsDefaultQuestions(selectedCategory);
-  }
-  renderQuestionCountButtons(categorySlabs);
+  renderTimeModeButtons();
 
   // Resolve student's target (level-specific rule beats default rule)
   const studentLevel = String(currentProfile?.level || '').trim().toLowerCase();
@@ -199,10 +212,13 @@ async function loadSetupData(categoryIdParam) {
   }
   effectiveTarget = rule
     ? {
-        min_accuracy: Number(rule.min_accuracy),
-        max_time_seconds:
-          rule.max_time_seconds !== null && rule.max_time_seconds !== undefined
-            ? Number(rule.max_time_seconds)
+        min_accuracy:
+          rule.min_accuracy !== null && rule.min_accuracy !== undefined
+            ? Number(rule.min_accuracy)
+            : null,
+        min_questions_per_minute:
+          rule.min_questions_per_minute !== null && rule.min_questions_per_minute !== undefined
+            ? Number(rule.min_questions_per_minute)
             : null,
       }
     : null;
@@ -212,35 +228,41 @@ async function loadSetupData(categoryIdParam) {
 }
 
 /**
- * Renders the question count buttons for the selected category's slabs.
+ * Renders the 5 time mode buttons ("30 seconds", "1 minute", "2 minutes", "5 minutes", "Unlimited (stopwatch)").
  */
-function renderQuestionCountButtons(slabs) {
-  const groupEl = document.getElementById('question-count-group');
-  if (!groupEl || !Array.isArray(slabs) || slabs.length === 0) return;
+function renderTimeModeButtons() {
+  const groupEl = document.getElementById('time-mode-group');
+  if (!groupEl) return;
 
-  groupEl.innerHTML = slabs
-    .map((count) => {
-      const isSelected = count === selectedQuestionCount;
-      return `
-        <button
-          type="button"
-          class="btn ${isSelected ? 'btn-primary' : 'btn-outline'} btn-qcount"
-          data-count="${count}"
-          aria-pressed="${isSelected ? 'true' : 'false'}"
-        >
-          ${count} Questions
-        </button>
-      `;
-    })
-    .join('');
+  groupEl.innerHTML = BASICS_TIME_MODES.map((item) => {
+    const isSelected =
+      item.mode === selectedMode &&
+      (item.mode === 'unlimited' || Number(item.seconds) === Number(selectedSeconds));
+    return `
+      <button
+        type="button"
+        class="btn ${isSelected ? 'btn-primary' : 'btn-outline'} btn-time-mode"
+        data-mode="${item.mode}"
+        data-seconds="${item.seconds ?? ''}"
+        aria-pressed="${isSelected ? 'true' : 'false'}"
+      >
+        ${escapeHtml(item.label)}
+      </button>
+    `;
+  }).join('');
 
-  groupEl.querySelectorAll('.btn-qcount').forEach((btn) => {
+  groupEl.querySelectorAll('.btn-time-mode').forEach((btn) => {
     btn.addEventListener('click', () => {
-      const count = Number(btn.getAttribute('data-count'));
-      if (slabs.includes(count)) {
-        selectedQuestionCount = count;
-        renderSetupSummary();
+      const modeVal = btn.getAttribute('data-mode');
+      const secAttr = btn.getAttribute('data-seconds');
+      if (modeVal === 'unlimited') {
+        selectedMode = 'unlimited';
+        selectedSeconds = null;
+      } else {
+        selectedMode = 'timed';
+        selectedSeconds = Number(secAttr) || 60;
       }
+      renderSetupSummary();
     });
   });
 }
@@ -257,7 +279,9 @@ async function refreshCategoryResults() {
       if (supabase) {
         const { data, error } = await supabase
           .from('results_with_target')
-          .select('id, student_id, student_round_id, category_id, correct, total, time_seconds, entry_date, created_at, source, meets_target')
+          .select(
+            'id, student_id, student_round_id, category_id, correct, total, time_seconds, entry_date, created_at, source, practice_mode, min_accuracy, min_questions_per_minute, meets_target'
+          )
           .eq('student_id', currentProfile.id)
           .eq('category_id', selectedCategory.id)
           .order('created_at', { ascending: false });
@@ -292,46 +316,47 @@ async function refreshCategoryResults() {
  */
 function renderSetupSummary() {
   const targetTextEl = document.getElementById('setup-target-text');
-  const bestLabelEl = document.getElementById('setup-best-qcount-label');
+  const bestModeLabelEl = document.getElementById('setup-best-mode-label');
   const bestTextEl = document.getElementById('setup-best-text');
 
-  if (bestLabelEl) {
-    bestLabelEl.textContent = String(selectedQuestionCount);
+  if (bestModeLabelEl) {
+    bestModeLabelEl.textContent = selectedMode === 'unlimited' ? 'Unlimited' : 'Timed';
   }
 
   if (targetTextEl) {
-    if (effectiveTarget) {
-      const accPart = `${effectiveTarget.min_accuracy}% accuracy`;
-      const timePart = effectiveTarget.max_time_seconds
-        ? ` in ${formatSecondsToTime(effectiveTarget.max_time_seconds)} or less`
-        : '';
-      targetTextEl.textContent = `${accPart}${timePart}`;
-    } else {
-      targetTextEl.textContent = 'No target set for your level';
-    }
+    const formattedTarget = formatBasicsTargetText(effectiveTarget);
+    targetTextEl.textContent = formattedTarget || 'No target set for your level';
   }
 
   if (bestTextEl && selectedCategory) {
-    const best = bestResult(categoryResults, selectedCategory.id, selectedQuestionCount);
+    const best = bestForMode(categoryResults, selectedCategory.id, selectedMode);
     if (best) {
-      const timeStr =
-        best.time_seconds !== null && best.time_seconds !== undefined
-          ? ` in ${formatSecondsToMMSS(best.time_seconds)}`
-          : '';
-      bestTextEl.textContent = `${best.correct} / ${best.total} (${best.accuracy}%)${timeStr}`;
+      const cpm = Number(best.correct_per_minute || 0).toFixed(1);
+      if (selectedMode === 'unlimited') {
+        bestTextEl.textContent = `${cpm} correct / min (${best.correct}/${best.total}, ${best.accuracy}%)`;
+      } else {
+        bestTextEl.textContent = `${best.correct} correct (${best.accuracy}%, ${cpm} / min)`;
+      }
     } else {
-      bestTextEl.textContent = `No ${selectedQuestionCount}-question set recorded yet`;
+      bestTextEl.textContent =
+        selectedMode === 'unlimited'
+          ? 'No unlimited round recorded yet'
+          : 'No timed round recorded yet';
     }
   }
 
-  // Update active button state in question count selector
-  document.querySelectorAll('.btn-qcount').forEach((btn) => {
-    const countVal = Number(btn.getAttribute('data-count'));
-    if (countVal === selectedQuestionCount) {
-      btn.className = 'btn btn-primary btn-qcount';
+  // Update active button state in time mode selector
+  document.querySelectorAll('.btn-time-mode').forEach((btn) => {
+    const m = btn.getAttribute('data-mode');
+    const s = btn.getAttribute('data-seconds');
+    const isSelected =
+      m === selectedMode &&
+      (m === 'unlimited' || Number(s) === Number(selectedSeconds));
+    if (isSelected) {
+      btn.className = 'btn btn-primary btn-time-mode';
       btn.setAttribute('aria-pressed', 'true');
     } else {
-      btn.className = 'btn btn-outline btn-qcount';
+      btn.className = 'btn btn-outline btn-time-mode';
       btn.setAttribute('aria-pressed', 'false');
     }
   });
@@ -346,29 +371,130 @@ function showScreen(screenId) {
   });
 }
 
-function startStopwatch() {
-  stopStopwatch();
-  stopwatchStartMs = performance.now();
+/**
+ * Starts the 250 ms timer for either:
+ * - 'timed': countdown from `countdownEndMs = performance.now() + activeSeconds * 1000`
+ *   with progress bar, auto-stopping immediately at 00:00.
+ * - 'unlimited': stopwatch counting up from `timerStartMs = performance.now()`.
+ */
+function startRoundTimer() {
+  stopRoundTimer();
+  const nowPerf = performance.now();
+  timerStartMs = nowPerf;
   const stopwatchEl = document.getElementById('player-stopwatch');
-  if (stopwatchEl) stopwatchEl.textContent = '0:00';
+  const trackEl = document.getElementById('player-progress-bar-track');
+  const fillEl = document.getElementById('player-progress-bar-fill');
 
-  stopwatchTimerId = window.setInterval(() => {
-    const elapsedSec = Math.max(0, Math.floor((performance.now() - stopwatchStartMs) / 1000));
-    if (stopwatchEl) {
-      stopwatchEl.textContent = formatSecondsToMMSS(elapsedSec);
-    }
-  }, 250);
+  if (activeMode === 'timed' && Number(activeSeconds) > 0) {
+    countdownEndMs = nowPerf + Number(activeSeconds) * 1000;
+    if (stopwatchEl) stopwatchEl.textContent = formatSecondsToMMSS(Number(activeSeconds));
+    if (trackEl) trackEl.style.display = 'block';
+    if (fillEl) fillEl.style.width = '100%';
+
+    roundTimerId = window.setInterval(() => {
+      if (roundEnded) return;
+      const tick = computeRemainingSeconds(
+        countdownEndMs,
+        performance.now(),
+        Number(activeSeconds)
+      );
+      if (stopwatchEl) {
+        stopwatchEl.textContent = formatSecondsToMMSS(tick.remainingSeconds);
+      }
+      if (fillEl) {
+        fillEl.style.width = `${tick.progressPercent.toFixed(1)}%`;
+      }
+      if (tick.expired) {
+        handleTimeUpAutoFinish();
+      }
+    }, 250);
+  } else {
+    countdownEndMs = 0;
+    if (stopwatchEl) stopwatchEl.textContent = '0:00';
+    if (trackEl) trackEl.style.display = 'none';
+
+    roundTimerId = window.setInterval(() => {
+      if (roundEnded) return;
+      const elapsedSec = Math.max(0, Math.floor((performance.now() - timerStartMs) / 1000));
+      if (stopwatchEl) {
+        stopwatchEl.textContent = formatSecondsToMMSS(elapsedSec);
+      }
+    }, 250);
+  }
 }
 
-function stopStopwatch() {
-  if (stopwatchTimerId !== null) {
-    clearInterval(stopwatchTimerId);
-    stopwatchTimerId = null;
+function stopRoundTimer() {
+  if (roundTimerId !== null) {
+    clearInterval(roundTimerId);
+    roundTimerId = null;
+  }
+}
+
+/**
+ * Triggered when a timed round's countdown reaches zero.
+ * Immediately stops the round and submits only the questions already answered/skipped;
+ * the question on screen at that moment is NOT counted.
+ */
+function handleTimeUpAutoFinish() {
+  if (roundEnded || !activePlayer) return;
+  roundEnded = true;
+  stopRoundTimer();
+
+  const reachedAnswers = activePlayer.finish();
+  if (reachedAnswers === null) return;
+
+  if (reachedAnswers.length === 0) {
+    showErrorBanner('Time is up and no questions were answered, so nothing was saved.');
+    showToast('info', 'Time is up — no questions were answered.');
+    showScreen('screen-setup');
+    return;
+  }
+
+  submitCompletedPracticeSet(reachedAnswers);
+}
+
+/**
+ * Triggered when the student clicks the "Finish" button in the top bar.
+ * Asks for confirmation (timed: ends early; unlimited: ends the round).
+ */
+function handleManualFinishClick() {
+  if (roundEnded || !activePlayer || isSubmitting) return;
+
+  const reachedCount = activePlayer.getAttemptedCount();
+  if (reachedCount === 0) {
+    const leave = window.confirm(
+      'You have not answered any questions yet. End this round without saving?'
+    );
+    if (!leave) return;
+    roundEnded = true;
+    stopRoundTimer();
+    activePlayer.finish();
+    showScreen('screen-setup');
+    return;
+  }
+
+  const promptMsg =
+    activeMode === 'timed'
+      ? `End this timed round early and submit the ${reachedCount} ${reachedCount === 1 ? 'question' : 'questions'} you have answered?`
+      : `Finish this round and submit the ${reachedCount} ${reachedCount === 1 ? 'question' : 'questions'} you have answered?`;
+
+  if (!window.confirm(promptMsg)) {
+    const inputEl = document.getElementById('player-answer-input');
+    if (inputEl) inputEl.focus();
+    return;
+  }
+
+  roundEnded = true;
+  stopRoundTimer();
+  const reachedAnswers = activePlayer.finish();
+  if (reachedAnswers !== null) {
+    submitCompletedPracticeSet(reachedAnswers);
   }
 }
 
 /**
  * Renders the current question inside the one-question-at-a-time player:
+ * - Always shows "Answered n" in the top bar (never shows how many are correct during play).
  * - Add/Sub (`type === 'add_sub'`): vertical column of signed numbers (`+ 4`, `- 3`),
  *   a horizontal line underneath, then the answer box.
  * - Multiplication (`type === 'mul'`): `"47 x 8"`.
@@ -378,7 +504,15 @@ function renderCurrentPlayerQuestion() {
   if (!activePlayer) return;
   const state = activePlayer.getState();
 
+  const answeredLabelEl = document.getElementById('player-answered-label');
+  if (answeredLabelEl) {
+    answeredLabelEl.textContent = `Answered ${state.attemptedCount}`;
+  }
+
+  // If the pool ran out, finish and submit immediately
   if (state.isFinished) {
+    roundEnded = true;
+    stopRoundTimer();
     const finalAnswers = activePlayer.finish();
     if (finalAnswers !== null) {
       submitCompletedPracticeSet(finalAnswers);
@@ -386,32 +520,21 @@ function renderCurrentPlayerQuestion() {
     return;
   }
 
-  const progressEl = document.getElementById('player-progress-label');
-  const skippedBanner = document.getElementById('player-skipped-banner');
   const stageEl = document.getElementById('player-question-stage');
   const inputEl = document.getElementById('player-answer-input');
   const badgeEl = document.getElementById('player-category-badge');
+  const modeChipEl = document.getElementById('player-mode-chip');
 
   if (badgeEl && selectedCategory) {
     badgeEl.textContent = selectedCategory.name;
   }
-
-  if (progressEl) {
-    if (state.isRevisitingSkipped) {
-      progressEl.textContent = `Skipped Question #${state.currentNumber} (${state.remainingInCurrentPass} remaining)`;
-    } else {
-      progressEl.textContent = `Question ${state.currentNumber} of ${state.total}`;
-    }
-  }
-
-  if (skippedBanner) {
-    skippedBanner.style.display = state.isRevisitingSkipped ? 'inline-flex' : 'none';
+  if (modeChipEl) {
+    modeChipEl.textContent = activeMode === 'unlimited' ? 'Unlimited' : 'Timed';
   }
 
   const q = state.currentQuestion;
   if (stageEl && q) {
     if (typeof q === 'object' && Array.isArray(q.rows)) {
-      // Vertical rows with sign and a summation line underneath
       const rowsHtml = q.rows
         .map((num) => {
           const sign = num < 0 ? '-' : '+';
@@ -457,9 +580,9 @@ async function startPracticeSession() {
   showErrorBanner('');
 
   const startBtn = document.getElementById('btn-start-practice');
-  const againBtn = document.getElementById('btn-practice-again');
+  const sameModeBtn = document.getElementById('btn-same-mode-again');
   if (startBtn) startBtn.disabled = true;
-  if (againBtn) againBtn.disabled = true;
+  if (sameModeBtn) sameModeBtn.disabled = true;
 
   try {
     let payload = null;
@@ -476,61 +599,85 @@ async function startPracticeSession() {
           action: 'start',
           kind: 'basics',
           category_id: selectedCategory.id,
-          questions: selectedQuestionCount,
+          mode: selectedMode,
+          seconds: selectedMode === 'timed' ? selectedSeconds : null,
         }),
       });
 
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) {
-        throw new Error(data.error || 'Could not start online practice set.');
+        throw new Error(data.error || 'Could not start online practice round.');
       }
       payload = data;
     } else if (isDemoMode()) {
-      payload = DemoDB.mockBasicsDrillStart(selectedCategory.id);
+      payload = DemoDB.mockBasicsDrillStart(
+        selectedCategory.id,
+        selectedMode,
+        selectedSeconds
+      );
     } else {
       throw new Error('Database connection is not configured.');
     }
 
     activeSessionId = payload.session_id;
-    if (payload.target) {
+    activeMode = payload.mode === 'unlimited' ? 'unlimited' : 'timed';
+    activeSeconds =
+      activeMode === 'timed' ? Number(payload.seconds || selectedSeconds || 60) : null;
+
+    if (payload.target !== undefined) {
       effectiveTarget = payload.target;
     }
 
+    // Snapshot previous personal best for this category + mode before saving the new round
+    previousBestBeforeSubmit = bestForMode(
+      categoryResults,
+      selectedCategory.id,
+      activeMode
+    );
+
+    roundEnded = false;
     pendingSubmissionAnswers = null;
     const retryBox = document.getElementById('player-submit-retry-box');
     const answerForm = document.getElementById('player-answer-form');
     if (retryBox) retryBox.style.display = 'none';
     if (answerForm) answerForm.style.display = 'flex';
 
-    activePlayer = createDrillPlayer(payload.questions || []);
+    activePlayer = createDrillPlayer(payload.questions || [], {
+      mode: activeMode,
+      revisitSkipped: false,
+    });
     showScreen('screen-player');
-    startStopwatch();
+    startRoundTimer();
     renderCurrentPlayerQuestion();
   } catch (err) {
     showErrorBanner(err.message || 'Failed to start practice session.');
     showToast('error', err.message || 'Failed to start practice session.');
   } finally {
     if (startBtn) startBtn.disabled = false;
-    if (againBtn) againBtn.disabled = false;
+    if (sameModeBtn) sameModeBtn.disabled = false;
   }
 }
 
 /**
- * Submits the finished answers array to `POST /api/drill` (`action: 'submit'`).
+ * Submits the reached answers array to `POST /api/drill` (`action: 'submit'`).
+ * Prevents double submission and retains answers with "Try sending again" if network fails.
  */
 async function submitCompletedPracticeSet(answersArray) {
   if (isSubmitting) return;
   isSubmitting = true;
-  stopStopwatch();
+  roundEnded = true;
+  stopRoundTimer();
   pendingSubmissionAnswers = answersArray;
   showErrorBanner('');
 
   const inputEl = document.getElementById('player-answer-input');
   const nextBtn = document.getElementById('btn-next-question');
   const skipBtn = document.getElementById('btn-skip-question');
+  const finishBtn = document.getElementById('btn-finish-round');
   if (inputEl) inputEl.disabled = true;
   if (nextBtn) nextBtn.disabled = true;
   if (skipBtn) skipBtn.disabled = true;
+  if (finishBtn) finishBtn.disabled = true;
 
   try {
     let resultData = null;
@@ -552,7 +699,7 @@ async function submitCompletedPracticeSet(answersArray) {
 
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) {
-        throw new Error(data.error || 'Could not submit your practice set.');
+        throw new Error(data.error || 'Could not submit your practice round.');
       }
       resultData = data;
     } else if (isDemoMode()) {
@@ -560,7 +707,8 @@ async function submitCompletedPracticeSet(answersArray) {
         activeSessionId,
         answersArray,
         currentProfile?.id || 'usr-101',
-        selectedCategory?.id || 'cat-bas-1'
+        selectedCategory?.id || 'cat-bas-1',
+        activeMode
       );
     } else {
       throw new Error('Database connection is not configured.');
@@ -571,16 +719,86 @@ async function submitCompletedPracticeSet(answersArray) {
     renderSetupSummary();
     await renderResultsScreen(resultData);
   } catch (err) {
-    showErrorBanner(err.message || 'Failed to save your practice set.');
-    showToast('error', err.message || 'Failed to save your practice set.');
+    showErrorBanner(err.message || 'Failed to save your practice round.');
+    showToast('error', err.message || 'Failed to save your practice round.');
     const retryBox = document.getElementById('player-submit-retry-box');
+    const answerForm = document.getElementById('player-answer-form');
+    if (answerForm) answerForm.style.display = 'none';
     if (retryBox) retryBox.style.display = 'block';
   } finally {
     isSubmitting = false;
     if (inputEl) inputEl.disabled = false;
     if (nextBtn) nextBtn.disabled = false;
     if (skipBtn) skipBtn.disabled = false;
+    if (finishBtn) finishBtn.disabled = false;
   }
+}
+
+/**
+ * Renders the question-by-question review table (first 100 attempted questions,
+ * wrong ones first, with a "Show all" toggle).
+ */
+function renderReviewList() {
+  const reviewTbody = document.getElementById('result-review-tbody');
+  const toggleBtn = document.getElementById('btn-toggle-review-all');
+  const headingEl = document.getElementById('result-review-heading');
+  if (!reviewTbody) return;
+
+  // Sort wrong answers first, preserving original question order within each group
+  const sorted = [...currentReviewItems].sort((a, b) => {
+    if (!a.correct && b.correct) return -1;
+    if (a.correct && !b.correct) return 1;
+    return a.index - b.index;
+  });
+
+  const wrongItems = sorted.filter((item) => !item.correct);
+  const hasBothWrongAndCorrect =
+    wrongItems.length > 0 && wrongItems.length < sorted.length;
+
+  const visibleItems =
+    hasBothWrongAndCorrect && !showAllReviewItems ? wrongItems : sorted;
+
+  if (headingEl) {
+    headingEl.textContent = `Question Review (${currentReviewItems.length} shown, wrong ones first)`;
+  }
+
+  if (toggleBtn) {
+    if (hasBothWrongAndCorrect) {
+      toggleBtn.style.display = 'inline-flex';
+      toggleBtn.textContent = showAllReviewItems
+        ? `Show wrong only (${wrongItems.length})`
+        : `Show all (${sorted.length})`;
+    } else {
+      toggleBtn.style.display = 'none';
+    }
+  }
+
+  reviewTbody.innerHTML = visibleItems
+    .map((item) => {
+      const givenVal = item.given ?? item.answer ?? null;
+      const givenDisplay =
+        givenVal === null || givenVal === undefined || givenVal === ''
+          ? '<em style="color: var(--text-dim);">Skipped</em>'
+          : `<span class="num">${escapeHtml(String(givenVal))}</span>`;
+      const expectedStr =
+        item.expected_display !== undefined
+          ? String(item.expected_display)
+          : String(item.expected ?? '');
+      const statusChip = item.correct
+        ? '<span class="score-tag score-tag-perfect">Correct</span>'
+        : '<span class="score-tag score-tag-warning">Wrong</span>';
+
+      return `
+        <tr>
+          <td class="num" style="color: var(--text-muted);">${item.index}</td>
+          <td class="num" style="font-weight: 700;">${escapeHtml(item.question)}</td>
+          <td>${givenDisplay}</td>
+          <td class="num" style="font-weight: 700;">${escapeHtml(expectedStr)}</td>
+          <td>${statusChip}</td>
+        </tr>
+      `;
+    })
+    .join('');
 }
 
 /**
@@ -591,26 +809,38 @@ async function renderResultsScreen(resultData) {
   showScreen('screen-results');
 
   const correct = Number(resultData.correct) || 0;
-  const total = Number(resultData.total) || 0;
+  const attempted = Number(resultData.attempted ?? resultData.total) || 0;
+  const usedSeconds = Number(resultData.used_seconds ?? resultData.seconds) || 0;
+  const rates = computePerMinuteRates(correct, attempted, usedSeconds);
   const accuracy =
-    resultData.accuracy !== undefined
-      ? Number(resultData.accuracy)
-      : total > 0
-        ? Math.round((correct / total) * 1000) / 10
-        : 0;
-  const seconds = Number(resultData.seconds) || 0;
+    resultData.accuracy !== undefined ? Number(resultData.accuracy) : rates.accuracy;
+  const cpm =
+    resultData.correct_per_minute !== undefined
+      ? Number(resultData.correct_per_minute)
+      : rates.correct_per_minute;
+  const apm =
+    resultData.attempted_per_minute !== undefined
+      ? Number(resultData.attempted_per_minute)
+      : rates.attempted_per_minute;
 
   const scoreEl = document.getElementById('result-score-text');
   const wrongBadgeEl = document.getElementById('result-wrong-badge');
   const accEl = document.getElementById('result-accuracy-text');
   const timeEl = document.getElementById('result-time-text');
   const secSubEl = document.getElementById('result-seconds-subtext');
+  const cpmEl = document.getElementById('result-cpm-text');
+  const apmEl = document.getElementById('result-apm-subtext');
+  const modeChipEl = document.getElementById('result-mode-chip');
+  const pbBannerEl = document.getElementById('result-pb-banner');
   const targetChipContainer = document.getElementById('result-target-chip-container');
-  const reviewTbody = document.getElementById('result-review-tbody');
 
-  if (scoreEl) scoreEl.textContent = `${correct} / ${total}`;
+  if (modeChipEl) {
+    modeChipEl.textContent = activeMode === 'unlimited' ? 'Unlimited' : 'Timed';
+  }
 
-  const feedback = getScoreFeedback(correct, total);
+  if (scoreEl) scoreEl.textContent = `${correct} / ${attempted}`;
+
+  const feedback = getScoreFeedback(correct, attempted);
   if (wrongBadgeEl) {
     wrongBadgeEl.textContent = feedback.wrongText;
     wrongBadgeEl.className = `score-tag ${feedback.badgeClass}`;
@@ -621,10 +851,31 @@ async function renderResultsScreen(resultData) {
     accEl.style.color = feedback.colorVar;
   }
 
-  if (timeEl) timeEl.textContent = formatSecondsToMMSS(seconds);
-  if (secSubEl) secSubEl.textContent = `${seconds}s`;
+  if (timeEl) timeEl.textContent = formatSecondsToMMSS(usedSeconds);
+  if (secSubEl) secSubEl.textContent = `${usedSeconds}s`;
 
-  // Read meets_target from results_with_target for the saved row (resultData.result_id)
+  if (cpmEl) cpmEl.textContent = `${cpm.toFixed(1)} correct / min`;
+  if (apmEl) apmEl.textContent = `${apm.toFixed(1)} attempted / min`;
+
+  // Check if this round set a new personal best for this category & mode
+  const candidateRow = {
+    correct,
+    total: attempted,
+    attempted,
+    time_seconds: usedSeconds,
+    used_seconds: usedSeconds,
+    practice_mode: activeMode,
+  };
+  const isNewPersonalBest =
+    attempted > 0 &&
+    (!previousBestBeforeSubmit ||
+      compareModeResults(candidateRow, previousBestBeforeSubmit, activeMode) < 0);
+
+  if (pbBannerEl) {
+    pbBannerEl.style.display = isNewPersonalBest ? 'block' : 'none';
+  }
+
+  // Read meets_target strictly from results_with_target for the saved row (never calculate in JS)
   let meetsTarget = null;
   if (resultData.result_id) {
     const matchedLocal = categoryResults.find((r) => r.id === resultData.result_id);
@@ -667,30 +918,13 @@ async function renderResultsScreen(resultData) {
     }
   }
 
-  if (reviewTbody) {
-    const details = Array.isArray(resultData.detail) ? resultData.detail : [];
-    reviewTbody.innerHTML = details
-      .map((item, idx) => {
-        const givenDisplay =
-          item.given === null || item.given === undefined || item.given === ''
-            ? '<em style="color: var(--text-dim);">Skipped</em>'
-            : `<span class="num">${escapeHtml(String(item.given))}</span>`;
-        const statusChip = item.correct
-          ? '<span class="score-tag score-tag-perfect">Correct</span>'
-          : '<span class="score-tag score-tag-warning">Wrong</span>';
-
-        return `
-          <tr>
-            <td class="num" style="color: var(--text-muted);">${idx + 1}</td>
-            <td class="num" style="font-weight: 700;">${escapeHtml(item.question)}</td>
-            <td>${givenDisplay}</td>
-            <td class="num" style="font-weight: 700;">${escapeHtml(String(item.expected_display))}</td>
-            <td>${statusChip}</td>
-          </tr>
-        `;
-      })
-      .join('');
-  }
+  const rawDetails = Array.isArray(resultData.detail) ? resultData.detail.slice(0, 100) : [];
+  currentReviewItems = rawDetails.map((item, idx) => ({
+    ...item,
+    index: idx + 1,
+  }));
+  showAllReviewItems = false;
+  renderReviewList();
 }
 
 async function initBasicsPracticePage() {
@@ -711,7 +945,7 @@ async function initBasicsPracticePage() {
 
   renderDemoBannerIfNeeded();
 
-  // Start Practice button
+  // Start button
   document
     .getElementById('btn-start-practice')
     ?.addEventListener('click', startPracticeSession);
@@ -719,7 +953,7 @@ async function initBasicsPracticePage() {
   // Answer form submit (Enter key or Next button)
   document.getElementById('player-answer-form')?.addEventListener('submit', (e) => {
     e.preventDefault();
-    if (!activePlayer || isSubmitting) return;
+    if (!activePlayer || isSubmitting || roundEnded) return;
     const inputEl = document.getElementById('player-answer-input');
     const val = inputEl ? inputEl.value : '';
     activePlayer.answer(val);
@@ -728,10 +962,15 @@ async function initBasicsPracticePage() {
 
   // Skip button
   document.getElementById('btn-skip-question')?.addEventListener('click', () => {
-    if (!activePlayer || isSubmitting) return;
+    if (!activePlayer || isSubmitting || roundEnded) return;
     activePlayer.skip();
     renderCurrentPlayerQuestion();
   });
+
+  // Finish button in top bar
+  document
+    .getElementById('btn-finish-round')
+    ?.addEventListener('click', handleManualFinishClick);
 
   // Retry submit button if network failed
   document.getElementById('btn-retry-submit')?.addEventListener('click', () => {
@@ -740,9 +979,22 @@ async function initBasicsPracticePage() {
     }
   });
 
-  // Again button on results screen
-  document.getElementById('btn-practice-again')?.addEventListener('click', () => {
+  // Toggle "Show all" in question review
+  document.getElementById('btn-toggle-review-all')?.addEventListener('click', () => {
+    showAllReviewItems = !showAllReviewItems;
+    renderReviewList();
+  });
+
+  // "Same mode again" button on results screen
+  document.getElementById('btn-same-mode-again')?.addEventListener('click', () => {
     startPracticeSession();
+  });
+
+  // "Change mode" button on results screen
+  document.getElementById('btn-change-mode')?.addEventListener('click', () => {
+    showErrorBanner('');
+    renderSetupSummary();
+    showScreen('screen-setup');
   });
 
   const urlParams = new URLSearchParams(window.location.search);

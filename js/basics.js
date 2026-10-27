@@ -213,9 +213,14 @@ function updateCategoryTargetDisplay(categoryId) {
   }
 
   if (rule) {
-    const acc = `${rule.min_accuracy}% accuracy`;
-    const time = rule.max_time_seconds ? ` in ${formatSecondsToTime(rule.max_time_seconds)} or less` : '';
-    textEl.textContent = `Target: ${acc}${time}`;
+    const parts = [`${rule.min_accuracy}% accuracy`];
+    if (rule.min_questions_per_minute && Number(rule.min_questions_per_minute) > 0) {
+      parts.push(`at least ${Number(rule.min_questions_per_minute)} questions per minute in timed rounds`);
+    }
+    if (rule.max_time_seconds) {
+      parts.push(`in ${formatSecondsToTime(rule.max_time_seconds)} or less for typed entries`);
+    }
+    textEl.textContent = `Target: ${parts.join(', ')}`;
     container.style.display = 'block';
   } else {
     container.style.display = 'none';
@@ -258,6 +263,7 @@ async function loadBasicsHistory() {
             note,
             entry_date,
             source,
+            practice_mode,
             verified,
             verified_at,
             verified_by,
@@ -267,6 +273,7 @@ async function loadBasicsHistory() {
             flag_note,
             created_at,
             min_accuracy,
+            min_questions_per_minute,
             max_time_seconds,
             meets_target,
             categories (
@@ -395,6 +402,10 @@ function renderDrillRow(drill) {
   const feedback = getScoreFeedback(drill.correct, drill.total);
   const timeFormatted = formatSecondsToMMSS(drill.time_seconds);
   const isSite = drill.source === 'site';
+  const practiceMode = drill.practice_mode === 'timed' ? 'Timed' : (drill.practice_mode === 'unlimited' ? 'Unlimited' : null);
+  const attemptedPerMinute = practiceMode && Number(drill.total) > 0 && Number(drill.time_seconds) > 0
+    ? (Math.round((Number(drill.total) / (Number(drill.time_seconds) / 60)) * 10) / 10).toFixed(1)
+    : null;
   const isVerified = drill.verified === true || !!drill.verified_at || !!drill.verified_by;
   const isCorrected = !!drill.corrected_at || !!drill.corrected_by;
   const isFlagged = drill.flagged === true;
@@ -415,7 +426,7 @@ function renderDrillRow(drill) {
         </span>
         ${timeFormatted ? `
           <span class="num" style="font-size: var(--text-xs); color: var(--text-muted);">
-            ⏱️ ${timeFormatted}
+            ⏱️ ${timeFormatted}${attemptedPerMinute ? ` · ${attemptedPerMinute} / min` : ''}
           </span>
         ` : ''}
         ${drill.meets_target === true ? `
@@ -431,10 +442,12 @@ function renderDrillRow(drill) {
           <span class="status-chip chip-verified" title="Completed online and recorded by the site (locked)">
             Recorded by the site
           </span>
+          ${practiceMode ? `<span class="status-chip chip-unverified">${practiceMode}</span>` : ''}
         ` : `
           <span class="status-chip chip-unverified" title="Manually typed score entry">
             Typed
           </span>
+          ${practiceMode ? `<span class="status-chip chip-unverified">${practiceMode}</span>` : ''}
           ${isVerified ? `
             <span class="verified-lock-indicator" title="Verified by teacher (locked)">
               🔒 Verified

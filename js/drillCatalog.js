@@ -1,13 +1,149 @@
 /**
  * Trendz Tracker — Elements Drill Catalog Metadata (js/drillCatalog.js)
  *
- * Browser-safe display metadata for the 18 Elements worksheet drills.
+ * Browser-safe display metadata for the 24 Elements worksheet drills.
  * Verified by unit tests (tests/drills.test.js) to match `api/_drills.js`
  * identically on key, title, group, questions, time_limit_seconds, enabled,
  * inputmode, and hint.
  */
 
 export const MODULO_ENABLED = false;
+
+/**
+ * Placeholder question counts and time limits (in seconds) for the 10 staged
+ * Square and Cube drills. Kept in ONE place so they are easy to change.
+ */
+export const SQUARES_STAGE_QUESTIONS = 25;
+export const SQUARES_COMBINED_QUESTIONS = 100;
+export const SQUARES_STAGE_1_TIME_SECONDS = 60;
+export const SQUARES_STAGE_2_TIME_SECONDS = 75;
+export const SQUARES_STAGE_3_TIME_SECONDS = 100;
+export const SQUARES_STAGE_4_TIME_SECONDS = 120;
+export const SQUARES_COMBINED_TIME_SECONDS = 360;
+
+export const CUBES_STAGE_QUESTIONS = 25;
+export const CUBES_COMBINED_QUESTIONS = 100;
+export const CUBES_STAGE_1_TIME_SECONDS = 90;
+export const CUBES_STAGE_2_TIME_SECONDS = 110;
+export const CUBES_STAGE_3_TIME_SECONDS = 130;
+export const CUBES_STAGE_4_TIME_SECONDS = 150;
+export const CUBES_COMBINED_TIME_SECONDS = 480;
+
+/**
+ * Canonical stage specifications shared between `js/drillCatalog.js` and `api/_drills.js`.
+ */
+export const SQUARE_CUBE_STAGE_SPECS = Object.freeze({
+  squares_stage_1: {
+    key: 'squares_stage_1',
+    title: 'Square - Stage 1 (1-25)',
+    subgroup: 'Squares',
+    min: 1,
+    max: 25,
+    power: 2,
+    questions: SQUARES_STAGE_QUESTIONS,
+    time_limit_seconds: SQUARES_STAGE_1_TIME_SECONDS,
+    hint: 'Type the exact square of each number (1 to 25).',
+  },
+  squares_stage_2: {
+    key: 'squares_stage_2',
+    title: 'Square - Stage 2 (26-50)',
+    subgroup: 'Squares',
+    min: 26,
+    max: 50,
+    power: 2,
+    questions: SQUARES_STAGE_QUESTIONS,
+    time_limit_seconds: SQUARES_STAGE_2_TIME_SECONDS,
+    hint: 'Type the exact square of each number (26 to 50).',
+  },
+  squares_stage_3: {
+    key: 'squares_stage_3',
+    title: 'Square - Stage 3 (51-75)',
+    subgroup: 'Squares',
+    min: 51,
+    max: 75,
+    power: 2,
+    questions: SQUARES_STAGE_QUESTIONS,
+    time_limit_seconds: SQUARES_STAGE_3_TIME_SECONDS,
+    hint: 'Type the exact square of each number (51 to 75).',
+  },
+  squares_stage_4: {
+    key: 'squares_stage_4',
+    title: 'Square - Stage 4 (76-100)',
+    subgroup: 'Squares',
+    min: 76,
+    max: 100,
+    power: 2,
+    questions: SQUARES_STAGE_QUESTIONS,
+    time_limit_seconds: SQUARES_STAGE_4_TIME_SECONDS,
+    hint: 'Type the exact square of each number (76 to 100).',
+  },
+  squares_combined: {
+    key: 'squares_combined',
+    title: 'Square - Combined (1-100)',
+    subgroup: 'Squares',
+    min: 1,
+    max: 100,
+    power: 2,
+    questions: SQUARES_COMBINED_QUESTIONS,
+    time_limit_seconds: SQUARES_COMBINED_TIME_SECONDS,
+    hint: 'Type the exact square of each number (1 to 100).',
+  },
+  cubes_stage_1: {
+    key: 'cubes_stage_1',
+    title: 'Cube - Stage 1 (1-25)',
+    subgroup: 'Cubes',
+    min: 1,
+    max: 25,
+    power: 3,
+    questions: CUBES_STAGE_QUESTIONS,
+    time_limit_seconds: CUBES_STAGE_1_TIME_SECONDS,
+    hint: 'Type the exact cube of each number (1 to 25).',
+  },
+  cubes_stage_2: {
+    key: 'cubes_stage_2',
+    title: 'Cube - Stage 2 (26-50)',
+    subgroup: 'Cubes',
+    min: 26,
+    max: 50,
+    power: 3,
+    questions: CUBES_STAGE_QUESTIONS,
+    time_limit_seconds: CUBES_STAGE_2_TIME_SECONDS,
+    hint: 'Type the exact cube of each number (26 to 50).',
+  },
+  cubes_stage_3: {
+    key: 'cubes_stage_3',
+    title: 'Cube - Stage 3 (51-75)',
+    subgroup: 'Cubes',
+    min: 51,
+    max: 75,
+    power: 3,
+    questions: CUBES_STAGE_QUESTIONS,
+    time_limit_seconds: CUBES_STAGE_3_TIME_SECONDS,
+    hint: 'Type the exact cube of each number (51 to 75).',
+  },
+  cubes_stage_4: {
+    key: 'cubes_stage_4',
+    title: 'Cube - Stage 4 (76-100)',
+    subgroup: 'Cubes',
+    min: 76,
+    max: 100,
+    power: 3,
+    questions: CUBES_STAGE_QUESTIONS,
+    time_limit_seconds: CUBES_STAGE_4_TIME_SECONDS,
+    hint: 'Type the exact cube of each number (76 to 100).',
+  },
+  cubes_combined: {
+    key: 'cubes_combined',
+    title: 'Cube - Combined (1-100)',
+    subgroup: 'Cubes',
+    min: 1,
+    max: 100,
+    power: 3,
+    questions: CUBES_COMBINED_QUESTIONS,
+    time_limit_seconds: CUBES_COMBINED_TIME_SECONDS,
+    hint: 'Type the exact cube of each number (1 to 100).',
+  },
+});
 
 export const DRILL_GROUPS = [
   'Codes',
@@ -58,45 +194,115 @@ export const DRILL_CATALOG = {
     inputmode: 'numeric',
     hint: 'Convert the given time into total seconds (commas optional).',
   },
-  squares_11_50: {
-    key: 'squares_11_50',
-    title: 'Square (11-50)',
+  squares_stage_1: {
+    key: SQUARE_CUBE_STAGE_SPECS.squares_stage_1.key,
+    title: SQUARE_CUBE_STAGE_SPECS.squares_stage_1.title,
     group: 'Squares and cubes',
-    questions: 50,
-    time_limit_seconds: 120,
+    subgroup: SQUARE_CUBE_STAGE_SPECS.squares_stage_1.subgroup,
+    questions: SQUARE_CUBE_STAGE_SPECS.squares_stage_1.questions,
+    time_limit_seconds: SQUARE_CUBE_STAGE_SPECS.squares_stage_1.time_limit_seconds,
     enabled: true,
     inputmode: 'numeric',
-    hint: 'Type the exact square of each number.',
+    hint: SQUARE_CUBE_STAGE_SPECS.squares_stage_1.hint,
   },
-  squares_51_100: {
-    key: 'squares_51_100',
-    title: 'Square (51-100)',
+  squares_stage_2: {
+    key: SQUARE_CUBE_STAGE_SPECS.squares_stage_2.key,
+    title: SQUARE_CUBE_STAGE_SPECS.squares_stage_2.title,
     group: 'Squares and cubes',
-    questions: 50,
-    time_limit_seconds: 180,
+    subgroup: SQUARE_CUBE_STAGE_SPECS.squares_stage_2.subgroup,
+    questions: SQUARE_CUBE_STAGE_SPECS.squares_stage_2.questions,
+    time_limit_seconds: SQUARE_CUBE_STAGE_SPECS.squares_stage_2.time_limit_seconds,
     enabled: true,
     inputmode: 'numeric',
-    hint: 'Type the exact square of each number.',
+    hint: SQUARE_CUBE_STAGE_SPECS.squares_stage_2.hint,
   },
-  cubes_11_50: {
-    key: 'cubes_11_50',
-    title: 'Cube (11-50)',
+  squares_stage_3: {
+    key: SQUARE_CUBE_STAGE_SPECS.squares_stage_3.key,
+    title: SQUARE_CUBE_STAGE_SPECS.squares_stage_3.title,
     group: 'Squares and cubes',
-    questions: 50,
-    time_limit_seconds: 180,
+    subgroup: SQUARE_CUBE_STAGE_SPECS.squares_stage_3.subgroup,
+    questions: SQUARE_CUBE_STAGE_SPECS.squares_stage_3.questions,
+    time_limit_seconds: SQUARE_CUBE_STAGE_SPECS.squares_stage_3.time_limit_seconds,
     enabled: true,
     inputmode: 'numeric',
-    hint: 'Type the exact cube of each number.',
+    hint: SQUARE_CUBE_STAGE_SPECS.squares_stage_3.hint,
   },
-  cubes_51_100: {
-    key: 'cubes_51_100',
-    title: 'Cube (51-100)',
+  squares_stage_4: {
+    key: SQUARE_CUBE_STAGE_SPECS.squares_stage_4.key,
+    title: SQUARE_CUBE_STAGE_SPECS.squares_stage_4.title,
     group: 'Squares and cubes',
-    questions: 50,
-    time_limit_seconds: 240,
+    subgroup: SQUARE_CUBE_STAGE_SPECS.squares_stage_4.subgroup,
+    questions: SQUARE_CUBE_STAGE_SPECS.squares_stage_4.questions,
+    time_limit_seconds: SQUARE_CUBE_STAGE_SPECS.squares_stage_4.time_limit_seconds,
     enabled: true,
     inputmode: 'numeric',
-    hint: 'Type the exact cube of each number.',
+    hint: SQUARE_CUBE_STAGE_SPECS.squares_stage_4.hint,
+  },
+  squares_combined: {
+    key: SQUARE_CUBE_STAGE_SPECS.squares_combined.key,
+    title: SQUARE_CUBE_STAGE_SPECS.squares_combined.title,
+    group: 'Squares and cubes',
+    subgroup: SQUARE_CUBE_STAGE_SPECS.squares_combined.subgroup,
+    questions: SQUARE_CUBE_STAGE_SPECS.squares_combined.questions,
+    time_limit_seconds: SQUARE_CUBE_STAGE_SPECS.squares_combined.time_limit_seconds,
+    enabled: true,
+    inputmode: 'numeric',
+    hint: SQUARE_CUBE_STAGE_SPECS.squares_combined.hint,
+  },
+  cubes_stage_1: {
+    key: SQUARE_CUBE_STAGE_SPECS.cubes_stage_1.key,
+    title: SQUARE_CUBE_STAGE_SPECS.cubes_stage_1.title,
+    group: 'Squares and cubes',
+    subgroup: SQUARE_CUBE_STAGE_SPECS.cubes_stage_1.subgroup,
+    questions: SQUARE_CUBE_STAGE_SPECS.cubes_stage_1.questions,
+    time_limit_seconds: SQUARE_CUBE_STAGE_SPECS.cubes_stage_1.time_limit_seconds,
+    enabled: true,
+    inputmode: 'numeric',
+    hint: SQUARE_CUBE_STAGE_SPECS.cubes_stage_1.hint,
+  },
+  cubes_stage_2: {
+    key: SQUARE_CUBE_STAGE_SPECS.cubes_stage_2.key,
+    title: SQUARE_CUBE_STAGE_SPECS.cubes_stage_2.title,
+    group: 'Squares and cubes',
+    subgroup: SQUARE_CUBE_STAGE_SPECS.cubes_stage_2.subgroup,
+    questions: SQUARE_CUBE_STAGE_SPECS.cubes_stage_2.questions,
+    time_limit_seconds: SQUARE_CUBE_STAGE_SPECS.cubes_stage_2.time_limit_seconds,
+    enabled: true,
+    inputmode: 'numeric',
+    hint: SQUARE_CUBE_STAGE_SPECS.cubes_stage_2.hint,
+  },
+  cubes_stage_3: {
+    key: SQUARE_CUBE_STAGE_SPECS.cubes_stage_3.key,
+    title: SQUARE_CUBE_STAGE_SPECS.cubes_stage_3.title,
+    group: 'Squares and cubes',
+    subgroup: SQUARE_CUBE_STAGE_SPECS.cubes_stage_3.subgroup,
+    questions: SQUARE_CUBE_STAGE_SPECS.cubes_stage_3.questions,
+    time_limit_seconds: SQUARE_CUBE_STAGE_SPECS.cubes_stage_3.time_limit_seconds,
+    enabled: true,
+    inputmode: 'numeric',
+    hint: SQUARE_CUBE_STAGE_SPECS.cubes_stage_3.hint,
+  },
+  cubes_stage_4: {
+    key: SQUARE_CUBE_STAGE_SPECS.cubes_stage_4.key,
+    title: SQUARE_CUBE_STAGE_SPECS.cubes_stage_4.title,
+    group: 'Squares and cubes',
+    subgroup: SQUARE_CUBE_STAGE_SPECS.cubes_stage_4.subgroup,
+    questions: SQUARE_CUBE_STAGE_SPECS.cubes_stage_4.questions,
+    time_limit_seconds: SQUARE_CUBE_STAGE_SPECS.cubes_stage_4.time_limit_seconds,
+    enabled: true,
+    inputmode: 'numeric',
+    hint: SQUARE_CUBE_STAGE_SPECS.cubes_stage_4.hint,
+  },
+  cubes_combined: {
+    key: SQUARE_CUBE_STAGE_SPECS.cubes_combined.key,
+    title: SQUARE_CUBE_STAGE_SPECS.cubes_combined.title,
+    group: 'Squares and cubes',
+    subgroup: SQUARE_CUBE_STAGE_SPECS.cubes_combined.subgroup,
+    questions: SQUARE_CUBE_STAGE_SPECS.cubes_combined.questions,
+    time_limit_seconds: SQUARE_CUBE_STAGE_SPECS.cubes_combined.time_limit_seconds,
+    enabled: true,
+    inputmode: 'numeric',
+    hint: SQUARE_CUBE_STAGE_SPECS.cubes_combined.hint,
   },
   divide_by_4: {
     key: 'divide_by_4',
@@ -182,6 +388,7 @@ export const DRILL_CATALOG = {
     key: 'number_to_be_squared',
     title: 'Number To Be Squared',
     group: 'Squares and cubes',
+    subgroup: 'Squares',
     questions: 20,
     time_limit_seconds: 300,
     enabled: true,
@@ -192,6 +399,7 @@ export const DRILL_CATALOG = {
     key: 'squares_3d_4d',
     title: '3D - 4D Square',
     group: 'Squares and cubes',
+    subgroup: 'Squares',
     questions: 20,
     time_limit_seconds: 300,
     enabled: true,

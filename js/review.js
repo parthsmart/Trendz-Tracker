@@ -220,7 +220,7 @@ async function loadReviewEntries() {
       const supabase = await getSupabase();
 
       const buildReviewQuery = (tableName, includeTargetFields) => {
-        const targetCols = includeTargetFields ? 'min_accuracy, max_time_seconds, meets_target,' : '';
+        const targetCols = includeTargetFields ? 'min_accuracy, min_questions_per_minute, max_time_seconds, meets_target,' : '';
         let q = supabase
           .from(tableName)
           .select(`
@@ -235,6 +235,7 @@ async function loadReviewEntries() {
             entry_date,
             created_at,
             source,
+            practice_mode,
             verified,
             verified_by,
             verified_at,
@@ -381,6 +382,7 @@ function renderReviewTable(entries) {
     const category = entry.category || { name: 'Unknown', section: 'other' };
 
     const isSite = entry.source === 'site';
+    const practiceMode = entry.practice_mode === 'timed' ? 'Timed' : (entry.practice_mode === 'unlimited' ? 'Unlimited' : null);
     const isVerified = entry.verified === true || !!entry.verified_at || !!entry.verified_by;
     const isCorrected = !!entry.corrected_at || !!entry.corrected_by;
     const isFlagged = entry.flagged === true;
@@ -390,10 +392,13 @@ function renderReviewTable(entries) {
     const total = entry.total ?? 0;
     const feedback = getScoreFeedback(correct, total);
 
-    // Formatted time
+    // Formatted time & attempted per minute speed for timed/unlimited practice
     const timeDisplay = entry.time_seconds !== null && entry.time_seconds !== undefined
       ? formatSecondsToTime(entry.time_seconds)
       : '—';
+    const attemptedPerMinute = practiceMode && Number(total) > 0 && Number(entry.time_seconds) > 0
+      ? `${(Math.round((Number(total) / (Number(entry.time_seconds) / 60)) * 10) / 10).toFixed(1)} / min`
+      : null;
 
     // Round / Task
     const roundLabel = entry.student_round_id
@@ -407,9 +412,9 @@ function renderReviewTable(entries) {
     // Status chips
     let statusChipsHtml = '';
     if (isSite) {
-      statusChipsHtml += `<span class="status-chip chip-verified" title="Recorded by the site">Recorded by the site</span>`;
+      statusChipsHtml += `<div style="display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap;"><span class="status-chip chip-verified" title="Recorded by the site">Recorded by the site</span>${practiceMode ? `<span class="status-chip chip-unverified">${practiceMode}</span>` : ''}</div>`;
     } else {
-      statusChipsHtml += `<span class="status-chip chip-unverified" title="Typed by student">Typed</span>`;
+      statusChipsHtml += `<div style="display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap;"><span class="status-chip chip-unverified" title="Typed by student">Typed</span>${practiceMode ? `<span class="status-chip chip-unverified">${practiceMode}</span>` : ''}</div>`;
       if (isVerified) {
         statusChipsHtml += `<span class="status-chip chip-verified" title="Verified by teacher">🔒 Verified</span>`;
       }
@@ -482,7 +487,8 @@ function renderReviewTable(entries) {
 
         <!-- Time -->
         <td>
-          <span class="num" style="font-size: var(--text-xs);">${timeDisplay}</span>
+          <div class="num" style="font-size: var(--text-xs);">${timeDisplay}</div>
+          ${attemptedPerMinute ? `<div class="num" style="font-size: 10px; color: var(--text-muted);">${attemptedPerMinute}</div>` : ''}
         </td>
 
         <!-- Date & Time (IST) -->

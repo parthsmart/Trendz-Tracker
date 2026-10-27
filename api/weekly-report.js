@@ -283,46 +283,117 @@ async function buildWeeklyReportDataFromAdminSession(callerClient) {
 }
 
 /**
- * Queries latest completed Google backup and manual export timestamps from `backup_runs`
- * when not already embedded in `weekly_report_data()`.
+ * Queries latest completed Google backup, manual export timestamps, and score-sheet mirror status
+ * from `backup_runs` and `mirror_state` when not already embedded in `weekly_report_data()`.
  */
 async function attachBackupSummaryIfMissing(client, reportData) {
-  if (!reportData || typeof reportData !== 'object' || reportData.backup) {
+  if (!reportData || typeof reportData !== 'object') {
     return reportData;
   }
   try {
-    const [googleRes, exportRes] = await Promise.all([
-      client
-        .from('backup_runs')
-        .select('finished_at, started_at')
-        .in('kind', ['cron', 'manual'])
-        .eq('status', 'done')
-        .order('finished_at', { ascending: false })
-        .limit(1),
-      client
-        .from('backup_runs')
-        .select('finished_at, started_at')
-        .eq('kind', 'export')
-        .eq('status', 'done')
-        .order('finished_at', { ascending: false })
-        .limit(1),
-    ]);
-    const lastGoogleAt = googleRes?.data?.[0]?.finished_at || googleRes?.data?.[0]?.started_at || null;
-    const lastExportAt = exportRes?.data?.[0]?.finished_at || exportRes?.data?.[0]?.started_at || null;
-    const latestAny = [lastGoogleAt, lastExportAt]
-      .filter(Boolean)
-      .sort()
-      .pop() || null;
-    const daysSinceBackup = latestAny
-      ? Math.max(0, Math.floor((Date.now() - new Date(latestAny).getTime()) / 86400000))
-      : null;
+    const existingBackup =
+      reportData.backup && typeof reportData.backup === 'object' ? { ...reportData.backup } : null;
+
+    let lastGoogleAt = existingBackup?.last_google_at || existingBackup?.last_run_at || null;
+    let lastExportAt = existingBackup?.last_export_at || null;
+    let daysSinceBackup =
+      existingBackup?.days_since_backup !== undefined ? existingBackup.days_since_backup : null;
+
+    if (!existingBackup) {
+      const [googleRes, exportRes] = await Promise.all([
+        client
+          .from('backup_runs')
+          .select('finished_at, started_at')
+          .in('kind', ['cron', 'manual'])
+          .eq('status', 'done')
+          .order('finished_at', { ascending: false })
+          .limit(1),
+        client
+          .from('backup_runs')
+          .select('finished_at, started_at')
+          .eq('kind', 'export')
+          .eq('status', 'done')
+          .order('finished_at', { ascending: false })
+          .limit(1),
+      ]);
+      lastGoogleAt = googleRes?.data?.[0]?.finished_at || googleRes?.data?.[0]?.started_at || null;
+      lastExportAt = exportRes?.data?.[0]?.finished_at || exportRes?.data?.[0]?.started_at || null;
+      const latestAny = [lastGoogleAt, lastExportAt]
+        .filter(Boolean)
+        .sort()
+        .pop() || null;
+      daysSinceBackup = latestAny
+        ? Math.max(0, Math.floor((Date.now() - new Date(latestAny).getTime()) / 86400000))
+        : null;
+    }
+
+    let mirror = existingBackup?.mirror || reportData.mirror || null;
+    if (!mirror) {
+      let stateRows = [];
+      try {
+        const { data: mData } = await client.from('mirror_state').select('*');
+        if (Array.isArray(mData)) stateRows = mData;
+      } catch {
+        stateRows = [];
+      }
+
+      let totalStudents = Number(reportData.summary?.active_students ?? stateRows.length);
+      let upToDateCount = 0;
+
+      let fpList = null;
+      try {
+        if (typeof client.rpc === 'function') {
+          const { data: fpData, error: fpErr } = await client.rpc('mirror_fingerprints');
+          if (!fpErr && Array.isArray(fpData)) {
+            fpList = fpData;
+          }
+        }
+      } catch {
+        fpList = null;
+      }
+
+      if (fpList) {
+        totalStudents = fpList.length;
+        const stateByStudent = new Map(stateRows.map((r) => [String(r.student_id), r]));
+        for (const fp of fpList) {
+          const st = stateByStudent.get(String(fp.student_id));
+          if (st && st.fingerprint && String(st.fingerprint) === String(fp.fingerprint) && !st.last_error) {
+            upToDateCount += 1;
+          }
+        }
+      } else {
+        upToDateCount = stateRows.filter((r) => r && r.fingerprint && !r.last_error).length;
+      }
+
+      let lastBuiltAt = null;
+      for (const r of stateRows) {
+        if (r?.last_built_at) {
+          if (!lastBuiltAt || new Date(r.last_built_at).getTime() > new Date(lastBuiltAt).getTime()) {
+            lastBuiltAt = r.last_built_at;
+          }
+        }
+      }
+
+      const daysSinceBuilt = lastBuiltAt
+        ? Math.max(0, Math.floor((Date.now() - new Date(lastBuiltAt).getTime()) / 86400000))
+        : null;
+
+      mirror = {
+        up_to_date: upToDateCount,
+        total: totalStudents,
+        last_built_at: lastBuiltAt,
+        days_since_built: daysSinceBuilt,
+      };
+    }
 
     return {
       ...reportData,
       backup: {
+        ...(existingBackup || {}),
         last_google_at: lastGoogleAt,
         last_export_at: lastExportAt,
         days_since_backup: daysSinceBackup,
+        mirror,
       },
     };
   } catch {

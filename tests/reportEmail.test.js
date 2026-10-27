@@ -188,6 +188,60 @@ describe('buildWeeklyEmail', () => {
     assert.ok(html.includes('&lt;img src=x onerror=alert(1)&gt;'));
     assert.equal(escapeHtml(`A & B < C > D "E" 'F'`), 'A &amp; B &lt; C &gt; D &quot;E&quot; &#39;F&#39;');
   });
+
+  it('includes score-sheet mirror status and warns when > 3 days old or never built', () => {
+    // 1. Up-to-date mirror (built 1 day ago)
+    const freshEmail = buildWeeklyEmail({
+      ...sampleData,
+      backup: {
+        last_google_at: '2026-10-18',
+        last_export_at: '2026-10-17',
+        days_since_backup: 0,
+        mirror: {
+          up_to_date: 5,
+          total: 5,
+          last_built_at: '2026-10-17',
+          days_since_built: 1,
+        },
+      },
+    });
+    assert.ok(freshEmail.text.includes('Score-sheet mirror: 5 of 5 up to date | Last built: 17 Oct 2026'));
+    assert.ok(!freshEmail.text.includes('Warning: Score-sheet mirror'));
+    assert.ok(freshEmail.html.includes('5 of 5 up to date'));
+    assert.ok(freshEmail.html.includes('17 Oct 2026'));
+
+    // 2. Stale mirror (> 3 days old, e.g. 5 days old)
+    const staleEmail = buildWeeklyEmail({
+      ...sampleData,
+      backup: {
+        last_google_at: '2026-10-18',
+        mirror: {
+          up_to_date: 3,
+          total: 5,
+          last_built_at: '2026-10-13',
+        },
+      },
+    });
+    assert.ok(staleEmail.text.includes('Score-sheet mirror: 3 of 5 up to date | Last built: 13 Oct 2026'));
+    assert.ok(staleEmail.text.includes('Warning: Score-sheet mirror last built 5 days ago.'));
+    assert.ok(staleEmail.html.includes('Score-sheet mirror last built 5 days ago.'));
+
+    // 3. Never built mirror
+    const neverBuiltEmail = buildWeeklyEmail({
+      ...sampleData,
+      backup: {
+        last_google_at: '2026-10-18',
+        mirror: {
+          up_to_date: 0,
+          total: 5,
+          last_built_at: null,
+        },
+      },
+    });
+    assert.ok(neverBuiltEmail.text.includes('Score-sheet mirror: 0 of 5 up to date | Last built: Never'));
+    assert.ok(neverBuiltEmail.text.includes('Warning: Score-sheet mirror has never been built.'));
+    assert.ok(neverBuiltEmail.html.includes('Score-sheet mirror has never been built.'));
+  });
 });
 
 describe('buildMilestoneMessage', () => {

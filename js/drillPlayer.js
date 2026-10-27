@@ -1,24 +1,80 @@
 /**
  * Trendz Tracker — One-Question-at-a-Time Drill Player (js/drillPlayer.js)
  *
- * Pure state machine (zero DOM dependencies) for Phase 9a online Basics practice:
+ * Pure state machine (zero DOM dependencies) for online Basics practice:
  * - Visits questions in order (0 .. n-1).
  * - Supports answering (`answer(val)` / `submitCurrent(val)`) and skipping (`skip()`).
- * - Any question skipped during the first pass is revisited in order at the end
- *   of the first pass (`isRevisitingSkipped === true`).
- * - Skipping a question during the skipped-questions pass leaves it unanswered (`null`)
- *   and advances to the next skipped question (finishing once all skipped questions
- *   have been revisited).
- * - Builds the canonical `answers` array (`string | null`, with `null` for unanswered).
+ * - In Phase 10g timed/unlimited pool mode (`revisitSkipped: false`):
+ *   - Skipping a question counts as attempted and wrong (`null` in `reachedAnswers`)
+ *     and advances to the next question in the pool without revisiting at the end.
+ *   - `getReachedAnswers()` returns only the questions the student reached and
+ *     answered/skipped in order (`0 .. attempted - 1`), excluding the question
+ *     currently on screen when time runs out or when Finish is clicked.
+ * - In legacy fixed-set mode (`revisitSkipped: true`, default when `mode` is not set):
+ *   - Skipped questions are revisited in order at the end of the first pass.
  * - `finish()` is strictly idempotent: calling `finish()` a second time does nothing
  *   (returns `null` and never triggers `onFinish` twice).
  */
 
 /**
+ * Pure countdown timer helper computed from a fixed end timestamp (`endTimeMs`)
+ * and a clock reading (`nowMs`, e.g. `performance.now()`).
+ *
+ * @param {number} endTimeMs - Target end time in milliseconds
+ * @param {number} nowMs - Current clock reading in milliseconds
+ * @param {number|null} [totalSeconds=null] - Optional total duration in seconds for progress bar %
+ * @returns {{
+ *   remainingMs: number,
+ *   remainingSeconds: number,
+ *   exactRemainingSeconds: number,
+ *   expired: boolean,
+ *   progressPercent: number
+ * }}
+ */
+export function computeRemainingSeconds(endTimeMs, nowMs, totalSeconds = null) {
+  const end = Number(endTimeMs) || 0;
+  const now = Number(nowMs) || 0;
+  const remainingMs = Math.max(0, end - now);
+  const exactRemainingSeconds = remainingMs / 1000;
+  const remainingSeconds = Math.max(0, Math.ceil(exactRemainingSeconds));
+  const expired = now >= end;
+
+  let progressPercent = 0;
+  const totalMs = Number(totalSeconds) > 0 ? Number(totalSeconds) * 1000 : 0;
+  if (totalMs > 0) {
+    progressPercent = Math.max(0, Math.min(100, (remainingMs / totalMs) * 100));
+  }
+
+  return {
+    remainingMs,
+    remainingSeconds,
+    exactRemainingSeconds,
+    expired,
+    progressPercent,
+    progressFraction: progressPercent / 100,
+  };
+}
+
+/**
+ * Convenience wrapper returning the integer remaining seconds (0 when expired).
+ *
+ * @param {number} endTimeMs
+ * @param {number} nowMs
+ * @returns {number}
+ */
+export function getRemainingSeconds(endTimeMs, nowMs) {
+  return computeRemainingSeconds(endTimeMs, nowMs).remainingSeconds;
+}
+
+/**
  * Creates a new one-question-at-a-time drill player instance.
  *
  * @param {Array<object|string>} questions - List of question display objects or strings
- * @param {{ onFinish?: (answers: Array<string|null>) => void }} [options]
+ * @param {{
+ *   onFinish?: (answers: Array<string|null>) => void,
+ *   revisitSkipped?: boolean,
+ *   mode?: 'timed' | 'unlimited'
+ * }} [options]
  */
 export function createDrillPlayer(questions = [], options = {}) {
   if (!Array.isArray(questions) || questions.length === 0) {
@@ -28,6 +84,12 @@ export function createDrillPlayer(questions = [], options = {}) {
   const totalQuestions = questions.length;
   const questionList = questions.slice();
   const answers = new Array(totalQuestions).fill(null);
+  const reachedAnswers = [];
+
+  const isPoolMode =
+    options?.revisitSkipped === false ||
+    options?.mode === 'timed' ||
+    options?.mode === 'unlimited';
 
   // First pass visits 0 .. totalQuestions - 1 in order
   let activeQueue = Array.from({ length: totalQuestions }, (_, i) => i);
@@ -54,7 +116,7 @@ export function createDrillPlayer(questions = [], options = {}) {
     }
 
     // Reached the end of the current pass
-    if (!revisitingSkipped && skippedIndices.length > 0) {
+    if (!isPoolMode && !revisitingSkipped && skippedIndices.length > 0) {
       activeQueue = skippedIndices.slice();
       skippedIndices = [];
       queuePos = 0;
@@ -62,7 +124,7 @@ export function createDrillPlayer(questions = [], options = {}) {
       return;
     }
 
-    // Either no questions were skipped in pass 1, or we finished the skipped review pass
+    // Either pool ran out, no questions were skipped in pass 1, or skipped review finished
     finished = true;
   }
 
@@ -105,15 +167,25 @@ export function createDrillPlayer(questions = [], options = {}) {
       return skip();
     }
 
-    answers[idx] = trimmed.slice(0, 20);
+    const cleanAnswer = trimmed.slice(0, 20);
+    answers[idx] = cleanAnswer;
+    if (isPoolMode) {
+      reachedAnswers.push(cleanAnswer);
+    } else if (!revisitingSkipped && reachedAnswers.length === idx) {
+      reachedAnswers.push(cleanAnswer);
+    } else if (idx < reachedAnswers.length) {
+      reachedAnswers[idx] = cleanAnswer;
+    }
+
     advanceCursor();
     return true;
   }
 
   /**
    * Skips the current question:
-   * - During the initial pass, queues the question index to be revisited at the end.
-   * - During the skipped-questions pass, leaves its answer as `null` and moves on.
+   * - In pool mode (`revisitSkipped: false`), records `null` in `reachedAnswers`
+   *   (counts as attempted and wrong) and moves immediately to the next question.
+   * - In legacy fixed-set mode, queues the question index during pass 1 to revisit at the end.
    *
    * @returns {boolean} true if skipped, false if already finished
    */
@@ -123,8 +195,13 @@ export function createDrillPlayer(questions = [], options = {}) {
     if (idx === null) return false;
 
     answers[idx] = null;
-    if (!revisitingSkipped) {
+    if (isPoolMode) {
+      reachedAnswers.push(null);
+    } else if (!revisitingSkipped) {
       skippedIndices.push(idx);
+      if (reachedAnswers.length === idx) {
+        reachedAnswers.push(null);
+      }
     }
 
     advanceCursor();
@@ -132,7 +209,7 @@ export function createDrillPlayer(questions = [], options = {}) {
   }
 
   /**
-   * Returns whether all passes (initial + skipped review) are complete or `finish()` was called.
+   * Returns whether all passes (or the pool) are complete or `finish()` was called.
    *
    * @returns {boolean}
    */
@@ -141,16 +218,50 @@ export function createDrillPlayer(questions = [], options = {}) {
   }
 
   /**
-   * Returns a copy of the answers array (`null` for any unanswered question).
+   * Returns the reached answers array in order (`0 .. attempted - 1`),
+   * excluding the question currently on screen.
+   *
+   * @returns {Array<string|null>}
+   */
+  function getReachedAnswers() {
+    return reachedAnswers.slice();
+  }
+
+  /**
+   * Returns the number of questions answered or skipped so far (`attempted`).
+   *
+   * @returns {number}
+   */
+  function getAttemptedCount() {
+    return isPoolMode
+      ? reachedAnswers.length
+      : answers.filter((a) => a !== null).length;
+  }
+
+  /**
+   * Returns the number of non-skipped (answered) questions so far.
+   *
+   * @returns {number}
+   */
+  function getAnsweredCount() {
+    return isPoolMode
+      ? reachedAnswers.filter((a) => a !== null).length
+      : answers.filter((a) => a !== null).length;
+  }
+
+  /**
+   * Returns a copy of the answers array:
+   * - In pool mode (`revisitSkipped: false`), returns the reached answers prefix (`length = attempted`).
+   * - In fixed-set mode, returns the full `totalQuestions` array (`null` for unanswered).
    *
    * @returns {Array<string|null>}
    */
   function getAnswers() {
-    return answers.slice();
+    return isPoolMode ? reachedAnswers.slice() : answers.slice();
   }
 
   /**
-   * Marks the set as finished and returns the final answers array on the FIRST call.
+   * Marks the round as finished and returns the final answers array on the FIRST call.
    * Subsequent calls to `finish()` do nothing and return `null` (idempotent guard
    * preventing duplicate submissions).
    *
@@ -162,7 +273,7 @@ export function createDrillPlayer(questions = [], options = {}) {
     }
     finished = true;
     finishCommitted = true;
-    const finalAnswers = answers.slice();
+    const finalAnswers = getAnswers();
     if (onFinishCallback) {
       onFinishCallback(finalAnswers);
     }
@@ -174,8 +285,10 @@ export function createDrillPlayer(questions = [], options = {}) {
    */
   function getState() {
     const currentIndex = getCurrentIndex();
-    const answeredCount = answers.filter((a) => a !== null).length;
-    const unansweredCount = totalQuestions - answeredCount;
+    const answeredCount = isPoolMode
+      ? reachedAnswers.length
+      : answers.filter((a) => a !== null).length;
+    const unansweredCount = Math.max(0, totalQuestions - answeredCount);
     return {
       total: totalQuestions,
       currentIndex,
@@ -187,10 +300,12 @@ export function createDrillPlayer(questions = [], options = {}) {
         ? Math.max(0, activeQueue.length - queuePos)
         : skippedIndices.length,
       answeredCount,
+      attemptedCount: reachedAnswers.length,
       unansweredCount,
       isFinished: finished,
       finishCommitted,
-      answers: answers.slice(),
+      answers: getAnswers(),
+      reachedAnswers: reachedAnswers.slice(),
     };
   }
 
@@ -204,6 +319,9 @@ export function createDrillPlayer(questions = [], options = {}) {
     skipCurrent: skip,
     isFinished,
     getAnswers,
+    getReachedAnswers,
+    getAttemptedCount,
+    getAnsweredCount,
     finish,
     getState,
   };

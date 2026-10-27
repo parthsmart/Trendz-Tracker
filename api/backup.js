@@ -37,6 +37,8 @@ import {
   getCronSecret,
   getGoogleBackupConfig,
   hasGoogleBackupConfig,
+  getGoogleMirrorConfig,
+  hasGoogleMirrorConfig,
   hasSupabaseAdminConfig,
 } from './_configHelper.js';
 import {
@@ -47,7 +49,14 @@ import {
   valuesClear,
   formatSheetRange,
   sanitizeGoogleErrorMessage,
+  writeMirrorTab,
 } from './_google.js';
+import {
+  tabNameFor,
+  staleStudents,
+  buildStudentTabModel,
+  buildInfoModel,
+} from './_mirror.js';
 import { getAdminClient, getCallerClient, verifyAdminCaller } from './_supabaseAdmin.js';
 import { verifyCronAuthorizationHeader } from './weekly-report.js';
 
@@ -164,6 +173,124 @@ async function countAppendRowsWaiting(supabase, tableConfig, stateRow, horizonIs
 }
 
 /**
+ * Computes the current score-sheet mirror status summary.
+ * Safe to call with either the service-role client or an admin caller client.
+ */
+export async function computeMirrorStatus({ supabase, env = process.env, rebuilt = 0, runErrors = null }) {
+  const mirrorConfigured = hasGoogleMirrorConfig(env);
+  let mirrorSheetUrl = null;
+  if (mirrorConfigured) {
+    try {
+      const { mirrorSheetId } = getGoogleMirrorConfig(env);
+      mirrorSheetUrl = `https://docs.google.com/spreadsheets/d/${encodeURIComponent(mirrorSheetId)}`;
+    } catch {
+      mirrorSheetUrl = null;
+    }
+  }
+
+  let stateRows = [];
+  try {
+    const { data } = await supabase.from('mirror_state').select('*');
+    if (Array.isArray(data)) {
+      stateRows = data;
+    }
+  } catch {
+    stateRows = [];
+  }
+
+  let fingerprints = null;
+  try {
+    if (typeof supabase.rpc === 'function') {
+      const { data, error } = await supabase.rpc('mirror_fingerprints');
+      if (!error && Array.isArray(data)) {
+        fingerprints = data;
+      }
+    }
+  } catch {
+    fingerprints = null;
+  }
+
+  // Fallback when caller client cannot invoke service-role-only mirror_fingerprints()
+  if (!fingerprints) {
+    try {
+      const { data: activeStudents } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('role', 'student')
+        .eq('active', true);
+      if (Array.isArray(activeStudents)) {
+        const stateByStudent = new Map(stateRows.map((r) => [String(r.student_id), r]));
+        fingerprints = activeStudents.map((s) => {
+          const st = stateByStudent.get(String(s.id));
+          return {
+            student_id: s.id,
+            fingerprint: st?.fingerprint || '__unknown__',
+          };
+        });
+      }
+    } catch {
+      fingerprints = [];
+    }
+  }
+
+  const fpList = Array.isArray(fingerprints) ? fingerprints : [];
+  const staleList = staleStudents(fpList, stateRows);
+  const total = fpList.length;
+  const remaining = staleList.length;
+  const upToDate = Math.max(0, total - remaining);
+
+  let lastBuiltAt = null;
+  const stateErrors = [];
+  for (const r of stateRows) {
+    if (r?.last_built_at) {
+      if (!lastBuiltAt || new Date(r.last_built_at).getTime() > new Date(lastBuiltAt).getTime()) {
+        lastBuiltAt = r.last_built_at;
+      }
+    }
+    if (r?.last_error) {
+      stateErrors.push({
+        student_id: r.student_id,
+        tab_name: r.tab_name || null,
+        error: String(r.last_error),
+      });
+    }
+  }
+
+  const errors = Array.isArray(runErrors) ? runErrors : stateErrors;
+
+  return {
+    configured: mirrorConfigured,
+    sheetUrl: mirrorSheetUrl,
+    total,
+    upToDate,
+    rebuilt,
+    remaining,
+    lastBuiltAt,
+    lastError: errors.length > 0 ? errors[0].error : null,
+    errors,
+  };
+}
+
+/**
+ * Handles `POST { action: 'rebuild_mirror' }` by setting every `fingerprint` in `mirror_state` to `null`.
+ */
+export async function handleRebuildMirror({ supabase }) {
+  const { error } = await supabase
+    .from('mirror_state')
+    .update({ fingerprint: null, last_error: null })
+    .not('student_id', 'is', null);
+
+  if (error) {
+    throw new Error(`Failed resetting mirror_state fingerprints: ${error.message}`);
+  }
+
+  return {
+    ok: true,
+    reset: true,
+  };
+}
+
+/**
  * Handles `POST { action: 'status' }`.
  */
 export async function handleBackupStatus({ supabase, env = process.env }) {
@@ -180,7 +307,7 @@ export async function handleBackupStatus({ supabase, env = process.env }) {
 
   const horizonIso = new Date(Date.now() - SAFE_HORIZON_MS).toISOString();
 
-  const [stateRes, runsRes, lastGoogleRes, lastExportRes] = await Promise.all([
+  const [stateRes, runsRes, lastGoogleRes, lastExportRes, mirror] = await Promise.all([
     supabase.from('backup_state').select('*'),
     supabase
       .from('backup_runs')
@@ -201,6 +328,7 @@ export async function handleBackupStatus({ supabase, env = process.env }) {
       .eq('status', 'done')
       .order('finished_at', { ascending: false })
       .limit(1),
+    computeMirrorStatus({ supabase, env }),
   ]);
 
   const stateRows = Array.isArray(stateRes?.data) ? stateRes.data : [];
@@ -251,6 +379,7 @@ export async function handleBackupStatus({ supabase, env = process.env }) {
     cellWarnRatio: GOOGLE_SHEETS_WARN_RATIO,
     tables,
     runs: Array.isArray(runsRes?.data) ? runsRes.data : [],
+    mirror,
   };
 }
 
@@ -345,6 +474,18 @@ export async function executeBackupRunPass({
   let stoppedForBudget = false;
   let anyTableHasMoreRows = false;
   let activeTableName = null;
+
+  let mirrorSummary = {
+    configured: hasGoogleMirrorConfig(env),
+    sheetUrl: null,
+    total: 0,
+    upToDate: 0,
+    rebuilt: 0,
+    remaining: 0,
+    lastBuiltAt: null,
+    lastError: null,
+    errors: [],
+  };
 
   const checkBudget = () => {
     if (isBudgetExhausted(startMs, timeBudgetMs, nowFn)) {
@@ -613,7 +754,207 @@ export async function executeBackupRunPass({
 
     activeTableName = null;
 
-    // Determine final status: 'done' if every table is caught up, else 'partial'
+    // =========================================================================
+    // PHASE C: READABLE SCORE-SHEET MIRROR (when MIRROR_SHEET_ID is set)
+    // =========================================================================
+    if (hasGoogleMirrorConfig(env)) {
+      const mirrorCfg = getGoogleMirrorConfig(env);
+      const mirrorSheetId = mirrorCfg.mirrorSheetId || mirrorCfg.sheetId;
+      const mirrorSheetUrl = `https://docs.google.com/spreadsheets/d/${encodeURIComponent(mirrorSheetId)}`;
+
+      if (!stoppedForBudget && typeof supabase.rpc === 'function') {
+        try {
+          const [{ data: fpRows, error: fpErr }, { data: mStateRows, error: msErr }] =
+            await Promise.all([
+              supabase.rpc('mirror_fingerprints'),
+              supabase.from('mirror_state').select('*'),
+            ]);
+
+          if (fpErr) {
+            throw new Error(`Failed reading mirror_fingerprints: ${fpErr.message}`);
+          }
+          if (msErr) {
+            throw new Error(`Failed reading mirror_state: ${msErr.message}`);
+          }
+
+          const fingerprints = Array.isArray(fpRows) ? fpRows : [];
+          const mirrorStateList = Array.isArray(mStateRows) ? [...mStateRows] : [];
+          const fpByStudent = new Map(
+            fingerprints.map((r) => [String(r.student_id), String(r.fingerprint ?? '')])
+          );
+          const stateByStudent = new Map(
+            mirrorStateList.map((r) => [String(r.student_id), { ...r }])
+          );
+
+          const staleIds = staleStudents(fingerprints, mirrorStateList);
+          let rebuiltCount = 0;
+          const mirrorErrors = [];
+
+          if (staleIds.length > 0 && !checkBudget()) {
+            const existingMirrorTabs = await getSpreadsheetTabs(mirrorSheetId, googleOpts);
+            const hasInfoTab = existingMirrorTabs.some(
+              (t) => String(t.title || '').toUpperCase() === 'INFO'
+            );
+
+            for (const studentId of staleIds) {
+              if (checkBudget()) {
+                anyTableHasMoreRows = true;
+                break;
+              }
+
+              const existingState = stateByStudent.get(studentId) || {};
+              const targetFp = fpByStudent.get(studentId) || '';
+
+              try {
+                const { data: studentData, error: sdErr } = await supabase.rpc(
+                  'mirror_student_data',
+                  { p_student: studentId }
+                );
+                if (sdErr) {
+                  throw new Error(sdErr.message || 'mirror_student_data failed');
+                }
+
+                const model = buildStudentTabModel(studentData || {});
+
+                // Seed usedNames with tab names already assigned to OTHER students
+                const usedNames = new Set();
+                for (const [otherId, stRow] of stateByStudent.entries()) {
+                  if (otherId !== studentId && stRow?.tab_name) {
+                    usedNames.add(String(stRow.tab_name));
+                  }
+                }
+
+                const chosenTabName = tabNameFor(studentData?.student || {}, usedNames);
+                const written = await writeMirrorTab(
+                  mirrorSheetId,
+                  {
+                    tabName: chosenTabName,
+                    storedSheetId: existingState.sheet_id,
+                    model,
+                  },
+                  existingMirrorTabs,
+                  googleOpts
+                );
+
+                const builtAt = nowIso();
+                const updatedRow = {
+                  student_id: studentId,
+                  fingerprint: targetFp,
+                  sheet_id: written.sheetId,
+                  tab_name: written.tabName,
+                  last_built_at: builtAt,
+                  last_error: null,
+                };
+
+                await supabase.from('mirror_state').upsert(updatedRow);
+                stateByStudent.set(studentId, updatedRow);
+                rebuiltCount += 1;
+              } catch (studentErr) {
+                const safeStudentErr = sanitizeBackupError(studentErr, secrets);
+                const errRow = {
+                  student_id: studentId,
+                  fingerprint: existingState.fingerprint ?? null,
+                  sheet_id: existingState.sheet_id ?? null,
+                  tab_name: existingState.tab_name ?? null,
+                  last_built_at: existingState.last_built_at ?? null,
+                  last_error: safeStudentErr,
+                };
+                await supabase.from('mirror_state').upsert(errRow);
+                stateByStudent.set(studentId, errRow);
+                mirrorErrors.push({
+                  student_id: studentId,
+                  tab_name: existingState.tab_name || null,
+                  error: safeStudentErr,
+                });
+              }
+            }
+
+            // Keep a first tab named INFO listing when the sheet was last updated and the read-only warning
+            if (rebuiltCount > 0 || !hasInfoTab) {
+              try {
+                const infoStudents = [];
+                for (const [sId, stRow] of stateByStudent.entries()) {
+                  if (stRow?.tab_name) {
+                    infoStudents.push({
+                      student_id: sId,
+                      name: stRow.tab_name.replace(/\s*\([^)]*\)\s*(\d+)?$/, ''),
+                      code: '',
+                      level: '',
+                      tab_name: stRow.tab_name,
+                      last_built_at: stRow.last_built_at || '',
+                    });
+                  }
+                }
+                const infoModel = buildInfoModel(infoStudents, nowIso());
+                await writeMirrorTab(
+                  mirrorSheetId,
+                  {
+                    tabName: 'INFO',
+                    sheetIndex: 0,
+                    model: infoModel,
+                  },
+                  existingMirrorTabs,
+                  googleOpts
+                );
+              } catch {
+                // Non-fatal if INFO tab update encounters a transient error
+              }
+            }
+          }
+
+          const updatedStateList = Array.from(stateByStudent.values());
+          const remainingStale = staleStudents(fingerprints, updatedStateList);
+          let latestBuilt = null;
+          for (const r of updatedStateList) {
+            if (r?.last_built_at) {
+              if (!latestBuilt || new Date(r.last_built_at).getTime() > new Date(latestBuilt).getTime()) {
+                latestBuilt = r.last_built_at;
+              }
+            }
+          }
+
+          mirrorSummary = {
+            configured: true,
+            sheetUrl: mirrorSheetUrl,
+            total: fingerprints.length,
+            upToDate: Math.max(0, fingerprints.length - remainingStale.length),
+            rebuilt: rebuiltCount,
+            remaining: remainingStale.length,
+            lastBuiltAt: latestBuilt,
+            lastError: mirrorErrors.length > 0 ? mirrorErrors[0].error : null,
+            errors: mirrorErrors,
+          };
+          tablesSummary._mirror = {
+            rebuilt: rebuiltCount,
+            remaining: remainingStale.length,
+            errors: mirrorErrors.length,
+          };
+        } catch (mirrorPhaseErr) {
+          const safeMirrorErr = sanitizeBackupError(mirrorPhaseErr, secrets);
+          const fallbackMirror = await computeMirrorStatus({ supabase, env });
+          mirrorSummary = {
+            ...fallbackMirror,
+            configured: true,
+            sheetUrl: mirrorSheetUrl,
+            lastError: safeMirrorErr,
+            errors: [{ student_id: null, tab_name: 'MIRROR_SHEET', error: safeMirrorErr }],
+          };
+          tablesSummary._mirror = {
+            rebuilt: 0,
+            remaining: fallbackMirror.remaining,
+            errors: 1,
+            error: safeMirrorErr,
+          };
+        }
+      } else {
+        mirrorSummary = await computeMirrorStatus({ supabase, env });
+        if (mirrorSummary.remaining > 0) {
+          anyTableHasMoreRows = true;
+        }
+      }
+    }
+
+    // Determine final status: 'done' if every table and mirror tab is caught up, else 'partial'
     const finalStatus = stoppedForBudget || anyTableHasMoreRows ? 'partial' : 'done';
     const finalError = finalStatus === 'partial' ? 'more to do' : null;
     const finishedAt = nowIso();
@@ -636,6 +977,7 @@ export async function executeBackupRunPass({
         status: finalStatus,
         rows_written: totalRowsWrittenThisRun,
         tables: tablesSummary,
+        mirror: mirrorSummary,
         error: finalError,
       },
     };
@@ -672,6 +1014,7 @@ export async function executeBackupRunPass({
         status: failStatus,
         rows_written: totalRowsWrittenThisRun,
         tables: tablesSummary,
+        mirror: mirrorSummary,
         error: safeErr,
       },
     };
@@ -712,7 +1055,7 @@ export default async function handler(req, res) {
   }
 
   // =========================================================================
-  // 2. POST = Admin Action ({ action: 'status' } or { action: 'run' })
+  // 2. POST = Admin Action ({ action: 'status' | 'run' | 'rebuild_mirror' })
   // =========================================================================
   if (req.method === 'POST') {
     let adminProfile;
@@ -727,9 +1070,10 @@ export default async function handler(req, res) {
     const body = req.body && typeof req.body === 'object' ? req.body : {};
     const action = body.action;
 
-    if (action !== 'status' && action !== 'run') {
+    if (action !== 'status' && action !== 'run' && action !== 'rebuild_mirror') {
       return res.status(400).json({
-        error: 'Request body must specify { "action": "status" } or { "action": "run" }.',
+        error:
+          'Request body must specify { "action": "status" }, { "action": "run" }, or { "action": "rebuild_mirror" }.',
       });
     }
 
@@ -742,6 +1086,12 @@ export default async function handler(req, res) {
       if (action === 'status') {
         const statusPayload = await handleBackupStatus({ supabase });
         return res.status(200).json(statusPayload);
+      }
+
+      if (action === 'rebuild_mirror') {
+        const adminSupabase = getAdminClient();
+        const rebuildPayload = await handleRebuildMirror({ supabase: adminSupabase });
+        return res.status(200).json(rebuildPayload);
       }
 
       // action === 'run' requires service role and Google config
@@ -760,3 +1110,4 @@ export default async function handler(req, res) {
 
   return res.status(405).json({ error: 'Method Not Allowed' });
 }
+

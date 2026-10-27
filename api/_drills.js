@@ -13,6 +13,7 @@
  */
 
 import crypto from 'node:crypto';
+import { SQUARE_CUBE_STAGE_SPECS } from '../js/drillCatalog.js';
 
 /**
  * Single switch constant for the Modulo Calculation drill.
@@ -47,6 +48,24 @@ export const BASICS_SESSION_EXPIRY_SECONDS = 30 * 60;
 export const BASICS_MIN_SECONDS_PER_QUESTION = 0.6;
 export const BASICS_MAX_ANSWER_LENGTH = 20;
 export const BASICS_MAX_TIME_SECONDS = 14400;
+
+/**
+ * Phase 10g — Timed & Stopwatch Online Basics Practice Constants
+ */
+export const BASICS_TIMED_POOLS = {
+  30: 50,
+  60: 100,
+  120: 200,
+  300: 500,
+};
+export const BASICS_TIMED_MODES = BASICS_TIMED_POOLS;
+export const BASICS_TIMED_SECONDS = [30, 60, 120, 300];
+export const BASICS_UNLIMITED_POOL = 1000;
+export const BASICS_TIMED_GRACE_SECONDS = 60;
+export const BASICS_UNLIMITED_EXPIRY_SECONDS = 2 * 60 * 60; // 2 hours
+export const BASICS_MIN_SECONDS_PER_ATTEMPT = 0.25;
+export const BASICS_DETAIL_LIMIT = 100;
+export const BASICS_DUPLICATE_RETRY_LIMIT = 25;
 
 /**
  * Default random integer generator using Node's built-in crypto.randomInt.
@@ -147,6 +166,53 @@ function shuffleInPlace(rng, arr) {
     arr[j] = tmp;
   }
   return arr;
+}
+
+/**
+ * Generates a shuffled stage set containing EVERY integer in [min, max] inclusive
+ * exactly once, with expected answer n^2 (power === 2) or n^3 (power === 3).
+ *
+ * @param {Function} rng
+ * @param {number} min
+ * @param {number} max
+ * @param {2|3} power
+ * @returns {Array<{ text: string, expected: number }>}
+ */
+function generateRangePowerSet(rng, min, max, power) {
+  const numbers = [];
+  for (let n = min; n <= max; n++) {
+    numbers.push(n);
+  }
+  shuffleInPlace(rng, numbers);
+  return numbers.map((n) => ({
+    text: String(n),
+    expected: power === 3 ? n * n * n : n * n,
+  }));
+}
+
+/**
+ * Builds a staged Square or Cube drill definition from its shared spec in `js/drillCatalog.js`.
+ *
+ * @param {object} spec
+ */
+function createStagedPowerDrill(spec) {
+  return {
+    key: spec.key,
+    title: spec.title,
+    group: 'Squares and cubes',
+    subgroup: spec.subgroup,
+    questions: spec.questions,
+    time_limit_seconds: spec.time_limit_seconds,
+    enabled: true,
+    inputmode: 'numeric',
+    hint: spec.hint,
+    generate(rng = defaultRng) {
+      return generateRangePowerSet(rng, spec.min, spec.max, spec.power);
+    },
+    parse: parseIntegerAnswer,
+    equal: equalIntegerAnswer,
+    format: formatIntegerAnswer,
+  };
 }
 
 /**
@@ -489,15 +555,21 @@ export function solveDrillQuestion(drillKey, questionText) {
       return Number(BigInt(n) * BigInt(unitObj.seconds));
     }
 
-    case 'squares_11_50':
-    case 'squares_51_100':
+    case 'squares_stage_1':
+    case 'squares_stage_2':
+    case 'squares_stage_3':
+    case 'squares_stage_4':
+    case 'squares_combined':
     case 'squares_3d_4d': {
       const n = BigInt(text);
       return Number(n * n);
     }
 
-    case 'cubes_11_50':
-    case 'cubes_51_100': {
+    case 'cubes_stage_1':
+    case 'cubes_stage_2':
+    case 'cubes_stage_3':
+    case 'cubes_stage_4':
+    case 'cubes_combined': {
       const n = BigInt(text);
       return Number(n * n * n);
     }
@@ -722,93 +794,16 @@ export const DRILLS = {
     format: formatIntegerAnswer,
   },
 
-  squares_11_50: {
-    key: 'squares_11_50',
-    title: 'Square (11-50)',
-    group: 'Squares and cubes',
-    questions: 50,
-    time_limit_seconds: 120,
-    enabled: true,
-    inputmode: 'numeric',
-    hint: 'Type the exact square of each number.',
-    generate(rng = defaultRng) {
-      const out = [];
-      for (let i = 0; i < 50; i++) {
-        const n = randInt(rng, 11, 50);
-        out.push({ text: String(n), expected: n * n });
-      }
-      return out;
-    },
-    parse: parseIntegerAnswer,
-    equal: equalIntegerAnswer,
-    format: formatIntegerAnswer,
-  },
-
-  squares_51_100: {
-    key: 'squares_51_100',
-    title: 'Square (51-100)',
-    group: 'Squares and cubes',
-    questions: 50,
-    time_limit_seconds: 180,
-    enabled: true,
-    inputmode: 'numeric',
-    hint: 'Type the exact square of each number.',
-    generate(rng = defaultRng) {
-      const out = [];
-      for (let i = 0; i < 50; i++) {
-        const n = randInt(rng, 51, 100);
-        out.push({ text: String(n), expected: n * n });
-      }
-      return out;
-    },
-    parse: parseIntegerAnswer,
-    equal: equalIntegerAnswer,
-    format: formatIntegerAnswer,
-  },
-
-  cubes_11_50: {
-    key: 'cubes_11_50',
-    title: 'Cube (11-50)',
-    group: 'Squares and cubes',
-    questions: 50,
-    time_limit_seconds: 180,
-    enabled: true,
-    inputmode: 'numeric',
-    hint: 'Type the exact cube of each number.',
-    generate(rng = defaultRng) {
-      const out = [];
-      for (let i = 0; i < 50; i++) {
-        const n = randInt(rng, 11, 50);
-        out.push({ text: String(n), expected: n * n * n });
-      }
-      return out;
-    },
-    parse: parseIntegerAnswer,
-    equal: equalIntegerAnswer,
-    format: formatIntegerAnswer,
-  },
-
-  cubes_51_100: {
-    key: 'cubes_51_100',
-    title: 'Cube (51-100)',
-    group: 'Squares and cubes',
-    questions: 50,
-    time_limit_seconds: 240,
-    enabled: true,
-    inputmode: 'numeric',
-    hint: 'Type the exact cube of each number.',
-    generate(rng = defaultRng) {
-      const out = [];
-      for (let i = 0; i < 50; i++) {
-        const n = randInt(rng, 51, 100);
-        out.push({ text: String(n), expected: n * n * n });
-      }
-      return out;
-    },
-    parse: parseIntegerAnswer,
-    equal: equalIntegerAnswer,
-    format: formatIntegerAnswer,
-  },
+  squares_stage_1: createStagedPowerDrill(SQUARE_CUBE_STAGE_SPECS.squares_stage_1),
+  squares_stage_2: createStagedPowerDrill(SQUARE_CUBE_STAGE_SPECS.squares_stage_2),
+  squares_stage_3: createStagedPowerDrill(SQUARE_CUBE_STAGE_SPECS.squares_stage_3),
+  squares_stage_4: createStagedPowerDrill(SQUARE_CUBE_STAGE_SPECS.squares_stage_4),
+  squares_combined: createStagedPowerDrill(SQUARE_CUBE_STAGE_SPECS.squares_combined),
+  cubes_stage_1: createStagedPowerDrill(SQUARE_CUBE_STAGE_SPECS.cubes_stage_1),
+  cubes_stage_2: createStagedPowerDrill(SQUARE_CUBE_STAGE_SPECS.cubes_stage_2),
+  cubes_stage_3: createStagedPowerDrill(SQUARE_CUBE_STAGE_SPECS.cubes_stage_3),
+  cubes_stage_4: createStagedPowerDrill(SQUARE_CUBE_STAGE_SPECS.cubes_stage_4),
+  cubes_combined: createStagedPowerDrill(SQUARE_CUBE_STAGE_SPECS.cubes_combined),
 
   divide_by_4: {
     key: 'divide_by_4',
@@ -1586,7 +1581,92 @@ export function generateBasicsQuestion(specOrName, rng = defaultRng) {
 }
 
 /**
- * Generates a full set of Basics questions (5, 10, or 20, default 10).
+ * Deterministic fallback when a custom test RNG produces the exact same question text
+ * repeatedly across retries, ensuring consecutive pool items are never identical.
+ *
+ * @param {ReturnType<typeof parseBasicsCategoryName>} spec
+ * @param {ReturnType<typeof generateBasicsQuestion>} prevQuestion
+ * @returns {ReturnType<typeof generateBasicsQuestion>}
+ */
+function makeDistinctBasicsQuestion(spec, prevQuestion) {
+  if (spec.type === 'add_sub') {
+    const [minMag, maxMag] = getDigitRange(spec.digits, false);
+    const prevRows = Array.isArray(prevQuestion.rows) ? prevQuestion.rows : [minMag, minMag + 1];
+    const rows = [...prevRows];
+    // Adjust first row within [minMag, maxMag] so it differs from prevRows[0] and rows[1]
+    let nextFirst = rows[0] === maxMag ? minMag : rows[0] + 1;
+    if (rows.length > 1 && nextFirst === Math.abs(rows[1])) {
+      nextFirst = nextFirst === maxMag ? minMag : nextFirst + 1;
+    }
+    rows[0] = nextFirst;
+    let runningTotal = rows[0];
+    let prevMag = rows[0];
+    for (let r = 1; r < rows.length; r++) {
+      let val = rows[r];
+      if (Math.abs(val) === prevMag || runningTotal + val < 0) {
+        val = prevMag === minMag ? minMag + 1 : minMag;
+      }
+      rows[r] = val;
+      runningTotal += val;
+      prevMag = Math.abs(val);
+    }
+    const text = rows.map((n) => (n >= 0 ? `+${n}` : `${n}`)).join(' ');
+    return {
+      type: 'add_sub',
+      rows,
+      text,
+      expected: runningTotal,
+    };
+  }
+
+  if (spec.type === 'mul') {
+    const [minA, maxA] = getDigitRange(spec.digitsA, true);
+    const [minB, maxB] = getDigitRange(spec.digitsB, true);
+    let a = prevQuestion.a ?? minA;
+    let b = prevQuestion.b ?? minB;
+    if (a < maxA) {
+      a += 1;
+    } else if (a > minA) {
+      a -= 1;
+    } else if (b < maxB) {
+      b += 1;
+    } else if (b > minB) {
+      b -= 1;
+    }
+    return {
+      type: 'mul',
+      a,
+      b,
+      text: `${a} x ${b}`,
+      expected: a * b,
+    };
+  }
+
+  if (spec.type === 'div') {
+    const validList = spec.validDivisors;
+    for (const item of validList) {
+      for (let q = item.minQ; q <= item.maxQ; q++) {
+        const dividend = item.divisor * q;
+        const text = `${dividend} / ${item.divisor}`;
+        if (text !== prevQuestion.text) {
+          return {
+            type: 'div',
+            dividend,
+            divisor: item.divisor,
+            text,
+            expected: q,
+          };
+        }
+      }
+    }
+  }
+
+  return generateBasicsQuestion(spec, defaultRng);
+}
+
+/**
+ * Generates a pool or set of Basics questions (e.g. 50, 100, 200, 500, 1000).
+ * Guarantees that a pool NEVER contains duplicates of the same question twice in a row.
  *
  * @param {string} categoryName
  * @param {number} [count=BASICS_DEFAULT_QUESTIONS]
@@ -1601,18 +1681,87 @@ export function generateBasicsSet(
   if (!spec) {
     throw new Error('Category is not available for online practice.');
   }
-  const n = BASICS_QUESTION_COUNTS.includes(Number(count))
-    ? Number(count)
-    : BASICS_DEFAULT_QUESTIONS;
+  const numCount = Number(count);
+  const n =
+    Number.isInteger(numCount) && numCount > 0 && numCount <= BASICS_UNLIMITED_POOL
+      ? numCount
+      : BASICS_DEFAULT_QUESTIONS;
 
   const out = [];
   for (let i = 0; i < n; i++) {
-    out.push(generateBasicsQuestion(spec, rng));
+    let q = generateBasicsQuestion(spec, rng);
+    if (i > 0 && q.text === out[i - 1].text) {
+      for (let retry = 0; retry < BASICS_DUPLICATE_RETRY_LIMIT; retry++) {
+        const candidate = generateBasicsQuestion(spec, rng);
+        if (candidate.text !== out[i - 1].text) {
+          q = candidate;
+          break;
+        }
+      }
+      if (q.text === out[i - 1].text) {
+        q = makeDistinctBasicsQuestion(spec, out[i - 1]);
+      }
+    }
+    out.push(q);
   }
   return out;
 }
 
 export const generateBasicsQuestions = generateBasicsSet;
+export const generateBasicsPool = generateBasicsSet;
+
+/**
+ * Resolves and validates the Phase 10g Basics practice mode and time parameters:
+ * - mode: 'timed' | 'unlimited'
+ * - For 'timed', seconds must be one of 30, 60, 120, 300 -> pool 50, 100, 200, 500;
+ *   expires_at = now + seconds + 60 s.
+ * - For 'unlimited', pool is 1000 and expires_at = now + 2 hours (7200 s).
+ *
+ * @param {unknown} rawMode
+ * @param {unknown} rawSeconds
+ * @returns {{
+ *   ok: boolean,
+ *   mode?: 'timed' | 'unlimited',
+ *   seconds?: number | null,
+ *   pool?: number,
+ *   expirySeconds?: number,
+ *   error?: string
+ * }}
+ */
+export function resolveBasicsModeSpec(rawMode, rawSeconds) {
+  const mode = typeof rawMode === 'string' ? rawMode.trim().toLowerCase() : '';
+  if (mode === 'unlimited') {
+    return {
+      ok: true,
+      mode: 'unlimited',
+      seconds: null,
+      pool: BASICS_UNLIMITED_POOL,
+      expirySeconds: BASICS_UNLIMITED_EXPIRY_SECONDS,
+    };
+  }
+
+  if (mode === 'timed') {
+    const sec = Number(rawSeconds);
+    if (!Number.isInteger(sec) || !(sec in BASICS_TIMED_POOLS)) {
+      return {
+        ok: false,
+        error: 'Timed mode requires seconds to be 30, 60, 120, or 300.',
+      };
+    }
+    return {
+      ok: true,
+      mode: 'timed',
+      seconds: sec,
+      pool: BASICS_TIMED_POOLS[sec],
+      expirySeconds: sec + BASICS_TIMED_GRACE_SECONDS,
+    };
+  }
+
+  return {
+    ok: false,
+    error: "Practice mode must be 'timed' or 'unlimited'.",
+  };
+}
 
 /**
  * Strips `expected` from generated Basics questions before storing in `drill_sessions.questions`
@@ -1633,30 +1782,213 @@ export function stripBasicsExpected(generated = []) {
 }
 
 /**
- * Pure submission validator and grader for online Basics practice (`checkSubmission(session, answers, now)`).
+ * Phase 10g pure submission validator and grader for timed & unlimited Basics rounds.
  * Rules:
- * - Session must be 'open' and not expired (`now <= expires_at`).
- * - `answers` must be an array of the exact question length; each element is a string of up to 20 chars or `null`.
- * - Rejects if `elapsed < questions * 0.6` seconds (`finished faster than possible, not saved`).
- * - Skipped (`null`) or blank (`""`) answers count as wrong.
- * - `total` is always the number of questions in the set.
- * - `time_seconds = min(round(elapsed), 14400)`.
+ * - `answers` has at most `pool` entries (`1 <= answers.length <= pool`) and covers
+ *   exactly the questions the student reached in order, each a string of up to 20 chars
+ *   or `null` for a skipped question.
+ * - `attempted = answers.length`; `correct = answers equal to expected`; skipped (`null` or `""`)
+ *   counts as attempted and wrong.
+ * - `elapsed = now - started_at` (in seconds); `used_seconds = min(elapsed, seconds)` for timed,
+ *   `elapsed` for unlimited.
+ * - Rejects when `attempted === 0`, when `elapsed < attempted * 0.25` seconds, or when
+ *   submission is after `expires_at`.
+ * - Returns `{ ok: true, correct, attempted, total: attempted, accuracy, used_seconds, time_seconds, correct_per_minute, attempted_per_minute, detail }`
+ *   where `detail` has at most the first 100 attempted questions.
  *
  * @param {object} session
  * @param {Array<string|null>} answers
  * @param {number|string|Date} [now=Date.now()]
- * @returns {{
- *   ok: boolean,
- *   statusCode?: number,
- *   error?: string,
- *   correct?: number,
- *   total?: number,
- *   accuracy?: number,
- *   seconds?: number,
- *   detail?: Array<{ question: string, question_data: object|null, expected_display: string, given: string|null, correct: boolean }>
- * }}
+ */
+export function checkTimedBasicsSubmission(session, answers, now = Date.now()) {
+  if (!session || typeof session !== 'object') {
+    return {
+      ok: false,
+      statusCode: 404,
+      error: 'Practice session not found. Please start a new round.',
+    };
+  }
+
+  if (session.status && session.status !== 'open') {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: 'already submitted',
+    };
+  }
+
+  const settings = session.settings && typeof session.settings === 'object' ? session.settings : {};
+  const mode = session.mode || settings.mode || 'timed';
+  const modeSeconds =
+    session.seconds !== undefined
+      ? session.seconds
+      : settings.seconds !== undefined
+        ? settings.seconds
+        : null;
+
+  const expected = Array.isArray(session.expected) ? session.expected : [];
+  const questions =
+    Array.isArray(session.questions) && session.questions.length > 0
+      ? session.questions
+      : expected;
+  const poolSize = Number(
+    session.pool || settings.pool || expected.length || questions.length || BASICS_UNLIMITED_POOL
+  );
+
+  if (!Array.isArray(answers)) {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: 'Answers must be provided as a list.',
+    };
+  }
+
+  const attempted = answers.length;
+  if (attempted === 0) {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: 'No questions were answered in this round.',
+    };
+  }
+
+  if (attempted > poolSize || (expected.length > 0 && attempted > expected.length)) {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: `Too many answers submitted (maximum ${poolSize}).`,
+    };
+  }
+
+  for (let i = 0; i < attempted; i++) {
+    const item = answers[i];
+    if (item === null) continue;
+    if (typeof item !== 'string') {
+      return {
+        ok: false,
+        statusCode: 400,
+        error: `Answer for question ${i + 1} must be text or null.`,
+      };
+    }
+    if (item.length > BASICS_MAX_ANSWER_LENGTH) {
+      return {
+        ok: false,
+        statusCode: 400,
+        error: `Answer for question ${i + 1} is too long (maximum ${BASICS_MAX_ANSWER_LENGTH} characters).`,
+      };
+    }
+  }
+
+  const nowMs =
+    typeof now === 'number' ? now : now instanceof Date ? now.getTime() : new Date(now).getTime();
+
+  if (session.expires_at !== undefined && session.expires_at !== null) {
+    const expiresMs =
+      typeof session.expires_at === 'number'
+        ? session.expires_at
+        : new Date(session.expires_at).getTime();
+    if (Number.isFinite(expiresMs) && nowMs > expiresMs) {
+      return {
+        ok: false,
+        statusCode: 400,
+        error: 'Time is up, please start a new set',
+      };
+    }
+  }
+
+  const startedMs =
+    typeof session.started_at === 'number'
+      ? session.started_at
+      : new Date(session.started_at).getTime();
+
+  const elapsedSeconds = Number.isFinite(startedMs) ? Math.max(0, (nowMs - startedMs) / 1000) : 0;
+
+  if (elapsedSeconds < attempted * BASICS_MIN_SECONDS_PER_ATTEMPT) {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: 'finished faster than possible, not saved',
+    };
+  }
+
+  const rawUsedSeconds =
+    mode === 'timed' && Number(modeSeconds) > 0
+      ? Math.min(elapsedSeconds, Number(modeSeconds))
+      : elapsedSeconds;
+
+  const usedSeconds = Math.max(1, Math.round(rawUsedSeconds));
+  const timeSeconds = usedSeconds;
+
+  let correct = 0;
+  const detail = [];
+
+  for (let i = 0; i < attempted; i++) {
+    const qItem = questions[i];
+    const qText =
+      typeof qItem === 'object' && qItem !== null ? String(qItem.text || '') : String(qItem ?? '');
+    const expVal = Number(expected[i]);
+    const rawAns = answers[i];
+    const trimmed = rawAns === null || rawAns === undefined ? '' : String(rawAns).trim();
+    const isBlank = trimmed === '';
+
+    let isCorrect = false;
+    if (!isBlank) {
+      const parsed = parseIntegerAnswer(trimmed);
+      isCorrect = parsed !== null && equalIntegerAnswer(parsed, expVal);
+      if (isCorrect) {
+        correct += 1;
+      }
+    }
+
+    if (detail.length < BASICS_DETAIL_LIMIT) {
+      detail.push({
+        question: qText,
+        question_data: typeof qItem === 'object' && qItem !== null ? qItem : null,
+        expected_display: formatIntegerAnswer(expVal),
+        expected: expVal,
+        given: isBlank ? null : trimmed,
+        answer: isBlank ? null : trimmed,
+        correct: isCorrect,
+      });
+    }
+  }
+
+  const accuracy = attempted > 0 ? Math.round((correct / attempted) * 1000) / 10 : 0;
+  const minutes = usedSeconds / 60;
+  const correctPerMinute = minutes > 0 ? Math.round((correct / minutes) * 10) / 10 : 0;
+  const attemptedPerMinute = minutes > 0 ? Math.round((attempted / minutes) * 10) / 10 : 0;
+
+  return {
+    ok: true,
+    mode,
+    correct,
+    attempted,
+    total: attempted,
+    accuracy,
+    used_seconds: usedSeconds,
+    seconds: usedSeconds,
+    time_seconds: timeSeconds,
+    correct_per_minute: correctPerMinute,
+    attempted_per_minute: attemptedPerMinute,
+    detail,
+  };
+}
+
+/**
+ * Pure submission validator and grader for online Basics practice (`checkSubmission(session, answers, now)`).
+ * Automatically delegates to `checkTimedBasicsSubmission` when `session.mode` or `session.settings.mode`
+ * is `'timed'` or `'unlimited'`, while preserving compatibility with legacy fixed-set sessions.
+ *
+ * @param {object} session
+ * @param {Array<string|null>} answers
+ * @param {number|string|Date} [now=Date.now()]
  */
 export function checkSubmission(session, answers, now = Date.now()) {
+  const sessionMode = session?.mode || session?.settings?.mode;
+  if (sessionMode === 'timed' || sessionMode === 'unlimited') {
+    return checkTimedBasicsSubmission(session, answers, now);
+  }
+
   if (!session || typeof session !== 'object') {
     return {
       ok: false,

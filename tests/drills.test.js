@@ -31,17 +31,32 @@ import {
   generateBasicsSet,
   stripBasicsExpected,
   checkSubmission,
+  BASICS_TIMED_POOLS,
+  BASICS_UNLIMITED_POOL,
+  BASICS_TIMED_GRACE_SECONDS,
+  BASICS_UNLIMITED_EXPIRY_SECONDS,
+  BASICS_MIN_SECONDS_PER_ATTEMPT,
+  BASICS_DETAIL_LIMIT,
+  resolveBasicsModeSpec,
+  checkTimedBasicsSubmission,
 } from '../api/_drills.js';
 import {
   DRILL_CATALOG,
   DRILL_CATALOG_LIST,
+  SQUARE_CUBE_STAGE_SPECS,
 } from '../js/drillCatalog.js';
 
-describe('Phase 8 — 1. Catalog & Server Metadata Parity', () => {
-  it('js/drillCatalog.js matches api/_drills.js on all 18 drills and metadata fields', () => {
-    assert.equal(DRILL_KEYS.length, 18);
-    assert.equal(DRILL_CATALOG_LIST.length, 18);
+describe('Phase 8 & 10f — 1. Catalog & Server Metadata Parity', () => {
+  it('js/drillCatalog.js matches api/_drills.js on all 24 drills (keys, titles, counts, times)', () => {
+    assert.equal(DRILL_KEYS.length, 24);
+    assert.equal(DRILL_CATALOG_LIST.length, 24);
     assert.deepEqual(Object.keys(DRILL_CATALOG), DRILL_KEYS);
+
+    // Ensure the 4 old keys are not in the active catalog or server DRILLS
+    for (const oldKey of ['squares_11_50', 'squares_51_100', 'cubes_11_50', 'cubes_51_100']) {
+      assert.equal(DRILLS[oldKey], undefined, `${oldKey} should be removed from DRILLS`);
+      assert.equal(DRILL_CATALOG[oldKey], undefined, `${oldKey} should be removed from DRILL_CATALOG`);
+    }
 
     for (const key of DRILL_KEYS) {
       const serverDrill = DRILLS[key];
@@ -60,6 +75,73 @@ describe('Phase 8 — 1. Catalog & Server Metadata Parity', () => {
     // Modulo is disabled by default until teacher confirms
     assert.equal(DRILLS.modulo.enabled, false);
     assert.equal(DRILLS.days_to_seconds.time_limit_seconds, 300);
+  });
+
+  it('Phase 10f — staged Square and Cube drills give every number in their range once, match n^2 / n^3, and shuffle differently across seeds', () => {
+    const expectedStages = [
+      { key: 'squares_stage_1', title: 'Square - Stage 1 (1-25)', min: 1, max: 25, count: 25, time: 60, power: 2 },
+      { key: 'squares_stage_2', title: 'Square - Stage 2 (26-50)', min: 26, max: 50, count: 25, time: 75, power: 2 },
+      { key: 'squares_stage_3', title: 'Square - Stage 3 (51-75)', min: 51, max: 75, count: 25, time: 100, power: 2 },
+      { key: 'squares_stage_4', title: 'Square - Stage 4 (76-100)', min: 76, max: 100, count: 25, time: 120, power: 2 },
+      { key: 'squares_combined', title: 'Square - Combined (1-100)', min: 1, max: 100, count: 100, time: 360, power: 2 },
+      { key: 'cubes_stage_1', title: 'Cube - Stage 1 (1-25)', min: 1, max: 25, count: 25, time: 90, power: 3 },
+      { key: 'cubes_stage_2', title: 'Cube - Stage 2 (26-50)', min: 26, max: 50, count: 25, time: 110, power: 3 },
+      { key: 'cubes_stage_3', title: 'Cube - Stage 3 (51-75)', min: 51, max: 75, count: 25, time: 130, power: 3 },
+      { key: 'cubes_stage_4', title: 'Cube - Stage 4 (76-100)', min: 76, max: 100, count: 25, time: 150, power: 3 },
+      { key: 'cubes_combined', title: 'Cube - Combined (1-100)', min: 1, max: 100, count: 100, time: 480, power: 3 },
+    ];
+
+    for (const st of expectedStages) {
+      const drill = DRILLS[st.key];
+      const cat = DRILL_CATALOG[st.key];
+      assert.ok(drill, `Missing ${st.key} in DRILLS`);
+      assert.ok(cat, `Missing ${st.key} in DRILL_CATALOG`);
+      assert.equal(drill.title, st.title);
+      assert.equal(drill.questions, st.count);
+      assert.equal(drill.time_limit_seconds, st.time);
+      assert.equal(drill.group, 'Squares and cubes');
+      assert.equal(drill.inputmode, 'numeric');
+
+      const set1 = drill.generate(createSeededRng(101));
+      const set2 = drill.generate(createSeededRng(202));
+
+      assert.equal(set1.length, st.count);
+      assert.equal(set2.length, st.count);
+
+      const expectedRange = [];
+      for (let n = st.min; n <= st.max; n++) {
+        expectedRange.push(n);
+      }
+
+      const nums1 = set1.map((q) => Number(q.text));
+      const nums2 = set2.map((q) => Number(q.text));
+
+      // Shuffle differs between runs with different seeds
+      assert.notDeepEqual(
+        nums1,
+        nums2,
+        `${st.key} order should differ between different seeds`
+      );
+
+      // Sorted numbers equal the exact range [min..max] with no duplicates
+      assert.deepEqual([...nums1].sort((a, b) => a - b), expectedRange);
+      assert.deepEqual([...nums2].sort((a, b) => a - b), expectedRange);
+
+      // Every expected answer equals n*n or n*n*n
+      for (const q of set1) {
+        const n = Number(q.text);
+        const expectedVal = st.power === 3 ? n * n * n : n * n;
+        assert.equal(q.expected, expectedVal);
+      }
+    }
+
+    // Specific sample checks from specification
+    assert.equal(solveDrillQuestion('squares_stage_1', '25'), 625);
+    assert.equal(solveDrillQuestion('squares_stage_4', '100'), 10000);
+    assert.equal(solveDrillQuestion('squares_combined', '100'), 10000);
+    assert.equal(solveDrillQuestion('cubes_stage_4', '99'), 970299);
+    assert.equal(solveDrillQuestion('cubes_stage_4', '76'), 438976);
+    assert.equal(solveDrillQuestion('cubes_combined', '76'), 438976);
   });
 });
 
@@ -120,17 +202,14 @@ describe('Phase 8 — 2. 200 Seeded Sets per Drill & Range Invariants', () => {
           assert.equal(set[24].expected, 31536000);
         }
 
-        if (key === 'squares_11_50' || key === 'cubes_11_50') {
-          for (const q of set) {
-            const n = Number(q.text);
-            assert.ok(n >= 11 && n <= 50);
-          }
-        }
-
-        if (key === 'squares_51_100' || key === 'cubes_51_100') {
-          for (const q of set) {
-            const n = Number(q.text);
-            assert.ok(n >= 51 && n <= 100);
+        if (SQUARE_CUBE_STAGE_SPECS[key]) {
+          const spec = SQUARE_CUBE_STAGE_SPECS[key];
+          const nums = set.map((q) => Number(q.text)).sort((a, b) => a - b);
+          assert.equal(nums.length, spec.max - spec.min + 1);
+          assert.equal(nums[0], spec.min);
+          assert.equal(nums[nums.length - 1], spec.max);
+          for (let idx = 0; idx < nums.length; idx++) {
+            assert.equal(nums[idx], spec.min + idx);
           }
         }
 
@@ -261,11 +340,14 @@ describe('Phase 8 — 3. Known Examples Verification', () => {
     // "3 Week" gives 1814400
     assert.equal(solveDrillQuestion('time_conversion', '3 Week'), 1814400);
 
-    // 47 squared is 2209
-    assert.equal(solveDrillQuestion('squares_11_50', '47'), 2209);
+    // 47 squared is 2209, 25 squared is 625, 100 squared is 10000
+    assert.equal(solveDrillQuestion('squares_stage_2', '47'), 2209);
+    assert.equal(solveDrillQuestion('squares_stage_1', '25'), 625);
+    assert.equal(solveDrillQuestion('squares_stage_4', '100'), 10000);
 
-    // 99 cubed is 970299
-    assert.equal(solveDrillQuestion('cubes_51_100', '99'), 970299);
+    // 99 cubed is 970299, 76 cubed is 438976
+    assert.equal(solveDrillQuestion('cubes_stage_4', '99'), 970299);
+    assert.equal(solveDrillQuestion('cubes_stage_4', '76'), 438976);
 
     // 97 / 4 gives 24
     assert.equal(solveDrillQuestion('divide_by_4', '97 / 4'), 24);
@@ -373,13 +455,13 @@ describe('Phase 8 — 4. Answer Parsing & Comparison Rules', () => {
 
 describe('Phase 8 — 5. Start Response Security & Submission Grading', () => {
   it('buildDrillStartResponse contains no expected answers anywhere in the payload', () => {
-    const drill = DRILLS.squares_51_100;
+    const drill = DRILLS.squares_stage_4;
     const rng = createSeededRng(42);
     const generated = drill.generate(rng);
 
     const response = buildDrillStartResponse({
       sessionId: 'sess-123',
-      drillKey: 'squares_51_100',
+      drillKey: 'squares_stage_4',
       drill,
       generated,
     });
@@ -393,7 +475,7 @@ describe('Phase 8 — 5. Start Response Security & Submission Grading', () => {
       'title',
     ]);
     assert.equal(response.expected, undefined);
-    assert.equal(response.questions.length, 50);
+    assert.equal(response.questions.length, 25);
 
     for (let i = 0; i < response.questions.length; i++) {
       assert.equal(typeof response.questions[i], 'string');
@@ -402,7 +484,7 @@ describe('Phase 8 — 5. Start Response Security & Submission Grading', () => {
 
     const serialized = JSON.stringify(response);
     for (const item of generated) {
-      // 4-digit/5-digit squares (2601..10000) must not appear in the start payload
+      // 4-digit/5-digit squares (5776..10000) must not appear in the start payload
       assert.equal(serialized.includes(String(item.expected)), false);
     }
   });
@@ -678,4 +760,199 @@ describe('Phase 9a — Pure checkSubmission(session, answers, now)', () => {
     assert.equal(res.detail[4].correct, false);
   });
 });
+
+describe('Phase 10g — Online Timed & Unlimited Basics Pool, Non-Repeating Adjacency & Submission Checks', () => {
+  it('resolves exact pool sizes and expiry offsets for timed (30/60/120/300s) and unlimited modes', () => {
+    assert.deepEqual(BASICS_TIMED_POOLS, {
+      30: 50,
+      60: 100,
+      120: 200,
+      300: 500,
+    });
+    assert.equal(BASICS_UNLIMITED_POOL, 1000);
+    assert.equal(BASICS_TIMED_GRACE_SECONDS, 60);
+    assert.equal(BASICS_UNLIMITED_EXPIRY_SECONDS, 7200);
+    assert.equal(BASICS_MIN_SECONDS_PER_ATTEMPT, 0.25);
+    assert.equal(BASICS_DETAIL_LIMIT, 100);
+
+    for (const [secStr, expectedPool] of Object.entries(BASICS_TIMED_POOLS)) {
+      const sec = Number(secStr);
+      const spec = resolveBasicsModeSpec('timed', sec);
+      assert.ok(spec);
+      assert.equal(spec.mode, 'timed');
+      assert.equal(spec.seconds, sec);
+      assert.equal(spec.pool, expectedPool);
+      assert.equal(spec.expirySeconds, sec + 60);
+    }
+
+    const unlim = resolveBasicsModeSpec('unlimited', null);
+    assert.ok(unlim);
+    assert.equal(unlim.mode, 'unlimited');
+    assert.equal(unlim.seconds, null);
+    assert.equal(unlim.pool, 1000);
+    assert.equal(unlim.expirySeconds, 7200);
+
+    // Invalid modes or durations return { ok: false, error }
+    assert.equal(resolveBasicsModeSpec('timed', 45).ok, false);
+    assert.equal(resolveBasicsModeSpec('timed', 0).ok, false);
+    assert.equal(resolveBasicsModeSpec('fixed', 60).ok, false);
+    assert.equal(resolveBasicsModeSpec(null, 60).ok, false);
+  });
+
+  it('generators never produce the same question twice in a row across all basics categories and large pools', () => {
+    const categories = ['1d4r', '2d2r', '2d4r', '1dx1d', '2dx1d', '2d/1d', '3d/1d'];
+    for (const cat of categories) {
+      for (let seed = 1; seed <= 10; seed++) {
+        const set = generateBasicsSet(cat, 200, createSeededRng(seed * 9973));
+        assert.equal(set.length, 200);
+        for (let i = 1; i < set.length; i++) {
+          assert.notEqual(
+            set[i].text,
+            set[i - 1].text,
+            `${cat} seed=${seed} produced identical consecutive questions at ${i - 1} and ${i}: "${set[i].text}"`
+          );
+        }
+      }
+    }
+
+    // Also test a 1000-question unlimited pool
+    const unlimSet = generateBasicsSet('1dx1d', 1000, createSeededRng(4242));
+    assert.equal(unlimSet.length, 1000);
+    for (let i = 1; i < unlimSet.length; i++) {
+      assert.notEqual(unlimSet[i].text, unlimSet[i - 1].text);
+    }
+  });
+
+  it('evaluates short reached answers arrays with correct, wrong, and skipped (null) entries and caps used_seconds at seconds for timed mode', () => {
+    const startMs = Date.parse('2026-10-27T10:00:00.000Z');
+    const session = {
+      status: 'open',
+      started_at: new Date(startMs).toISOString(),
+      expires_at: new Date(startMs + 90 * 1000).toISOString(), // 30s + 60s grace
+      settings: {
+        kind: 'basics',
+        category_id: 'cat-1d4r',
+        mode: 'timed',
+        seconds: 30,
+        pool: 50,
+      },
+      questions: Array.from({ length: 50 }, (_, i) => ({
+        type: 'mul',
+        a: 2 + (i % 8),
+        b: 3,
+        text: `${2 + (i % 8)} x 3`,
+      })),
+      expected: Array.from({ length: 50 }, (_, i) => (2 + (i % 8)) * 3),
+    };
+
+    // Student reached 4 questions out of 50 before the 30s clock ended; submission arrives at 32s
+    // Q0: expected 6 -> '6' (correct)
+    // Q1: expected 9 -> null (skipped -> attempted & wrong)
+    // Q2: expected 12 -> '99' (wrong)
+    // Q3: expected 15 -> '015' (correct)
+    const res = checkTimedBasicsSubmission(session, ['6', null, '99', '015'], startMs + 32000);
+    assert.equal(res.ok, true);
+    assert.equal(res.mode, 'timed');
+    assert.equal(res.attempted, 4);
+    assert.equal(res.total, 4);
+    assert.equal(res.correct, 2);
+    assert.equal(res.accuracy, 50);
+    // used_seconds is capped at min(32, 30) = 30
+    assert.equal(res.used_seconds, 30);
+    assert.equal(res.seconds, 30);
+    // 2 correct in 0.5 min = 4.0/min; 4 attempted in 0.5 min = 8.0/min
+    assert.equal(res.correct_per_minute, 4);
+    assert.equal(res.attempted_per_minute, 8);
+    assert.equal(res.detail.length, 4);
+    assert.equal(res.detail[0].correct, true);
+    assert.equal(res.detail[1].correct, false);
+    assert.equal(res.detail[1].given, null);
+    assert.equal(res.detail[2].correct, false);
+    assert.equal(res.detail[3].correct, true);
+  });
+
+  it('uses full elapsed time for unlimited mode and caps detail at the first 100 attempted questions', () => {
+    const startMs = Date.parse('2026-10-27T10:00:00.000Z');
+    const session = {
+      status: 'open',
+      started_at: new Date(startMs).toISOString(),
+      expires_at: new Date(startMs + 2 * 3600 * 1000).toISOString(),
+      settings: {
+        kind: 'basics',
+        category_id: 'cat-1dx1d',
+        mode: 'unlimited',
+        seconds: null,
+        pool: 1000,
+      },
+      questions: Array.from({ length: 150 }, (_, i) => ({
+        type: 'mul',
+        a: 2 + (i % 8),
+        b: 4,
+        text: `${2 + (i % 8)} x 4`,
+      })),
+      expected: Array.from({ length: 150 }, (_, i) => (2 + (i % 8)) * 4),
+    };
+
+    // Student answers 120 questions in 120 seconds (2 minutes)
+    const answers = Array.from({ length: 120 }, (_, i) => String((2 + (i % 8)) * 4));
+    const res = checkTimedBasicsSubmission(session, answers, startMs + 120000);
+    assert.equal(res.ok, true);
+    assert.equal(res.mode, 'unlimited');
+    assert.equal(res.attempted, 120);
+    assert.equal(res.correct, 120);
+    assert.equal(res.used_seconds, 120);
+    assert.equal(res.correct_per_minute, 60);
+    assert.equal(res.attempted_per_minute, 60);
+    // Detail is capped at first 100 attempted questions
+    assert.equal(res.detail.length, 100);
+  });
+
+  it('rejects attempted = 0, too-fast (< attempted * 0.25s), and late (> expires_at) submissions', () => {
+    const startMs = Date.parse('2026-10-27T10:00:00.000Z');
+    const session = {
+      status: 'open',
+      started_at: new Date(startMs).toISOString(),
+      expires_at: new Date(startMs + 90 * 1000).toISOString(),
+      settings: {
+        kind: 'basics',
+        category_id: 'cat-1d4r',
+        mode: 'timed',
+        seconds: 30,
+        pool: 50,
+      },
+      questions: [
+        { type: 'mul', a: 3, b: 3, text: '3 x 3' },
+        { type: 'mul', a: 4, b: 4, text: '4 x 4' },
+        { type: 'mul', a: 5, b: 5, text: '5 x 5' },
+        { type: 'mul', a: 6, b: 6, text: '6 x 6' },
+      ],
+      expected: [9, 16, 25, 36],
+    };
+
+    // 1. attempted = 0
+    const zeroRes = checkTimedBasicsSubmission(session, [], startMs + 10000);
+    assert.equal(zeroRes.ok, false);
+    assert.match(zeroRes.error, /no questions were answered/i);
+
+    // 2. too fast: 4 questions require >= 1.0s (4 * 0.25s); test at 0.6s (600ms)
+    const fastRes = checkTimedBasicsSubmission(session, ['9', '16', '25', '36'], startMs + 600);
+    assert.equal(fastRes.ok, false);
+    assert.match(fastRes.error, /faster than possible/i);
+
+    // 3. late submission: after expires_at (90s)
+    const lateRes = checkTimedBasicsSubmission(session, ['9', '16'], startMs + 91000);
+    assert.equal(lateRes.ok, false);
+    assert.match(lateRes.error, /time is up/i);
+
+    // 4. answer longer than 20 characters rejected
+    const longAnsRes = checkTimedBasicsSubmission(
+      session,
+      ['123456789012345678901'],
+      startMs + 5000
+    );
+    assert.equal(longAnsRes.ok, false);
+    assert.match(longAnsRes.error, /maximum 20 characters/i);
+  });
+});
+
 

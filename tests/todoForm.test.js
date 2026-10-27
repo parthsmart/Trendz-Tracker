@@ -13,6 +13,7 @@ import {
   optionsForSection,
   taskLink,
   formatTaskTarget,
+  isTaskActivityAvailable,
   MEMORIAD_MODULES,
 } from '../js/todoForm.js';
 import { DRILL_CATALOG } from '../js/drillCatalog.js';
@@ -161,11 +162,38 @@ describe('optionsForSection', () => {
     ]);
   });
 
-  it('returns only enabled drills from DRILL_CATALOG for "elements" (excludes disabled modulo)', () => {
+  it('returns only enabled drills from DRILL_CATALOG for "elements" (includes all 10 staged drills, excludes the 4 old drills and disabled modulo)', () => {
     const elemOpts = optionsForSection('elements', SAMPLE_CATEGORIES, DRILL_CATALOG, MEMORIAD_MODULES);
-    assert.ok(elemOpts.length >= 17);
+    assert.equal(elemOpts.length, 23); // 24 total drills minus 1 disabled (modulo)
     assert.ok(elemOpts.some((o) => o.value === 'day_codes' && o.label === 'Day Codes'));
-    assert.ok(elemOpts.some((o) => o.value === 'squares_11_50' && o.label === 'Square (11-50)'));
+
+    const tenNewDrills = [
+      { value: 'squares_stage_1', label: 'Square - Stage 1 (1-25)' },
+      { value: 'squares_stage_2', label: 'Square - Stage 2 (26-50)' },
+      { value: 'squares_stage_3', label: 'Square - Stage 3 (51-75)' },
+      { value: 'squares_stage_4', label: 'Square - Stage 4 (76-100)' },
+      { value: 'squares_combined', label: 'Square - Combined (1-100)' },
+      { value: 'cubes_stage_1', label: 'Cube - Stage 1 (1-25)' },
+      { value: 'cubes_stage_2', label: 'Cube - Stage 2 (26-50)' },
+      { value: 'cubes_stage_3', label: 'Cube - Stage 3 (51-75)' },
+      { value: 'cubes_stage_4', label: 'Cube - Stage 4 (76-100)' },
+      { value: 'cubes_combined', label: 'Cube - Combined (1-100)' },
+    ];
+    for (const expected of tenNewDrills) {
+      assert.ok(
+        elemOpts.some((o) => o.value === expected.value && o.label === expected.label),
+        `Expected ${expected.value} (${expected.label}) in optionsForSection('elements')`
+      );
+    }
+
+    for (const removedKey of ['squares_11_50', 'squares_51_100', 'cubes_11_50', 'cubes_51_100']) {
+      assert.equal(
+        elemOpts.some((o) => o.value === removedKey),
+        false,
+        `Old drill ${removedKey} must not appear in optionsForSection('elements')`
+      );
+    }
+
     // modulo is disabled (enabled: false) in DRILL_CATALOG
     assert.equal(elemOpts.some((o) => o.value === 'modulo'), false);
   });
@@ -224,8 +252,8 @@ describe('taskLink', () => {
       '/pages/element-drill.html?drill=day_codes'
     );
     assert.equal(
-      taskLink({ section: 'elements', activity_key: 'squares_11_50' }),
-      '/pages/element-drill.html?drill=squares_11_50'
+      taskLink({ section: 'elements', activity_key: 'squares_stage_1' }),
+      '/pages/element-drill.html?drill=squares_stage_1'
     );
 
     // elements without activity_key
@@ -258,7 +286,7 @@ describe('taskLink', () => {
   });
 });
 
-describe('formatTaskTarget', () => {
+describe('formatTaskTarget & isTaskActivityAvailable', () => {
   it('never returns "Unknown Category" when a task has no specific category or activity', () => {
     assert.deepEqual(
       formatTaskTarget({ section: 'basics', category_id: null }, SAMPLE_CATEGORIES),
@@ -288,12 +316,33 @@ describe('formatTaskTarget', () => {
       { text: '1d4r', isAny: false }
     );
     assert.deepEqual(
-      formatTaskTarget({ section: 'elements', activity_key: 'day_codes' }, SAMPLE_CATEGORIES),
-      { text: 'Day Codes', isAny: false }
+      formatTaskTarget({ section: 'elements', activity_key: 'squares_stage_1' }, SAMPLE_CATEGORIES),
+      { text: 'Square - Stage 1 (1-25)', isAny: false }
     );
     assert.deepEqual(
       formatTaskTarget({ section: 'memoriad', activity_key: 'multiplications' }, SAMPLE_CATEGORIES),
       { text: 'Mental Multiplications', isAny: false }
     );
+    assert.equal(
+      isTaskActivityAvailable({ task_section: 'elements', task_activity_key: 'squares_stage_1' }, SAMPLE_CATEGORIES),
+      true
+    );
+  });
+
+  it('shows "Activity no longer available" when an old to-do task points to a removed drill key', () => {
+    for (const oldKey of ['squares_11_50', 'squares_51_100', 'cubes_11_50', 'cubes_51_100']) {
+      assert.deepEqual(
+        formatTaskTarget({ section: 'elements', activity_key: oldKey }, SAMPLE_CATEGORIES),
+        { text: 'Activity no longer available', isAny: false, unavailable: true }
+      );
+      assert.deepEqual(
+        formatTaskTarget({ task_section: 'elements', task_activity_key: oldKey }, SAMPLE_CATEGORIES),
+        { text: 'Activity no longer available', isAny: false, unavailable: true }
+      );
+      assert.equal(
+        isTaskActivityAvailable({ task_section: 'elements', task_activity_key: oldKey }, SAMPLE_CATEGORIES),
+        false
+      );
+    }
   });
 });
