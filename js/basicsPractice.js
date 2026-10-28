@@ -650,8 +650,8 @@ async function startPracticeSession() {
     startRoundTimer();
     renderCurrentPlayerQuestion();
   } catch (err) {
-    showErrorBanner(err.message || 'Failed to start practice session.');
-    showToast('error', err.message || 'Failed to start practice session.');
+    showErrorBanner(err.message || 'Could not start practice round.');
+    showToast('error', err.message || 'Could not start practice round.');
   } finally {
     if (startBtn) startBtn.disabled = false;
     if (sameModeBtn) sameModeBtn.disabled = false;

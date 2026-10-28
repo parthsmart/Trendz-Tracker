@@ -213,8 +213,8 @@ function ensureProfileEditorDom() {
       </div>
 
       <!-- Change History Drawer -->
-      <div id="profile-audit-overlay" class="audit-drawer-overlay" aria-hidden="true"></div>
-      <aside id="profile-audit-drawer" class="audit-drawer" aria-hidden="true" aria-labelledby="profile-audit-title">
+      <div id="profile-audit-overlay" class="audit-drawer-overlay" style="display: none;" aria-hidden="true"></div>
+      <aside id="profile-audit-drawer" class="audit-drawer" style="display: none;" aria-hidden="true" aria-labelledby="profile-audit-title">
         <header class="audit-drawer-header">
           <div>
             <h2 id="profile-audit-title" style="font-size: var(--text-base); font-weight: 700; margin: 0;">Change History</h2>
@@ -506,10 +506,16 @@ export async function openProfileAuditDrawer(student) {
     body.innerHTML = '<div class="loading-state">Loading change history...</div>';
   }
 
-  overlay?.classList.add('is-open');
-  drawer?.classList.add('is-open');
-  overlay?.setAttribute('aria-hidden', 'false');
-  drawer?.setAttribute('aria-hidden', 'false');
+  if (overlay) {
+    overlay.style.display = 'flex';
+    overlay.classList.add('is-open');
+    overlay.setAttribute('aria-hidden', 'false');
+  }
+  if (drawer) {
+    drawer.style.display = 'flex';
+    drawer.classList.add('is-open');
+    drawer.setAttribute('aria-hidden', 'false');
+  }
 
   try {
     let auditRows = [];
@@ -620,8 +626,14 @@ export async function openProfileAuditDrawer(student) {
 export function closeProfileAuditDrawer() {
   const overlay = document.getElementById('profile-audit-overlay');
   const drawer = document.getElementById('profile-audit-drawer');
-  overlay?.classList.remove('is-open');
-  drawer?.classList.remove('is-open');
-  overlay?.setAttribute('aria-hidden', 'true');
-  drawer?.setAttribute('aria-hidden', 'true');
+  if (overlay) {
+    overlay.classList.remove('is-open');
+    overlay.style.display = 'none';
+    overlay.setAttribute('aria-hidden', 'true');
+  }
+  if (drawer) {
+    drawer.classList.remove('is-open');
+    drawer.style.display = 'none';
+    drawer.setAttribute('aria-hidden', 'true');
+  }
 }

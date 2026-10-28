@@ -267,7 +267,7 @@ async function handleStartDrill() {
     if (isSupabaseConfigured()) {
       const token = await getBearerToken();
       if (!token) {
-        throw new Error('Your login session expired. Please sign in again.');
+        throw new Error('Your sign-in has expired. Please sign in again.');
       }
 
       const res = await fetch('/api/drill', {
@@ -290,7 +290,7 @@ async function handleStartDrill() {
     } else if (isDemoMode()) {
       payload = DemoDB.mockElementDrillStart(currentDrillKey, currentDrillMeta);
     } else {
-      throw new Error('Server connection is not configured.');
+      throw new Error('Connection is not configured.');
     }
 
     activeSessionId = payload.session_id;
@@ -589,7 +589,7 @@ async function submitWorksheet(isAutoOrRetry = false) {
     if (isSupabaseConfigured()) {
       const token = await getBearerToken();
       if (!token) {
-        throw new Error('Your login session has expired. Please sign in again.');
+        throw new Error('Your sign-in has expired. Please sign in again.');
       }
 
       let res;
@@ -638,7 +638,7 @@ async function submitWorksheet(isAutoOrRetry = false) {
 
         if (res.status >= 500) {
           const srvErr = new Error(
-            msg || 'Server error while saving your drill. Please try sending again.'
+            msg || 'Could not save your drill right now. Please try sending again.'
           );
           srvErr.isNetworkError = true;
           throw srvErr;
@@ -689,7 +689,7 @@ async function submitWorksheet(isAutoOrRetry = false) {
     }
 
     if (err.isExpired) {
-      showExpiredBanner('Time is up — this drill session has expired. Please start a new set.');
+      showExpiredBanner('Time is up — this worksheet has expired. Please start a new set.');
       return;
     }
 

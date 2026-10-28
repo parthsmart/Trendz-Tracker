@@ -110,6 +110,7 @@ The serverless functions in `/api/create-student.js` and `/api/reset-password.js
 10. **Demo Mode Bleed into Production Deployments**:
     - *Risk*: If an application is deployed to production with unconfigured or placeholder credentials, mock data and demo credentials (`STU101`, `ADMIN01` / `admin123`) might be mistakenly used by end users, or give the illusion of successful account creation or password updates.
     - *Mitigation in Place*:
+      - **Production Bundle Exclusion (`Phase 11a`)**: During `vite build`, `vite.config.ts` aliases `js/demoDb.js` to a tiny empty stub (`js/demoDbStub.js`), ensuring zero fake student records or mock RPC data are shipped in the compiled `dist/` bundle. Quick test credential buttons and the setup guide modal are also removed from `/index.html` and live student pages.
       - `isDemoAllowedHost()` strictly restricts Demo Mode to `localhost`, `127.0.0.1`, and `run.app`.
       - On any production hostname, `checkProductionConfigLock()` immediately replaces the entire document body with a full-page "Configuration error - Please contact the administrator" screen.
       - `loginWithStudentId()` and administrative API calls (`createStudent`, `resetStudentPassword`, `toggleStudentActive`) strictly throw configuration errors on production hostnames when unconfigured, preventing any mock success.

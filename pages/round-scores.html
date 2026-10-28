@@ -79,7 +79,7 @@
               <div style="display: flex; gap: var(--space-4); flex-wrap: wrap; align-items: flex-end;">
                 <div>
                   <label for="input-round-type" class="form-label" style="font-size: var(--text-xs); margin-bottom: 4px;">Round Type</label>
-                  <select id="input-round-type" class="form-select" style="min-width: 190px; min-height: 38px;">
+                  <select id="input-round-type" class="form-select" style="min-width: 190px; min-height: 44px;">
                     <option value="Category wise">Category wise</option>
                     <option value="Flat Round">Flat Round</option>
                     <option value="Mock Exam">Mock Exam</option>
@@ -96,23 +96,61 @@
                     id="input-round-time-taken"
                     class="form-input num"
                     placeholder="e.g. 1:08:37 or 45:00"
-                    style="max-width: 180px; min-height: 38px;"
+                    style="max-width: 180px; min-height: 44px;"
                   />
                 </div>
               </div>
 
               <div id="round-meta-lock-notice" style="font-size: var(--text-xs); color: var(--text-muted);"></div>
             </div>
+            <p id="round-lock-explanation" style="font-size: var(--text-xs); color: var(--text-muted); margin: var(--space-3) 0 0 0; border-top: 1px solid var(--border-hairline); padding-top: var(--space-2);">
+              You can edit scores from the last 7 days until your teacher verifies or corrects them; older, verified, or teacher-corrected scores are locked.
+            </p>
           </section>
+
+          <!-- Save Error Alert Banner with Try Again Action -->
+          <div
+            id="round-save-error-alert"
+            class="banner banner-error"
+            role="alert"
+            style="display: none; margin-bottom: var(--space-4); align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3);"
+          >
+            <div style="display: flex; align-items: center; gap: var(--space-2);">
+              <span class="banner-icon" aria-hidden="true">⚠️</span>
+              <span id="round-save-error-text">Could not save your changes.</span>
+            </div>
+            <button type="button" id="btn-retry-save-round" class="btn btn-outline btn-sm" style="background: var(--bg-surface); font-weight: 700;">
+              Try again
+            </button>
+          </div>
+
+          <!-- Unsaved Navigation Confirmation Banner (in-page links / round switch) -->
+          <div
+            id="unsaved-leave-banner"
+            class="banner banner-warning"
+            role="alert"
+            style="display: none; margin-bottom: var(--space-4); align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3);"
+          >
+            <div style="font-size: var(--text-sm); font-weight: 600;">
+              You have unsaved changes on this page. Leave without saving?
+            </div>
+            <div style="display: flex; gap: var(--space-2);">
+              <button type="button" id="btn-stay-on-page" class="btn btn-primary btn-sm">Stay on page</button>
+              <button type="button" id="btn-confirm-leave" class="btn btn-outline btn-sm">Leave without saving</button>
+            </div>
+          </div>
 
           <!-- Progress Bar & Save Controls -->
           <div class="progress-header-box" id="round-progress-bar">
             <div style="display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;">
               <span class="progress-text-count" id="progress-display">Loading categories...</span>
+              <span id="unsaved-changes-badge" class="num" style="font-size: var(--text-xs); font-weight: 700; color: var(--text-muted);">
+                0 unsaved changes
+              </span>
               <span id="series-badge-display" class="badge badge-active" style="display: none; font-size: 11px;"></span>
             </div>
             <div>
-              <button type="button" id="btn-save-round" class="btn btn-primary" style="min-width: 140px;">
+              <button type="button" id="btn-save-round" class="btn btn-primary" style="min-width: 140px; min-height: 44px;">
                 <span id="save-btn-text">Save Changes</span>
               </button>
             </div>
@@ -141,8 +179,11 @@
           </div>
 
           <!-- Bottom Sticky Save Bar for Mobile Accessibility -->
-          <div id="sticky-save-bar" style="position: sticky; bottom: var(--space-4); display: flex; justify-content: flex-end; z-index: 20;">
-            <button type="button" id="btn-save-round-bottom" class="btn btn-primary" style="box-shadow: var(--shadow-lg); min-width: 160px;">
+          <div id="sticky-save-bar" style="position: sticky; bottom: var(--space-4); display: flex; justify-content: flex-end; align-items: center; gap: var(--space-3); z-index: 20;">
+            <span id="unsaved-changes-bottom" class="num" style="background: var(--bg-surface); padding: 6px 12px; border-radius: var(--radius-md); border: 1px solid var(--border-subtle); font-size: var(--text-xs); font-weight: 700; color: var(--text-muted); box-shadow: var(--shadow-sm);">
+              0 unsaved changes
+            </span>
+            <button type="button" id="btn-save-round-bottom" class="btn btn-primary" style="box-shadow: var(--shadow-lg); min-width: 160px; min-height: 44px;">
               Save Changes
             </button>
           </div>

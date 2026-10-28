@@ -688,3 +688,30 @@ Every meaningful technical and architectural decision made for **Trendz Tracker*
   3. **Why Targets Use `min_questions_per_minute` for Timed/Stopwatch Rounds (`results_with_target`)**:
      - A fixed `max_time_seconds` rule (e.g. `"time at most 2:00"`) only makes sense when every set has the same fixed question count. In timed rounds (`30s` to `5m`) and stopwatch rounds, speed is independent of round duration when measured as **questions per minute** (`total / (time_seconds / 60)`).
      - Adding optional `basics_thresholds.min_questions_per_minute` and evaluating `meets_target` authoritatively inside the PostgreSQL view `results_with_target` (checking `min_accuracy` and `min_questions_per_minute` when `practice_mode IS NOT NULL`, and `min_accuracy` and `max_time_seconds` when `practice_mode IS NULL`) guarantees that JavaScript never computes `meets_target` and that both new timed rounds and historical/typed entries are evaluated by their appropriate benchmark.
+---
+
+## ADR-044: Phase 11a — Today-First Student Home, Explicit IST Reporting Periods (`js/periods.js`), Six Round Entry States, Flash Anzan Last-Used Summary Card, Plain-Language Copy, and Excluding `js/demoDb.js` from Production Builds
+
+- **Date**: 2026-10-28
+- **Status**: Accepted
+- **Context**:
+  - A design and UX review identified several usability and clarity improvements across the student experience:
+    1. Live login and student pages still included demo helper UI (`index.html` quick test credentials and setup guide modal), and `js/demoDb.js` (~60 KB of fake data) was bundled into the production Vite build even though demo mode is blocked in production.
+    2. On `/pages/student.html`, the student's daily to-do tasks were buried below welcome links and large streak/milestone blocks, and task rows showed ambiguous `"Start"` buttons.
+    3. Statistics mixed rolling 7-day windows (`last 7 days`) with Monday-to-Sunday calendar weeks (`this week`) and all-time totals without showing exact date ranges or visually separating this-week from all-time metrics.
+    4. Student-visible copy contained internal technical jargon (`"Web Audio API"`, `"RPC"`, `"session"`, `"server"`, `"Database IST"`).
+    5. On `/pages/round-scores.html`, category rows used a generic `"Unsaved"` badge and gave no granular lock reason (`verified`, `corrected by your teacher`, `older than 7 days`), no field-level inline validation, and no retry banner preserving typed inputs on network failure.
+    6. On `/pages/flash.html`, the setup card placed the summary and Start button at the bottom of the form and repeated the seconds unit twice.
+- **Decisions & Rationale**:
+  1. **Production Bundle Exclusion of `js/demoDb.js` (`vite.config.ts` + `js/demoDbStub.js`)**:
+     - During `vite build` (`command === 'build'`), a Rollup/Vite resolve alias redirects imports matching `/(^|\/)demoDb\.js$/` to `js/demoDbStub.js` (a tiny no-op module), while `vite dev` and `node --test` continue to resolve the real `js/demoDb.js` on `localhost`. This guarantees zero fake student names, codes, or mock data strings exist in the compiled `dist/` bundle.
+  2. **Today-First Student Home Hierarchy & Explicit Task Buttons (`/pages/student.html`, `js/dashboardComponents.js`)**:
+     - Ordering the student home page as **(1) Today header with IST date**, **(2) Today's plan (to-do tasks)**, **(3) One-row compact Streak card** with the note *"A streak counts any practice today; assigned tasks may still be pending."*, **(4) Three small 7-day metric cards** (`Accuracy`, `Speed` in questions/min, `Practice days` with exact `"Last 7 days: <d Mon> to <d Mon>"` labels), and **(5) One compact "Explore practice modes" card** before the detailed practice cards, score sheet, and charts puts daily action items first above the fold.
+     - Giving each task a primary **"Practice online"** button and showing a secondary **"Log result"** button exclusively for `basics` and `round` tasks eliminates the ambiguity of two buttons both labelled `"Start"`.
+  3. **Pure IST Period Formatting (`js/periods.js`) & Separation of This-Week vs All-Time Metrics**:
+     - `formatWeekPeriod(todayStr)` (`"Mon 26 Oct to Sun 1 Nov"`) and `formatLast7DaysPeriod(todayStr)` (`"Last 7 days: 22 to 28 Oct"`) compute exact calendar windows in India time (`Asia/Kolkata`) from the database's `today_ist()` string.
+     - Cards never mix `"Last 7 days"` with `"Mon ... to Sun ..."`, visually separate `"This week"` from `"All time"`, and explicitly distinguish `"No tries this week"` (`tries === 0`) from `"0 correct"` (`tries > 0 && correct === 0`) on both `/pages/student.html` and `/pages/student-detail.html`.
+  4. **Six Explicit Round Entry States & Non-Destructive Error Recovery (`/pages/round-scores.html`, `js/roundScores.js`)**:
+     - Every category row displays one of six exact status chips: `"Not entered"`, `"Edited - not saved"`, `"Saved"`, `"Locked (verified)"`, `"Locked (corrected by your teacher)"`, or `"Locked (older than 7 days)"`, paired with a one-sentence explanation under the round header, read-only disabled styling + reason tooltip on locked rows, inline field validation (`correct <= total`, no negative numbers), a live `"n unsaved changes"` counter, confirmation before leaving with unsaved edits, and an alert (`role="alert"`) with a **"Try again"** button that preserves all typed values if saving fails.
+  5. **Flash Anzan Top Last-Used Summary Card (`/pages/flash.html`, `js/flash.js`)**:
+     - Placing `"Last used: 1 digit - 10 numbers - 1.0 s - add"` with a primary **Start** button at the top of the setup card lets returning students start immediately with one click while keeping custom controls directly visible below (preserving ADR-030: no presets).

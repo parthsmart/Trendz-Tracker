@@ -358,7 +358,7 @@ function renderHistory() {
   if (pastItems.length === 0) {
     pastContainer.innerHTML = `
       <div class="card" style="padding: var(--space-4); text-align: center; color: var(--text-dim); font-size: var(--text-sm);">
-        No earlier sessions in the past 7 days.
+        No earlier entries in the past 7 days.
       </div>
     `;
   } else {
