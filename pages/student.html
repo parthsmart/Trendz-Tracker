@@ -49,195 +49,160 @@
       <!-- Main Page Content -->
       <main class="main-content">
         <div class="container">
-          <!-- Demo Mode Persistent Alert Banner Placeholder -->
-          <div id="demo-banner-placeholder"></div>
+          <!-- 1. Header "Today" with the date in India time -->
+          <section class="card" style="margin-bottom: var(--space-4); padding: var(--space-4) var(--space-5);" aria-labelledby="welcome-heading">
+            <div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: var(--space-2);">
+              <h1 id="welcome-heading" style="font-size: 1.5rem; font-weight: 800; margin: 0; color: var(--text-main);">
+                Today &middot; <span id="display-today-ist" class="num" style="color: var(--color-primary);">—</span>
+              </h1>
+              <div style="font-size: var(--text-sm); color: var(--text-muted); display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap;">
+                <span><strong id="student-display-name" style="color: var(--text-main);">Student</strong> (<strong id="student-display-code" class="num">—</strong>)</span>
+                <span aria-hidden="true">·</span>
+                <span>Level: <strong id="student-display-level" style="color: var(--text-main);">—</strong></span>
+              </div>
+            </div>
+          </section>
 
-          <!-- TOP TWO-COLUMN GRID ON DESKTOP -->
+          <!-- 2. "Today's plan" card (the to-do tasks) first -->
+          <section class="card" id="todays-plan-card" style="margin-bottom: var(--space-4);" aria-labelledby="todo-heading">
+            <div class="card-header">
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2);">
+                <h2 id="todo-heading" class="card-title" style="display: flex; align-items: center; gap: 6px;">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M9 11l3 3L22 4"/>
+                    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                  </svg>
+                  <span>Today's plan</span>
+                </h2>
+                <span id="todo-progress-count" style="font-size: var(--text-xs); font-weight: 700; color: var(--color-primary);">
+                  Loading...
+                </span>
+              </div>
+            </div>
+
+            <div class="card-body">
+              <div id="todo-list-container" class="todo-list-container">
+                <div class="loading-state">Loading today's tasks...</div>
+              </div>
+            </div>
+          </section>
+
+          <!-- 3. Compact streak card in one row -->
+          <section class="card" id="streak-card" style="margin-bottom: var(--space-4); padding: var(--space-4) var(--space-5);" aria-labelledby="streak-heading">
+            <div class="streak-compact-row" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3);">
+              <h2 id="streak-heading" class="card-title" style="display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: var(--text-base);">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F97316" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>
+                </svg>
+                <span>Practice Streak</span>
+              </h2>
+              <div style="display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-4); font-size: var(--text-sm);">
+                <span>Current streak: <strong id="stat-current-streak" class="num">0</strong> days</span>
+                <span>Best: <strong id="stat-best-streak" class="num">0</strong> days</span>
+                <span>Shield status: <strong id="stat-shield-lbl">0 ready</strong><span id="stat-shield-count" style="display: none;">0</span></span>
+                <span>Practice recorded today: <strong id="streak-today-badge">no</strong></span>
+              </div>
+            </div>
+            <p style="font-size: var(--text-xs); color: var(--text-muted); margin: var(--space-2) 0 0 0;">
+              A streak counts any practice today; assigned tasks may still be pending.
+            </p>
+          </section>
+
+          <!-- 4. Three small cards: Accuracy, Speed (questions per minute), and Practice days -->
+          <section
+            id="today-summary-metrics"
+            aria-label="Last 7 days summary"
+            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-4); margin-bottom: var(--space-4);"
+          >
+            <div class="card" style="padding: var(--space-4);">
+              <div style="font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);">
+                Accuracy
+              </div>
+              <div id="metric-7d-accuracy" class="num" style="font-size: 1.5rem; font-weight: 800; color: var(--text-main); margin: 4px 0;">
+                —
+              </div>
+              <div id="metric-7d-accuracy-range" style="font-size: var(--text-xs); color: var(--text-dim);">
+                Last 7 days
+              </div>
+            </div>
+
+            <div class="card" style="padding: var(--space-4);">
+              <div style="font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);">
+                Speed (questions / min)
+              </div>
+              <div id="metric-7d-speed" class="num" style="font-size: 1.5rem; font-weight: 800; color: var(--text-main); margin: 4px 0;">
+                —
+              </div>
+              <div id="metric-7d-speed-range" style="font-size: var(--text-xs); color: var(--text-dim);">
+                Last 7 days
+              </div>
+            </div>
+
+            <div class="card" style="padding: var(--space-4);">
+              <div style="font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);">
+                Practice days
+              </div>
+              <div id="metric-7d-days" class="num" style="font-size: 1.5rem; font-weight: 800; color: var(--text-main); margin: 4px 0;">
+                —
+              </div>
+              <div id="metric-7d-days-range" style="font-size: var(--text-xs); color: var(--text-dim);">
+                Last 7 days
+              </div>
+            </div>
+          </section>
+
+          <!-- 5. Compact card "Explore practice modes" listing Basics, Flash Anzan, Elements and Memoriad -->
+          <section class="card" id="explore-practice-card" style="margin-bottom: var(--space-5); padding: var(--space-4) var(--space-5);" aria-labelledby="explore-modes-heading">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3);">
+              <h2 id="explore-modes-heading" class="card-title" style="margin: 0;">
+                Explore practice modes
+              </h2>
+              <a href="/pages/round-scores.html" style="font-size: var(--text-xs); font-weight: 600; color: var(--color-primary); text-decoration: none;">
+                Log Round Scores &rarr;
+              </a>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--space-3);">
+              <a href="/pages/basics.html" class="action-card-btn" style="padding: var(--space-3); min-height: 48px;">
+                <div class="action-card-content">
+                  <h3 style="font-size: var(--text-sm); margin: 0;">⚡ Basics</h3>
+                  <p style="font-size: var(--text-xs); margin: 2px 0 0 0;">Timed speed drills &amp; log</p>
+                </div>
+                <span class="action-card-arrow" aria-hidden="true">&rarr;</span>
+              </a>
+              <a href="/pages/flash.html" class="action-card-btn" style="padding: var(--space-3); min-height: 48px;">
+                <div class="action-card-content">
+                  <h3 style="font-size: var(--text-sm); margin: 0;">🔢 Flash Anzan</h3>
+                  <p style="font-size: var(--text-xs); margin: 2px 0 0 0;">Rapid flashing numbers</p>
+                </div>
+                <span class="action-card-arrow" aria-hidden="true">&rarr;</span>
+              </a>
+              <a href="/pages/elements.html" class="action-card-btn" style="padding: var(--space-3); min-height: 48px;">
+                <div class="action-card-content">
+                  <h3 style="font-size: var(--text-sm); margin: 0;">🧮 Elements</h3>
+                  <p style="font-size: var(--text-xs); margin: 2px 0 0 0;">24 timed worksheets</p>
+                </div>
+                <span class="action-card-arrow" aria-hidden="true">&rarr;</span>
+              </a>
+              <a href="/pages/memoriad.html" class="action-card-btn" style="padding: var(--space-3); min-height: 48px;">
+                <div class="action-card-content">
+                  <h3 style="font-size: var(--text-sm); margin: 0;">🧠 Memoriad</h3>
+                  <p style="font-size: var(--text-xs); margin: 2px 0 0 0;">Competition disciplines</p>
+                </div>
+                <span class="action-card-arrow" aria-hidden="true">&rarr;</span>
+              </a>
+            </div>
+          </section>
+
+          <!-- 6. Everything else below -->
           <div class="dashboard-top-grid">
-            
-            <!-- Column 1, Card 1: Greeting & Score Entry Quick Actions -->
-            <section class="card" aria-labelledby="welcome-heading">
-              <div class="card-header" style="padding-bottom: 0;">
-                <h1 id="welcome-heading" style="font-size: 1.25rem; font-weight: 700; margin-bottom: 4px;">
-                  Welcome, <span id="student-display-name">Student</span>!
-                </h1>
-                <div style="font-size: var(--text-xs); color: var(--text-muted); display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap;">
-                  <span>Student Code: <strong id="student-display-code" class="num">—</strong></span>
-                  <span aria-hidden="true">·</span>
-                  <span>Level: <span id="student-display-level">—</span></span>
-                  <span aria-hidden="true">·</span>
-                  <span>Date: <span id="display-today-ist" class="num">—</span></span>
-                </div>
-              </div>
-
-              <div class="card-body">
-                <p style="font-size: var(--text-xs); color: var(--text-muted); margin-bottom: var(--space-4);">
-                  Junior Mental Calculation World Championship daily practice log.
-                </p>
-
-                <!-- Phase 2 Action Buttons -->
-                <div style="display: flex; flex-direction: column; gap: var(--space-2);">
-                  <a href="/pages/round-scores.html" class="action-card-btn" style="padding: var(--space-3);" aria-label="Enter round scores">
-                    <div class="action-card-content">
-                      <h3 style="font-size: var(--text-sm);">
-                        <span>🏆</span>
-                        <span>Enter Round Scores</span>
-                      </h3>
-                      <p style="font-size: 11px;">Record 24 competition round categories for today.</p>
-                    </div>
-                    <span class="action-card-arrow" aria-hidden="true">&rarr;</span>
-                  </a>
-
-                  <a href="/pages/basics.html" class="action-card-btn" style="padding: var(--space-3);" aria-label="Enter basics speed drills">
-                    <div class="action-card-content">
-                      <h3 style="font-size: var(--text-sm);">
-                        <span>⚡</span>
-                        <span>Enter Basics</span>
-                      </h3>
-                      <p style="font-size: 11px;">Log mental speed calculation drills (1d4r, 2d2r digits and rows).</p>
-                    </div>
-                    <span class="action-card-arrow" aria-hidden="true">&rarr;</span>
-                  </a>
-
-                  <a href="/pages/flash.html" class="action-card-btn" style="padding: var(--space-3);" aria-label="Practice Flash Anzan trainer">
-                    <div class="action-card-content">
-                      <h3 style="font-size: var(--text-sm);">
-                        <span>🔢</span>
-                        <span>Flash Anzan Trainer</span>
-                      </h3>
-                      <p style="font-size: 11px;">Practice timed mental abacus flash calculation sets.</p>
-                    </div>
-                    <span class="action-card-arrow" aria-hidden="true">&rarr;</span>
-                  </a>
-
-                  <a href="/pages/elements.html" class="action-card-btn" style="padding: var(--space-3);" aria-label="Practice Elements worksheet drills">
-                    <div class="action-card-content">
-                      <h3 style="font-size: var(--text-sm);">
-                        <span>🧮</span>
-                        <span>Elements Drills</span>
-                      </h3>
-                      <p style="font-size: 11px;">Practice 18 timed mental-math and code conversion worksheets.</p>
-                    </div>
-                    <span class="action-card-arrow" aria-hidden="true">&rarr;</span>
-                  </a>
-
-                  <a href="/pages/memoriad.html" class="action-card-btn" style="padding: var(--space-3);" aria-label="Practice Memoriad competition modules">
-                    <div class="action-card-content">
-                      <h3 style="font-size: var(--text-sm);">
-                        <span>🧠</span>
-                        <span>Memoriad Competition Practice</span>
-                      </h3>
-                      <p style="font-size: 11px;">Desktop competition stage for Mental Calendar Dates and Mental Additions.</p>
-                    </div>
-                    <span class="action-card-arrow" aria-hidden="true">&rarr;</span>
-                  </a>
-
-                  <a href="/pages/monthly-report.html" class="action-card-btn" style="padding: var(--space-3);" aria-label="View monthly report">
-                    <div class="action-card-content">
-                      <h3 style="font-size: var(--text-sm);">
-                        <span>📊</span>
-                        <span>Monthly Progress Report</span>
-                      </h3>
-                      <p style="font-size: 11px;">View your monthly accuracy, speed (QPM), attendance, and test scores.</p>
-                    </div>
-                    <span class="action-card-arrow" aria-hidden="true">&rarr;</span>
-                  </a>
-                </div>
-              </div>
-            </section>
-
-            <!-- Column 2, Card 1: Streak & Shield Card -->
-            <section class="card" id="streak-card" aria-labelledby="streak-heading">
-              <div class="card-header">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                  <h2 id="streak-heading" class="card-title" style="display: flex; align-items: center; gap: 6px;">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F97316" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>
-                    </svg>
-                    <span>Practice Streak</span>
-                  </h2>
-                  <span id="streak-today-badge" style="font-size: var(--text-xs); font-weight: 600;">Loading...</span>
-                </div>
-              </div>
-
-              <div class="card-body">
-                <div class="streak-metric-grid">
-                  <div class="streak-metric-box">
-                    <div id="stat-current-streak" class="streak-metric-val">—</div>
-                    <div class="streak-metric-lbl">Current Streak</div>
-                  </div>
-                  <div class="streak-metric-box">
-                    <div id="stat-best-streak" class="streak-metric-val">—</div>
-                    <div class="streak-metric-lbl">Best Streak</div>
-                  </div>
-                  <div class="streak-metric-box">
-                    <div id="stat-shield-val" class="streak-metric-val" style="display: flex; align-items: center; justify-content: center; gap: 4px;">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-                      </svg>
-                      <span id="stat-shield-count">0</span>
-                    </div>
-                    <div id="stat-shield-lbl" class="streak-metric-lbl">Shield Ready</div>
-                  </div>
-                </div>
-
-                <!-- Milestone Track: 7, 25, 50, 100 -->
-                <div class="streak-milestone-bar" aria-label="Streak milestones">
-                  <div class="milestone-node" id="milestone-7">
-                    <span>🥉 7d</span>
-                    <span class="milestone-sub">Week</span>
-                  </div>
-                  <div class="milestone-node" id="milestone-25">
-                    <span>🥈 25d</span>
-                    <span class="milestone-sub">Bronze</span>
-                  </div>
-                  <div class="milestone-node" id="milestone-50">
-                    <span>🥇 50d</span>
-                    <span class="milestone-sub">Silver</span>
-                  </div>
-                  <div class="milestone-node" id="milestone-100">
-                    <span>💎 100d</span>
-                    <span class="milestone-sub">Grand</span>
-                  </div>
-                </div>
-                <div id="milestone-next-label" style="font-size: 11px; color: var(--text-muted); text-align: center; margin-top: 6px;">
-                  Keep practicing daily to reach the next milestone!
-                </div>
-              </div>
-            </section>
-
-            <!-- Column 1, Card 2: Today's To-Do -->
-            <section class="card" aria-labelledby="todo-heading">
-              <div class="card-header">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                  <h2 id="todo-heading" class="card-title" style="display: flex; align-items: center; gap: 6px;">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <path d="M9 11l3 3L22 4"/>
-                      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
-                    </svg>
-                    <span>Today's To-Do</span>
-                  </h2>
-                  <span id="todo-progress-count" style="font-size: var(--text-xs); font-weight: 700; color: var(--color-primary);">
-                    Loading...
-                  </span>
-                </div>
-              </div>
-
-              <div class="card-body">
-                <div id="todo-list-container" class="todo-list-container">
-                  <div class="loading-state">Loading today's tasks...</div>
-                </div>
-              </div>
-            </section>
-
-            <!-- Column 2, Card 2: Basics This Week -->
+            <!-- Basics Card -->
             <section class="card" aria-labelledby="basics-week-heading">
               <div class="card-header">
                 <h2 id="basics-week-heading" class="card-title" style="display: flex; align-items: center; gap: 6px;">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#EAB308" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
                   </svg>
-                  <span>Basics This Week (Last 7 Days)</span>
+                  <span>Basics</span>
                 </h2>
               </div>
 
@@ -248,13 +213,13 @@
               </div>
             </section>
 
-            <!-- Flash Anzan This Week Card (Phase 7) -->
+            <!-- Flash Anzan Card -->
             <section class="card" aria-labelledby="flash-week-heading">
               <div class="card-header">
                 <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
                   <h2 id="flash-week-heading" class="card-title" style="display: flex; align-items: center; gap: 6px;">
                     <span aria-hidden="true">🔢</span>
-                    <span>Flash Anzan (Last 7 Days)</span>
+                    <span>Flash Anzan</span>
                   </h2>
                   <a href="/pages/flash.html" style="font-size: var(--text-xs); font-weight: 600; color: var(--color-primary); text-decoration: none;">
                     Practice &rarr;
@@ -268,12 +233,12 @@
               </div>
             </section>
 
-            <!-- Elements Drills Card (Phase 8) -->
+            <!-- Elements Drills Card -->
             <section class="card" aria-labelledby="elements-week-heading">
               <div class="card-header">
                 <h2 id="elements-week-heading" class="card-title" style="display: flex; align-items: center; gap: 6px;">
                   <span aria-hidden="true">🧮</span>
-                  <span>Elements Drills</span>
+                  <span>Elements</span>
                 </h2>
               </div>
               <div class="card-body">
@@ -283,12 +248,12 @@
               </div>
             </section>
 
-            <!-- Memoriad Competition Practice Card (Phase 9b-1) -->
+            <!-- Memoriad Competition Practice Card -->
             <section class="card" aria-labelledby="memoriad-week-heading">
               <div class="card-header">
                 <h2 id="memoriad-week-heading" class="card-title" style="display: flex; align-items: center; gap: 6px;">
                   <span aria-hidden="true">🧠</span>
-                  <span>Memoriad Practice</span>
+                  <span>Memoriad</span>
                 </h2>
               </div>
               <div class="card-body">

@@ -15,6 +15,7 @@ import { isSupabaseConfigured } from './config.js';
 import { setsThisWeek, recentSets, formatDrillHistoryName } from './drillStats.js';
 import { getScoreFeedback } from './scoreColors.js';
 import { formatSecondsToMMSS } from './timeUtils.js';
+import { getWeekBoundsIST } from './periods.js';
 
 function escapeHtml(str) {
   if (str === null || str === undefined) return '';
@@ -57,7 +58,7 @@ export async function fetchStudentElementResults(studentId) {
     }
   }
 
-  return DemoDB.getActivityResults(studentId, 'element');
+  return DemoDB ? DemoDB.getActivityResults(studentId, 'element') : [];
 }
 
 /**
@@ -92,16 +93,33 @@ export async function renderElementsCard(studentIdOrOpts, opts = {}) {
     ? preloadedResults.filter((r) => !r.activity_type || r.activity_type === 'element')
     : await fetchStudentElementResults(studentId);
 
+  const weekBounds = getWeekBoundsIST(todayIST || new Date());
   const weekSets = setsThisWeek(rows, todayIST || new Date());
   const latestList = recentSets(rows, 1);
   const lastSet = latestList[0] || null;
 
-  let lastSetHtml = `
-    <div class="empty-state" style="padding: var(--space-3); font-size: var(--text-xs);">
-      No Elements worksheet drills completed yet.
-    </div>
-  `;
+  let weekCorrect = 0;
+  let weekTotal = 0;
+  weekSets.forEach((r) => {
+    weekCorrect += Math.max(0, Number(r.correct) || 0);
+    weekTotal += Math.max(0, Number(r.total) || 0);
+  });
 
+  let allTimeCorrect = 0;
+  let allTimeTotal = 0;
+  rows.forEach((r) => {
+    allTimeCorrect += Math.max(0, Number(r.correct) || 0);
+    allTimeTotal += Math.max(0, Number(r.total) || 0);
+  });
+  const allTimePct =
+    allTimeTotal > 0 ? Math.round((allTimeCorrect / allTimeTotal) * 1000) / 10 : 0;
+
+  const thisWeekText =
+    weekSets.length === 0
+      ? 'No tries this week'
+      : `This week: ${weekSets.length} ${weekSets.length === 1 ? 'try' : 'tries'}, ${weekCorrect} correct (of ${weekTotal})`;
+
+  let lastSetHtml = '';
   if (lastSet) {
     const drillTitle = formatDrillHistoryName(lastSet);
     const correct = Number(lastSet.correct) || 0;
@@ -114,17 +132,17 @@ export async function renderElementsCard(studentIdOrOpts, opts = {}) {
     const feedback = getScoreFeedback(correct, total);
 
     lastSetHtml = `
-      <div style="background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: var(--space-3);">
-        <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin-bottom: 4px;">
+      <div style="margin-top: var(--space-2); padding-top: var(--space-2); border-top: 1px dashed var(--border-subtle);">
+        <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin-bottom: 2px;">
           Last Set
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
-          <div style="font-size: var(--text-sm); font-weight: 700; color: var(--text-main);">
+          <div style="font-size: var(--text-xs); font-weight: 700; color: var(--text-main);">
             ${escapeHtml(drillTitle)}
           </div>
           <div class="num" style="display: flex; align-items: center; gap: var(--space-2);">
-            <strong style="font-size: var(--text-sm); color: ${feedback.colorVar};">${correct}/${total}</strong>
-            <span class="score-tag ${feedback.badgeClass}" style="font-size: 11px;">${escapeHtml(feedback.wrongText)}</span>
+            <strong style="font-size: var(--text-xs); color: ${feedback.colorVar};">${correct}/${total}</strong>
+            <span class="score-tag ${feedback.badgeClass}" style="font-size: 10px;">${escapeHtml(feedback.wrongText)}</span>
             <span style="font-size: var(--text-xs); color: var(--text-muted);">${escapeHtml(formattedTime)}</span>
           </div>
         </div>
@@ -143,20 +161,31 @@ export async function renderElementsCard(studentIdOrOpts, opts = {}) {
     `;
 
   container.innerHTML = `
-    <div style="display: flex; justify-content: space-between; align-items: center; background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: var(--space-3); margin-bottom: var(--space-3);">
-      <div>
+    <!-- This Week Section (Monday to Sunday in India time) -->
+    <div style="background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: var(--space-3); margin-bottom: var(--space-3);">
+      <div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 4px;">
         <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);">
-          Sets This Week (IST)
+          This week (${escapeHtml(weekBounds.rangeText)})
         </div>
-        <div style="font-size: var(--text-xs); color: var(--text-dim); margin-top: 2px;">
-          Monday to Sunday in Indian time
-        </div>
+        <span style="font-size: 11px; color: var(--text-dim);">India time</span>
       </div>
-      <div class="num" style="font-size: 1.35rem; font-weight: 800; color: var(--color-primary);">
-        ${weekSets.length}
+      <div class="num" style="font-size: var(--text-sm); font-weight: 700; color: ${weekSets.length === 0 ? 'var(--text-muted)' : 'var(--text-main)'}; margin-top: 4px;">
+        ${escapeHtml(thisWeekText)}
       </div>
     </div>
-    ${lastSetHtml}
+
+    <!-- Visually Separate All-Time Section -->
+    <div style="background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-top: 2px solid var(--border-subtle); border-radius: var(--radius-md); padding: var(--space-3);">
+      <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin-bottom: 4px;">
+        All time
+      </div>
+      <div class="num" style="font-size: var(--text-xs); font-weight: 600; color: var(--text-main);">
+        ${rows.length > 0
+          ? `All time: ${allTimeCorrect} of ${allTimeTotal} correct (${allTimePct}%) across ${rows.length} ${rows.length === 1 ? 'try' : 'tries'}`
+          : 'All time: No tries recorded yet.'}
+      </div>
+      ${lastSetHtml}
+    </div>
     ${linkHtml}
   `;
 }

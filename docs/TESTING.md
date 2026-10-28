@@ -1173,3 +1173,35 @@ This document contains step-by-step test scenarios to verify security boundaries
   7. Open `/pages/basics.html`, `/pages/student.html`, `/pages/student-detail.html`, and `/pages/review.html`:
      - Verify rows saved from timed/unlimited practice show the **`Timed`** or **`Unlimited`** chip next to **`Recorded by the site`** and display their speed as `attempted / min`.
 
+---
+
+## Phase 11a Test Cases (UX Pass, Reporting Periods, Round Entry States, Flash Setup & Demo Removal)
+
+### Test Case 60: Automated Unit Tests for IST Reporting Periods (`tests/periods.test.js`) & Production Bundle Verification
+- **Action**:
+  1. Run `node --test tests/periods.test.js` (and `node --test tests/*.test.js`).
+  2. Run `npm run build` (`vite build`) and verify that `dist/` contains no `demoDb` fake data (e.g. `Aarav Sharma`).
+- **Expected Result**:
+  - `tests/periods.test.js` passes (`0 fail`), verifying `getMondayOfWeekIST`, `getSundayOfWeekIST`, `formatWeekPeriod` (same-month `"Mon 19 Oct to Sun 25 Oct"`, cross-month `"Mon 26 Oct to Sun 1 Nov"`, and cross-year boundaries), and `formatLast7DaysPeriod` (`"Last 7 days: 22 to 28 Oct"`).
+  - The production build in `dist/` aliases `js/demoDb.js` to `js/demoDbStub.js` and excludes all demo records.
+
+### Test Case 61: Today-First Student Home, Reporting Periods & Plain Language (`/index.html`, `/pages/student.html`, `/pages/student-detail.html`)
+- **Action**:
+  1. Open `/index.html`: verify the login card has no quick test credential buttons and no setup guide modal.
+  2. Log in as a student and open `/pages/student.html`:
+     - Verify the top-to-bottom order is: **(1) Today** header with the date in India time, **(2) Today's plan** card, **(3) Compact one-row Streak card** (`Current streak`, `Best`, `Shield status`, `Practice recorded today: yes/no`, and the one-line note *"A streak counts any practice today; assigned tasks may still be pending."*), **(4) Three 7-day metric cards** (`Accuracy`, `Speed` in questions per minute, and `Practice days` showing `"n of the last 7 days"` and exact `"Last 7 days: <d Mon> to <d Mon>"`), **(5) Explore practice modes** compact card (`Basics`, `Flash Anzan`, `Elements`, `Memoriad`), and **(6) Practice cards, score sheet, and charts** below.
+     - In **Today's plan**, verify the primary button reads **"Practice online"** and a secondary **"Log result"** button appears only for `basics` and `round` tasks (never two `"Start"` buttons).
+     - Inspect the **Flash Anzan**, **Memoriad**, **Elements**, and **Basics** cards on `/pages/student.html` and `/pages/student-detail.html`: verify each card shows the exact Monday-to-Sunday period (`"Mon ... to Sun ..."`), visually separates **This week** from **All time**, and distinguishes `"No tries this week"` from `"0 correct"`.
+
+### Test Case 62: Round Entry States, Inline Validation & Flash Anzan Last-Used Summary (`/pages/round-scores.html`, `/pages/flash.html`)
+- **Action**:
+  1. Open `/pages/round-scores.html`:
+     - Verify the sentence under the round header explains which fields can still be edited and why others are locked.
+     - Verify each category row displays one of the 6 exact status chips: `"Not entered"`, `"Edited - not saved"`, `"Saved"`, `"Locked (verified)"`, `"Locked (corrected by your teacher)"`, or `"Locked (older than 7 days)"`, and locked rows look read-only with a reason tooltip.
+     - Type a value where `Correct > Total` (e.g. `12` correct out of `10` attempted) or a negative number: verify an inline validation message appears directly next to the field (`"Correct cannot be more than attempted."`) and the save bar shows `"n unsaved changes"`.
+     - Attempt to click a navigation link while changes are unsaved: verify the confirmation prompt asks before leaving.
+  2. Open `/pages/flash.html`:
+     - Verify the top of the setup card shows `"Last used: 1 digit - 10 numbers - 1.0 s - add"` with a primary **Start** button while custom controls remain visible below (no presets).
+     - Verify the speed unit (`"1.0 s"`) is shown once and the sound option reads `"Play a short tone for each number"` (with no mention of `"Web Audio API"`).
+
+

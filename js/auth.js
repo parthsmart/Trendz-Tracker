@@ -3,7 +3,7 @@
  * Handles login, session management, ID-to-email mapping, and role checking.
  */
 
-import { AUTH_EMAIL_DOMAIN, isSupabaseConfigured, isDemoAllowedHost } from './config.js';
+import { AUTH_EMAIL_DOMAIN, isSupabaseConfigured, isDemoAllowedHost, ensurePreviewConfigLoaded } from './config.js';
 import { getSupabase, DemoDB, clearStaleSupabaseSession } from './supabaseClient.js';
 import { isDemoMode } from './demoDb.js';
 
@@ -31,6 +31,8 @@ export async function loginWithStudentId(studentId, password) {
   }
 
   const email = formatLoginEmail(studentId);
+
+  await ensurePreviewConfigLoaded();
 
   // 1. If Supabase is configured, use live auth
   if (isSupabaseConfigured()) {
@@ -126,6 +128,7 @@ export async function loginWithStudentId(studentId, password) {
  * Get current authenticated user profile
  */
 export async function getCurrentProfile() {
+  await ensurePreviewConfigLoaded();
   if (isSupabaseConfigured()) {
     try {
       const supabase = await getSupabase();

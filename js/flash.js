@@ -238,7 +238,7 @@ function syncSetupControlsUI() {
   const speedCombinedEl = document.getElementById('display-speed-combined');
   const speedSecEl = document.getElementById('display-speed-seconds');
   const speedRateEl = document.getElementById('display-speed-rate');
-  if (speedCombinedEl) speedCombinedEl.textContent = speedDisplay.combinedText;
+  if (speedCombinedEl) speedCombinedEl.textContent = speedDisplay.secondsText;
   if (speedSecEl) speedSecEl.textContent = speedDisplay.secondsText;
   if (speedRateEl) speedRateEl.textContent = speedDisplay.perSecondText;
 
@@ -251,10 +251,15 @@ function syncSetupControlsUI() {
   const soundToggle = document.getElementById('flash-sound-toggle');
   if (soundToggle) soundToggle.checked = soundEnabled;
 
-  // 6. One-line summary & expected duration
+  // 6. One-line summary ("Last used: ...") & expected duration
+  const summaryText = formatFlashSettingsSummary(currentSettings);
+  const lastUsedEl = document.getElementById('flash-last-used-text');
+  if (lastUsedEl) {
+    lastUsedEl.textContent = `Last used: ${summaryText}`;
+  }
   const summaryLine = document.getElementById('flash-setup-summary-line');
   if (summaryLine) {
-    summaryLine.textContent = formatFlashSettingsSummary(currentSettings);
+    summaryLine.textContent = summaryText;
   }
 
   const durationInfo = getExpectedDurationInfo(currentSettings);
@@ -606,7 +611,7 @@ async function startTryExecution() {
         : null;
 
     if (!response || !response.session_id || !Array.isArray(numbers) || numbers.length === 0) {
-      throw new Error('Invalid response from flash_start. Please try again.');
+      throw new Error('Could not start the try. Please try again.');
     }
 
     clearActiveTimers();
@@ -631,7 +636,7 @@ async function startTryExecution() {
     isStarting = false;
     if (startBtn) {
       startBtn.disabled = false;
-      startBtn.innerHTML = 'Start Try &rarr;';
+      startBtn.textContent = 'Start';
     }
   }
 }
@@ -1125,30 +1130,12 @@ function renderHeaderUser(profile) {
   });
 }
 
-function renderDemoBanner() {
-  const placeholder = document.getElementById('config-banner-placeholder');
-  if (!placeholder) return;
-  placeholder.innerHTML = `
-    <div class="banner banner-demo" style="margin-bottom: var(--space-4);">
-      <span class="banner-icon" aria-hidden="true">ℹ️</span>
-      <div class="banner-body">
-        <strong>DEMO MODE &mdash; data is fake:</strong>
-        Running with fixed sample numbers and results for local preview.
-      </div>
-    </div>
-  `;
-}
-
 async function initFlashTrainerPage() {
   const profile = await requireAuth(['student', 'admin']);
   if (!profile) return;
 
   currentProfile = profile;
   renderHeaderUser(profile);
-
-  if (isDemoMode()) {
-    renderDemoBanner();
-  }
 
   loadSavedPreferences();
   syncSetupControlsUI();

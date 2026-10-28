@@ -11,11 +11,11 @@
  */
 
 import { requireAuth } from './guard.js';
-import { isDemoMode } from './demoDb.js';
-import { formatDisplayDateIST } from './stats.js';
+import { formatTodayHeadingIST } from './periods.js';
 import { fetchStudentDashboardData } from './dashboardData.js';
 import {
   renderStreakCard,
+  renderTodaySummaryMetrics,
   renderTodoList,
   renderBasicsThisWeek,
   renderFlashThisWeek,
@@ -42,11 +42,6 @@ async function initStudentDashboard() {
   renderHeaderUser(loggedInProfile);
   renderStudentHero(loggedInProfile);
 
-  // Render demo banner if in demo mode
-  if (isDemoMode()) {
-    renderDemoBanner();
-  }
-
   // Load Leaderboard summary card (Phase 5a) in parallel
   loadAndRenderLeaderboardCard('leaderboard-card-container', loggedInProfile);
 
@@ -54,20 +49,23 @@ async function initStudentDashboard() {
   try {
     const data = await fetchStudentDashboardData(currentStudentId);
 
-    // Date in Hero
+    // Date in "Today" Header (India time)
     const todayEl = document.getElementById('display-today-ist');
-    if (todayEl) todayEl.textContent = formatDisplayDateIST(data.todayIST);
+    if (todayEl) todayEl.textContent = formatTodayHeadingIST(data.todayIST);
 
-    // Streak & Shield Card
-    renderStreakCard(data.streak);
-
-    // Today's To-Do List (isReadOnly = false -> active score-entry action links)
+    // Today's Plan (To-Do List)
     renderTodoList(data.todos, 'todo-list-container', false, data.categories);
 
-    // Basics This Week
+    // Compact Streak & Shield Card
+    renderStreakCard(data.streak);
+
+    // Three Small 7-Day Summary Cards: Accuracy, Speed (q/min), Practice days
+    renderTodaySummaryMetrics(data.results, data.activityResults, data.todayIST);
+
+    // Basics Card
     renderBasicsThisWeek(data.results, data.categories, data.todayIST);
 
-    // Flash Anzan This Week (Phase 7)
+    // Flash Anzan Card (Phase 7)
     renderFlashThisWeek(data.activityResults, data.todayIST);
 
     // Elements Worksheet Drills Card (Phase 8)

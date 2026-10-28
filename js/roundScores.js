@@ -1,16 +1,21 @@
 /**
  * Trendz Tracker - Student Round Scores Module (js/roundScores.js)
  *
- * Phase 4c-0 Architecture:
+ * Phase 4c-0 / Phase 11a Architecture:
  * - Rounds belong to each student (`student_rounds`) and are scoped to a simulator series (`round_series`).
  * - Dropdown shows ONLY the logged-in student's own rounds in the current series (`round_series.is_current = true`),
  *   newest first ("Round 12 - 18 Oct 2026").
- * - "+ Start today's round" button calls RPC `start_round(p_student, p_round_type)` which returns the round id,
+ * - "+ Start today's round" button calls `start_round(p_student, p_round_type)` which returns the round id,
  *   assigns the next round_number in the current series, uses today_ist(), and reuses today's empty round.
  * - Categories are loaded ONLY from `category_series` for the round's series (where `categories.active = true`),
  *   ordered strictly by `category_series.sort_order` (NOT `categories.sort_order`).
  * - Students can update `round_type` and `time_taken_seconds` on their own rounds from the last 7 days.
- * - `results` rows use `student_round_id` (required for round categories; `round_number` no longer exists).
+ * - Each category row displays one of six status chips:
+ *   "Not entered", "Edited - not saved", "Saved",
+ *   "Locked (verified)", "Locked (corrected by your teacher)", "Locked (older than 7 days)".
+ * - Live inline field validation sits next to the field (correct cannot be more than attempted; no negative numbers).
+ * - Save bar shows "n unsaved changes"; if saving fails, typed values stay intact, an alert (role="alert")
+ *   with "Try again" is shown, and leaving with unsaved changes asks for confirmation.
  */
 
 import { isSupabaseConfigured } from './config.js';
@@ -32,6 +37,7 @@ let selectedRoundId = null;
 let existingResultsMap = new Map(); // category_id -> result object
 let initialRowValues = new Map(); // category_id -> JSON string of initial values to detect dirty rows
 let initialRoundMeta = { round_type: 'Category wise', time_taken: '' };
+let pendingNavigationCallback = null;
 
 /**
  * Formats database errors into clear, friendly messages for students
@@ -98,7 +104,7 @@ async function loadCurrentSeriesAndToday() {
     currentSeries = Array.isArray(seriesRes.data) && seriesRes.data.length > 0
       ? seriesRes.data[0]
       : null;
-  } else {
+  } else if (DemoDB) {
     todayIST = await DemoDB.mockTodayIST();
     const allSeries = DemoDB.getRoundSeries();
     currentSeries = allSeries.find(s => s.is_current) || allSeries[allSeries.length - 1] || null;
@@ -146,7 +152,7 @@ async function loadSeriesCategories(seriesId) {
           active: item.category.active,
           series_sort_order: item.sort_order
         }));
-    } else {
+    } else if (DemoDB) {
       const allCats = DemoDB.getCategories();
       const catMap = new Map(allCats.map(c => [c.id, c]));
       const catSeries = DemoDB.getCategorySeries()
@@ -204,7 +210,7 @@ async function loadStudentRounds(preselectRoundId = null) {
 
       if (error) throw new Error(error.message);
       studentRounds = data || [];
-    } else {
+    } else if (DemoDB) {
       studentRounds = DemoDB.getStudentRounds(currentProfile.id, currentSeries.id);
     }
 
@@ -222,6 +228,7 @@ async function loadStudentRounds(preselectRoundId = null) {
 
       const progressEl = document.getElementById('progress-display');
       if (progressEl) progressEl.textContent = '0 rounds started';
+      updateUnsavedCountUI(0);
 
       document.getElementById('score-rows-container').innerHTML = `
         <div class="empty-state" style="padding: var(--space-8); text-align: center;">
@@ -285,6 +292,7 @@ function renderSelectedRoundMeta() {
   const typeSelect = document.getElementById('input-round-type');
   const timeInput = document.getElementById('input-round-time-taken');
   const lockNotice = document.getElementById('round-meta-lock-notice');
+  const lockExplanation = document.getElementById('round-lock-explanation');
 
   const roundObj = studentRounds.find(r => r.id === selectedRoundId);
   if (!roundObj || !metaCard) {
@@ -300,7 +308,6 @@ function renderSelectedRoundMeta() {
     : '';
 
   if (typeSelect) {
-    // Ensure custom round_type from sheet import exists as an option
     const hasOpt = Array.from(typeSelect.options).some(o => o.value === roundTypeVal);
     if (!hasOpt) {
       const opt = document.createElement('option');
@@ -335,10 +342,20 @@ function renderSelectedRoundMeta() {
       lockNotice.textContent = `🔒 Round header is older than 7 days (read-only)`;
     }
   }
+
+  if (lockExplanation) {
+    if (canEditMeta) {
+      lockExplanation.textContent =
+        'You can edit any unverified category in this round; entries verified or corrected by your teacher and rounds older than 7 days are locked.';
+    } else {
+      lockExplanation.textContent =
+        'This round is older than 7 days, so all fields are locked; only rounds from the last 7 days that have not been verified or corrected by your teacher can be edited.';
+    }
+  }
 }
 
 /**
- * Start today's round via RPC start_round
+ * Start today's round via start_round
  */
 async function handleStartTodayRound() {
   const btn = document.getElementById('btn-start-today-round');
@@ -361,7 +378,7 @@ async function handleStartTodayRound() {
       });
       if (error) throw new Error(error.message);
       roundId = typeof data === 'object' && data !== null ? (data.id || data.round_id || data) : data;
-    } else {
+    } else if (DemoDB) {
       roundId = await DemoDB.mockStartRound(currentProfile.id, preferredType);
     }
 
@@ -389,6 +406,9 @@ async function loadRoundResults() {
   const container = document.getElementById('score-rows-container');
   if (!selectedRoundId) return;
 
+  hideSaveErrorAlert();
+  hideUnsavedLeaveBanner();
+
   container.innerHTML = '<div style="padding: var(--space-4);"><div class="skeleton-row"></div><div class="skeleton-row"></div></div>';
 
   existingResultsMap.clear();
@@ -407,23 +427,77 @@ async function loadRoundResults() {
       (data || []).forEach(res => {
         existingResultsMap.set(res.category_id, res);
       });
-    } else {
+    } else if (DemoDB) {
       const saved = DemoDB.getRoundResults(selectedRoundId);
       saved.forEach(res => existingResultsMap.set(res.category_id, res));
     }
 
     renderCategoryRows();
     updateProgressDisplay();
+    recalculateUnsavedChanges();
   } catch (err) {
     console.warn('Error loading round results:', err);
     showToast('error', formatFriendlyRoundError(err));
     renderCategoryRows();
     updateProgressDisplay();
+    recalculateUnsavedChanges();
   }
 }
 
 /**
- * Render all categories in the series with prefilled data, verified locks, and live evaluation
+ * Builds the HTML for a row's status chip based on its state:
+ * - "Locked (verified)"
+ * - "Locked (corrected by your teacher)"
+ * - "Locked (older than 7 days)"
+ * - "Edited - not saved"
+ * - "Saved"
+ * - "Not entered"
+ */
+function buildRowStatusChipHtml({ isVerified, isCorrected, isOlderThan7Days, isDirty, hasExisting }) {
+  if (isVerified) {
+    return `
+      <span class="status-chip chip-verified row-status-chip" title="Locked because your teacher verified this score.">
+        🔒 Locked (verified)
+      </span>
+    `;
+  }
+  if (isCorrected) {
+    return `
+      <span class="status-chip chip-corrected row-status-chip" title="Locked because your teacher corrected this score.">
+        ✏️ Locked (corrected by your teacher)
+      </span>
+    `;
+  }
+  if (isOlderThan7Days) {
+    return `
+      <span class="status-chip chip-inactive row-status-chip" title="Locked because this round is older than 7 days.">
+        🔒 Locked (older than 7 days)
+      </span>
+    `;
+  }
+  if (isDirty) {
+    return `
+      <span class="status-chip chip-pending row-status-chip" title="You have edited this row; click Save Changes to save.">
+        Edited - not saved
+      </span>
+    `;
+  }
+  if (hasExisting) {
+    return `
+      <span class="status-chip chip-done row-status-chip" title="Saved in your scores">
+        Saved
+      </span>
+    `;
+  }
+  return `
+    <span class="status-chip chip-unverified row-status-chip" title="No score entered for this category yet">
+      Not entered
+    </span>
+  `;
+}
+
+/**
+ * Render all categories in the series with prefilled data, lock states, and live evaluation
  */
 function renderCategoryRows() {
   const container = document.getElementById('score-rows-container');
@@ -437,31 +511,48 @@ function renderCategoryRows() {
     return;
   }
 
+  const roundObj = studentRounds.find(r => r.id === selectedRoundId);
+  const isOlderThan7Days =
+    currentProfile?.role !== 'admin' &&
+    roundObj &&
+    !isRoundWithinLast7Days(roundObj.round_date, todayIST);
+
   let html = '';
 
   roundCategories.forEach(cat => {
     const existing = existingResultsMap.get(cat.id);
-    const isVerified = existing && (existing.verified === true || !!existing.verified_at || !!existing.verified_by);
-    const isCorrected = existing && (!!existing.corrected_at || !!existing.corrected_by);
-    const isFlagged = existing && existing.flagged === true;
+    const isVerified = Boolean(existing && (existing.verified === true || !!existing.verified_at || !!existing.verified_by));
+    const isCorrected = Boolean(existing && (!!existing.corrected_at || !!existing.corrected_by));
+    const isFlagged = Boolean(existing && existing.flagged === true);
     const flagNote = existing && existing.flag_note ? existing.flag_note : '';
-    const isLocked = isVerified || isCorrected;
+    const isLocked = isVerified || isCorrected || isOlderThan7Days;
     const isSurpriseTask = cat.name.toLowerCase().includes('surprise');
+
+    let lockReasonTooltip = '';
+    if (isVerified) {
+      lockReasonTooltip = 'Locked because your teacher verified this score.';
+    } else if (isCorrected) {
+      lockReasonTooltip = 'Locked because your teacher corrected this score.';
+    } else if (isOlderThan7Days) {
+      lockReasonTooltip = 'Locked because this round is older than 7 days.';
+    }
 
     const correctVal = existing && existing.correct !== null && existing.correct !== undefined ? existing.correct : '';
     const totalVal = existing && existing.total !== null && existing.total !== undefined ? existing.total : '';
     const timeVal = existing && existing.time_seconds !== null && existing.time_seconds !== undefined ? formatSecondsToMMSS(existing.time_seconds) : '';
     const noteVal = existing && existing.note ? existing.note : '';
 
-    // Cache initial state to detect changes during save
+    // Cache initial state to detect changes during typing & save
     initialRowValues.set(cat.id, JSON.stringify({
-      correct: correctVal,
-      total: totalVal,
-      time: timeVal,
-      note: noteVal,
+      correct: String(correctVal),
+      total: String(totalVal),
+      time: String(timeVal),
+      note: String(noteVal),
       existingId: existing ? existing.id : null,
+      hasExisting: Boolean(existing),
       isVerified,
       isCorrected,
+      isOlderThan7Days,
       isLocked
     }));
 
@@ -471,43 +562,20 @@ function renderCategoryRows() {
       feedback = getScoreFeedback(correctVal, totalVal);
     }
 
-    // Status column
-    let statusBadgeHtml = '';
-    if (isVerified) {
-      statusBadgeHtml = `
-        <span class="verified-lock-indicator" title="Verified by teacher (locked)">
-          🔒 Verified
-        </span>
-      `;
-    } else if (isCorrected) {
-      statusBadgeHtml = `
-        <span class="status-chip chip-corrected" title="Corrected by teacher (locked)">
-          ✏️ Corrected by teacher
-        </span>
-      `;
-    } else if (isFlagged) {
-      statusBadgeHtml = `
-        <div class="status-chip chip-flagged" style="display: inline-flex; flex-direction: column; align-items: flex-start; text-align: left; font-size: 11px; max-width: 220px; white-space: normal; line-height: 1.25; padding: 4px 6px;">
-          <span style="font-weight: 600;">⚠️ Your teacher asked you to check this entry</span>
-          ${flagNote ? `<span style="font-size: 10px; color: #78350F; margin-top: 2px;">Note: ${escapeHtml(flagNote)}</span>` : ''}
-        </div>
-      `;
-    } else if (existing) {
-      statusBadgeHtml = `
-        <span class="status-indicator active" style="font-size: 11px;" title="Saved in database">
-          Saved
-        </span>
-      `;
-    } else {
-      statusBadgeHtml = `
-        <span class="status-indicator inactive" style="font-size: 11px;">
-          Unsaved
-        </span>
-      `;
-    }
+    const statusBadgeHtml = buildRowStatusChipHtml({
+      isVerified,
+      isCorrected,
+      isOlderThan7Days,
+      isDirty: false,
+      hasExisting: Boolean(existing)
+    });
 
     html += `
-      <div class="score-entry-row ${isLocked ? 'row-verified' : ''}" data-category-id="${escapeHtml(cat.id)}">
+      <div
+        class="score-entry-row ${isLocked ? 'row-verified is-locked' : ''}"
+        data-category-id="${escapeHtml(cat.id)}"
+        ${lockReasonTooltip ? `title="${escapeHtml(lockReasonTooltip)}"` : ''}
+      >
         <!-- Category Name & Series Order -->
         <div class="cell-category">
           <div style="font-weight: 700; color: var(--text-main); font-size: var(--text-sm);">
@@ -518,13 +586,16 @@ function renderCategoryRows() {
 
         <!-- Correct Input -->
         <div>
+          <label class="sr-only" for="input-correct-${escapeHtml(cat.id)}">${escapeHtml(cat.name)} correct answers</label>
           <input
             type="text"
+            id="input-correct-${escapeHtml(cat.id)}"
             inputmode="numeric"
             class="form-input score-input input-correct"
             placeholder="0"
             value="${escapeHtml(String(correctVal))}"
             ${isLocked ? 'readonly disabled' : ''}
+            ${lockReasonTooltip ? `title="${escapeHtml(lockReasonTooltip)}"` : ''}
             data-cat-id="${escapeHtml(cat.id)}"
             aria-label="${escapeHtml(cat.name)} correct answers"
           />
@@ -532,13 +603,16 @@ function renderCategoryRows() {
 
         <!-- Total Input -->
         <div>
+          <label class="sr-only" for="input-total-${escapeHtml(cat.id)}">${escapeHtml(cat.name)} total attempted</label>
           <input
             type="text"
+            id="input-total-${escapeHtml(cat.id)}"
             inputmode="numeric"
             class="form-input score-input input-total"
             placeholder="0"
             value="${escapeHtml(String(totalVal))}"
             ${isLocked ? 'readonly disabled' : ''}
+            ${lockReasonTooltip ? `title="${escapeHtml(lockReasonTooltip)}"` : ''}
             data-cat-id="${escapeHtml(cat.id)}"
             aria-label="${escapeHtml(cat.name)} total attempted"
           />
@@ -546,13 +620,16 @@ function renderCategoryRows() {
 
         <!-- Time Input (mm:ss or seconds) -->
         <div class="cell-time">
+          <label class="sr-only" for="input-time-${escapeHtml(cat.id)}">${escapeHtml(cat.name)} time elapsed</label>
           <input
             type="text"
+            id="input-time-${escapeHtml(cat.id)}"
             inputmode="numeric"
             class="form-input score-input input-time"
             placeholder="0:00"
             value="${escapeHtml(String(timeVal))}"
             ${isLocked ? 'readonly disabled' : ''}
+            ${lockReasonTooltip ? `title="${escapeHtml(lockReasonTooltip)}"` : ''}
             data-cat-id="${escapeHtml(cat.id)}"
             aria-label="${escapeHtml(cat.name)} time elapsed"
           />
@@ -565,10 +642,18 @@ function renderCategoryRows() {
           </span>
         </div>
 
-        <!-- Status Column (Saved / Verified / Corrected / Flagged) -->
-        <div style="text-align: right;">
+        <!-- Status Column -->
+        <div class="cell-status" style="text-align: right;">
           ${statusBadgeHtml}
         </div>
+
+        <!-- Inline Field Validation Message (sits next to the row fields) -->
+        <div
+          class="field-validation-msg"
+          data-validation-for="${escapeHtml(cat.id)}"
+          role="alert"
+          style="display: none; grid-column: 1 / -1;"
+        ></div>
 
         ${isFlagged ? `
           <div style="grid-column: 1 / -1; margin-top: 6px; padding: 6px 12px; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: var(--radius-sm); font-size: 12px; color: #92400E; display: flex; align-items: center; gap: 6px;">
@@ -579,13 +664,17 @@ function renderCategoryRows() {
 
         ${isSurpriseTask ? `
           <div style="grid-column: 1 / -1; margin-top: 4px;">
+            <label class="sr-only" for="input-note-${escapeHtml(cat.id)}">${escapeHtml(cat.name)} notes</label>
             <input
               type="text"
+              id="input-note-${escapeHtml(cat.id)}"
               class="form-input input-note"
               placeholder="Surprise Task notes or topic description..."
               value="${escapeHtml(noteVal)}"
               ${isLocked ? 'readonly disabled' : ''}
+              ${lockReasonTooltip ? `title="${escapeHtml(lockReasonTooltip)}"` : ''}
               data-cat-id="${escapeHtml(cat.id)}"
+              aria-label="${escapeHtml(cat.name)} notes"
               style="min-height: 36px; font-size: var(--text-xs);"
             />
           </div>
@@ -616,13 +705,160 @@ function renderCategoryRows() {
 }
 
 /**
- * Attach input listeners for live score calculations and time formatting
+ * Validates a single category row's inputs and updates its inline `.field-validation-msg` element.
+ * Returns the error message string if invalid, or null if valid.
+ */
+function validateRowFields(row, flatMode = false) {
+  if (!row) return null;
+  const msgEl = row.querySelector('.field-validation-msg');
+  const correctInput = row.querySelector('.input-correct');
+  const totalInput = row.querySelector('.input-total');
+  const timeInput = row.querySelector('.input-time');
+
+  const correctRaw = correctInput?.value.trim() || '';
+  const totalRaw = totalInput?.value.trim() || '';
+  const timeRaw = timeInput?.value.trim() || '';
+
+  let errorMsg = null;
+
+  if (correctRaw !== '' || totalRaw !== '' || (!flatMode && timeRaw !== '')) {
+    const correctNum = correctRaw !== '' ? Number(correctRaw) : null;
+    const totalNum = totalRaw !== '' ? Number(totalRaw) : null;
+
+    if (
+      (correctRaw !== '' && (Number.isNaN(correctNum) || correctNum < 0)) ||
+      (totalRaw !== '' && (Number.isNaN(totalNum) || totalNum < 0)) ||
+      (!flatMode && timeRaw.startsWith('-'))
+    ) {
+      errorMsg = 'Numbers cannot be negative.';
+    } else if (
+      (correctRaw !== '' && !Number.isInteger(correctNum)) ||
+      (totalRaw !== '' && !Number.isInteger(totalNum))
+    ) {
+      errorMsg = 'Enter whole numbers only.';
+    } else if (correctNum !== null && totalNum !== null && correctNum > totalNum) {
+      errorMsg = 'Correct answers cannot be more than attempted.';
+    } else if (correctNum !== null && correctNum > 0 && totalRaw !== '' && totalNum <= 0) {
+      errorMsg = 'Total attempted must be greater than 0 when entering correct answers.';
+    } else if (!flatMode && timeRaw !== '' && parseTimeToSeconds(timeRaw) === null) {
+      errorMsg = 'Enter time as mm:ss or seconds.';
+    }
+  }
+
+  if (msgEl) {
+    if (errorMsg) {
+      msgEl.textContent = errorMsg;
+      msgEl.style.display = 'block';
+    } else {
+      msgEl.textContent = '';
+      msgEl.style.display = 'none';
+    }
+  }
+
+  if (correctInput) {
+    correctInput.setAttribute('aria-invalid', errorMsg ? 'true' : 'false');
+  }
+  if (totalInput) {
+    totalInput.setAttribute('aria-invalid', errorMsg ? 'true' : 'false');
+  }
+
+  return errorMsg;
+}
+
+/**
+ * Checks whether a single row is dirty compared to initialRowValues
+ */
+function isRowDirty(row, flatMode) {
+  if (!row) return false;
+  const catId = row.getAttribute('data-category-id');
+  const initial = JSON.parse(initialRowValues.get(catId) || '{}');
+  if (initial.isLocked) return false;
+
+  const correctRaw = row.querySelector('.input-correct')?.value.trim() || '';
+  const totalRaw = row.querySelector('.input-total')?.value.trim() || '';
+  const timeRaw = row.querySelector('.input-time')?.value.trim() || '';
+  const noteRaw = row.querySelector('.input-note')?.value.trim() || '';
+
+  if (flatMode) {
+    return (
+      correctRaw !== String(initial.correct ?? '') ||
+      totalRaw !== String(initial.total ?? '') ||
+      noteRaw !== String(initial.note ?? '')
+    );
+  }
+  return (
+    correctRaw !== String(initial.correct ?? '') ||
+    totalRaw !== String(initial.total ?? '') ||
+    timeRaw !== String(initial.time ?? '') ||
+    noteRaw !== String(initial.note ?? '')
+  );
+}
+
+/**
+ * Updates each row's status chip ("Not entered" / "Saved" / "Edited - not saved")
+ * and returns the total number of unsaved changes (dirty rows + dirty header metadata).
+ */
+function recalculateUnsavedChanges() {
+  const typeSelect = document.getElementById('input-round-type');
+  const timeTakenInput = document.getElementById('input-round-time-taken');
+  const currentRoundType = (typeSelect?.value || 'Category wise').trim();
+  const currentTimeTaken = (timeTakenInput?.value || '').trim();
+  const flatMode = isFlatRound(currentRoundType);
+
+  let unsavedCount = 0;
+
+  if (
+    selectedRoundId &&
+    (currentRoundType !== initialRoundMeta.round_type ||
+      currentTimeTaken !== initialRoundMeta.time_taken)
+  ) {
+    unsavedCount += 1;
+  }
+
+  const rows = document.querySelectorAll('#score-rows-container .score-entry-row');
+  rows.forEach(row => {
+    const catId = row.getAttribute('data-category-id');
+    const initial = JSON.parse(initialRowValues.get(catId) || '{}');
+    const dirty = isRowDirty(row, flatMode);
+    if (dirty) {
+      unsavedCount += 1;
+    }
+
+    const statusCell = row.querySelector('.cell-status');
+    if (statusCell) {
+      statusCell.innerHTML = buildRowStatusChipHtml({
+        isVerified: Boolean(initial.isVerified),
+        isCorrected: Boolean(initial.isCorrected),
+        isOlderThan7Days: Boolean(initial.isOlderThan7Days),
+        isDirty: dirty,
+        hasExisting: Boolean(initial.hasExisting)
+      });
+    }
+  });
+
+  updateUnsavedCountUI(unsavedCount);
+  return unsavedCount;
+}
+
+function updateUnsavedCountUI(count) {
+  const label = `${count} unsaved ${count === 1 ? 'change' : 'changes'}`;
+  const topBadge = document.getElementById('unsaved-changes-badge');
+  const bottomBadge = document.getElementById('unsaved-changes-bottom');
+  if (topBadge) topBadge.textContent = label;
+  if (bottomBadge) bottomBadge.textContent = label;
+}
+
+/**
+ * Attach input listeners for live score calculations, validation, unsaved count, and time formatting
  */
 function attachLiveInputListeners() {
   const container = document.getElementById('score-rows-container');
+  const getFlatMode = () => {
+    const typeSelect = document.getElementById('input-round-type');
+    return isFlatRound(typeSelect?.value || initialRoundMeta.round_type);
+  };
 
-  // Live feedback on typing correct/total
-  container.querySelectorAll('.input-correct, .input-total').forEach(input => {
+  container.querySelectorAll('.input-correct, .input-total, .input-time, .input-note').forEach(input => {
     input.addEventListener('input', () => {
       const catId = input.getAttribute('data-cat-id');
       const row = container.querySelector(`[data-category-id="${catId}"]`);
@@ -632,14 +868,18 @@ function attachLiveInputListeners() {
       const totalInput = row.querySelector('.input-total');
       const badge = row.querySelector('.feedback-badge');
 
-      const correctVal = correctInput.value.trim();
-      const totalVal = totalInput.value.trim();
+      const correctVal = correctInput?.value.trim() || '';
+      const totalVal = totalInput?.value.trim() || '';
 
-      const feedback = getScoreFeedback(correctVal, totalVal);
-      badge.textContent = feedback.wrongText;
-      badge.className = `score-tag ${feedback.badgeClass} feedback-badge`;
+      if (badge) {
+        const feedback = getScoreFeedback(correctVal, totalVal);
+        badge.textContent = feedback.wrongText;
+        badge.className = `score-tag ${feedback.badgeClass} feedback-badge`;
+      }
 
+      validateRowFields(row, getFlatMode());
       updateProgressDisplay();
+      recalculateUnsavedChanges();
     });
   });
 
@@ -647,12 +887,18 @@ function attachLiveInputListeners() {
   container.querySelectorAll('.input-time').forEach(input => {
     input.addEventListener('blur', () => {
       const raw = input.value.trim();
-      if (!raw) return;
-
-      const seconds = parseTimeToSeconds(raw);
-      if (seconds !== null) {
-        input.value = formatSecondsToMMSS(seconds);
+      const catId = input.getAttribute('data-cat-id');
+      const row = container.querySelector(`[data-category-id="${catId}"]`);
+      if (raw) {
+        const seconds = parseTimeToSeconds(raw);
+        if (seconds !== null) {
+          input.value = formatSecondsToMMSS(seconds);
+        }
       }
+      if (row) {
+        validateRowFields(row, getFlatMode());
+      }
+      recalculateUnsavedChanges();
     });
   });
 }
@@ -690,6 +936,35 @@ function updateProgressDisplay() {
   displayEl.textContent = `${completedCount} of ${totalCategories} completed`;
 }
 
+function showSaveErrorAlert(message) {
+  const alertEl = document.getElementById('round-save-error-alert');
+  const msgEl = document.getElementById('round-save-error-msg');
+  if (!alertEl || !msgEl) return;
+  msgEl.textContent = message;
+  alertEl.style.display = 'flex';
+}
+
+function hideSaveErrorAlert() {
+  const alertEl = document.getElementById('round-save-error-alert');
+  const msgEl = document.getElementById('round-save-error-msg');
+  if (alertEl) alertEl.style.display = 'none';
+  if (msgEl) msgEl.textContent = '';
+}
+
+function showUnsavedLeaveBanner(onConfirmDiscard) {
+  const banner = document.getElementById('unsaved-leave-banner');
+  if (!banner) return;
+  pendingNavigationCallback = onConfirmDiscard;
+  banner.style.display = 'flex';
+  banner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function hideUnsavedLeaveBanner() {
+  const banner = document.getElementById('unsaved-leave-banner');
+  if (banner) banner.style.display = 'none';
+  pendingNavigationCallback = null;
+}
+
 /**
  * Save round metadata (round_type, time_taken_seconds) and modified/new score rows
  */
@@ -698,6 +973,8 @@ async function saveRoundScores() {
     showToast('info', "Please click '+ Start today's round' first.");
     return;
   }
+
+  hideSaveErrorAlert();
 
   const saveBtn = document.getElementById('btn-save-round');
   const saveBtnBottom = document.getElementById('btn-save-round-bottom');
@@ -727,7 +1004,7 @@ async function saveRoundScores() {
       newRoundType !== initialRoundMeta.round_type ||
       newTimeTakenRaw !== initialRoundMeta.time_taken;
 
-    // 2. Check score rows
+    // 2. Check score rows and run field-level validation
     const flatMode = isFlatRound(newRoundType);
     const rows = Array.from(document.querySelectorAll('#score-rows-container .score-entry-row'));
     const updates = [];
@@ -737,28 +1014,16 @@ async function saveRoundScores() {
       const catId = row.getAttribute('data-category-id');
       const initial = JSON.parse(initialRowValues.get(catId) || '{}');
 
-      // Skip locked rows (verified or corrected by teacher)
-      if (initial.isLocked || initial.isVerified || initial.isCorrected) continue;
+      // Skip locked rows (verified, corrected by teacher, or older than 7 days)
+      if (initial.isLocked || initial.isVerified || initial.isCorrected || initial.isOlderThan7Days) continue;
+
+      const isDirty = isRowDirty(row, flatMode);
+      if (!isDirty) continue;
 
       const correctRaw = row.querySelector('.input-correct')?.value.trim() || '';
       const totalRaw = row.querySelector('.input-total')?.value.trim() || '';
       const timeRaw = row.querySelector('.input-time')?.value.trim() || '';
       const noteRaw = row.querySelector('.input-note')?.value.trim() || '';
-
-      const isDirty = flatMode
-        ? (
-            correctRaw !== String(initial.correct ?? '') ||
-            totalRaw !== String(initial.total ?? '') ||
-            noteRaw !== String(initial.note ?? '')
-          )
-        : (
-            correctRaw !== String(initial.correct ?? '') ||
-            totalRaw !== String(initial.total ?? '') ||
-            timeRaw !== String(initial.time ?? '') ||
-            noteRaw !== String(initial.note ?? '')
-          );
-
-      if (!isDirty) continue;
 
       if (flatMode) {
         if (correctRaw === '' && totalRaw === '' && noteRaw === '') {
@@ -770,24 +1035,25 @@ async function saveRoundScores() {
         }
       }
 
+      const rowValidationError = validateRowFields(row, flatMode);
+      if (rowValidationError) {
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        throw new Error(rowValidationError);
+      }
+
       const correctNum = correctRaw !== '' ? parseInt(correctRaw, 10) : null;
       const totalNum = totalRaw !== '' ? parseInt(totalRaw, 10) : null;
       const timeSeconds = !flatMode && timeRaw !== '' ? parseTimeToSeconds(timeRaw) : null;
 
-      if (correctRaw !== '' && (correctNum === null || isNaN(correctNum) || correctNum < 0)) {
-        throw new Error('Correct answers must be a whole number.');
-      }
-      if (totalRaw !== '' && (totalNum === null || isNaN(totalNum) || totalNum < 0)) {
-        throw new Error('Total attempted must be a whole number.');
-      }
-      if (!flatMode && timeRaw !== '' && timeSeconds === null) {
-        throw new Error('Category time must be formatted as mm:ss or seconds.');
-      }
-      if (correctNum !== null && totalNum !== null && correctNum > totalNum) {
-        throw new Error('Correct answers cannot be more than the total.');
-      }
       if (correctNum !== null && (totalNum === null || totalNum <= 0)) {
-        throw new Error('Total attempted must be greater than 0 when entering correct answers.');
+        const msgEl = row.querySelector('.field-validation-msg');
+        const msg = 'Total attempted must be greater than 0 when entering correct answers.';
+        if (msgEl) {
+          msgEl.textContent = msg;
+          msgEl.style.display = 'block';
+        }
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        throw new Error(msg);
       }
 
       const payload = {
@@ -852,7 +1118,7 @@ async function saveRoundScores() {
 
         if (error) throw new Error(error.message);
       }
-    } else {
+    } else if (DemoDB) {
       if (isMetaDirty) {
         DemoDB.updateStudentRound(selectedRoundId, {
           round_type: newRoundType,
@@ -874,7 +1140,10 @@ async function saveRoundScores() {
     await loadRoundResults();
   } catch (err) {
     console.error('Save error:', err);
-    showToast('error', formatFriendlyRoundError(err));
+    const friendly = formatFriendlyRoundError(err);
+    // Keep every typed value intact, show alert (role="alert") with "Try again"
+    showSaveErrorAlert(friendly);
+    showToast('error', friendly);
   } finally {
     saveBtn.disabled = false;
     if (saveBtnBottom) saveBtnBottom.disabled = false;
@@ -928,20 +1197,42 @@ async function initRoundScores() {
 
   renderDemoBanner();
 
-  // Format round time taken on blur
+  // Format round time taken on blur & track unsaved changes
   const timeTakenInput = document.getElementById('input-round-time-taken');
+  timeTakenInput?.addEventListener('input', () => {
+    recalculateUnsavedChanges();
+  });
   timeTakenInput?.addEventListener('blur', () => {
     const raw = timeTakenInput.value.trim();
-    if (!raw) return;
-    const sec = parseTimeToSeconds(raw);
-    if (sec !== null) {
-      timeTakenInput.value = formatSecondsToMMSS(sec);
+    if (raw) {
+      const sec = parseTimeToSeconds(raw);
+      if (sec !== null) {
+        timeTakenInput.value = formatSecondsToMMSS(sec);
+      }
     }
+    recalculateUnsavedChanges();
   });
 
-  // Round selection change
-  document.getElementById('select-round')?.addEventListener('change', async (e) => {
-    selectedRoundId = e.target.value;
+  // Round selection change (asks confirmation if there are unsaved changes)
+  const selectRoundEl = document.getElementById('select-round');
+  selectRoundEl?.addEventListener('change', async (e) => {
+    const targetRoundId = e.target.value;
+    const unsaved = recalculateUnsavedChanges();
+    if (unsaved > 0) {
+      // Revert select value until confirmed
+      selectRoundEl.value = selectedRoundId || '';
+      showUnsavedLeaveBanner(async () => {
+        selectedRoundId = targetRoundId;
+        if (selectRoundEl) selectRoundEl.value = selectedRoundId;
+        if (selectedRoundId) {
+          renderSelectedRoundMeta();
+          await loadRoundResults();
+        }
+      });
+      return;
+    }
+
+    selectedRoundId = targetRoundId;
     if (selectedRoundId) {
       renderSelectedRoundMeta();
       await loadRoundResults();
@@ -951,14 +1242,54 @@ async function initRoundScores() {
   // Round type change updates the screen immediately without losing typed values
   document.getElementById('input-round-type')?.addEventListener('change', (e) => {
     applyRoundTypeVisibility(e.target.value);
+    recalculateUnsavedChanges();
   });
 
   // Start today's round button
   document.getElementById('btn-start-today-round')?.addEventListener('click', handleStartTodayRound);
 
-  // Save buttons
+  // Save buttons & Retry button in error alert
   document.getElementById('btn-save-round')?.addEventListener('click', saveRoundScores);
   document.getElementById('btn-save-round-bottom')?.addEventListener('click', saveRoundScores);
+  document.getElementById('btn-retry-save-round')?.addEventListener('click', saveRoundScores);
+
+  // Unsaved leave confirmation banner buttons
+  document.getElementById('btn-leave-stay')?.addEventListener('click', () => {
+    hideUnsavedLeaveBanner();
+  });
+  document.getElementById('btn-leave-discard')?.addEventListener('click', () => {
+    const cb = pendingNavigationCallback;
+    hideUnsavedLeaveBanner();
+    if (typeof cb === 'function') {
+      cb();
+    }
+  });
+
+  // Intercept navigation links when there are unsaved changes
+  document.querySelectorAll('a[href]').forEach(link => {
+    link.addEventListener('click', (e) => {
+      const href = link.getAttribute('href');
+      if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
+      const unsaved = recalculateUnsavedChanges();
+      if (unsaved > 0) {
+        e.preventDefault();
+        showUnsavedLeaveBanner(() => {
+          updateUnsavedCountUI(0);
+          initialRowValues.clear();
+          window.location.href = href;
+        });
+      }
+    });
+  });
+
+  // Browser tab close / reload confirmation when there are unsaved changes
+  window.addEventListener('beforeunload', (e) => {
+    const unsaved = recalculateUnsavedChanges();
+    if (unsaved > 0) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
 
   // Initial load
   await loadCurrentSeriesAndToday();

@@ -5,7 +5,7 @@ import { defineConfig } from 'vite';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export default defineConfig(() => {
+export default defineConfig(({ command }) => {
   // Enforce required build variables when deploying on Vercel
   if (process.env.VERCEL) {
     const url = process.env.VITE_SUPABASE_URL || '';
@@ -29,11 +29,17 @@ export default defineConfig(() => {
     }
   }
 
+  // Exclude the demo database module from the production bundle
+  const aliases: Array<{ find: string | RegExp; replacement: string }> = [
+    ...(command === 'build'
+      ? [{ find: /^.*\/demoDb\.js$/, replacement: path.resolve(__dirname, 'js/demoDbStub.js') }]
+      : []),
+    { find: '@', replacement: path.resolve(__dirname, '.') },
+  ];
+
   return {
     resolve: {
-      alias: {
-        '@': path.resolve(__dirname, '.'),
-      },
+      alias: aliases,
     },
     build: {
       rollupOptions: {

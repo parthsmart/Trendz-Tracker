@@ -19,9 +19,14 @@ import { buildFlashCardSummary } from './flashStats.js';
 import { isBasicsOnlineAvailable } from './practiceStats.js';
 import { taskLink, isTaskActivityAvailable } from './todoForm.js';
 import {
+  getISTDateYMD,
+  getWeekBoundsIST,
+  getLast7DaysBoundsIST,
+} from './periods.js';
+import {
   formatDisplayDateIST,
   formatSecondsToTime,
-   getISTDateString,
+  getISTDateString,
   calculateBasicsWeeklySummary,
   buildRoundScoreMatrix,
   calculate7DayDualTrend,
@@ -54,6 +59,7 @@ function isValidHttpUrl(url) {
 /**
  * --------------------------------------------------------------------------
  * 1. Streak & Shield Card
+ * Supports both the compact 1-row Student Home streak card and Admin detail card.
  * --------------------------------------------------------------------------
  */
 export function renderStreakCard(streakData) {
@@ -74,7 +80,7 @@ export function renderStreakCard(streakData) {
 
   if (shieldLblEl) {
     if (shieldCount > 0) {
-      shieldLblEl.textContent = shieldCount === 1 ? 'Shield Ready' : `${shieldCount} Shields Ready`;
+      shieldLblEl.textContent = shieldCount === 1 ? '1 shield ready' : `${shieldCount} shields ready`;
     } else {
       const cur = Number(streak.current_streak) || 0;
       const nextShieldDay = Math.ceil((cur + 1) / 10) * 10;
@@ -84,13 +90,13 @@ export function renderStreakCard(streakData) {
 
   if (todayBadgeEl) {
     if (streak.active_today) {
-      todayBadgeEl.innerHTML = `<span style="color: var(--color-score-perfect);">✓ Completed Today</span>`;
+      todayBadgeEl.innerHTML = `<span style="color: var(--color-score-perfect);">yes</span>`;
     } else {
-      todayBadgeEl.innerHTML = `<span style="color: var(--color-score-warning);">⏳ Pending Today</span>`;
+      todayBadgeEl.innerHTML = `<span style="color: var(--color-score-warning);">no</span>`;
     }
   }
 
-  // Milestones: 7, 25, 50, 100
+  // Milestones: 7, 25, 50, 100 (present on teacher detail view)
   const milestones = [7, 25, 50, 100];
   const curStreak = Number(streak.current_streak) || 0;
   let nextMilestone = null;
@@ -119,7 +125,96 @@ export function renderStreakCard(streakData) {
 
 /**
  * --------------------------------------------------------------------------
- * 2. Today's To-Do List
+ * 1b. Student Home Top 3 Summary Metric Cards (Last 7 Days in IST)
+ * Renders:
+ * - Accuracy (with exact IST range, e.g. "Last 7 days: 22 to 28 Oct")
+ * - Speed in questions per minute (same exact IST range)
+ * - Practice days ("4 of the last 7 days", same exact IST range)
+ * --------------------------------------------------------------------------
+ */
+export function renderTodaySummaryMetrics(results = [], activityResults = [], todayIST = '') {
+  const bounds = getLast7DaysBoundsIST(todayIST || new Date());
+  const rangeLabel = bounds.label; // e.g. "Last 7 days: 22 to 28 Oct"
+
+  const accEl = document.getElementById('metric-7d-accuracy');
+  const accRangeEl = document.getElementById('metric-7d-accuracy-range');
+  const spdEl = document.getElementById('metric-7d-speed');
+  const spdRangeEl = document.getElementById('metric-7d-speed-range');
+  const daysEl = document.getElementById('metric-7d-days');
+  const daysRangeEl = document.getElementById('metric-7d-days-range');
+
+  if (accRangeEl) accRangeEl.textContent = rangeLabel;
+  if (spdRangeEl) spdRangeEl.textContent = rangeLabel;
+  if (daysRangeEl) daysRangeEl.textContent = rangeLabel;
+
+  const trend7d = calculate7DayDualTrend(results, bounds.endYmd);
+  let sumCorrect = 0;
+  let sumTotal = 0;
+  let sumTimedQuestions = 0;
+  let sumTimedSeconds = 0;
+  const activeDates = new Set();
+
+  for (const day of trend7d) {
+    if (day.total > 0) {
+      sumCorrect += day.correct;
+      sumTotal += day.total;
+      activeDates.add(day.date);
+    }
+    if (day.total > 0 && day.timeSeconds > 0) {
+      sumTimedQuestions += day.total;
+      sumTimedSeconds += day.timeSeconds;
+    }
+  }
+
+  // Also include activity_results (Flash Anzan, Elements, Memoriad) in active practice days
+  if (Array.isArray(activityResults)) {
+    for (const row of activityResults) {
+      if (!row) continue;
+      const total = Number(row.total) || 0;
+      if (total <= 0) continue;
+      const dStr = getISTDateYMD(row.created_at || row.entry_date);
+      if (dStr >= bounds.startYmd && dStr <= bounds.endYmd) {
+        activeDates.add(dStr);
+      }
+    }
+  }
+
+  if (accEl) {
+    if (sumTotal > 0) {
+      const pct = Math.round((sumCorrect / sumTotal) * 1000) / 10;
+      const fb = getScoreFeedback(sumCorrect, sumTotal);
+      accEl.textContent = `${pct}%`;
+      accEl.style.color = fb.colorVar;
+    } else {
+      accEl.textContent = 'No tries';
+      accEl.style.color = 'var(--text-muted)';
+    }
+  }
+
+  if (spdEl) {
+    if (sumTimedQuestions > 0 && sumTimedSeconds > 0) {
+      const qpm = Math.round((sumTimedQuestions / (sumTimedSeconds / 60)) * 10) / 10;
+      spdEl.textContent = `${qpm} q/min`;
+      spdEl.style.color = 'var(--text-main)';
+    } else {
+      spdEl.textContent = 'No timed tries';
+      spdEl.style.color = 'var(--text-muted)';
+    }
+  }
+
+  if (daysEl) {
+    daysEl.textContent = `${activeDates.size} of the last 7 days`;
+    daysEl.style.color = activeDates.size > 0 ? 'var(--color-primary)' : 'var(--text-muted)';
+  }
+}
+
+/**
+ * --------------------------------------------------------------------------
+ * 2. Today's Plan (To-Do List)
+ * Task buttons rule:
+ * - Primary button is "Practice online" (the existing link).
+ * - Secondary "Log result" opens typed entry and appears ONLY for basics and round tasks.
+ * - Never show two buttons that both say "Start".
  * --------------------------------------------------------------------------
  * @param {Array<object>} todos - Items from todo_for() RPC
  * @param {string} containerId - DOM container ID
@@ -156,7 +251,7 @@ export function renderTodoList(todos = [], containerId = 'todo-list-container', 
   const sectionOrder = ['round', 'basics', 'elements', 'memoriad', 'flash'];
   const sectionTitles = {
     round: 'Competition Rounds',
-    basics: 'Speed Drills',
+    basics: 'Speed Drills (Basics)',
     elements: 'Elements',
     memoriad: 'Memoriad',
     flash: 'Flash Anzan'
@@ -185,36 +280,51 @@ export function renderTodoList(todos = [], containerId = 'todo-list-container', 
             const isDone = !!t.done;
             const isAvailable = isTaskActivityAvailable(t, categories);
             const targetLink = taskLink(t);
+            const sec = (t.task_section || 'round').toLowerCase();
 
-            const matchedBasicsCat = t.task_section === 'basics' && t.task_category_id && Array.isArray(categories)
+            const matchedBasicsCat = sec === 'basics' && t.task_category_id && Array.isArray(categories)
               ? categories.find(c => String(c.id) === String(t.task_category_id))
               : null;
             const canPracticeOnline = matchedBasicsCat ? isBasicsOnlineAvailable(matchedBasicsCat) : false;
-            const onlineLink = canPracticeOnline
-              ? `/pages/basics-practice.html?cat=${encodeURIComponent(t.task_category_id)}`
-              : null;
+
+            let actionButtonsHtml = '';
+            if (!isAvailable) {
+              actionButtonsHtml = `<span style="font-size: var(--text-xs); color: var(--text-muted); font-style: italic;">Activity no longer available</span>`;
+            } else if (isReadOnly) {
+              actionButtonsHtml = `<span class="badge ${isDone ? 'badge-active' : 'badge-inactive'}" style="font-size: 11px;">${isDone ? 'Done' : 'Pending'}</span>`;
+            } else if (isDone) {
+              actionButtonsHtml = `<span class="badge badge-active" style="font-size: 11px;">✓ Done</span>`;
+            } else if (sec === 'basics') {
+              const onlineHref = canPracticeOnline
+                ? `/pages/basics-practice.html?cat=${encodeURIComponent(t.task_category_id)}`
+                : '/pages/basics.html';
+              actionButtonsHtml = `
+                <a href="${onlineHref}" class="btn btn-primary btn-sm" style="text-decoration: none;">Practice online</a>
+                <a href="${targetLink}" class="btn btn-outline btn-sm" style="text-decoration: none;">Log result</a>
+              `;
+            } else if (sec === 'round') {
+              actionButtonsHtml = `
+                <a href="${targetLink}" class="btn btn-outline btn-sm" style="text-decoration: none;">Log result</a>
+              `;
+            } else {
+              // elements, memoriad, flash: online practice only
+              actionButtonsHtml = `
+                <a href="${targetLink}" class="btn btn-primary btn-sm" style="text-decoration: none;">Practice online</a>
+              `;
+            }
 
             return `
-              <div class="todo-task-item ${isDone ? 'todo-task-done' : ''}" style="display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline);">
+              <div class="todo-task-item ${isDone ? 'todo-task-done' : ''}" style="display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); flex-wrap: wrap;">
                 <div style="display: flex; align-items: center; gap: var(--space-2); min-width: 0;">
                   <span class="todo-checkbox ${isDone ? 'checked' : ''}" aria-hidden="true">
                     ${isDone ? '✓' : '○'}
                   </span>
-                  <span style="font-size: var(--text-xs); font-weight: 600; color: ${isDone ? 'var(--text-muted)' : 'var(--text-main)'}; text-decoration: ${isDone ? 'line-through' : 'none'}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  <span style="font-size: var(--text-sm); font-weight: 600; color: ${isDone ? 'var(--text-muted)' : 'var(--text-main)'}; text-decoration: ${isDone ? 'line-through' : 'none'};">
                     ${escapeHtml(t.task_title)}
                   </span>
                 </div>
-                <div style="display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;">
-                  ${!isAvailable
-                    ? `<span style="font-size: var(--text-xs); color: var(--text-muted); font-style: italic;">Activity no longer available</span>`
-                    : (isReadOnly
-                        ? `<span class="badge ${isDone ? 'badge-active' : 'badge-inactive'}" style="font-size: 10px;">${isDone ? 'Done' : 'Pending'}</span>`
-                        : (isDone
-                            ? `<span class="badge badge-active" style="font-size: 10px;">Done</span>`
-                            : `${onlineLink ? `<a href="${onlineLink}" class="btn btn-primary btn-sm" style="font-size: 10px; padding: 2px 8px; text-decoration: none;">Practice online</a>` : ''}<a href="${targetLink}" class="btn ${onlineLink ? 'btn-outline' : 'btn-primary'} btn-sm" style="font-size: 10px; padding: 2px 8px; text-decoration: none;">Start &rarr;</a>`
-                          )
-                      )
-                  }
+                <div style="display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0;">
+                  ${actionButtonsHtml}
                 </div>
               </div>
             `;
@@ -230,91 +340,156 @@ export function renderTodoList(todos = [], containerId = 'todo-list-container', 
 
 /**
  * --------------------------------------------------------------------------
- * 3. Basics This Week Card (Past 7 Days)
+ * 3. Basics Card (Reporting Periods: This Week vs Last 7 Days vs All Time)
  * --------------------------------------------------------------------------
  */
-export function renderBasicsThisWeek(results, categories, todayIST, containerId = 'basics-week-container') {
+export function renderBasicsThisWeek(results = [], categories = [], todayIST, containerId = 'basics-week-container') {
   const container = document.getElementById(containerId);
   if (!container) return;
 
-  const summary = calculateBasicsWeeklySummary(results, categories, todayIST);
+  const weekBounds = getWeekBoundsIST(todayIST || new Date());
+  const bounds7d = getLast7DaysBoundsIST(todayIST || new Date());
+  const summary = calculateBasicsWeeklySummary(results, categories, bounds7d.endYmd);
 
-  if (summary.length === 0) {
-    container.innerHTML = `
-      <div class="empty-state" style="padding: var(--space-4);">
-        No basics speed drills logged in the last 7 days.
-      </div>
-    `;
-    return;
-  }
+  const basicsCatIds = new Set(
+    (categories || []).filter(c => c && c.section === 'basics').map(c => c.id)
+  );
+
+  let weekTries = 0;
+  let weekCorrect = 0;
+  let weekQuestions = 0;
+  let allTimeTries = 0;
+  let allTimeCorrect = 0;
+  let allTimeQuestions = 0;
+
+  (results || []).forEach(res => {
+    if (!res || !basicsCatIds.has(res.category_id)) return;
+    const total = Number(res.total) || 0;
+    const correct = Math.max(0, Number(res.correct) || 0);
+    if (total <= 0) return;
+
+    allTimeTries += 1;
+    allTimeCorrect += correct;
+    allTimeQuestions += total;
+
+    const dKey = getISTDateString(res.entry_date || res.created_at);
+    if (dKey >= weekBounds.startYmd && dKey <= weekBounds.endYmd) {
+      weekTries += 1;
+      weekCorrect += correct;
+      weekQuestions += total;
+    }
+  });
+
+  const allTimePct = allTimeQuestions > 0 ? Math.round((allTimeCorrect / allTimeQuestions) * 1000) / 10 : 0;
 
   // Collect recent Basics entries (up to 5) across the 7-day window to show individual source chips
   const recentBasicsEntries = summary
     .flatMap(item => item.entries || [])
     .slice(0, 5);
 
+  const thisWeekText = weekTries === 0
+    ? 'No tries this week'
+    : `This week: ${weekTries} ${weekTries === 1 ? 'try' : 'tries'}, ${weekCorrect} correct (of ${weekQuestions})`;
+
   let html = `
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: var(--space-2);">
-      ${summary.map(item => {
-        const feedback = getScoreFeedback(item.totalCorrect, item.totalQuestions);
-        const targetHtml = item.targetEvaluatedCount > 0
-          ? `<div style="margin-top: 4px;"><span class="badge ${item.targetMetCount === item.targetEvaluatedCount ? 'badge-success' : 'badge-warning'}" style="font-size: 10px;">🎯 ${item.targetMetCount} of ${item.targetEvaluatedCount} met target</span></div>`
-          : '';
-        const siteChipHtml = item.siteCount > 0
-          ? `<div style="margin-top: 4px;"><span class="status-chip chip-verified" style="font-size: 10px;">Recorded by the site (${item.siteCount})</span></div>`
-          : '';
-        return `
-          <div style="background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: var(--space-3); text-align: center;">
-            <div style="font-size: var(--text-xs); font-weight: 700; color: var(--color-primary); text-transform: uppercase;">
-              ${escapeHtml(item.categoryName)}
-            </div>
-            <div style="font-size: 1.25rem; font-weight: 800; color: ${feedback.colorVar}; margin: 2px 0;">
-              ${item.avgAccuracy}%
-            </div>
-            <div style="font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums;">
-              ${item.avgSpeed} q/min
-            </div>
-            <div style="font-size: 10px; color: var(--text-dim); margin-top: 2px;">
-              ${item.entryCount} drill${item.entryCount === 1 ? '' : 's'} (${item.totalCorrect}/${item.totalQuestions})
-            </div>
-            ${targetHtml}
-            ${siteChipHtml}
-          </div>
-        `;
-      }).join('')}
-    </div>
-    ${recentBasicsEntries.length > 0 ? `
-      <div style="margin-top: var(--space-3); border-top: 1px solid var(--border-hairline); padding-top: var(--space-2); display: flex; flex-direction: column; gap: 4px;">
-        ${recentBasicsEntries.map(entry => {
-          const fb = getScoreFeedback(entry.correct, entry.total);
-          const isSite = entry.source === 'site';
-          const modeLabel = entry.practiceMode === 'timed' ? 'Timed' : (entry.practiceMode === 'unlimited' ? 'Unlimited' : null);
-          const attemptedPerMinute = modeLabel && Number(entry.total) > 0 && Number(entry.timeSeconds) > 0
-            ? (Math.round((Number(entry.total) / (Number(entry.timeSeconds) / 60)) * 10) / 10).toFixed(1)
-            : null;
-          const modeChip = modeLabel
-            ? ` <span class="status-chip chip-unverified" style="font-size: 10px;">${modeLabel}</span>`
-            : '';
-          const statusChip = isSite
-            ? `<span class="status-chip chip-verified" style="font-size: 10px;">Recorded by the site</span>${modeChip}`
-            : `<span class="status-chip chip-unverified" style="font-size: 10px;">Typed</span>${modeChip}${entry.verified ? ` <span class="status-chip chip-verified" style="font-size: 10px;">🔒 Verified</span>` : ''}`;
-          return `
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--text-xs); padding: 2px 0; flex-wrap: wrap;">
-              <div style="display: flex; align-items: center; gap: 6px;">
-                <strong style="color: var(--text-main);">${escapeHtml(entry.categoryName)}</strong>
-                <span class="num">${entry.correct}/${entry.total}</span>
-                <span class="score-tag ${fb.badgeClass}" style="font-size: 10px; padding: 1px 4px;">${fb.wrongText}</span>
-                ${attemptedPerMinute ? `<span class="num" style="font-size: 11px; color: var(--text-muted);">${attemptedPerMinute} / min</span>` : ''}
-              </div>
-              <div style="display: flex; align-items: center; gap: 6px;">
-                ${statusChip}
-                <span class="num" style="font-size: 11px; color: var(--text-dim);">${formatDisplayDateIST(entry.entryDate)}</span>
-              </div>
-            </div>
-          `;
-        }).join('')}
+    <!-- This Week (Monday to Sunday in IST) -->
+    <div style="background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: var(--space-3); margin-bottom: var(--space-3);">
+      <div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 4px;">
+        <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);">
+          This week (${escapeHtml(weekBounds.rangeText)})
+        </span>
+        <span style="font-size: 11px; color: var(--text-dim);">India time</span>
       </div>
-    ` : ''}
+      <div class="num" style="font-size: var(--text-sm); font-weight: 700; color: ${weekTries === 0 ? 'var(--text-muted)' : 'var(--text-main)'}; margin-top: 4px;">
+        ${escapeHtml(thisWeekText)}
+      </div>
+    </div>
+
+    <!-- Last 7 Days Category Breakdown -->
+    <div style="margin-bottom: var(--space-3);">
+      <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin-bottom: var(--space-2);">
+        ${escapeHtml(bounds7d.label)}
+      </div>
+      ${summary.length === 0 ? `
+        <div class="empty-state" style="padding: var(--space-3); font-size: var(--text-xs);">
+          No tries in the last 7 days (${escapeHtml(bounds7d.shortRange)}).
+        </div>
+      ` : `
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: var(--space-2);">
+          ${summary.map(item => {
+            const feedback = getScoreFeedback(item.totalCorrect, item.totalQuestions);
+            const targetHtml = item.targetEvaluatedCount > 0
+              ? `<div style="margin-top: 4px;"><span class="badge ${item.targetMetCount === item.targetEvaluatedCount ? 'badge-success' : 'badge-warning'}" style="font-size: 10px;">🎯 ${item.targetMetCount} of ${item.targetEvaluatedCount} met target</span></div>`
+              : '';
+            const siteChipHtml = item.siteCount > 0
+              ? `<div style="margin-top: 4px;"><span class="status-chip chip-verified" style="font-size: 10px;">Recorded by the site (${item.siteCount})</span></div>`
+              : '';
+            return `
+              <div style="background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: var(--space-3); text-align: center;">
+                <div style="font-size: var(--text-xs); font-weight: 700; color: var(--color-primary); text-transform: uppercase;">
+                  ${escapeHtml(item.categoryName)}
+                </div>
+                <div style="font-size: 1.25rem; font-weight: 800; color: ${feedback.colorVar}; margin: 2px 0;">
+                  ${item.avgAccuracy}%
+                </div>
+                <div style="font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums;">
+                  ${item.avgSpeed} q/min
+                </div>
+                <div style="font-size: 10px; color: var(--text-dim); margin-top: 2px;">
+                  ${item.entryCount} ${item.entryCount === 1 ? 'try' : 'tries'} (${item.totalCorrect}/${item.totalQuestions})
+                </div>
+                ${targetHtml}
+                ${siteChipHtml}
+              </div>
+            `;
+          }).join('')}
+        </div>
+        ${recentBasicsEntries.length > 0 ? `
+          <div style="margin-top: var(--space-3); border-top: 1px solid var(--border-hairline); padding-top: var(--space-2); display: flex; flex-direction: column; gap: 4px;">
+            ${recentBasicsEntries.map(entry => {
+              const fb = getScoreFeedback(entry.correct, entry.total);
+              const isSite = entry.source === 'site';
+              const modeLabel = entry.practiceMode === 'timed' ? 'Timed' : (entry.practiceMode === 'unlimited' ? 'Unlimited' : null);
+              const attemptedPerMinute = modeLabel && Number(entry.total) > 0 && Number(entry.timeSeconds) > 0
+                ? (Math.round((Number(entry.total) / (Number(entry.timeSeconds) / 60)) * 10) / 10).toFixed(1)
+                : null;
+              const modeChip = modeLabel
+                ? ` <span class="status-chip chip-unverified" style="font-size: 10px;">${modeLabel}</span>`
+                : '';
+              const statusChip = isSite
+                ? `<span class="status-chip chip-verified" style="font-size: 10px;">Recorded by the site</span>${modeChip}`
+                : `<span class="status-chip chip-unverified" style="font-size: 10px;">Typed</span>${modeChip}${entry.verified ? ` <span class="status-chip chip-verified" style="font-size: 10px;">🔒 Verified</span>` : ''}`;
+              return `
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--text-xs); padding: 2px 0; flex-wrap: wrap;">
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <strong style="color: var(--text-main);">${escapeHtml(entry.categoryName)}</strong>
+                    <span class="num">${entry.correct}/${entry.total}</span>
+                    <span class="score-tag ${fb.badgeClass}" style="font-size: 10px; padding: 1px 4px;">${fb.wrongText}</span>
+                    ${attemptedPerMinute ? `<span class="num" style="font-size: 11px; color: var(--text-muted);">${attemptedPerMinute} / min</span>` : ''}
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    ${statusChip}
+                    <span class="num" style="font-size: 11px; color: var(--text-dim);">${formatDisplayDateIST(entry.entryDate)}</span>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        ` : ''}
+      `}
+    </div>
+
+    <!-- Visually Separate All-Time Section -->
+    <div style="background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-top: 2px solid var(--border-subtle); border-radius: var(--radius-md); padding: var(--space-3);">
+      <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin-bottom: 2px;">
+        All time
+      </div>
+      <div class="num" style="font-size: var(--text-xs); color: var(--text-main); font-weight: 600;">
+        ${allTimeTries > 0
+          ? `All time: ${allTimeCorrect} of ${allTimeQuestions} correct (${allTimePct}%) across ${allTimeTries} ${allTimeTries === 1 ? 'try' : 'tries'}`
+          : 'All time: No tries recorded yet.'}
+      </div>
+    </div>
   `;
 
   container.innerHTML = html;
@@ -322,80 +497,56 @@ export function renderBasicsThisWeek(results, categories, todayIST, containerId 
 
 /**
  * --------------------------------------------------------------------------
- * 3b. Shared Flash Anzan Card (Phase 7b: Tries This Week, Correct This Week,
- *     and Success Rate of Most-Practised Settings)
+ * 3b. Shared Flash Anzan Card
+ * - Shows exact week range ("Mon 26 Oct to Sun 1 Nov") in India time
+ * - Shows "This week: n tries, n correct" or "No tries this week" (distinct from "0 correct")
+ * - Separately shows "All time at your most-practised settings: n of m correct (x%)"
  * --------------------------------------------------------------------------
  */
 export function renderFlashThisWeek(activityResults = [], todayIST, containerId = 'flash-week-container') {
   const container = document.getElementById(containerId);
   if (!container) return;
 
+  const weekBounds = getWeekBoundsIST(todayIST || new Date());
   const summary = buildFlashCardSummary(activityResults, todayIST || new Date());
   const { triesThisWeek: triesCount, correctThisWeek: correctCount, mostPractised } = summary;
-
-  if (!mostPractised && triesCount === 0) {
-    container.innerHTML = `
-      <div class="empty-state" style="padding: var(--space-4);">
-        No Flash Anzan tries recorded yet.
-      </div>
-    `;
-    return;
-  }
 
   const weekFeedback = triesCount > 0 ? getScoreFeedback(correctCount, triesCount) : null;
   const topFeedback = mostPractised ? getScoreFeedback(mostPractised.correct, mostPractised.tries) : null;
 
-  container.innerHTML = `
-    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-3); margin-bottom: var(--space-3);">
-      <div style="background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: var(--space-3);">
-        <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted);">
-          Tries This Week
-        </div>
-        <div class="num" style="font-size: 1.35rem; font-weight: 800; color: var(--text-main); margin-top: 2px;">
-          ${triesCount}
-        </div>
-        <div style="font-size: 11px; color: var(--text-dim);">
-          Monday–Sunday (IST)
-        </div>
-      </div>
+  const thisWeekLine = triesCount === 0
+    ? 'No tries this week'
+    : `This week: ${triesCount} ${triesCount === 1 ? 'try' : 'tries'}, ${correctCount} correct`;
 
-      <div style="background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: var(--space-3);">
-        <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted);">
-          Correct This Week
+  container.innerHTML = `
+    <!-- This Week Section (Monday to Sunday in India time) -->
+    <div style="background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: var(--space-3); margin-bottom: var(--space-3);">
+      <div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 4px;">
+        <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);">
+          This week (${escapeHtml(weekBounds.rangeText)})
         </div>
-        <div class="num" style="font-size: 1.35rem; font-weight: 800; color: ${weekFeedback ? weekFeedback.colorVar : 'var(--text-main)'}; margin-top: 2px;">
-          ${correctCount}
-        </div>
-        <div style="font-size: 11px; color: var(--text-dim);">
-          ${triesCount > 0 ? `of ${triesCount} ${triesCount === 1 ? 'try' : 'tries'}` : 'No tries this week'}
-        </div>
+        <span style="font-size: 11px; color: var(--text-dim);">India time</span>
+      </div>
+      <div class="num" style="font-size: 1.05rem; font-weight: 800; color: ${triesCount === 0 ? 'var(--text-muted)' : (weekFeedback ? weekFeedback.colorVar : 'var(--text-main)')}; margin-top: 4px;">
+        ${escapeHtml(thisWeekLine)}
       </div>
     </div>
 
-    <div style="background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: var(--space-3);">
-      <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px;">
-        Most-Practised Settings
+    <!-- Visually Separate All-Time Section -->
+    <div style="background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-top: 2px solid var(--border-subtle); border-radius: var(--radius-md); padding: var(--space-3);">
+      <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin-bottom: 4px;">
+        All time
       </div>
       ${mostPractised ? `
-        <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
-          <div>
-            <div style="font-size: var(--text-sm); font-weight: 700; color: var(--text-main);">
-              ${escapeHtml(mostPractised.summary)}
-            </div>
-            <div class="num" style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">
-              ${mostPractised.correct} correct of ${mostPractised.tries} ${mostPractised.tries === 1 ? 'try' : 'tries'}
-            </div>
-          </div>
-          <div style="text-align: right;">
-            <div class="num" style="font-size: 1.25rem; font-weight: 800; color: ${topFeedback ? topFeedback.colorVar : 'var(--color-primary)'};">
-              ${mostPractised.successRate}%
-            </div>
-            <div style="font-size: 10px; color: var(--text-dim);">Success rate</div>
-          </div>
+        <div class="num" style="font-size: var(--text-sm); font-weight: 700; color: ${topFeedback ? topFeedback.colorVar : 'var(--text-main)'};">
+          All time at your most-practised settings: ${mostPractised.correct} of ${mostPractised.tries} correct (${mostPractised.successRate}%)
+        </div>
+        <div class="num" style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">
+          Settings: ${escapeHtml(mostPractised.summary)}
         </div>
       ` : `
         <div style="font-size: var(--text-xs); color: var(--text-muted);">
-          No settings history yet.
+          All time: No tries recorded yet.
         </div>
       `}
     </div>
@@ -502,7 +653,7 @@ export function renderAttendanceCard(summary, containerId = 'attendance-card-con
       </div>
     </div>
     <p style="font-size: 11px; color: var(--text-muted); margin: 0; line-height: 1.4;">
-      <em>Excused sessions are not counted.</em>
+      <em>Excused classes are not counted.</em>
     </p>
   `;
 }
@@ -581,7 +732,7 @@ export function renderWeeklyTestsCard(weeklyTests, categories = [], containerId 
       const total = Number(s.total) || 0;
       const acc = total > 0 ? Math.round((correct / total) * 100) : 0;
       const timeStr = s.time_seconds !== null && s.time_seconds !== undefined && s.time_seconds !== ''
-        ? formatSecondsToMMSS(Number(s.time_seconds))
+        ? formatSecondsToTime(Number(s.time_seconds))
         : '—';
 
       return `

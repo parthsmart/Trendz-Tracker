@@ -14,9 +14,6 @@
   </head>
   <body>
     <div class="login-page-wrapper">
-      <!-- Demo Mode / Setup status banner -->
-      <div id="config-banner-placeholder" style="width: 100%; max-width: 440px;"></div>
-
       <main class="login-card">
         <header class="login-header">
           <div class="login-logo" aria-hidden="true">🧮</div>
@@ -32,7 +29,7 @@
               id="student-id"
               name="studentId"
               class="form-input"
-              placeholder="e.g. STU101 or ADMIN01"
+              placeholder="Enter your assigned ID"
               autocomplete="username"
               required
             />
@@ -60,50 +57,7 @@
             <span id="login-btn-text">Sign In</span>
           </button>
         </form>
-
-        <!-- Quick Demo Credentials Helper for instant evaluation -->
-        <section class="login-demo-helper" aria-label="Quick test credentials">
-          <span>Quick test accounts (Click to fill):</span>
-          <div class="demo-credentials-grid">
-            <button type="button" class="demo-chip" id="demo-fill-student">
-              <strong>Student Account</strong>
-              <span>ID: STU101</span>
-            </button>
-            <button type="button" class="demo-chip" id="demo-fill-admin">
-              <strong>Admin Account</strong>
-              <span>ID: ADMIN01</span>
-            </button>
-          </div>
-        </section>
       </main>
-    </div>
-
-    <!-- Setup Guide & SQL Modal Dialog -->
-    <div id="guide-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="guide-title">
-      <div class="modal-dialog">
-        <header class="modal-header">
-          <h2 id="guide-title" class="modal-title">Supabase Setup Guide & Schema</h2>
-          <button type="button" class="modal-close" data-close-modal="guide-modal" aria-label="Close modal">&times;</button>
-        </header>
-        <div class="modal-body" style="font-size: var(--text-sm); line-height: 1.6;">
-          <p style="margin-bottom: var(--space-3);">
-            Follow these 3 simple steps to connect your own Supabase project:
-          </p>
-          <ol style="padding-left: var(--space-5); margin-bottom: var(--space-4); display: flex; flex-direction: column; gap: var(--space-2);">
-            <li>Create a new project at <a href="https://supabase.com" target="_blank" rel="noopener">supabase.com</a>.</li>
-            <li>Go to the <strong>SQL Editor</strong>, paste the complete script from <code>supabase/schema.sql</code>, and click <strong>Run</strong>.</li>
-            <li>In <strong>Project Settings &rarr; API</strong>, copy your <strong>Project URL</strong> and <strong>anon public key</strong> into <code>js/config.js</code>.</li>
-            <li>In Vercel or your <code>.env</code>, add your <strong>SUPABASE_SERVICE_ROLE_KEY</strong> for admin user creation.</li>
-          </ol>
-          <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label">Full SQL Script Location</label>
-            <input type="text" class="form-input" readonly value="/supabase/schema.sql" />
-          </div>
-        </div>
-        <footer class="modal-footer">
-          <button type="button" class="btn btn-outline" data-close-modal="guide-modal">Close</button>
-        </footer>
-      </div>
     </div>
 
     <!-- Toast Notifications Container -->
@@ -113,12 +67,10 @@
     <script type="module">
       import { loginWithStudentId, redirectByRole } from '/js/auth.js';
       import { requireNoAuth } from '/js/guard.js';
-      import { setupModalListeners } from '/js/modal.js';
       import { showToast } from '/js/toast.js';
 
       // Check if already authenticated
       await requireNoAuth();
-      setupModalListeners();
 
       const form = document.getElementById('login-form');
       const studentIdInput = document.getElementById('student-id');
@@ -127,19 +79,6 @@
       const btnText = document.getElementById('login-btn-text');
       const errorContainer = document.getElementById('login-error-container');
       const errorText = document.getElementById('login-error-text');
-
-      // Demo quick fill handlers
-      document.getElementById('demo-fill-student')?.addEventListener('click', () => {
-        studentIdInput.value = 'STU101';
-        passwordInput.value = 'student123';
-        clearError();
-      });
-
-      document.getElementById('demo-fill-admin')?.addEventListener('click', () => {
-        studentIdInput.value = 'ADMIN01';
-        passwordInput.value = 'admin123';
-        clearError();
-      });
 
       function showError(msg) {
         errorText.textContent = msg;

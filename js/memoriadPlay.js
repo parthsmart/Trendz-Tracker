@@ -577,7 +577,7 @@ async function handleStartFromSettings() {
     }
   } catch (err) {
     if (errBox) {
-      errBox.textContent = err?.message || 'Could not start the session. Please try again.';
+      errBox.textContent = err?.message || 'Could not start the practice round. Please try again.';
       errBox.style.display = 'block';
     }
     if (startBtn) {
@@ -2517,7 +2517,7 @@ async function callMemoriadApi(payload) {
     });
   } catch {
     const netErr = new Error(
-      'Network error while contacting the server. Your answers are still safe on this screen — click "Try sending again".'
+      'Network problem while sending your answers. Your answers are still safe on this screen — click "Try sending again".'
     );
     netErr.isNetworkError = true;
     throw netErr;
@@ -2528,7 +2528,7 @@ async function callMemoriadApi(payload) {
     const rawText = await res.text();
     data = rawText && rawText.trim() ? JSON.parse(rawText) : null;
   } catch {
-    const parseErr = new Error('Received an invalid response from the server.');
+    const parseErr = new Error('Received an unexpected response. Please try again.');
     parseErr.isNetworkError = res.status >= 500;
     throw parseErr;
   }
@@ -2540,7 +2540,7 @@ async function callMemoriadApi(payload) {
   }
 
   if (!data || typeof data !== 'object') {
-    const emptyErr = new Error('Received an invalid response from the server.');
+    const emptyErr = new Error('Received an unexpected response. Please try again.');
     emptyErr.isNetworkError = true;
     throw emptyErr;
   }

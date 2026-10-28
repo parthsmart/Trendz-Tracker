@@ -12,8 +12,9 @@
 
 import { getSupabase, DemoDB } from './supabaseClient.js';
 import { isSupabaseConfigured } from './config.js';
-import { summarizeAllMemoriad } from './memoriadStats.js';
+import { summarizeAllMemoriad, toIstDateString } from './memoriadStats.js';
 import { getScoreFeedback } from './scoreColors.js';
+import { getWeekBoundsIST } from './periods.js';
 
 function escapeHtml(str) {
   if (str === null || str === undefined) return '';
@@ -85,7 +86,7 @@ export async function fetchStudentMemoriadResults(studentId) {
 
   return mergeSessionPreviewMemoriadRows(
     studentId,
-    DemoDB.getActivityResults(studentId, 'memoriad')
+    DemoDB ? DemoDB.getActivityResults(studentId, 'memoriad') : []
   );
 }
 
@@ -103,9 +104,8 @@ function renderModuleBestRow(label, summary, isCalendar = false) {
   const feedback = getScoreFeedback(best.correct, best.attempted);
   const datesSuffix = isCalendar && best.dates ? ` (${best.dates}d)` : '';
   const timeStr = `${Number(best.used_seconds).toFixed(2)}s`;
-  const mainScoreText = isCalendar
-    ? `Score ${best.score} (${best.correct}/${best.attempted})`
-    : `Score ${best.score} (${best.correct}/${best.attempted})`;
+  const pct = best.attempted > 0 ? Math.round((best.correct / best.attempted) * 100) : 0;
+  const mainScoreText = `Score ${best.score} (${best.correct}/${best.attempted}, ${pct}%)`;
 
   return `
     <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); padding: 6px 0; border-bottom: 1px solid var(--border-hairline); flex-wrap: wrap;">
@@ -154,7 +154,27 @@ export async function renderMemoriadCard(studentIdOrOpts, opts = {}) {
       )
     : await fetchStudentMemoriadResults(studentId);
 
+  const weekBounds = getWeekBoundsIST(todayIST || new Date());
   const summary = summarizeAllMemoriad(rows, todayIST || new Date());
+
+  // Strictly compute Monday-to-Sunday IST week tries and correct answers
+  let weekTries = 0;
+  let weekCorrect = 0;
+  let weekAttempted = 0;
+  rows.forEach((r) => {
+    if (!r) return;
+    const dStr = toIstDateString(r.created_at || r.entry_date);
+    if (dStr >= weekBounds.startYmd && dStr <= weekBounds.endYmd) {
+      weekTries += 1;
+      weekCorrect += Math.max(0, Number(r?.settings?.correct ?? r?.correct) || 0);
+      weekAttempted += Math.max(0, Number(r?.settings?.attempted ?? r?.total) || 0);
+    }
+  });
+
+  const thisWeekText =
+    weekTries === 0
+      ? 'No tries this week'
+      : `This week: ${weekTries} ${weekTries === 1 ? 'try' : 'tries'}, ${weekCorrect} correct (of ${weekAttempted})`;
 
   const linkHtml = isReadOnly
     ? ''
@@ -167,23 +187,28 @@ export async function renderMemoriadCard(studentIdOrOpts, opts = {}) {
     `;
 
   container.innerHTML = `
-    <div style="display: flex; justify-content: space-between; align-items: center; background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: var(--space-3); margin-bottom: var(--space-3);">
-      <div>
+    <!-- This Week Section (Monday to Sunday in India time) -->
+    <div style="background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: var(--space-3); margin-bottom: var(--space-3);">
+      <div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 4px;">
         <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);">
-          Tries This Week (IST)
+          This week (${escapeHtml(weekBounds.rangeText)})
         </div>
-        <div style="font-size: var(--text-xs); color: var(--text-dim); margin-top: 2px;">
-          Last 7 days in Indian time
-        </div>
+        <span style="font-size: 11px; color: var(--text-dim);">India time</span>
       </div>
-      <div class="num" style="font-size: 1.35rem; font-weight: 800; color: var(--color-primary);">
-        ${summary.triesThisWeek}
+      <div class="num" style="font-size: var(--text-sm); font-weight: 700; color: ${weekTries === 0 ? 'var(--text-muted)' : 'var(--text-main)'}; margin-top: 4px;">
+        ${escapeHtml(thisWeekText)}
       </div>
     </div>
 
-    <div style="background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3);">
-      <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin-bottom: 2px;">
-        Best Scores by Module
+    <!-- Visually Separate All-Time Section -->
+    <div style="background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-top: 2px solid var(--border-subtle); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3);">
+      <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px;">
+        <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);">
+          All time &mdash; Best scores by module
+        </div>
+        <span class="num" style="font-size: 11px; color: var(--text-dim);">
+          ${summary.totalTries} total ${summary.totalTries === 1 ? 'try' : 'tries'}
+        </span>
       </div>
       ${renderModuleBestRow('Calendar Dates', summary.modules.calendar, true)}
       ${renderModuleBestRow('Mental Additions', summary.modules.additions, false)}

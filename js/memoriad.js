@@ -152,7 +152,7 @@ function renderLastFiveTable(mod, modSummary) {
   if (lastFive.length === 0) {
     return `
       <div style="margin-bottom: var(--space-4); font-size: var(--text-xs); color: var(--text-dim); padding: var(--space-2) 0;">
-        Last 5 tries will appear here once you complete a session.
+        Last 5 tries will appear here once you complete a practice try.
       </div>
     `;
   }
