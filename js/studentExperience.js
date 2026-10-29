@@ -88,7 +88,7 @@ export function refreshNextPractice() {
   const actions = document.getElementById('next-practice-actions');
   actions.replaceChildren();
   if (next) {
-    heading.textContent = next.firstElementChild.lastElementChild.textContent.trim();
+    heading.textContent = next.querySelector('.todo-task-title').textContent.trim();
     description.textContent = 'Next available task in your assigned plan. Choose online practice or log a paper result when available.';
     next.querySelectorAll('a').forEach((link, index) => {
       const action = link.cloneNode(true);
