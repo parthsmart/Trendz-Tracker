@@ -22,7 +22,9 @@ const SETTING_KEYS = [
   'weekly_test_multiplier',
   'attendance_present_points',
   'improved_min_entries',
-  'leaderboard_names'
+  'leaderboard_names',
+  'todo_streak_start',
+  'global_leaderboard'
 ];
 
 const KEY_TO_ELEMENT_IDS = {
@@ -49,6 +51,18 @@ const KEY_TO_ELEMENT_IDS = {
     err: 'err-leaderboard-names',
     status: 'status-leaderboard-names',
     label: 'Leaderboard Display Name Format'
+  },
+  todo_streak_start: {
+    input: 'input-todo-streak-start',
+    err: 'err-todo-streak-start',
+    status: 'status-todo-streak-start',
+    label: 'To-do streak rule starts on'
+  },
+  global_leaderboard: {
+    input: 'select-global-leaderboard',
+    err: 'err-global-leaderboard',
+    status: 'status-global-leaderboard',
+    label: 'Global leaderboard (all trainees)'
   }
 };
 
@@ -58,7 +72,7 @@ const KEY_TO_ELEMENT_IDS = {
 function formatFriendlyDbError(err, settingLabel = 'setting') {
   const raw = err?.message || String(err || 'Database error');
   if (raw.includes('check constraint') || raw.includes('violates check') || raw.includes('invalid')) {
-    return `The database rejected the value for ${settingLabel}. Please enter a valid number or option allowed by the competition rules (${raw}).`;
+    return `The database rejected the value for ${settingLabel}. Please enter a valid value allowed by the competition rules (${raw}).`;
   }
   if (raw.includes('permission denied') || raw.includes('row-level security')) {
     return `Permission denied while updating ${settingLabel}. Only administrators can change competition settings.`;
@@ -79,7 +93,7 @@ function hideTopError() {
 }
 
 /**
- * Validates a setting value on the client (numbers only where numbers are needed).
+ * Validates a setting value on the client (numbers only where numbers are needed, YYYY-MM-DD for dates, 'on'/'off' for global_leaderboard).
  * Returns `{ valid: boolean, value: string, error?: string }`.
  */
 function validateSettingInput(key) {
@@ -98,6 +112,44 @@ function validateSettingInput(key) {
   if (key === 'leaderboard_names') {
     if (rawVal !== 'first_name_initial' && rawVal !== 'student_code') {
       const msg = 'Please choose either "First name + last initial" or "Student ID code only".';
+      if (errEl) {
+        errEl.textContent = msg;
+        errEl.style.display = 'block';
+      }
+      return { valid: false, value: rawVal, error: msg };
+    }
+    return { valid: true, value: rawVal };
+  }
+
+  if (key === 'global_leaderboard') {
+    if (rawVal !== 'on' && rawVal !== 'off') {
+      const msg = 'Please choose either "On" or "Off" for the global leaderboard.';
+      if (errEl) {
+        errEl.textContent = msg;
+        errEl.style.display = 'block';
+      }
+      return { valid: false, value: rawVal, error: msg };
+    }
+    return { valid: true, value: rawVal };
+  }
+
+  if (key === 'todo_streak_start') {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(rawVal)) {
+      const msg = 'Please select a valid start date (YYYY-MM-DD).';
+      if (errEl) {
+        errEl.textContent = msg;
+        errEl.style.display = 'block';
+      }
+      return { valid: false, value: rawVal, error: msg };
+    }
+    const [yr, mo, dy] = rawVal.split('-').map(Number);
+    const d = new Date(Date.UTC(yr, mo - 1, dy));
+    if (
+      d.getUTCFullYear() !== yr ||
+      d.getUTCMonth() + 1 !== mo ||
+      d.getUTCDate() !== dy
+    ) {
+      const msg = 'Please enter a valid calendar date (YYYY-MM-DD).';
       if (errEl) {
         errEl.textContent = msg;
         errEl.style.display = 'block';
@@ -168,7 +220,7 @@ function updateLivePreviews() {
 }
 
 /**
- * Loads the current 4 settings from `competition_settings` (or `competition_rules()`).
+ * Loads the current settings from `competition_settings` (or `competition_rules()`).
  */
 async function loadCompetitionSettings() {
   const loadingCard = document.getElementById('competition-loading');
@@ -203,6 +255,9 @@ async function loadCompetitionSettings() {
         map.set('attendance_present_points', String(rules.attendance_present_points));
         map.set('improved_min_entries', String(rules.improved_min_entries));
         map.set('leaderboard_names', String(rules.leaderboard_names));
+        if (rules.todo_streak_start) {
+          map.set('todo_streak_start', String(rules.todo_streak_start));
+        }
       } else {
         (data || []).forEach(r => map.set(r.key, r.value));
       }
@@ -212,11 +267,15 @@ async function loadCompetitionSettings() {
     const attEl = document.getElementById('input-attendance-present-points');
     const impEl = document.getElementById('input-improved-min-entries');
     const nameEl = document.getElementById('select-leaderboard-names');
+    const streakStartEl = document.getElementById('input-todo-streak-start');
+    const globalLbEl = document.getElementById('select-global-leaderboard');
 
     if (multEl) multEl.value = map.get('weekly_test_multiplier') ?? '2';
     if (attEl) attEl.value = map.get('attendance_present_points') ?? '10';
     if (impEl) impEl.value = map.get('improved_min_entries') ?? '5';
     if (nameEl) nameEl.value = map.get('leaderboard_names') || 'first_name_initial';
+    if (streakStartEl) streakStartEl.value = map.get('todo_streak_start') ?? '';
+    if (globalLbEl) globalLbEl.value = map.get('global_leaderboard') === 'off' ? 'off' : 'on';
 
     updateLivePreviews();
 
@@ -261,13 +320,23 @@ async function saveSingleSetting(key, silentSuccessToast = false) {
       DemoDB.updateCompetitionSetting(key, check.value);
     } else {
       const supabase = await getSupabase();
-      const { error } = await supabase
+      const { data: updatedRows, error } = await supabase
         .from('competition_settings')
         .update({ value: check.value })
-        .eq('key', key);
+        .eq('key', key)
+        .select('key');
 
       if (error) {
         throw new Error(error.message);
+      }
+
+      if (!updatedRows || updatedRows.length === 0) {
+        const { error: upsertErr } = await supabase
+          .from('competition_settings')
+          .upsert({ key, value: check.value }, { onConflict: 'key' });
+        if (upsertErr) {
+          throw new Error(upsertErr.message);
+        }
       }
     }
 
@@ -328,7 +397,7 @@ function attachListeners() {
     });
   });
 
-  // Save All 4 Settings form submit (updates each setting with an update on competition_settings)
+  // Save All Settings form submit (updates each setting with an update on competition_settings)
   document.getElementById('competition-settings-form')?.addEventListener('submit', async e => {
     e.preventDefault();
     const saveAllBtn = document.getElementById('btn-save-all-competition');
@@ -344,7 +413,7 @@ function attachListeners() {
 
     if (saveAllBtn) saveAllBtn.disabled = false;
     if (allOk) {
-      showToast('success', 'All 4 competition settings saved.');
+      showToast('success', 'All competition settings saved.');
     }
   });
 

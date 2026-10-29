@@ -517,4 +517,139 @@ describe('Phase 5c — 4. Backup Endpoint Auth, Lock & Pass Execution (api/backu
     assert.equal(result.body.error, 'more to do');
     assert.equal(updatedRunPayload.status, 'partial');
   });
+
+  it('calls rpc todo_finalize at the start of every run, records todo_days_finalized: n, and never fails the run if todo_finalize errors', async () => {
+    const env = {
+      GOOGLE_SERVICE_ACCOUNT_JSON: JSON.stringify({
+        client_email: 'backup-bot@trendz-test.iam.gserviceaccount.com',
+        private_key: privateKey,
+      }),
+      BACKUP_SHEET_ID: 'sheet_123',
+    };
+
+    const mockFetch = async (url) => {
+      if (url.includes('oauth2.googleapis.com/token')) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({ access_token: 'ya29.mock', expires_in: 3600 }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ sheets: [] }),
+      };
+    };
+
+    let rpcCalls = 0;
+    let shouldFailFinalize = false;
+
+    const buildMockSupabase = () => ({
+      async rpc(fnName) {
+        if (fnName === 'todo_finalize') {
+          rpcCalls += 1;
+          if (shouldFailFinalize) {
+            return { data: null, error: { message: 'todo_finalize temporary db glitch' } };
+          }
+          return { data: 3, error: null };
+        }
+        return { data: [], error: null };
+      },
+      from(table) {
+        if (table === 'backup_runs') {
+          return {
+            update() {
+              return {
+                eq: () => ({
+                  lt: async () => ({ data: [], error: null }),
+                }),
+              };
+            },
+            select() {
+              return {
+                order: () => ({
+                  limit: async () => ({ data: [], error: null }),
+                }),
+              };
+            },
+            insert() {
+              return {
+                select: () => ({
+                  single: async () => ({
+                    data: { id: 'run-uuid-finalize' },
+                    error: null,
+                  }),
+                }),
+              };
+            },
+          };
+        }
+        if (table === 'backup_state') {
+          return {
+            select: async () => ({ data: [], error: null }),
+            upsert: async () => ({ data: null, error: null }),
+            update: () => ({ eq: async () => ({ data: null, error: null }) }),
+          };
+        }
+        return {
+          select() {
+            return {
+              order() {
+                return this;
+              },
+              range: async () => ({ data: [], error: null }),
+            };
+          },
+        };
+      },
+    });
+
+    // 1. Success case: returns todo_days_finalized: 3
+    let fakeNow1 = 1760000000000;
+    const res1 = await executeBackupRunPass({
+      supabase: buildMockSupabase(),
+      kind: 'cron',
+      env,
+      fetchImpl: mockFetch,
+      retryDelayMs: 1,
+      timeBudgetMs: 8000,
+      nowFn: () => {
+        const c = fakeNow1;
+        fakeNow1 += 3000;
+        return c;
+      },
+    });
+
+    assert.equal(rpcCalls, 1);
+    assert.equal(res1.httpStatus, 200);
+    assert.equal(res1.body.ok, true);
+    assert.equal(res1.body.todo_days_finalized, 3);
+    assert.equal(res1.body.tables.todo_days_finalized, 3);
+
+    // 2. Error case: todo_finalize returns error, but backup run still succeeds and records short message
+    shouldFailFinalize = true;
+    let fakeNow2 = 1760000000000;
+    const res2 = await executeBackupRunPass({
+      supabase: buildMockSupabase(),
+      kind: 'manual',
+      createdBy: 'admin-1',
+      env,
+      fetchImpl: mockFetch,
+      retryDelayMs: 1,
+      timeBudgetMs: 8000,
+      nowFn: () => {
+        const c = fakeNow2;
+        fakeNow2 += 3000;
+        return c;
+      },
+    });
+
+    assert.equal(rpcCalls, 2);
+    assert.equal(res2.httpStatus, 200);
+    assert.equal(res2.body.ok, true);
+    assert.equal(res2.body.todo_days_finalized, 0);
+    assert.equal(res2.body.tables.todo_days_finalized, 0);
+    assert.ok(res2.body.tables.todo_finalize_error.includes('todo_finalize temporary db glitch'));
+  });
 });

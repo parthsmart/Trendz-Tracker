@@ -98,8 +98,36 @@
                 <span>Leaderboards</span>
               </h1>
               <p id="leaderboard-subtitle" style="font-size: var(--text-sm); color: var(--text-muted);">
-                Track weekly test &amp; session points, daily streaks, practice days, and accuracy improvements.
+                Track weekly test &amp; session points, daily streaks, practice days, daily to-do completions, and accuracy improvements.
               </p>
+            </div>
+
+            <!-- Student Scope Switch (2-option segmented control: Own Level vs Global) -->
+            <div
+              id="student-scope-controls"
+              class="segmented-control"
+              role="group"
+              aria-label="Leaderboard scope"
+              style="display: none; flex-wrap: wrap;"
+            >
+              <button
+                type="button"
+                id="btn-scope-level"
+                class="segmented-btn active"
+                data-scope="level"
+                aria-pressed="true"
+              >
+                Your group (your level only)
+              </button>
+              <button
+                type="button"
+                id="btn-scope-global"
+                class="segmented-btn"
+                data-scope="global"
+                aria-pressed="false"
+              >
+                Global (all trainees)
+              </button>
             </div>
 
             <!-- Admin-Only Level Filter & Settings Shortcut -->
@@ -125,7 +153,7 @@
           <div class="card" style="margin-bottom: var(--space-4);">
             <div class="card-body" style="padding: var(--space-4) var(--space-5); display: flex; flex-direction: column; gap: var(--space-4);">
               <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3);">
-                <!-- 4 Board Tabs -->
+                <!-- 5 Board Tabs -->
                 <div class="segmented-control" role="tablist" aria-label="Leaderboard type" style="flex-wrap: wrap;">
                   <button
                     type="button"
@@ -159,13 +187,22 @@
                     role="tab"
                     aria-selected="false"
                     class="segmented-btn"
+                    data-board="todo"
+                  >
+                    ☑️ Daily To-Do
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    class="segmented-btn"
                     data-board="improved"
                   >
                     📈 Most improved
                   </button>
                 </div>
 
-                <!-- Period Switch (shown only for Points and Practice days) -->
+                <!-- Period Switch (shown for Points, Practice days, and Daily To-Do) -->
                 <div id="period-switch-wrapper" class="segmented-control" role="group" aria-label="Time period">
                   <button
                     type="button"
@@ -224,10 +261,10 @@
             <div class="card-header" style="padding: var(--space-4) var(--space-5);">
               <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: var(--space-2);">
                 <h2 id="board-card-title" class="card-title" style="font-size: var(--text-base);">
-                  Points &mdash; This week
+                  Points - This week - Your group (your level only)
                 </h2>
                 <span id="board-scope-badge" class="badge badge-inactive">
-                  Your Level Only
+                  Your group (your level only)
                 </span>
               </div>
             </div>
@@ -262,6 +299,15 @@
               <p class="empty-state-desc" id="leaderboard-empty-desc">
                 No points yet this week. Weekly tests and sessions earn points.
               </p>
+            </div>
+
+            <!-- Privacy note under the list -->
+            <div
+              id="leaderboard-privacy-footer"
+              class="card-footer"
+              style="padding: var(--space-3) var(--space-5); font-size: var(--text-xs); color: var(--text-muted); justify-content: flex-start;"
+            >
+              Everyone is shown by first name and last initial. Only totals are shown, never scores.
             </div>
           </div>
         </div>

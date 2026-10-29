@@ -8,7 +8,7 @@
  * - Displays the top 3 names and a link to `/pages/leaderboard.html`.
  */
 
-import { fetchLeaderboard, formatLeaderboardValue } from './leaderboardData.js';
+import { fetchLeaderboard, fetchGlobalLeaderboardEnabled, formatLeaderboardValue } from './leaderboardData.js';
 
 function escapeHtml(str) {
   if (str === null || str === undefined) return '';
@@ -40,15 +40,24 @@ export async function loadAndRenderLeaderboardCard(containerId = 'leaderboard-ca
   `;
 
   try {
-    const rows = await fetchLeaderboard(
-      {
-        board: 'points',
-        period: 'week',
-        level: null,
-        limit: 3
-      },
-      callerProfile
-    );
+    const [rows, globalEnabled] = await Promise.all([
+      fetchLeaderboard(
+        {
+          board: 'points',
+          period: 'week',
+          level: null,
+          limit: 3,
+          scope: 'level'
+        },
+        callerProfile
+      ),
+      fetchGlobalLeaderboardEnabled().catch(() => true)
+    ]);
+
+    const headerGlobalLink = document.getElementById('leaderboard-card-see-global');
+    if (headerGlobalLink) {
+      headerGlobalLink.style.display = globalEnabled ? '' : 'none';
+    }
 
     const ownRow = Array.isArray(rows) ? rows.find(r => r.is_me === true) : null;
     const topThree = Array.isArray(rows)
@@ -132,13 +141,18 @@ export async function loadAndRenderLeaderboardCard(containerId = 'leaderboard-ca
       `;
     }
 
+    const seeGlobalFooterHtml = globalEnabled
+      ? `<a href="/pages/leaderboard.html?scope=global" style="font-size: var(--text-xs); font-weight: 600; color: var(--color-primary); text-decoration: none;">See global &rarr;</a>`
+      : '';
+
     container.innerHTML = `
       ${ownSummaryHtml}
       ${topListHtml}
-      <div style="display: flex; justify-content: flex-end; padding-top: var(--space-1);">
-        <a href="/pages/leaderboard.html" class="btn btn-outline btn-sm" style="width: 100%; justify-content: center;">
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); padding-top: var(--space-1); flex-wrap: wrap;">
+        <a href="/pages/leaderboard.html" class="btn btn-outline btn-sm" style="flex: 1; justify-content: center;">
           View Full Leaderboard &rarr;
         </a>
+        ${seeGlobalFooterHtml}
       </div>
     `;
   } catch (err) {

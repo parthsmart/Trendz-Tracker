@@ -18,6 +18,7 @@ import { getScoreFeedback } from './scoreColors.js';
 import { buildFlashCardSummary } from './flashStats.js';
 import { isBasicsOnlineAvailable } from './practiceStats.js';
 import { taskLink, isTaskActivityAvailable } from './todoForm.js';
+import { progressText, percent, summary } from './todoProgress.js';
 import {
   getISTDateYMD,
   getWeekBoundsIST,
@@ -60,16 +61,19 @@ function isValidHttpUrl(url) {
  * --------------------------------------------------------------------------
  * 1. Streak & Shield Card
  * Supports both the compact 1-row Student Home streak card and Admin detail card.
+ * Uses active_today from streak_for directly without recomputing the rule.
  * --------------------------------------------------------------------------
  */
-export function renderStreakCard(streakData) {
+export function renderStreakCard(streakData, todos = []) {
   const streak = streakData || { current_streak: 0, best_streak: 0, shields: 0, active_today: false };
+  const todoSummary = summary(todos);
 
   const currentEl = document.getElementById('stat-current-streak');
   const bestEl = document.getElementById('stat-best-streak');
   const shieldCountEl = document.getElementById('stat-shield-count');
   const shieldLblEl = document.getElementById('stat-shield-lbl');
   const todayBadgeEl = document.getElementById('streak-today-badge');
+  const ruleNoteEl = document.getElementById('streak-rule-note');
   const milestoneLabelEl = document.getElementById('milestone-next-label');
 
   if (currentEl) currentEl.textContent = streak.current_streak || 0;
@@ -90,9 +94,17 @@ export function renderStreakCard(streakData) {
 
   if (todayBadgeEl) {
     if (streak.active_today) {
-      todayBadgeEl.innerHTML = `<span style="color: var(--color-score-perfect);">yes</span>`;
+      todayBadgeEl.innerHTML = `<span style="color: var(--color-score-perfect);">Today counts: Yes</span>`;
     } else {
-      todayBadgeEl.innerHTML = `<span style="color: var(--color-score-warning);">no</span>`;
+      todayBadgeEl.innerHTML = `<span style="color: var(--text-muted);">Today counts: Not yet</span>`;
+    }
+  }
+
+  if (ruleNoteEl) {
+    if (todoSummary.total > 0) {
+      ruleNoteEl.textContent = `A day counts for your streak only when all of today's tasks are done (${todoSummary.done} of ${todoSummary.total} done).`;
+    } else {
+      ruleNoteEl.textContent = 'No tasks today, so any practice counts.';
     }
   }
 
@@ -211,10 +223,10 @@ export function renderTodaySummaryMetrics(results = [], activityResults = [], to
 /**
  * --------------------------------------------------------------------------
  * 2. Today's Plan (To-Do List)
- * Task buttons rule:
- * - Primary button is "Practice online" (the existing link).
- * - Secondary "Log result" opens typed entry and appears ONLY for basics and round tasks.
- * - Never show two buttons that both say "Start".
+ * - Header line: "n of m tasks done today" (from summary(todos)).
+ * - Each task shows its title, progress "2 of 4" with a small progress bar,
+ *   a tick with the word "Done" when done is true, and the link as now.
+ * - Completed tasks stay in the list.
  * --------------------------------------------------------------------------
  * @param {Array<object>} todos - Items from todo_for() RPC
  * @param {string} containerId - DOM container ID
@@ -226,24 +238,23 @@ export function renderTodoList(todos = [], containerId = 'todo-list-container', 
   const countEl = document.getElementById('todo-progress-count');
   if (!container) return;
 
+  const todoSummary = summary(todos);
+  if (countEl) {
+    countEl.textContent = todoSummary.text;
+    if (todoSummary.total > 0 && todoSummary.done === todoSummary.total) {
+      countEl.style.color = 'var(--color-score-perfect)';
+    } else {
+      countEl.style.color = 'var(--color-primary)';
+    }
+  }
+
   if (!todos || todos.length === 0) {
     container.innerHTML = `
       <div class="empty-state" style="padding: var(--space-4);">
         No tasks assigned for today.
       </div>
     `;
-    if (countEl) countEl.textContent = '0/0';
     return;
-  }
-
-  const completedCount = todos.filter(t => t.done).length;
-  if (countEl) {
-    countEl.textContent = `${completedCount}/${todos.length} Done`;
-    if (completedCount === todos.length && todos.length > 0) {
-      countEl.style.color = 'var(--color-score-perfect)';
-    } else {
-      countEl.style.color = 'var(--color-primary)';
-    }
   }
 
   // Group strictly by section
@@ -277,7 +288,9 @@ export function renderTodoList(todos = [], containerId = 'todo-list-container', 
         </div>
         <div style="display: flex; flex-direction: column; gap: var(--space-1);">
           ${items.map(t => {
-            const isDone = !!t.done;
+            const isDone = t.done === true;
+            const progLabel = progressText(t.done_count, t.required_count);
+            const progPct = percent(t.done_count, t.required_count);
             const isAvailable = isTaskActivityAvailable(t, categories);
             const targetLink = taskLink(t);
             const sec = (t.task_section || 'round').toLowerCase();
@@ -287,43 +300,65 @@ export function renderTodoList(todos = [], containerId = 'todo-list-container', 
               : null;
             const canPracticeOnline = matchedBasicsCat ? isBasicsOnlineAvailable(matchedBasicsCat) : false;
 
+            const doneBadgeHtml = isDone
+              ? `<span class="badge badge-active" style="font-size: 11px;">✓ Done</span>`
+              : isReadOnly
+                ? `<span class="badge badge-inactive" style="font-size: 11px;">Pending</span>`
+                : '';
+
             let actionButtonsHtml = '';
             if (!isAvailable) {
               actionButtonsHtml = `<span style="font-size: var(--text-xs); color: var(--text-muted); font-style: italic;">Activity no longer available</span>`;
             } else if (isReadOnly) {
-              actionButtonsHtml = `<span class="badge ${isDone ? 'badge-active' : 'badge-inactive'}" style="font-size: 11px;">${isDone ? 'Done' : 'Pending'}</span>`;
-            } else if (isDone) {
-              actionButtonsHtml = `<span class="badge badge-active" style="font-size: 11px;">✓ Done</span>`;
+              actionButtonsHtml = doneBadgeHtml;
             } else if (sec === 'basics') {
               const onlineHref = canPracticeOnline
                 ? `/pages/basics-practice.html?cat=${encodeURIComponent(t.task_category_id)}`
                 : '/pages/basics.html';
               actionButtonsHtml = `
+                ${doneBadgeHtml}
                 <a href="${onlineHref}" class="btn btn-primary btn-sm" style="text-decoration: none;">Practice online</a>
                 <a href="${targetLink}" class="btn btn-outline btn-sm" style="text-decoration: none;">Log result</a>
               `;
             } else if (sec === 'round') {
               actionButtonsHtml = `
+                ${doneBadgeHtml}
                 <a href="${targetLink}" class="btn btn-outline btn-sm" style="text-decoration: none;">Log result</a>
               `;
             } else {
               // elements, memoriad, flash: online practice only
               actionButtonsHtml = `
+                ${doneBadgeHtml}
                 <a href="${targetLink}" class="btn btn-primary btn-sm" style="text-decoration: none;">Practice online</a>
               `;
             }
 
             return `
-              <div class="todo-task-item ${isDone ? 'todo-task-done' : ''}" style="display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); flex-wrap: wrap;">
-                <div style="display: flex; align-items: center; gap: var(--space-2); min-width: 0;">
+              <div class="todo-task-item ${isDone ? 'todo-task-done' : ''}" style="display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); flex-wrap: wrap;">
+                <div style="display: flex; align-items: center; gap: var(--space-3); min-width: 0; flex: 1 1 220px; flex-wrap: wrap;">
                   <span class="todo-checkbox ${isDone ? 'checked' : ''}" aria-hidden="true">
                     ${isDone ? '✓' : '○'}
                   </span>
-                  <span style="font-size: var(--text-sm); font-weight: 600; color: ${isDone ? 'var(--text-muted)' : 'var(--text-main)'}; text-decoration: ${isDone ? 'line-through' : 'none'};">
+                  <span style="font-size: var(--text-sm); font-weight: 600; color: ${isDone ? 'var(--text-muted)' : 'var(--text-main)'};">
                     ${escapeHtml(t.task_title)}
                   </span>
+                  <div style="display: inline-flex; align-items: center; gap: 6px;">
+                    <span class="num" style="font-size: var(--text-xs); font-weight: 600; color: ${isDone ? 'var(--color-score-perfect)' : 'var(--text-muted)'};">
+                      ${escapeHtml(progLabel)}
+                    </span>
+                    <div
+                      role="progressbar"
+                      aria-valuenow="${progPct}"
+                      aria-valuemin="0"
+                      aria-valuemax="100"
+                      aria-label="${escapeHtml(t.task_title)} progress: ${escapeHtml(progLabel)}"
+                      style="width: 56px; height: 6px; background: var(--border-subtle); border-radius: 3px; overflow: hidden;"
+                    >
+                      <div style="width: ${progPct}%; height: 100%; background: ${isDone ? 'var(--color-score-perfect)' : 'var(--color-primary)'}; transition: width 0.2s ease;"></div>
+                    </div>
+                  </div>
                 </div>
-                <div style="display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0;">
+                <div style="display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap;">
                   ${actionButtonsHtml}
                 </div>
               </div>
