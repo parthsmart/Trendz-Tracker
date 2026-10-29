@@ -10,20 +10,22 @@
  */
 
 import { isSupabaseConfigured, isDemoAllowedHost } from './config.js';
+import { formatBoardValue } from './leaderboardView.js';
 import { getSupabase, DemoDB, clearStaleSupabaseSession } from './supabaseClient.js';
 
 /**
- * Calls RPC `leaderboard(p_board, p_period, p_level, p_limit)`
+ * Calls RPC `leaderboard(p_board, p_period, p_level, p_limit, p_scope)`
  * @param {Object} params
- * @param {'points'|'streak'|'practice_days'|'improved'} params.board
+ * @param {'points'|'streak'|'practice_days'|'todo'|'improved'} params.board
  * @param {'week'|'month'|'all'} params.period
  * @param {string|null} params.level
  * @param {number} params.limit
+ * @param {'level'|'global'} [params.scope='level']
  * @param {Object|null} callerProfile
- * @returns {Promise<Array<{rank: number, student_id: string|null, display_name: string, value: number, is_me: boolean}>>}
+ * @returns {Promise<Array<{rank: number, student_id: string|null, display_name: string, value: number, is_me: boolean, level?: string|null}>>}
  */
 export async function fetchLeaderboard(
-  { board = 'points', period = 'week', level = null, limit = 10 } = {},
+  { board = 'points', period = 'week', level = null, limit = 10, scope = 'level' } = {},
   callerProfile = null
 ) {
   if (!isSupabaseConfigured()) {
@@ -35,7 +37,8 @@ export async function fetchLeaderboard(
         p_board: board,
         p_period: period,
         p_level: level,
-        p_limit: limit
+        p_limit: limit,
+        p_scope: scope
       },
       callerProfile
     );
@@ -50,7 +53,8 @@ export async function fetchLeaderboard(
     p_board: board,
     p_period: period,
     p_level: level,
-    p_limit: limit
+    p_limit: limit,
+    p_scope: scope
   });
 
   if (error) {
@@ -64,6 +68,40 @@ export async function fetchLeaderboard(
   }
 
   return Array.isArray(data) ? data : [];
+}
+
+/**
+ * Calls RPC `global_leaderboard_enabled()` (callable by any logged-in user).
+ * Returns true when the global leaderboard is enabled, or false when switched off.
+ * @returns {Promise<boolean>}
+ */
+export async function fetchGlobalLeaderboardEnabled() {
+  if (!isSupabaseConfigured()) {
+    if (!isDemoAllowedHost()) {
+      throw new Error('Configuration error - contact the administrator.');
+    }
+    return DemoDB.mockGlobalLeaderboardEnabled();
+  }
+
+  const supabase = await getSupabase();
+  if (!supabase) {
+    return false;
+  }
+
+  const { data, error } = await supabase.rpc('global_leaderboard_enabled');
+  if (error) {
+    const msg = error.message || '';
+    if (msg.includes('JWT') || msg.includes('token') || msg.includes('Refresh')) {
+      clearStaleSupabaseSession();
+      window.location.href = '/index.html';
+    }
+    return false;
+  }
+
+  if (Array.isArray(data)) {
+    return Boolean(data[0]);
+  }
+  return Boolean(data);
 }
 
 /**
@@ -106,38 +144,17 @@ export async function fetchCompetitionRules() {
 /**
  * Formats the authoritative `value` returned by `leaderboard()` with its required unit.
  * Never performs any score calculation.
- * @param {'points'|'streak'|'practice_days'|'improved'} board
+ * @param {'points'|'streak'|'practice_days'|'todo'|'improved'} board
  * @param {number|string} value
  * @returns {string}
  */
 export function formatLeaderboardValue(board, value) {
-  const num = Number(value);
-  const formattedNum = Number.isFinite(num)
-    ? num % 1 === 0
-      ? num.toLocaleString('en-IN')
-      : num.toFixed(1).replace(/\.0$/, '')
-    : String(value ?? '0');
-
-  switch (board) {
-    case 'points':
-      return `${formattedNum} ${num === 1 ? 'point' : 'points'}`;
-    case 'streak':
-      return `${formattedNum} ${num === 1 ? 'day' : 'days'}`;
-    case 'practice_days':
-      return `${formattedNum} ${num === 1 ? 'day' : 'days'}`;
-    case 'improved': {
-      const prefix = num > 0 ? '+' : '';
-      return `${prefix}${formattedNum}% accuracy`;
-    }
-    default:
-      return `${formattedNum}`;
-  }
+  return formatBoardValue(board, value);
 }
 
 /**
  * Builds the plain-English "How it works" explanation per board from `competition_rules()`.
- * Always includes the required note: "Only your level is shown."
- * @param {'points'|'streak'|'practice_days'|'improved'} board
+ * @param {'points'|'streak'|'practice_days'|'todo'|'improved'} board
  * @param {Object} rules - returned by fetchCompetitionRules()
  * @returns {string}
  */
@@ -153,6 +170,8 @@ export function buildHowItWorksText(board, rules) {
       return `Most improved = this week's accuracy minus last week's, needs at least ${minEntries} entries in each week. Only your level is shown.`;
     case 'practice_days':
       return `Practice days = days you entered scores. Only your level is shown.`;
+    case 'todo':
+      return `Days on which you finished every task on your daily list. Different levels have different tasks, so we count days, not tasks.`;
     case 'streak':
       return `Streak = consecutive days you entered scores in Indian time. Only your level is shown.`;
     default:
@@ -162,11 +181,14 @@ export function buildHowItWorksText(board, rules) {
 
 /**
  * Returns an encouraging empty state message for the given board and period.
- * @param {'points'|'streak'|'practice_days'|'improved'} board
+ * @param {'points'|'streak'|'practice_days'|'todo'|'improved'} board
  * @param {'week'|'month'|'all'} period
  * @returns {string}
  */
 export function getLeaderboardEmptyMessage(board, period = 'week') {
+  if (board === 'todo') {
+    return 'Nobody has finished a full day yet in this period';
+  }
   if (board === 'points') {
     if (period === 'week') {
       return 'No points yet this week. Weekly tests and sessions earn points.';

@@ -13,6 +13,7 @@ import {
   normalizeTaskInput,
   optionsForSection,
   formatTaskTarget,
+  requiredCountLabelForSection,
 } from './todoForm.js';
 
 let allCategories = [];
@@ -104,9 +105,15 @@ function updateTargetDropdown(selectedSection, currentTargetValue = '') {
   const catSelect = document.getElementById('todo-category');
   const catLabel = document.getElementById('todo-category-label');
   const catHint = document.getElementById('todo-category-hint');
-  if (!catSelect) return;
+  const reqCountLabel = document.getElementById('todo-required-count-label');
 
   const sec = String(selectedSection || 'round').trim().toLowerCase();
+  if (reqCountLabel) {
+    reqCountLabel.textContent = requiredCountLabelForSection(sec);
+  }
+
+  if (!catSelect) return;
+
   const options = optionsForSection(sec, allCategories, DRILL_CATALOG, MEMORIAD_MODULES);
 
   if (sec === 'flash') {
@@ -196,6 +203,10 @@ function renderTodosTable() {
       const levelDisplay = todo.level
         ? escapeHtml(todo.level)
         : '<span style="color: var(--text-dim);">All Levels</span>';
+      const reqCount = Number(todo.required_count) || 1;
+      const reqCountBadge = reqCount > 1
+        ? `<span class="num" style="margin-left: 6px; font-size: var(--text-xs); font-weight: 600; color: var(--color-primary);">x ${reqCount} per day</span>`
+        : '';
       const isFirst = idx === 0;
       const isLast = idx === tasks.length - 1;
 
@@ -208,7 +219,7 @@ function renderTodosTable() {
             </div>
           </td>
           <td>
-            <strong style="color: var(--text-main);">${escapeHtml(todo.title)}</strong>
+            <strong style="color: var(--text-main);">${escapeHtml(todo.title)}</strong>${reqCountBadge}
           </td>
           <td>
             <span style="font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; color: var(--color-primary);">${escapeHtml(sec.key)}</span>
@@ -287,6 +298,11 @@ function openEditModal(todoId) {
         : '';
 
   updateTargetDropdown(todo.section, currentTarget);
+  const reqCountEl = document.getElementById('todo-required-count');
+  if (reqCountEl) {
+    const loadedCount = Number(todo.required_count);
+    reqCountEl.value = Number.isInteger(loadedCount) && loadedCount >= 1 ? String(loadedCount) : '1';
+  }
   document.getElementById('todo-level').value = todo.level || '';
   document.getElementById('todo-active').checked = Boolean(todo.active);
 
@@ -299,6 +315,8 @@ function openAddModal() {
   document.getElementById('form-todo').reset();
   document.getElementById('todo-id').value = '';
   document.getElementById('todo-active').checked = true;
+  const reqCountEl = document.getElementById('todo-required-count');
+  if (reqCountEl) reqCountEl.value = '1';
   const sectionSelect = document.getElementById('todo-section');
   sectionSelect.value = 'round';
   updateTargetDropdown('round', '');
@@ -314,6 +332,7 @@ async function handleFormSubmit(e) {
   const rawTitle = document.getElementById('todo-title').value;
   const rawSection = document.getElementById('todo-section').value;
   const rawTarget = document.getElementById('todo-category').value;
+  const rawRequiredCount = document.getElementById('todo-required-count')?.value ?? '1';
   const rawLevel = document.getElementById('todo-level').value;
   const rawActive = document.getElementById('todo-active').checked;
 
@@ -323,6 +342,7 @@ async function handleFormSubmit(e) {
       section: rawSection,
       category_id: rawTarget,
       activity_key: rawTarget,
+      required_count: rawRequiredCount,
       level: rawLevel,
       active: rawActive,
     },
@@ -334,7 +354,7 @@ async function handleFormSubmit(e) {
     return;
   }
 
-  const { title, section, category_id, activity_key, level, active } = normalized.value;
+  const { title, section, category_id, activity_key, level, required_count, active } = normalized.value;
 
   const saveBtn = document.getElementById('btn-save-todo');
   saveBtn.disabled = true;
@@ -347,7 +367,7 @@ async function handleFormSubmit(e) {
         if (id) {
           const { error } = await supabase
             .from('daily_tasks')
-            .update({ title, section, category_id, activity_key, level, active })
+            .update({ title, section, category_id, activity_key, level, required_count, active })
             .eq('id', id);
           if (error) throw error;
           showToast('success', 'Task updated successfully');
@@ -362,6 +382,7 @@ async function handleFormSubmit(e) {
                 category_id,
                 activity_key,
                 level,
+                required_count,
                 active,
                 sort_order: maxSort + 1,
               },
@@ -377,10 +398,10 @@ async function handleFormSubmit(e) {
 
     // Demo Mode fallback
     if (id) {
-      DemoDB.updateTodo(id, { title, section, category_id, activity_key, level, active });
+      DemoDB.updateTodo(id, { title, section, category_id, activity_key, level, required_count, active });
       showToast('success', 'Task updated (Demo Mode)');
     } else {
-      DemoDB.addTodo({ title, section, category_id, activity_key, level, active });
+      DemoDB.addTodo({ title, section, category_id, activity_key, level, required_count, active });
       showToast('success', 'Task added (Demo Mode)');
     }
     closeModal('modal-todo');

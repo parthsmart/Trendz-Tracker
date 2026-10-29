@@ -219,3 +219,15 @@ The serverless functions in `/api/create-student.js` and `/api/reset-password.js
    - Students cannot set `results.practice_mode` from client-side writes (`NULL` is enforced for student-typed rows). Only `POST /api/drill` using the Supabase `service_role` writes `practice_mode = 'timed' | 'unlimited'`, `source = 'site'`, and `verified = true`.
    - `meets_target` is read exclusively from the database view `results_with_target` and is never computed in client-side JavaScript.
 
+---
+
+## Phase 12b: Global Leaderboard & Daily To-Do Board Threat Model & Privacy Controls
+
+1. **Cross-Level Trainee Visibility in Global Mode (`p_scope = 'global'`)**:
+   - **Disclosure**: When `competition_settings` key `'global_leaderboard'` is `'on'`, calling `leaderboard(p_board, p_period, p_level, p_limit, 'global')` allows any logged-in student to see the top 10 trainees across all levels (plus their own row), displaying each trainee's formatted `display_name` (first name and last initial, or student ID code), `level` chip, `rank`, and single aggregate `value` (`points`, `streak`, `practice_days`, `todo` completed days, or `improved` accuracy gain).
+   - **No Raw Scores or Full Names**: Raw practice scores, individual round/test breakdowns, full last names, and internal `student_id` UUIDs (`NULL` for non-admin callers) are never returned or shown on any leaderboard.
+2. **Administrative Global Switch & Per-Student Hide Controls**:
+   - **Global Kill-Switch (`global_leaderboard = 'off'`)**: Administrators can switch off the global leaderboard at any time on `/pages/competition.html`. The database RPC `leaderboard()` enforces this setting server-side: if a student calls `leaderboard(..., p_scope => 'global')` when `global_leaderboard = 'off'`, the database rejects the call with `"The global leaderboard is switched off."` and the UI falls back to `'level'` scope.
+   - **Per-Student Opt-Out (`profiles.leaderboard_visible = false`)**: Administrators can hide any individual student on `/pages/students.html` (or `/pages/student-detail.html`), immediately excluding that student from both level-scoped and global leaderboards.
+
+

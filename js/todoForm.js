@@ -62,11 +62,36 @@ function trimText(val) {
 }
 
 /**
+ * Returns the dynamic field label for `required_count` ("How many per day")
+ * based on the selected task section:
+ * - Basics and Round -> "Rounds per day"
+ * - Elements -> "Sets per day"
+ * - Flash Anzan -> "Tries per day"
+ * - Memoriad -> "Rounds per day"
+ *
+ * @param {string} section
+ * @returns {string}
+ */
+export function requiredCountLabelForSection(section) {
+  const sec = trimText(section).toLowerCase();
+  if (sec === 'basics' || sec === 'round' || sec === 'memoriad') {
+    return 'Rounds per day';
+  }
+  if (sec === 'elements') {
+    return 'Sets per day';
+  }
+  if (sec === 'flash') {
+    return 'Tries per day';
+  }
+  return 'How many per day';
+}
+
+/**
  * Normalizes and validates raw form input for `public.daily_tasks`.
  *
- * @param {object} input - Raw task input ({ title, section, category_id, activity_key, target, level, active })
+ * @param {object} input - Raw task input ({ title, section, category_id, activity_key, target, level, required_count, active })
  * @param {string} [sectionOverride] - Explicit section string (falls back to `input.section`)
- * @returns {{ value: { title: string, section: string, category_id: string|null, activity_key: string|null, level: string|null, active: boolean } } | { errors: Record<string, string> }}
+ * @returns {{ value: { title: string, section: string, category_id: string|null, activity_key: string|null, level: string|null, required_count: number, active: boolean } } | { errors: Record<string, string> }}
  */
 export function normalizeTaskInput(input = {}, sectionOverride) {
   const safeInput = input && typeof input === 'object' ? input : {};
@@ -94,6 +119,37 @@ export function normalizeTaskInput(input = {}, sectionOverride) {
     } else {
       level = rawLevel;
     }
+  }
+
+  // Validate required_count: integer 1..50; empty ("" / null / undefined) -> 1
+  const rawReqCount = safeInput.required_count;
+  let required_count = 1;
+  if (
+    rawReqCount === undefined ||
+    rawReqCount === null ||
+    (typeof rawReqCount === 'string' && rawReqCount.trim() === '')
+  ) {
+    required_count = 1;
+  } else if (typeof rawReqCount === 'number') {
+    if (!Number.isInteger(rawReqCount) || rawReqCount < 1 || rawReqCount > 50) {
+      errors.required_count = 'Must be a whole number from 1 to 50.';
+    } else {
+      required_count = rawReqCount;
+    }
+  } else if (typeof rawReqCount === 'string') {
+    const trimmedReq = rawReqCount.trim();
+    if (!/^\d+$/.test(trimmedReq)) {
+      errors.required_count = 'Must be a whole number from 1 to 50.';
+    } else {
+      const parsedReq = Number(trimmedReq);
+      if (!Number.isInteger(parsedReq) || parsedReq < 1 || parsedReq > 50) {
+        errors.required_count = 'Must be a whole number from 1 to 50.';
+      } else {
+        required_count = parsedReq;
+      }
+    }
+  } else {
+    errors.required_count = 'Must be a whole number from 1 to 50.';
   }
 
   // Extract raw target values; empty strings always become null
@@ -132,6 +188,7 @@ export function normalizeTaskInput(input = {}, sectionOverride) {
       category_id,
       activity_key,
       level,
+      required_count,
       active,
     },
   };

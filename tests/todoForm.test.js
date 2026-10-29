@@ -14,6 +14,7 @@ import {
   taskLink,
   formatTaskTarget,
   isTaskActivityAvailable,
+  requiredCountLabelForSection,
   MEMORIAD_MODULES,
 } from '../js/todoForm.js';
 import { DRILL_CATALOG } from '../js/drillCatalog.js';
@@ -45,6 +46,7 @@ describe('normalizeTaskInput', () => {
     assert.equal(resBasics.value.category_id, null);
     assert.equal(resBasics.value.activity_key, null);
     assert.equal(resBasics.value.level, null);
+    assert.equal(resBasics.value.required_count, 1);
     assert.equal(resBasics.value.active, true);
   });
 
@@ -144,6 +146,66 @@ describe('normalizeTaskInput', () => {
   it('rejects unknown sections', () => {
     const badSec = normalizeTaskInput({ title: 'Task' }, 'unknown_sec');
     assert.ok(badSec.errors?.section);
+  });
+
+  it('validates required_count: rejects 0, 51, 2.5, "abc", defaults empty to 1, and accepts 4', () => {
+    // 0 -> rejected
+    const err0 = normalizeTaskInput({ title: 'Task', required_count: 0 }, 'basics');
+    assert.ok(err0.errors?.required_count);
+    assert.equal(err0.value, undefined);
+
+    const err0Str = normalizeTaskInput({ title: 'Task', required_count: '0' }, 'basics');
+    assert.ok(err0Str.errors?.required_count);
+
+    // 51 -> rejected
+    const err51 = normalizeTaskInput({ title: 'Task', required_count: 51 }, 'basics');
+    assert.ok(err51.errors?.required_count);
+    assert.equal(err51.value, undefined);
+
+    const err51Str = normalizeTaskInput({ title: 'Task', required_count: '51' }, 'basics');
+    assert.ok(err51Str.errors?.required_count);
+
+    // 2.5 -> rejected
+    const errFloat = normalizeTaskInput({ title: 'Task', required_count: 2.5 }, 'basics');
+    assert.ok(errFloat.errors?.required_count);
+    assert.equal(errFloat.value, undefined);
+
+    const errFloatStr = normalizeTaskInput({ title: 'Task', required_count: '2.5' }, 'basics');
+    assert.ok(errFloatStr.errors?.required_count);
+
+    // "abc" -> rejected
+    const errAbc = normalizeTaskInput({ title: 'Task', required_count: 'abc' }, 'basics');
+    assert.ok(errAbc.errors?.required_count);
+    assert.equal(errAbc.value, undefined);
+
+    // empty ("", "   ", null, undefined) -> becomes 1
+    for (const emptyVal of ['', '   ', null, undefined]) {
+      const okEmpty = normalizeTaskInput({ title: 'Task', required_count: emptyVal }, 'basics');
+      assert.ok(okEmpty.value);
+      assert.equal(okEmpty.value.required_count, 1);
+    }
+
+    // 4 (number and string) -> accepted as 4
+    const ok4Num = normalizeTaskInput({ title: 'Task', required_count: 4 }, 'basics');
+    assert.ok(ok4Num.value);
+    assert.equal(ok4Num.value.required_count, 4);
+
+    const ok4Str = normalizeTaskInput({ title: 'Task', required_count: ' 4 ' }, 'basics');
+    assert.ok(ok4Str.value);
+    assert.equal(ok4Str.value.required_count, 4);
+
+    // Boundary 50 -> accepted as 50
+    const ok50 = normalizeTaskInput({ title: 'Task', required_count: 50 }, 'elements');
+    assert.ok(ok50.value);
+    assert.equal(ok50.value.required_count, 50);
+  });
+
+  it('returns section-specific labels from requiredCountLabelForSection', () => {
+    assert.equal(requiredCountLabelForSection('basics'), 'Rounds per day');
+    assert.equal(requiredCountLabelForSection('round'), 'Rounds per day');
+    assert.equal(requiredCountLabelForSection('elements'), 'Sets per day');
+    assert.equal(requiredCountLabelForSection('flash'), 'Tries per day');
+    assert.equal(requiredCountLabelForSection('memoriad'), 'Rounds per day');
   });
 });
 

@@ -409,13 +409,30 @@ function renderBackupStatus(statusData) {
 
         const tdErr = document.createElement('td');
         tdErr.style.fontSize = 'var(--text-xs)';
+        const runTables = run.tables && typeof run.tables === 'object' ? run.tables : {};
+        const hasTodoFinalized =
+          runTables.todo_days_finalized !== undefined ||
+          run.todo_days_finalized !== undefined ||
+          run.kind === 'cron' ||
+          run.kind === 'manual';
+        const todoFinalizedVal =
+          runTables.todo_days_finalized !== undefined
+            ? Number(runTables.todo_days_finalized) || 0
+            : run.todo_days_finalized !== undefined
+              ? Number(run.todo_days_finalized) || 0
+              : 0;
+        const todoFinalizeErr = runTables.todo_finalize_error || run.todo_finalize_error || null;
+        const todoFinalizedSuffix = hasTodoFinalized
+          ? ` · todo_days_finalized: ${todoFinalizedVal}${todoFinalizeErr ? ` (todo_finalize: ${todoFinalizeErr})` : ''}`
+          : '';
+
         if (run.error) {
           tdErr.style.color =
             run.error === 'more to do' ? 'var(--color-warning-text)' : 'var(--color-danger-text)';
-          tdErr.textContent = run.error;
+          tdErr.textContent = `${run.error}${todoFinalizedSuffix}`;
         } else {
-          tdErr.style.color = 'var(--text-muted)';
-          tdErr.textContent = 'OK';
+          tdErr.style.color = todoFinalizeErr ? 'var(--color-warning-text)' : 'var(--text-muted)';
+          tdErr.textContent = `OK${todoFinalizedSuffix}`;
         }
 
         tr.append(tdStarted, tdFinished, tdKind, tdStatus, tdRows, tdErr);
@@ -543,13 +560,14 @@ async function handleRunGoogleBackup(options = {}) {
 
   let totalRowsAcrossPasses = 0;
   let totalMirrorRebuiltAcrossPasses = 0;
+  let totalTodoDaysFinalizedAcrossPasses = 0;
 
   try {
     for (let pass = 1; pass <= MAX_BACKUP_PASSES; pass++) {
       if (cancelSheetBackupRequested) {
         showActionAlert(
           'warning',
-          `Backup paused by user before pass ${pass} (${formatNum(totalRowsAcrossPasses)} rows written, ${formatNum(totalMirrorRebuiltAcrossPasses)} score sheets updated).`
+          `Backup paused by user before pass ${pass} (${formatNum(totalRowsAcrossPasses)} rows written, ${formatNum(totalMirrorRebuiltAcrossPasses)} score sheets updated, todo_days_finalized: ${totalTodoDaysFinalizedAcrossPasses}).`
         );
         break;
       }
@@ -559,7 +577,7 @@ async function handleRunGoogleBackup(options = {}) {
         title: isMirrorFocus
           ? 'Updating Google Sheet backup & score-sheet mirror...'
           : 'Backing up tables to Google Sheet...',
-        detail: `Pass ${pass} · ${formatNum(totalRowsAcrossPasses)} rows · ${formatNum(totalMirrorRebuiltAcrossPasses)} score sheets built`,
+        detail: `Pass ${pass} · ${formatNum(totalRowsAcrossPasses)} rows · ${formatNum(totalMirrorRebuiltAcrossPasses)} score sheets built · todo_days_finalized: ${totalTodoDaysFinalizedAcrossPasses}`,
         percent: Math.min(95, 10 + pass * 12),
       });
 
@@ -575,8 +593,11 @@ async function handleRunGoogleBackup(options = {}) {
 
       const passRows = Number(res?.rows_written) || 0;
       const passRebuilt = Number(res?.mirror?.rebuilt) || 0;
+      const passTodoFinalized =
+        Number(res?.todo_days_finalized ?? res?.tables?.todo_days_finalized ?? 0) || 0;
       totalRowsAcrossPasses += passRows;
       totalMirrorRebuiltAcrossPasses += passRebuilt;
+      totalTodoDaysFinalizedAcrossPasses += passTodoFinalized;
 
       if (!res?.ok || res?.status === 'failed' || (res?.error && res.error !== 'more to do')) {
         const errMsg = res?.error || 'Google Sheet backup stopped due to an error.';
@@ -593,13 +614,13 @@ async function handleRunGoogleBackup(options = {}) {
           title: mirrorLastError
             ? 'Google Sheet backup finished (mirror reported an error)'
             : 'Google Sheet backup & score-sheet mirror complete!',
-          detail: `${formatNum(totalRowsAcrossPasses)} rows written · ${formatNum(totalMirrorRebuiltAcrossPasses)} score sheets built in ${pass} pass${pass === 1 ? '' : 'es'}`,
+          detail: `${formatNum(totalRowsAcrossPasses)} rows written · ${formatNum(totalMirrorRebuiltAcrossPasses)} score sheets built · todo_days_finalized: ${totalTodoDaysFinalizedAcrossPasses} in ${pass} pass${pass === 1 ? '' : 'es'}`,
           percent: 100,
         });
         if (mirrorLastError) {
           showActionAlert(
             'warning',
-            `Raw backup completed (${formatNum(totalRowsAcrossPasses)} rows), but the score-sheet mirror reported an error: ${mirrorLastError}`
+            `Raw backup completed (${formatNum(totalRowsAcrossPasses)} rows, todo_days_finalized: ${totalTodoDaysFinalizedAcrossPasses}), but the score-sheet mirror reported an error: ${mirrorLastError}`
           );
           showToast('warning', `Mirror error: ${mirrorLastError}`);
         } else {
@@ -608,7 +629,7 @@ async function handleRunGoogleBackup(options = {}) {
             : '';
           showActionAlert(
             'success',
-            `Google Sheet backup completed (${formatNum(totalRowsAcrossPasses)} rows written${mirrorNote} across ${pass} pass${pass === 1 ? '' : 'es'}).`
+            `Google Sheet backup completed (${formatNum(totalRowsAcrossPasses)} rows written${mirrorNote}, todo_days_finalized: ${totalTodoDaysFinalizedAcrossPasses} across ${pass} pass${pass === 1 ? '' : 'es'}).`
           );
           showToast('success', 'Backup & score sheets updated!');
         }

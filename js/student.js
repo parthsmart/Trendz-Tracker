@@ -57,7 +57,7 @@ async function initStudentDashboard() {
     renderTodoList(data.todos, 'todo-list-container', false, data.categories);
 
     // Compact Streak & Shield Card
-    renderStreakCard(data.streak);
+    renderStreakCard(data.streak, data.todos);
 
     // Three Small 7-Day Summary Cards: Accuracy, Speed (q/min), Practice days
     renderTodaySummaryMetrics(data.results, data.activityResults, data.todayIST);
