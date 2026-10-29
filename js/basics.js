@@ -12,12 +12,14 @@ import { formatSecondsToMMSS, parseTimeToSeconds } from './timeUtils.js';
 import { formatSecondsToTime } from './stats.js';
 import { isBasicsOnlineAvailable } from './practiceStats.js';
 import { showToast } from './toast.js';
+import { initializeBasicsExperience } from './basicsExperience.js';
 
 let currentProfile = null;
 let basicsCategories = [];
 let allBasicsResults = [];
 let activeThresholds = [];
 let editingDrillId = null;
+let basicsExperience = null;
 
 /**
  * Format date into "3 Oct 2026"
@@ -81,6 +83,7 @@ async function loadBasicsCategories() {
 
     if (basicsCategories.length === 0) {
       selectEl.innerHTML = '<option value="">No basics categories found</option>';
+      renderOnlinePracticeButtons();
       return;
     }
 
@@ -113,6 +116,7 @@ async function loadBasicsCategories() {
       renderOnlinePracticeButtons();
       updateCategoryTargetDisplay(selectEl.value);
     } else {
+      renderOnlinePracticeButtons();
       showToast('error', 'Failed to load categories: ' + (err.message || 'Network error'));
     }
   }
@@ -124,7 +128,7 @@ async function loadBasicsCategories() {
 }
 
 /**
- * Renders a "Practice online" button for each basics category that is available online
+ * Renders a readable drill tile for each category that is available online.
  */
 function renderOnlinePracticeButtons() {
   const cardEl = document.getElementById('online-practice-categories-card');
@@ -133,18 +137,17 @@ function renderOnlinePracticeButtons() {
 
   const onlineCats = basicsCategories.filter(c => isBasicsOnlineAvailable(c));
   if (onlineCats.length === 0) {
-    cardEl.style.display = 'none';
-    listEl.innerHTML = '';
+    listEl.innerHTML = '<p class="basics-loading">No online drills are available. Choose Log paper result to record a completed drill.</p>';
     return;
   }
 
   listEl.innerHTML = onlineCats.map(c => `
     <a
       href="/pages/basics-practice.html?cat=${encodeURIComponent(c.id)}"
-      class="btn btn-primary btn-sm"
-      style="text-decoration: none;"
+      class="basics-drill-tile"
     >
-      ${escapeHtml(c.name)} &middot; Practice online
+      <span class="basics-drill-tile-code">${escapeHtml(c.name)}</span>
+      <span class="basics-drill-tile-action"><span>Practice online</span><span aria-hidden="true">&rarr;</span></span>
     </a>
   `).join('');
   cardEl.style.display = 'block';
@@ -323,7 +326,7 @@ function renderHistory() {
   if (allBasicsResults.length === 0) {
     todayContainer.innerHTML = `
       <div class="card" style="padding: var(--space-6); text-align: center; color: var(--text-dim); font-size: var(--text-sm);">
-        No basics speed drills logged yet. Record your first drill above!
+        No basics speed drills logged yet. Choose Practice online or Log paper result to get started.
       </div>
     `;
     pastContainer.innerHTML = '';
@@ -524,8 +527,14 @@ function attachDrillActionListeners() {
       document.getElementById('btn-submit-drill-text').textContent = 'Update Drill';
       document.getElementById('btn-cancel-edit').style.display = 'inline-flex';
 
+      basicsExperience?.show('paper');
+      updateCategoryTargetDisplay(drill.category_id);
       updateLiveFeedback();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      document.getElementById('basics-category-select').focus({ preventScroll: true });
+      document.getElementById('basics-panel-paper').scrollIntoView({
+        block: 'start',
+        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'
+      });
     });
   });
 
@@ -610,6 +619,7 @@ async function initBasics() {
   const pillContainer = document.getElementById('user-pill-container');
   if (pillContainer) pillContainer.style.display = 'flex';
 
+  basicsExperience = initializeBasicsExperience(document, window.location.search);
   setupDateLimits();
 
   // Date preset toggle

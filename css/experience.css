@@ -1,0 +1,84 @@
+/* A quieter foundation; the learning activity keeps its established layout. */
+:root { --color-primary:#6546e8; --color-primary-hover:#5032c7; --color-primary-subtle:#eee9ff; --color-primary-text:#49339c; --bg-page:#f6f5f1; --bg-surface-subtle:#f5f5f8; --text-main:#171b2f; --text-muted:#535b70; --text-dim:#657086; --border-focus:#6546e8; --border-hairline:#e6e5eb; --border-subtle:#dadce5; --shadow-sm:none; --container-max:1240px; }
+.card { box-shadow:none; }
+.brand-icon { background:#6546e8; }
+.brand-zone { letter-spacing:-.5px; }
+.header-inner { flex-wrap:wrap; column-gap:24px; }
+.header-inner .nav-zone { order:3; width:100%; gap:24px; padding:4px 0; }
+.header-inner .actions-zone { margin-left:auto; }
+.header-inner .nav-link { padding:10px 0; }
+.navigation-toggle { display:none; }
+.btn { border-radius:9px; }
+.workspace-nav { display:flex; gap:8px; border-bottom:1px solid var(--border-subtle); margin:0 0 28px; padding-bottom:10px; flex-wrap:wrap; }
+.workspace-nav a { padding:11px 22px; border-radius:9px; color:var(--text-muted); font-weight:600; }
+.workspace-nav a[aria-current] { background:#171b2f; color:white; }
+.workspace-panel[hidden] { display:none!important; }
+.workspace-page-title { display:flex; justify-content:space-between; gap:20px; align-items:center; flex-wrap:wrap; margin:0 0 24px; }
+.workspace-page-title p { margin-top:8px; }
+.student-welcome { background:transparent; border:0; padding:8px 0 24px!important; }
+.workspace-intro { color:var(--text-main); font-size:clamp(24px,3vw,38px); font-weight:750; letter-spacing:-1.3px; margin-bottom:14px; }
+.student-welcome #welcome-heading { font-size:14px!important; font-weight:500!important; }
+.student-welcome #display-today-ist { color:var(--text-muted)!important; }
+.next-practice { background:#6546e8; border-radius:22px; padding:32px 36px; color:white; display:flex; align-items:center; justify-content:space-between; gap:24px; margin-bottom:28px; }
+.next-practice h2 { color:white; font-size:clamp(26px,3vw,36px); letter-spacing:-1px; margin:12px 0; }
+.next-practice p { color:#f1ecff; max-width:650px; font-size:14px; }
+.next-practice .eyebrow { font-size:11px; letter-spacing:.14em; font-weight:700; color:#d7f487; }
+#next-practice-actions { display:flex; gap:12px; margin-top:22px; flex-wrap:wrap; }
+.next-primary { background:#d7f487; color:#171b2f; min-height:46px; }
+.next-primary:hover { background:#c6e775; color:#171b2f; }
+.next-secondary { background:transparent; border:1px solid #b7a6ff; color:white; min-height:46px; }
+.next-secondary:hover { background:#5032c7; color:white; }
+.abacus-art { width:180px; flex-shrink:0; }
+.abacus-art i { display:block; height:3px; background:#a28af2; margin:30px 0; position:relative; }
+.abacus-art i:before { content:''; position:absolute; top:-10px; left:20px; width:24px; height:23px; border-radius:8px; background:#d7f487; box-shadow:30px 0 #d7f487,60px 0 #eee9ff; }
+.abacus-art i:nth-child(2):before { left:65px; background:#eee9ff; box-shadow:30px 0 #eee9ff,60px 0 #d7f487; }
+.student-experience #todays-plan-card .card-header { border-bottom:0; padding:24px 28px 8px; }
+.student-experience #todays-plan-card .card-body { padding:12px 28px 24px; }
+.student-experience .todo-task-item { border:0!important; border-bottom:1px solid #e6e5eb!important; border-radius:0!important; background:white!important; padding:14px 0!important; }
+.student-experience .todo-task-item .btn-primary { background:#f0ecff; border-color:transparent; color:#5032c7; }
+.completed-plan { margin-top:20px; }
+.completed-plan summary { padding:14px 0; cursor:pointer; font-weight:600; color:var(--text-muted); }
+.student-experience #streak-card { background:#eee9ff; border:0; margin-top:24px; }
+.student-experience #explore-practice-card { margin-top:24px; }
+.student-experience #workspace-competitions > .card { margin-bottom:24px; }
+.student-experience #today-summary-metrics > .card { padding:24px!important; }
+.student-experience #workspace-library { min-height:260px; }
+@media(max-width:900px) {
+ .header-inner { gap:12px; }
+ .navigation-toggle { display:inline-flex; margin-left:auto; min-height:44px; }
+ .header-inner .actions-zone { margin-left:0; }
+ .header-inner .nav-zone { display:none; }
+ .header-inner.navigation-open .nav-zone { display:flex; flex-direction:column; align-items:stretch; gap:2px; max-height:65vh; overflow-y:auto; }
+ .header-inner .nav-link { padding:12px; }
+ .header-inner .nav-dropdown-menu { position:static; box-shadow:none; }
+ .header-inner .meta-row { display:none!important; }
+ .abacus-art { display:none; }
+}
+@media(max-width:540px) {
+ .brand-zone { font-size:15px; gap:7px; }
+ .brand-icon { width:28px; height:28px; }
+ .header-inner { gap:8px; }
+ .header-inner .btn { padding:8px 10px; }
+ .workspace-nav { gap:0; }
+ .workspace-nav a { flex:1; text-align:center; padding:12px 6px; font-size:12px; }
+ .next-practice { padding:24px; }
+ .student-experience #todays-plan-card .card-body { padding:12px 18px 22px; }
+ .todo-task-item { align-items:flex-start!important; }
+ .todo-task-item > div:last-child { flex-wrap:wrap; }
+}
+@media(prefers-reduced-motion:reduce) { .next-practice *, .workspace-nav *, .header-inner * { transition:none!important; } }
+@media print { .workspace-nav,.navigation-toggle,.next-practice { display:none!important; } .workspace-panel[hidden] { display:block!important; } }
+/* Use one menu control for both role-specific navigation variants. */
+.header-inner #btn-nav-hamburger,.header-inner #btn-mobile-menu {display:none!important}
+.header-inner .nav-zone[data-navigation-enabled="false"] {display:none!important}
+@media(max-width:900px) {
+ .header-inner .nav-zone {display:none!important}
+ .header-inner.navigation-open .nav-zone[data-navigation-enabled="true"] {display:flex!important}
+}
+.admin-secondary {margin:24px 0; border:1px solid var(--border-subtle);border-radius:14px;background:white}
+.admin-secondary > summary {padding:18px 24px;cursor:pointer;font-weight:600;color:var(--text-main)}
+.admin-secondary > .card {border:0;margin:0!important}
+@media print {.admin-secondary > .card {display:block!important}}
+/* Empty-state layout must preserve the spanning table cell. */
+#review-table td.empty-state,#review-table td.loading-state {display:table-cell}
+@media print {.admin-secondary {display:block} .admin-secondary > summary {display:none}}

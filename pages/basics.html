@@ -8,6 +8,8 @@
     
     <!-- Design tokens & unified styles -->
     <link rel="stylesheet" href="/css/style.css" />
+    <link rel="stylesheet" href="/css/experience.css" />
+    <link rel="stylesheet" href="/css/basics-experience.css" />
   </head>
   <body>
     <div class="app-shell">
@@ -53,29 +55,37 @@
           <div id="config-banner-placeholder"></div>
 
           <!-- Page Heading -->
-          <div class="section-header-row" style="margin-bottom: var(--space-6);">
+          <div class="section-header-row basics-heading">
             <div>
+              <p class="basics-eyebrow">Practice studio / Basics</p>
               <h1>Basics Speed Drills</h1>
-              <p style="font-size: var(--text-sm);">Log daily mental calculation speed drills (digits & rows). Multiple entries allowed per day.</p>
+              <p>Choose a drill, log a paper result, or review your recent practice.</p>
             </div>
           </div>
 
-          <!-- Online Practice Quick-Launch Bar (Phase 9a) -->
-          <div id="online-practice-categories-card" class="card" style="display: none; margin-bottom: var(--space-5); padding: var(--space-4) var(--space-5);">
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap;">
+          <div class="basics-mode-tabs" role="tablist" aria-label="Basics practice mode">
+            <button type="button" id="basics-tab-online" class="basics-mode-tab" role="tab" aria-selected="true" aria-controls="basics-panel-online">Practice online</button>
+            <button type="button" id="basics-tab-paper" class="basics-mode-tab" role="tab" aria-selected="false" aria-controls="basics-panel-paper" tabindex="-1">Log paper result</button>
+            <button type="button" id="basics-tab-history" class="basics-mode-tab" role="tab" aria-selected="false" aria-controls="basics-panel-history" tabindex="-1">History</button>
+          </div>
+
+          <section id="basics-panel-online" class="basics-view" role="tabpanel" aria-labelledby="basics-tab-online" tabindex="0">
+          <div id="online-practice-categories-card">
+            <div class="basics-section-heading">
               <div>
-                <div style="font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-primary);">
-                  Online Basics Practice
-                </div>
-                <div style="font-size: var(--text-xs); color: var(--text-muted);">
-                  Solve one question at a time with automatic site grading, or log a paper drill below.
-                </div>
+                <h2>Choose your drill</h2>
+                <p>Solve one question at a time. Your answers are graded and recorded by the site.</p>
               </div>
-              <div id="online-practice-buttons-list" style="display: flex; gap: var(--space-2); flex-wrap: wrap;"></div>
+            </div>
+            <div id="online-practice-buttons-list" class="basics-drill-grid" aria-live="polite">
+              <p class="basics-loading">Loading available drills...</p>
             </div>
           </div>
+          <p class="basics-mode-note">Working on paper? Choose <strong>Log paper result</strong> to record your score.</p>
+          </section>
 
           <!-- Drill Entry Card -->
+          <section id="basics-panel-paper" class="basics-view" role="tabpanel" aria-labelledby="basics-tab-paper" tabindex="0" hidden>
           <div class="card" style="margin-bottom: var(--space-8);">
             <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2);">
               <h2 class="card-title" id="form-card-title">Record a Basics Drill</h2>
@@ -88,6 +98,7 @@
                 Practice online &rarr;
               </a>
             </div>
+            <p class="basics-form-intro">Enter the result of a drill you completed on paper. You can record more than one entry per day.</p>
             <form id="basics-form">
               <input type="hidden" id="edit-drill-id" />
               <div class="card-body">
@@ -178,7 +189,13 @@
               </div>
             </form>
           </div>
+          </section>
 
+          <section id="basics-panel-history" class="basics-view" role="tabpanel" aria-labelledby="basics-tab-history" tabindex="0" hidden>
+          <div class="basics-history-heading">
+            <h2>Your recent practice</h2>
+            <p>Online attempts and paper results, together in one place.</p>
+          </div>
           <!-- Section 1: Today's Drills -->
           <div style="margin-bottom: var(--space-8);">
             <div class="section-header-row">
@@ -206,6 +223,7 @@
               <div class="skeleton-row"></div>
             </div>
           </div>
+          </section>
         </div>
       </main>
     </div>
@@ -215,5 +233,6 @@
 
     <!-- Basics Logic Script -->
     <script type="module" src="/js/basics.js"></script>
+  <script type="module" src="/js/navigation.js"></script>
   </body>
 </html>
