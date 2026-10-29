@@ -112,7 +112,7 @@ async function loadAndRenderStudentDashboard(studentId) {
     if (todayEl) todayEl.textContent = formatDisplayDateIST(data.todayIST);
 
     // Streak card
-    renderStreakCard(data.streak);
+    renderStreakCard(data.streak, data.todos);
 
     // To-do list (isReadOnly = true -> badges only, no edit links)
     renderTodoList(data.todos, 'todo-list-container', true, data.categories);

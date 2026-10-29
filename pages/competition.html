@@ -310,6 +310,81 @@
                 </div>
               </section>
 
+              <!-- Setting 5: todo_streak_start -->
+              <section class="card" aria-labelledby="lbl-todo-streak-start">
+                <div class="card-header">
+                  <div>
+                    <h2 id="lbl-todo-streak-start" class="card-title" style="font-size: var(--text-base);">
+                      5. To-do streak rule starts on
+                    </h2>
+                    <span style="font-size: var(--text-xs); color: var(--text-muted);">
+                      Key: <code class="num">todo_streak_start</code>
+                    </span>
+                  </div>
+                  <span class="badge badge-inactive">Streaks</span>
+                </div>
+                <div class="card-body">
+                  <p style="font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-4); line-height: 1.5;">
+                    From this date a day counts for the streak only when every task of that day is done. Earlier days still count any practice.
+                  </p>
+                  <div class="form-group" style="margin-bottom: var(--space-3);">
+                    <label for="input-todo-streak-start" class="form-label">
+                      To-do streak rule starts on
+                    </label>
+                    <input
+                      type="date"
+                      id="input-todo-streak-start"
+                      class="form-input num"
+                      required
+                      style="max-width: 200px;"
+                    />
+                    <div id="err-todo-streak-start" class="form-error" style="display: none;"></div>
+                  </div>
+                </div>
+                <div class="card-footer" style="justify-content: space-between;">
+                  <span id="status-todo-streak-start" style="font-size: var(--text-xs); color: var(--text-muted);"></span>
+                  <button type="button" class="btn btn-primary btn-sm btn-save-setting" data-key="todo_streak_start">
+                    Save Start Date
+                  </button>
+                </div>
+              </section>
+
+              <!-- Setting 6: global_leaderboard -->
+              <section class="card" aria-labelledby="lbl-global-leaderboard">
+                <div class="card-header">
+                  <div>
+                    <h2 id="lbl-global-leaderboard" class="card-title" style="font-size: var(--text-base);">
+                      6. Global leaderboard (all trainees)
+                    </h2>
+                    <span style="font-size: var(--text-xs); color: var(--text-muted);">
+                      Key: <code class="num">global_leaderboard</code>
+                    </span>
+                  </div>
+                  <span class="badge badge-inactive">Scope &amp; Privacy</span>
+                </div>
+                <div class="card-body">
+                  <p style="font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-4); line-height: 1.5;">
+                    Students can see first name, last initial and level of every active trainee who is shown on leaderboards. No scores are shown. You can hide an individual student on the Students page.
+                  </p>
+                  <div class="form-group" style="margin-bottom: var(--space-3);">
+                    <label for="select-global-leaderboard" class="form-label">
+                      Global leaderboard (all trainees)
+                    </label>
+                    <select id="select-global-leaderboard" class="form-select" style="max-width: 260px;">
+                      <option value="on">On &mdash; students can view Global (all trainees)</option>
+                      <option value="off">Off &mdash; students see their own level only</option>
+                    </select>
+                    <div id="err-global-leaderboard" class="form-error" style="display: none;"></div>
+                  </div>
+                </div>
+                <div class="card-footer" style="justify-content: space-between;">
+                  <span id="status-global-leaderboard" style="font-size: var(--text-xs); color: var(--text-muted);"></span>
+                  <button type="button" class="btn btn-primary btn-sm btn-save-setting" data-key="global_leaderboard">
+                    Save Global Switch
+                  </button>
+                </div>
+              </section>
+
             </div>
 
             <!-- Live Preview of Student "How it works" Explanations & Save All Footer -->
@@ -331,7 +406,7 @@
               </div>
               <div class="card-footer">
                 <button type="submit" id="btn-save-all-competition" class="btn btn-primary">
-                  Save All 4 Settings
+                  Save All Settings
                 </button>
               </div>
             </div>

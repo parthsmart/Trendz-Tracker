@@ -700,13 +700,15 @@ function initDemoStorage() {
     localStorage.setItem(DEMO_STORAGE_KEY_IMPORT_BATCHES, JSON.stringify([]));
   }
 
-  // 13. Initial Competition Settings (Phase 5a)
+  // 13. Initial Competition Settings (Phase 5a, Phase 12a & Phase 12b)
   if (!localStorage.getItem(DEMO_STORAGE_KEY_COMPETITION_SETTINGS)) {
     const initialCompetitionSettings = [
       { key: 'weekly_test_multiplier', value: '2' },
       { key: 'attendance_present_points', value: '10' },
       { key: 'improved_min_entries', value: '5' },
-      { key: 'leaderboard_names', value: 'first_name_initial' }
+      { key: 'leaderboard_names', value: 'first_name_initial' },
+      { key: 'todo_streak_start', value: '2026-10-15' },
+      { key: 'global_leaderboard', value: 'on' }
     ];
     localStorage.setItem(DEMO_STORAGE_KEY_COMPETITION_SETTINGS, JSON.stringify(initialCompetitionSettings));
   }
@@ -960,14 +962,20 @@ export const DemoDB = {
     initDemoStorage();
     const todos = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_TODOS) || '[]');
     // Return sample status: first 4 done, rest pending
-    return todos.filter(t => t.active).map((t, idx) => ({
-      task_id: t.id,
-      task_title: t.title,
-      task_section: t.section,
-      task_category_id: t.category_id || null,
-      task_activity_key: t.activity_key || null,
-      done: idx < 4 // 4 of 7 done
-    }));
+    return todos.filter(t => t.active).map((t, idx) => {
+      const reqCount = Number(t.required_count) || 1;
+      const isDone = idx < 4;
+      return {
+        task_id: t.id,
+        task_title: t.title,
+        task_section: t.section,
+        task_category_id: t.category_id || null,
+        task_activity_key: t.activity_key || null,
+        required_count: reqCount,
+        done_count: isDone ? reqCount : 0,
+        done: isDone
+      };
+    });
   },
 
   /**
@@ -1043,7 +1051,7 @@ export const DemoDB = {
   saveTodos(todos) {
     localStorage.setItem(DEMO_STORAGE_KEY_TODOS, JSON.stringify(todos));
   },
-  addTodo({ title, section, category_id, activity_key, level, active = true }) {
+  addTodo({ title, section, category_id, activity_key, level, required_count = 1, active = true }) {
     if (!isDemoMode()) throw new Error('Blocked in production mode');
     const todos = this.getTodos();
     const newTodo = {
@@ -1053,6 +1061,7 @@ export const DemoDB = {
       category_id: category_id || null,
       activity_key: activity_key || null,
       level: level ? level.trim() : null,
+      required_count: Number(required_count) || 1,
       sort_order: todos.length + 1,
       active: Boolean(active),
       created_at: new Date().toISOString()
@@ -2507,7 +2516,9 @@ export const DemoDB = {
       'weekly_test_multiplier',
       'attendance_present_points',
       'improved_min_entries',
-      'leaderboard_names'
+      'leaderboard_names',
+      'todo_streak_start',
+      'global_leaderboard'
     ];
     if (!validKeys.includes(key)) {
       throw new Error(`Unknown competition setting key "${key}".`);
@@ -2516,6 +2527,14 @@ export const DemoDB = {
     if (key === 'leaderboard_names') {
       if (cleanVal !== 'first_name_initial' && cleanVal !== 'student_code') {
         throw new Error('Leaderboard display name mode must be "first_name_initial" or "student_code".');
+      }
+    } else if (key === 'global_leaderboard') {
+      if (cleanVal !== 'on' && cleanVal !== 'off') {
+        throw new Error('Global leaderboard setting must be "on" or "off".');
+      }
+    } else if (key === 'todo_streak_start') {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(cleanVal)) {
+        throw new Error('To-do streak start date must be in YYYY-MM-DD format.');
       }
     } else {
       const num = Number(cleanVal);
@@ -2545,17 +2564,35 @@ export const DemoDB = {
       weekly_test_multiplier: Number(map.get('weekly_test_multiplier') ?? 2),
       attendance_present_points: Number(map.get('attendance_present_points') ?? 10),
       improved_min_entries: Number(map.get('improved_min_entries') ?? 5),
-      leaderboard_names: map.get('leaderboard_names') || 'first_name_initial'
+      leaderboard_names: map.get('leaderboard_names') || 'first_name_initial',
+      todo_streak_start: map.get('todo_streak_start') || '2026-10-15',
+      global_leaderboard: map.get('global_leaderboard') || 'on'
     };
   },
 
-  mockLeaderboard({ p_board = 'points', p_period = 'week', p_level = null, p_limit = 10 }, callerProfile = null) {
+  mockGlobalLeaderboardEnabled() {
+    initDemoStorage();
+    const list = this.getCompetitionSettings();
+    const map = new Map(list.map(i => [i.key, i.value]));
+    return (map.get('global_leaderboard') || 'on') !== 'off';
+  },
+
+  mockLeaderboard(
+    { p_board = 'points', p_period = 'week', p_level = null, p_limit = 10, p_scope = 'level' } = {},
+    callerProfile = null
+  ) {
     initDemoStorage();
     const rules = this.mockCompetitionRules();
     const useCode = rules.leaderboard_names === 'student_code';
     const isAdmin = callerProfile?.role === 'admin';
     const callerId = callerProfile?.id || 'usr-101';
     const callerLevel = callerProfile?.level || 'Level 3';
+    const scope = p_scope === 'global' ? 'global' : 'level';
+
+    // When the global board is switched off, a student asking for 'global' gets the error "The global leaderboard is switched off."
+    if (!isAdmin && scope === 'global' && !this.mockGlobalLeaderboardEnabled()) {
+      throw new Error('The global leaderboard is switched off.');
+    }
 
     // Check if any demo student was hidden by admin on /pages/students.html
     const storedStudents = this.getStudents();
@@ -2653,6 +2690,36 @@ export const DemoDB = {
           { student_id: 'usr-107', name_initial: 'Arjun N.', code: 'STU107', level: 'Master', value: 115 }
         ]
       },
+      todo: {
+        week: [
+          { student_id: 'usr-301', name_initial: 'Ishaan K.', code: 'STU301', level: 'Level 3', value: 6 },
+          { student_id: 'usr-101', name_initial: 'Aarav S.', code: 'STU101', level: 'Level 3', value: 5 },
+          { student_id: 'usr-302', name_initial: 'Tanvi R.', code: 'STU302', level: 'Level 3', value: 4 },
+          { student_id: 'usr-106', name_initial: 'Mira J.', code: 'STU106', level: 'Level 3', value: 3 },
+          { student_id: 'usr-102', name_initial: 'Diya P.', code: 'STU102', level: 'Level 2', value: 5 },
+          { student_id: 'usr-108', name_initial: 'Riya S.', code: 'STU108', level: 'Level 2', value: 4 },
+          { student_id: 'usr-103', name_initial: 'Kabir V.', code: 'STU103', level: 'Level 4', value: 6 },
+          { student_id: 'usr-107', name_initial: 'Arjun N.', code: 'STU107', level: 'Master', value: 7 }
+        ],
+        month: [
+          { student_id: 'usr-301', name_initial: 'Ishaan K.', code: 'STU301', level: 'Level 3', value: 22 },
+          { student_id: 'usr-101', name_initial: 'Aarav S.', code: 'STU101', level: 'Level 3', value: 20 },
+          { student_id: 'usr-302', name_initial: 'Tanvi R.', code: 'STU302', level: 'Level 3', value: 17 },
+          { student_id: 'usr-106', name_initial: 'Mira J.', code: 'STU106', level: 'Level 3', value: 14 },
+          { student_id: 'usr-102', name_initial: 'Diya P.', code: 'STU102', level: 'Level 2', value: 19 },
+          { student_id: 'usr-103', name_initial: 'Kabir V.', code: 'STU103', level: 'Level 4', value: 23 },
+          { student_id: 'usr-107', name_initial: 'Arjun N.', code: 'STU107', level: 'Master', value: 26 }
+        ],
+        all: [
+          { student_id: 'usr-301', name_initial: 'Ishaan K.', code: 'STU301', level: 'Level 3', value: 84 },
+          { student_id: 'usr-101', name_initial: 'Aarav S.', code: 'STU101', level: 'Level 3', value: 78 },
+          { student_id: 'usr-302', name_initial: 'Tanvi R.', code: 'STU302', level: 'Level 3', value: 70 },
+          { student_id: 'usr-106', name_initial: 'Mira J.', code: 'STU106', level: 'Level 3', value: 58 },
+          { student_id: 'usr-102', name_initial: 'Diya P.', code: 'STU102', level: 'Level 2', value: 68 },
+          { student_id: 'usr-103', name_initial: 'Kabir V.', code: 'STU103', level: 'Level 4', value: 90 },
+          { student_id: 'usr-107', name_initial: 'Arjun N.', code: 'STU107', level: 'Master', value: 108 }
+        ]
+      },
       improved: {
         default: [
           { student_id: 'usr-106', name_initial: 'Mira J.', code: 'STU106', level: 'Level 3', value: 6.4 },
@@ -2675,11 +2742,13 @@ export const DemoDB = {
     // Filter out hidden students and zero values
     let pool = rawPool.filter(item => !hiddenSet.has(item.student_id) && item.value > 0);
 
-    // Level filtering:
-    // - For students: always returns their own level only
+    // Level & Scope filtering:
+    // - For students: 'level' returns their own level only; 'global' returns all active visible trainees
     // - For admins: p_level null or 'all' means every level; otherwise filter by p_level
     if (!isAdmin) {
-      pool = pool.filter(item => item.level === callerLevel);
+      if (scope !== 'global') {
+        pool = pool.filter(item => item.level === callerLevel);
+      }
     } else if (p_level && p_level !== 'all') {
       pool = pool.filter(item => item.level === p_level);
     }
@@ -2691,7 +2760,8 @@ export const DemoDB = {
       student_id: isAdmin ? item.student_id : null,
       display_name: useCode ? item.code : item.name_initial,
       value: item.value,
-      is_me: !isAdmin && item.student_id === callerId
+      is_me: !isAdmin && item.student_id === callerId,
+      level: item.level
     }));
 
     if (isAdmin) {

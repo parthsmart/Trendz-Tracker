@@ -715,3 +715,44 @@ Every meaningful technical and architectural decision made for **Trendz Tracker*
      - Every category row displays one of six exact status chips: `"Not entered"`, `"Edited - not saved"`, `"Saved"`, `"Locked (verified)"`, `"Locked (corrected by your teacher)"`, or `"Locked (older than 7 days)"`, paired with a one-sentence explanation under the round header, read-only disabled styling + reason tooltip on locked rows, inline field validation (`correct <= total`, no negative numbers), a live `"n unsaved changes"` counter, confirmation before leaving with unsaved edits, and an alert (`role="alert"`) with a **"Try again"** button that preserves all typed values if saving fails.
   5. **Flash Anzan Top Last-Used Summary Card (`/pages/flash.html`, `js/flash.js`)**:
      - Placing `"Last used: 1 digit - 10 numbers - 1.0 s - add"` with a primary **Start** button at the top of the setup card lets returning students start immediately with one click while keeping custom controls directly visible below (preserving ADR-030: no presets).
+
+---
+
+## ADR-045: Phase 12a — Daily Tasks with Required Count (`required_count`), Progress Display (`js/todoProgress.js`), Cutover Start Date (`todo_streak_start`), and Nightly Day Finalization (`todo_finalize`)
+
+- **Date**: 2026-10-28
+- **Status**: Accepted
+- **Context**:
+  - Previously, each daily task in `daily_tasks` was satisfied by a single completed attempt (`done: boolean`), and any single practice entry on a calendar day counted toward the student's daily streak regardless of whether the student finished their assigned daily plan.
+  - Teachers needed:
+    1. A per-task `required_count` (`1..50`, default `1`) so a single task can require multiple rounds, sets, or tries per day (e.g. `4` rounds of `1d4r` or `3` sets of `Day Codes`), with clear progress (`"2 of 4"`, progress bar, `"n of m tasks done today"`) on the student and teacher dashboards.
+    2. A stricter streak rule where a day counts for the streak only when **all** of that day's assigned tasks are done (or any practice when the student has no tasks assigned that day).
+- **Decisions & Rationale**:
+  1. **Why the Streak Requires All Assigned Tasks**:
+     - Counting a day toward a student's streak after just one quick try allowed students to keep a streak alive while leaving most of their assigned daily curriculum unfinished. Requiring all assigned tasks for the day (`done_count >= required_count` for every assigned task) aligns the daily streak reward directly with completing the teacher's daily training plan, while still allowing any practice to count on days when a student has zero assigned tasks.
+  2. **Why the Rule Has a Configurable Start Date (`competition_settings` key `'todo_streak_start'`)**:
+     - Applying the new all-tasks rule retroactively to historical dates would break existing students' streaks for past days when they practised under the old rule ("any practice counts") or before current tasks were assigned.
+     - Storing a cutover date in `competition_settings` (`todo_streak_start`, `YYYY-MM-DD`, configurable on `/pages/competition.html`) lets the database (`streak_for`) evaluate days before `todo_streak_start` under the historical rule and days on or after `todo_streak_start` under the all-tasks rule, ensuring zero retroactive streak penalties.
+  3. **Why Finished Days Are Stored Nightly (`todo_finalize` -> `daily_todo_log`)**:
+     - Teachers edit `daily_tasks` over time (changing `required_count`, adding new tasks, deactivating old ones, or promoting students to a new level). If historical streak evaluation re-queried live `daily_tasks` for past dates, editing a task today would retroactively alter whether yesterday or last week counted as completed.
+     - Calling `supabase.rpc('todo_finalize')` with the service role at the start of every backup run in `/api/backup.js` (both nightly cron at ~2:00 AM IST and manual runs, wrapped so an error never aborts the backup) snapshots each finished day into `daily_todo_log`. The admin To-Do form also reminds teachers: *"Changes apply from today. Avoid editing tasks between midnight and 3 AM."*
+  4. **Strict Database Authority for Counts & Streak Status (`todo_for`, `streak_for`, `js/todoProgress.js`)**:
+     - JavaScript never computes `done_count`, `done`, or `active_today`. `js/todoProgress.js` formats `progressText(done_count, required_count)` (clamped to at most `required_count`, e.g. `"4 of 4"` when 5 are done), `percent(done_count, required_count)` (capped at `100`), and `summary(tasks)` (`"n of m tasks done today"` strictly from `task.done === true`).
+
+---
+
+## ADR-046: Phase 12b — Daily To-Do Leaderboard Counting Completed Days and Admin-Switchable Global Leaderboard Scope (`js/leaderboardView.js`)
+
+- **Date**: 2026-10-28
+- **Status**: Accepted
+- **Context**:
+  - Phase 12b adds a fifth leaderboard tab (**Daily To-Do**, `board = 'todo'`) alongside a two-option scope switch (`<student's level> (your level only)` vs `Global (all trainees)`) on `/pages/leaderboard.html` and an admin control (`competition_settings` key `'global_leaderboard'`, `'on'` or `'off'`) on `/pages/competition.html`.
+- **Decisions & Rationale**:
+  1. **Why the Daily To-Do Leaderboard Counts Completed Days Rather Than Tasks**:
+     - Different levels (and institute-wide assignments) have different numbers of daily tasks and different `required_count` multipliers. If the leaderboard counted raw tasks or rounds completed, students in levels with more assigned tasks would automatically outrank students in levels with fewer assigned tasks even when both completed 100% of their daily plan.
+     - Counting the **number of days** in the selected period (`week`, `month`, `all`) on which the student finished **every** assigned task of that day (for days with at least one task, including today when everything is done so far) puts every level on an equal footing: every student can earn at most 1 day per calendar day, whether comparing within their own level or on the global board.
+  2. **Why the Global Leaderboard Is Switchable (`competition_settings` key `'global_leaderboard'`)**:
+     - Comparing across all trainees (`p_scope = 'global'`) motivates students institute-wide, especially on consistency boards (`streak`, `practice_days`, `todo`). However, during certain training blocks or exam seasons, teachers may prefer students to compare strictly within their own level cohort (`p_scope = 'level'`).
+     - Providing an admin switch (`global_leaderboard` = `'on'` | `'off'`) backed by `global_leaderboard_enabled()` and server-side enforcement in `leaderboard(..., p_scope)` lets administrators enable or disable global visibility at any time without code changes. When switched off, the client hides the Global option and, if a request fails with `"The global leaderboard is switched off."`, displays the message and falls back automatically to the student's own level.
+     - *Future Option*: Currently the global switch applies across all five boards; if an institute later wants certain boards (such as `points`) to remain level-only while consistency boards (`streak`, `todo`) allow global scope, per-board scope configuration can be added as a later option.
+

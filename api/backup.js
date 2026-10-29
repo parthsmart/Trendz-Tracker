@@ -474,6 +474,42 @@ export async function executeBackupRunPass({
   let stoppedForBudget = false;
   let anyTableHasMoreRows = false;
   let activeTableName = null;
+  let todoDaysFinalized = 0;
+  let todoFinalizeError = null;
+
+  // Step 0 (Phase 12a): Finalize finished daily to-do days via service-role RPC `todo_finalize`.
+  // Must run once at the start of every run (cron and manual) and must NEVER fail the backup run.
+  if (typeof supabase.rpc === 'function') {
+    try {
+      const { data: finalizeData, error: finalizeErr } = await supabase.rpc('todo_finalize');
+      if (finalizeErr) {
+        todoFinalizeError = sanitizeBackupError(finalizeErr.message || finalizeErr, secrets).slice(0, 120);
+      } else if (typeof finalizeData === 'number' && Number.isFinite(finalizeData)) {
+        todoDaysFinalized = Math.max(0, Math.floor(finalizeData));
+      } else if (Array.isArray(finalizeData) && finalizeData.length > 0) {
+        const first = finalizeData[0];
+        if (typeof first === 'number' && Number.isFinite(first)) {
+          todoDaysFinalized = Math.max(0, Math.floor(first));
+        } else if (first && typeof first === 'object') {
+          const v = Number(first.todo_days_finalized ?? first.days_finalized ?? first.count ?? 0);
+          todoDaysFinalized = Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0;
+        }
+      } else if (finalizeData && typeof finalizeData === 'object') {
+        const v = Number(finalizeData.todo_days_finalized ?? finalizeData.days_finalized ?? finalizeData.count ?? 0);
+        todoDaysFinalized = Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0;
+      } else {
+        const v = Number(finalizeData);
+        todoDaysFinalized = Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0;
+      }
+    } catch (finalizeEx) {
+      todoFinalizeError = sanitizeBackupError(finalizeEx, secrets).slice(0, 120);
+    }
+  }
+
+  tablesSummary.todo_days_finalized = todoDaysFinalized;
+  if (todoFinalizeError) {
+    tablesSummary.todo_finalize_error = todoFinalizeError;
+  }
 
   let mirrorSummary = {
     configured: hasGoogleMirrorConfig(env),
@@ -976,6 +1012,8 @@ export async function executeBackupRunPass({
         ok: true,
         status: finalStatus,
         rows_written: totalRowsWrittenThisRun,
+        todo_days_finalized: todoDaysFinalized,
+        ...(todoFinalizeError ? { todo_finalize_error: todoFinalizeError } : {}),
         tables: tablesSummary,
         mirror: mirrorSummary,
         error: finalError,
@@ -1013,6 +1051,8 @@ export async function executeBackupRunPass({
         ok: false,
         status: failStatus,
         rows_written: totalRowsWrittenThisRun,
+        todo_days_finalized: todoDaysFinalized,
+        ...(todoFinalizeError ? { todo_finalize_error: todoFinalizeError } : {}),
         tables: tablesSummary,
         mirror: mirrorSummary,
         error: safeErr,

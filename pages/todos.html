@@ -138,7 +138,12 @@
     <div id="modal-todo" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="modal-todo-title">
       <div class="modal-dialog">
         <header class="modal-header">
-          <h2 id="modal-todo-title" class="modal-title">Add Daily Task</h2>
+          <div>
+            <h2 id="modal-todo-title" class="modal-title">Add Daily Task</h2>
+            <p id="modal-todo-subtitle" style="font-size: var(--text-xs); color: var(--text-muted); margin: 4px 0 0 0;">
+              Changes apply from today. Avoid editing tasks between midnight and 3 AM.
+            </p>
+          </div>
           <button type="button" class="modal-close" data-close-modal="modal-todo" aria-label="Close modal">&times;</button>
         </header>
 
@@ -180,6 +185,23 @@
                 </select>
                 <span class="form-hint" id="todo-category-hint">Dropdown shows active categories matching the chosen section.</span>
               </div>
+            </div>
+
+            <div class="form-group">
+              <label for="todo-required-count" id="todo-required-count-label" class="form-label required">Rounds per day</label>
+              <input
+                type="number"
+                id="todo-required-count"
+                class="form-control num"
+                min="1"
+                max="50"
+                step="1"
+                inputmode="numeric"
+                value="1"
+                required
+                style="max-width: 140px;"
+              />
+              <span class="form-hint" id="todo-required-count-hint">How many times the student must do this every day. Every saved result counts once, whether typed or done online. For round tasks, each different round counts once.</span>
             </div>
 
             <div class="form-group">

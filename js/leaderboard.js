@@ -3,30 +3,43 @@
  *
  * Serves both Students and Admins on /pages/leaderboard.html:
  * - Guard: requireAuth(['student', 'admin'])
- * - Student view: own level only, top 10 + own row below top 10 if outside it, "You" highlight, no links.
+ * - Student view: scope switch between own level ('level') and all trainees ('global'),
+ *   top 10 + own row below top 10 if outside it, "You" highlight, level chip in global mode, no links.
  * - Admin view: level filter ('all' or specific level from profiles), up to 200 rows,
  *   names link to /pages/student-detail.html?id=<student_id>, no "You" highlight.
- * - Never calculates points, ranks, or streaks in JavaScript; strictly uses RPCs
- *   `leaderboard(p_board, p_period, p_level, p_limit)` and `competition_rules()`.
+ * - Never calculates points, ranks, task days, or streaks in JavaScript; strictly uses RPCs
+ *   `leaderboard(p_board, p_period, p_level, p_limit, p_scope)`, `global_leaderboard_enabled()`, and `competition_rules()`.
  */
 
 import { isSupabaseConfigured } from './config.js';
 import { requireAuth } from './guard.js';
 import {
   fetchLeaderboard,
+  fetchGlobalLeaderboardEnabled,
   fetchCompetitionRules,
-  formatLeaderboardValue,
   buildHowItWorksText,
   getLeaderboardEmptyMessage
 } from './leaderboardData.js';
+import {
+  BOARD_LABELS,
+  boardUsesPeriod,
+  scopeLabel,
+  boardTitle,
+  mapLeaderboardRows
+} from './leaderboardView.js';
 import { setupAdminNav } from './modal.js';
 import { getSupabase, DemoDB } from './supabaseClient.js';
+import { showToast } from './toast.js';
+
+const SCOPE_STORAGE_KEY = 'trendz_leaderboard_scope_v1';
 
 let currentProfile = null;
 let isAdmin = false;
-let currentBoard = 'points'; // 'points' | 'streak' | 'practice_days' | 'improved'
+let currentBoard = 'points'; // 'points' | 'streak' | 'practice_days' | 'todo' | 'improved'
 let currentPeriod = 'week'; // 'week' | 'month' | 'all'
 let currentLevel = 'all'; // used by admin only
+let currentScope = 'level'; // 'level' | 'global' (used by students)
+let globalEnabled = true;
 let competitionRules = {
   weekly_test_multiplier: 2,
   attendance_present_points: 10,
@@ -45,32 +58,28 @@ function escapeHtml(str) {
   }[tag] || tag));
 }
 
-function getBoardLabel(board) {
-  switch (board) {
-    case 'points':
-      return 'Points';
-    case 'streak':
-      return 'Streak';
-    case 'practice_days':
-      return 'Practice days';
-    case 'improved':
-      return 'Most improved';
-    default:
-      return 'Leaderboard';
+function readStoredScope() {
+  try {
+    const val = localStorage.getItem(SCOPE_STORAGE_KEY);
+    if (val === 'global' || val === 'level') {
+      return val;
+    }
+  } catch {
+    // Ignore storage errors
+  }
+  return 'level';
+}
+
+function writeStoredScope(scope) {
+  try {
+    localStorage.setItem(SCOPE_STORAGE_KEY, scope === 'global' ? 'global' : 'level');
+  } catch {
+    // Ignore storage errors
   }
 }
 
-function getPeriodLabel(period) {
-  switch (period) {
-    case 'week':
-      return 'This week';
-    case 'month':
-      return 'This month';
-    case 'all':
-      return 'All time';
-    default:
-      return 'This week';
-  }
+function getBoardLabel(board) {
+  return BOARD_LABELS[board] || 'Leaderboard';
 }
 
 function getValueColumnHeader(board) {
@@ -81,6 +90,8 @@ function getValueColumnHeader(board) {
       return 'Streak';
     case 'practice_days':
       return 'Practice days';
+    case 'todo':
+      return 'Days completed';
     case 'improved':
       return 'Accuracy Gain';
     default:
@@ -89,29 +100,75 @@ function getValueColumnHeader(board) {
 }
 
 /**
- * Updates the "How it works" explanation banner and card headings for the active board/period.
+ * Updates the student scope segmented control buttons and visibility.
+ */
+function syncScopeControlsUI() {
+  const scopeContainer = document.getElementById('student-scope-controls');
+  const btnLevel = document.getElementById('btn-scope-level');
+  const btnGlobal = document.getElementById('btn-scope-global');
+
+  if (isAdmin) {
+    if (scopeContainer) scopeContainer.style.display = 'none';
+    return;
+  }
+
+  if (btnLevel) {
+    btnLevel.textContent = scopeLabel(currentProfile?.level, 'level');
+    const isLevelActive = currentScope === 'level';
+    btnLevel.classList.toggle('active', isLevelActive);
+    btnLevel.setAttribute('aria-pressed', isLevelActive ? 'true' : 'false');
+  }
+
+  if (btnGlobal) {
+    btnGlobal.textContent = scopeLabel(currentProfile?.level, 'global');
+    btnGlobal.style.display = globalEnabled ? '' : 'none';
+    const isGlobalActive = currentScope === 'global' && globalEnabled;
+    btnGlobal.classList.toggle('active', isGlobalActive);
+    btnGlobal.setAttribute('aria-pressed', isGlobalActive ? 'true' : 'false');
+  }
+
+  if (scopeContainer) {
+    scopeContainer.style.display = 'inline-flex';
+  }
+}
+
+/**
+ * Updates the "How it works" explanation banner and card headings for the active board/period/scope.
  */
 function updateBoardChrome() {
-  // 1. Show or hide the period switch (only visible for 'points' and 'practice_days')
+  // 1. Show or hide the period switch (visible for 'points', 'practice_days', and 'todo')
   const periodWrapper = document.getElementById('period-switch-wrapper');
-  const usesPeriod = currentBoard === 'points' || currentBoard === 'practice_days';
+  const usesPeriod = boardUsesPeriod(currentBoard);
   if (periodWrapper) {
     periodWrapper.style.display = usesPeriod ? 'inline-flex' : 'none';
   }
 
-  // 2. Update "How it works" explanation from competition_rules()
+  // 2. Update "How it works" explanation
   const howItWorksEl = document.getElementById('how-it-works-text');
   if (howItWorksEl) {
     howItWorksEl.textContent = buildHowItWorksText(currentBoard, competitionRules);
   }
 
-  // 3. Update card title & value column header
+  // 3. Determine scope label for card header & badge
+  let activeScopeLabel = '';
+  if (isAdmin) {
+    activeScopeLabel =
+      currentLevel === 'all' || !currentLevel
+        ? 'All levels (up to 200 rows)'
+        : `${currentLevel} (up to 200 rows)`;
+  } else {
+    activeScopeLabel = scopeLabel(currentProfile?.level, currentScope);
+  }
+
+  // 4. Update card title & value column header
   const cardTitleEl = document.getElementById('board-card-title');
   if (cardTitleEl) {
-    const boardTitle = getBoardLabel(currentBoard);
-    cardTitleEl.textContent = usesPeriod
-      ? `${boardTitle} — ${getPeriodLabel(currentPeriod)}`
-      : boardTitle;
+    cardTitleEl.textContent = boardTitle(
+      currentBoard,
+      currentPeriod,
+      isAdmin ? activeScopeLabel : currentScope,
+      currentProfile?.level
+    );
   }
 
   const thValueEl = document.getElementById('th-board-value');
@@ -119,20 +176,13 @@ function updateBoardChrome() {
     thValueEl.textContent = getValueColumnHeader(currentBoard);
   }
 
-  // 4. Update scope badge
+  // 5. Update scope badge
   const scopeBadgeEl = document.getElementById('board-scope-badge');
   if (scopeBadgeEl) {
-    if (isAdmin) {
-      scopeBadgeEl.textContent =
-        currentLevel === 'all' || !currentLevel
-          ? 'All Levels (up to 200 rows)'
-          : `${currentLevel} (up to 200 rows)`;
-    } else {
-      scopeBadgeEl.textContent = currentProfile?.level
-        ? `${currentProfile.level} (Your level only)`
-        : 'Your level only';
-    }
+    scopeBadgeEl.textContent = activeScopeLabel;
   }
+
+  syncScopeControlsUI();
 }
 
 /**
@@ -219,26 +269,44 @@ async function loadActiveBoard() {
   const tableEl = document.getElementById('leaderboard-table');
 
   try {
-    const effectivePeriod =
-      currentBoard === 'streak' || currentBoard === 'improved' ? 'week' : currentPeriod;
+    const effectivePeriod = boardUsesPeriod(currentBoard) ? currentPeriod : 'week';
     const effectiveLevel = isAdmin ? (currentLevel === 'all' ? 'all' : currentLevel) : null;
     const effectiveLimit = isAdmin ? 200 : 10;
+    const effectiveScope = isAdmin
+      ? currentLevel === 'all'
+        ? 'global'
+        : 'level'
+      : currentScope;
 
-    const rows = await fetchLeaderboard(
+    const rawRows = await fetchLeaderboard(
       {
         board: currentBoard,
         period: effectivePeriod,
         level: effectiveLevel,
-        limit: effectiveLimit
+        limit: effectiveLimit,
+        scope: effectiveScope
       },
       currentProfile
     );
 
-    if (!rows || rows.length === 0) {
+    const mappedRows = mapLeaderboardRows(rawRows, {
+      board: currentBoard,
+      scope: effectiveScope,
+      isAdmin
+    });
+
+    if (mappedRows.length === 0) {
       if (tbody) tbody.innerHTML = '';
       if (tableEl) tableEl.style.display = 'none';
-      if (emptyTitle) emptyTitle.textContent = `No ${getBoardLabel(currentBoard).toLowerCase()} rankings yet`;
-      if (emptyDesc) emptyDesc.textContent = getLeaderboardEmptyMessage(currentBoard, effectivePeriod);
+      if (emptyTitle) {
+        emptyTitle.textContent =
+          currentBoard === 'todo'
+            ? 'No full days finished yet'
+            : `No ${getBoardLabel(currentBoard).toLowerCase()} rankings yet`;
+      }
+      if (emptyDesc) {
+        emptyDesc.textContent = getLeaderboardEmptyMessage(currentBoard, effectivePeriod);
+      }
       if (emptyState) emptyState.style.display = 'flex';
       return;
     }
@@ -248,14 +316,12 @@ async function loadActiveBoard() {
 
     const htmlRows = [];
 
-    rows.forEach((row, index) => {
-      const rankNum = Number(row.rank);
-      // Do NOT show the "You" highlight for admins
-      const isMe = !isAdmin && row.is_me === true;
-      const isOutsideTop10 = !isAdmin && isMe && (rankNum > 10 || index >= 10);
+    mappedRows.forEach(row => {
+      const rankNum = row.rank;
+      const isMe = row.is_me;
 
       // If the student is outside the top 10, insert a clear visual separator row before their row
-      if (isOutsideTop10) {
+      if (row.is_outside_top_10) {
         htmlRows.push(`
           <tr class="section-divider-row" aria-label="Your rank outside top 10">
             <th colspan="3" style="text-align: center; font-size: 11px; color: var(--text-muted); letter-spacing: 0.5px;">
@@ -288,6 +354,10 @@ async function loadActiveBoard() {
         `;
       }
 
+      const levelChipHtml = row.show_level_chip && row.level
+        ? `<span class="badge badge-inactive" style="margin-left: 8px; font-size: 11px;">${escapeHtml(row.level)}</span>`
+        : '';
+
       const youBadgeHtml = isMe
         ? `<span class="badge badge-active" style="margin-left: 8px;">You</span>`
         : '';
@@ -302,11 +372,12 @@ async function loadActiveBoard() {
           <td>
             <div style="display: inline-flex; align-items: center; flex-wrap: wrap;">
               ${nameCellHtml}
+              ${levelChipHtml}
               ${youBadgeHtml}
             </div>
           </td>
           <td class="num" style="text-align: right; font-weight: 700; color: ${isMe ? 'var(--color-primary)' : 'var(--text-main)'};">
-            ${escapeHtml(formatLeaderboardValue(currentBoard, row.value))}
+            ${escapeHtml(row.formatted_value)}
           </td>
         </tr>
       `);
@@ -316,17 +387,28 @@ async function loadActiveBoard() {
       tbody.innerHTML = htmlRows.join('');
     }
   } catch (err) {
+    const errMsg = err?.message || 'Unable to load leaderboard rankings right now.';
+    // When a request fails with the "switched off" message, show that message and fall back to the level scope
+    if (!isAdmin && currentScope === 'global' && errMsg.toLowerCase().includes('switched off')) {
+      showToast('info', errMsg);
+      globalEnabled = false;
+      currentScope = 'level';
+      writeStoredScope('level');
+      await loadActiveBoard();
+      return;
+    }
+
     console.error('Error loading leaderboard:', err);
     if (tbody) tbody.innerHTML = '';
     if (errorMsgEl) {
-      errorMsgEl.textContent = err.message || 'Unable to load leaderboard rankings right now.';
+      errorMsgEl.textContent = errMsg;
     }
     if (errorBanner) errorBanner.style.display = 'flex';
   }
 }
 
 /**
- * Sets up board tabs, period switch, and admin level selector listeners.
+ * Sets up board tabs, period switch, student scope switch, and admin level selector listeners.
  */
 function setupControls() {
   // Board Tabs
@@ -360,6 +442,21 @@ function setupControls() {
         b.classList.toggle('active', active);
       });
 
+      loadActiveBoard();
+    });
+  });
+
+  // Student Scope Switch ('level' | 'global')
+  const scopeButtons = document.querySelectorAll('[data-scope]');
+  scopeButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const targetScope = btn.getAttribute('data-scope');
+      if (!targetScope || targetScope === currentScope) return;
+      if (targetScope === 'global' && !globalEnabled) return;
+
+      currentScope = targetScope === 'global' ? 'global' : 'level';
+      writeStoredScope(currentScope);
+      syncScopeControlsUI();
       loadActiveBoard();
     });
   });
@@ -406,6 +503,27 @@ async function initLeaderboardPage() {
 
     setupAdminNav();
     await populateAdminLevelsDropdown();
+  } else {
+    // Student scope setup: check URL ?scope=global or localStorage, and check global_leaderboard_enabled()
+    let desiredScope = readStoredScope();
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const urlScope = params.get('scope');
+      if (urlScope === 'global' || urlScope === 'level') {
+        desiredScope = urlScope;
+      }
+    } catch {
+      // Ignore URL parse issues
+    }
+
+    globalEnabled = await fetchGlobalLeaderboardEnabled().catch(() => false);
+    if (!globalEnabled) {
+      currentScope = 'level';
+    } else {
+      currentScope = desiredScope === 'global' ? 'global' : 'level';
+      writeStoredScope(currentScope);
+    }
+    syncScopeControlsUI();
   }
 
   // 3. Wire UI listeners

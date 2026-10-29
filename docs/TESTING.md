@@ -1204,4 +1204,70 @@ This document contains step-by-step test scenarios to verify security boundaries
      - Verify the top of the setup card shows `"Last used: 1 digit - 10 numbers - 1.0 s - add"` with a primary **Start** button while custom controls remain visible below (no presets).
      - Verify the speed unit (`"1.0 s"`) is shown once and the sound option reads `"Play a short tone for each number"` (with no mention of `"Web Audio API"`).
 
+---
+
+## Phase 12a Test Cases (Daily Tasks Required Count, Progress Display, To-Do Streak Rule & Nightly Finalize)
+
+### Test Case 63: Automated Unit Tests for `required_count`, `todoProgress` & `todo_finalize` (`tests/todoForm.test.js`, `tests/todoProgress.test.js`, `tests/backup.test.js`)
+- **Action**:
+  1. Run `node --test tests/todoForm.test.js tests/todoProgress.test.js tests/backup.test.js` (and full suite `node --test tests/*.test.js`).
+- **Expected Result**:
+  - `tests/todoForm.test.js`: verifies `normalizeTaskInput` rejects `required_count` values `0`, `51`, `2.5`, and `"abc"`, normalizes empty (`""`, `null`, `undefined`) to `1`, accepts `4` and `50`, and `requiredCountLabelForSection` returns `"Rounds per day"` (`basics`, `round`, `memoriad`), `"Sets per day"` (`elements`), and `"Tries per day"` (`flash`).
+  - `tests/todoProgress.test.js`: verifies `progressText` caps displayed done count at `required_count` (`"4 of 4"` when `done_count = 5, required_count = 4`), `percent` caps at `100`, and `summary(tasks)` returns `"n of m tasks done today"` strictly from `task.done === true`.
+  - `tests/backup.test.js`: verifies `executeBackupRunPass` calls `supabase.rpc('todo_finalize')` once at the start of both `cron` and `manual` runs, records `todo_days_finalized: n`, and continues without failing the backup run if `todo_finalize` returns an error.
+
+### Test Case 64: Admin Daily To-Do Required Count & Competition Settings Streak Start Date (`/pages/todos.html`, `/pages/competition.html`)
+- **Action**:
+  1. Log in as Admin (`ADMIN01` / `admin123`) and open **Setup ▾ → Daily To-Do** (`/pages/todos.html`).
+  2. Click **+ Add Task**:
+     - Verify the hint under the modal title reads: *"Changes apply from today. Avoid editing tasks between midnight and 3 AM."*
+     - Change **Section Track** across `Round`, `Basics`, `Elements`, `Flash Anzan`, and `Memoriad`: verify the count field label updates dynamically to **"Rounds per day"**, **"Rounds per day"**, **"Sets per day"**, **"Tries per day"**, and **"Rounds per day"**, with the helper text explaining how each saved result or round counts.
+     - Set the count to `4`, enter a title (e.g. `"1d4r Speed Drill"`), and click **Save Task**.
+     - Verify the task row in the table displays **`x 4 per day`** next to the title, and clicking **Edit** loads `4` into the number field.
+  3. Open **Setup ▾ → Competition** (`/pages/competition.html`):
+     - Locate card **5. To-do streak rule starts on** (`todo_streak_start`), select a date (`YYYY-MM-DD`), and click **Save Start Date** (or **Save All Settings**).
+     - Verify `✓ Saved` appears with no error.
+
+### Test Case 65: Student & Admin Student Detail To-Do Progress, Streak Card & Backup Summary (`/pages/student.html`, `/pages/student-detail.html`, `/pages/backup.html`)
+- **Action**:
+  1. Log in as a student and open `/pages/student.html` (and as Admin, open `/pages/student-detail.html?id=...` for the same student):
+     - In **Today's plan** / **Today's Daily Tasks**, verify the header shows **`"n of m tasks done today"`**.
+     - Verify each task row stays in the list even when completed, showing its title, progress **`"2 of 4"`** (or **`"4 of 4"`** even if 5 were done), a small progress bar, **`✓ Done`** when `done` is `true`, and the practice/log link.
+     - In the **Practice Streak** card, verify the status shows **`"Today counts: Yes"`** or **`"Today counts: Not yet"`** (directly from `active_today`) and the plain sentence under the numbers reads *"A day counts for your streak only when all of today's tasks are done (n of m done)."* when tasks exist today, or *"No tasks today, so any practice counts."* when no tasks are assigned today.
+  2. Open **Setup ▾ → Backup** (`/pages/backup.html`) and run a backup or inspect **Recent Backup & Export Runs**:
+     - Verify the run summary displays **`todo_days_finalized: n`**.
+
+---
+
+## Phase 12b Test Cases (Daily To-Do Leaderboard & Own-Level / Global Scope Switch)
+
+### Test Case 66: Automated Unit Tests for Pure Leaderboard View Helpers (`tests/leaderboardView.test.js`)
+- **Action**:
+  1. Run `node --test tests/leaderboardView.test.js` (and full suite `node --test tests/*.test.js`).
+- **Expected Result**:
+  - `tests/leaderboardView.test.js` passes (`0 fail`), verifying:
+    - `scopeLabel(level, scope)` returns `"<level> (your level only)"` when a level is present, `"Your group (your level only)"` when the student has no level, and `"Global (all trainees)"` when `scope === 'global'`.
+    - `boardTitle(board, period, scope, level)` formats card headers such as `"Streak - Global (all trainees)"` and `"Daily To-Do - This week - Junior 2 (your level only)"`.
+    - `mapLeaderboardRows` maps RPC rows cleanly, shows level chips in global mode, marks `is_outside_top_10` for a student's own row beyond #10, and strips `student_id` and `"You"` highlights appropriately for student vs. admin views.
+
+### Test Case 67: Student Leaderboard Daily To-Do Tab, Scope Switch & Dashboard Link (`/pages/student.html`, `/pages/leaderboard.html`)
+- **Action**:
+  1. Log in as a student (`STU101`) and open `/pages/student.html`:
+     - Locate the **Leaderboard** card: verify it still shows the student's own level top 3 and includes a **"See global"** link.
+  2. Click **"See global"** (or open `/pages/leaderboard.html` and use the top scope segmented control):
+     - Verify the two-option scope switch at the top shows **`"<student's level> (your level only)"`** (or **`"Your group (your level only)"`** if unassigned) and **`"Global (all trainees)"`**.
+     - Switch between own level and **Global (all trainees)**: verify the card header updates to include the board, period (when applicable), and scope (e.g. **`"Streak - Global (all trainees)"`**), each row in global mode displays a level chip beside the name, and the choice persists across page reloads.
+     - Click the **`☑️ Daily To-Do`** tab (after `Practice days`): verify the **How it works** text reads *"Days on which you finished every task on your daily list. Different levels have different tasks, so we count days, not tasks."*, the period switch (`This week`, `This month`, `All time`) is visible, and if empty it shows *"Nobody has finished a full day yet in this period"*.
+     - Verify the footer line under the list reads: *"Everyone is shown by first name and last initial. Only totals are shown, never scores."*
+
+### Test Case 68: Admin Daily To-Do Tab & Competition Settings Global Leaderboard Switch (`/pages/leaderboard.html`, `/pages/competition.html`)
+- **Action**:
+  1. Log in as Admin (`ADMIN01` / `admin123`) and open `/pages/leaderboard.html`:
+     - Verify the **`☑️ Daily To-Do`** tab appears after `Practice days` and works with the Admin **Level** filter dropdown (`All levels`, `Level 1`, etc.) without showing the student scope switch.
+  2. Open **Setup ▾ → Competition** (`/pages/competition.html`):
+     - Locate card **6. Global leaderboard (all trainees)** (`global_leaderboard`), verify the helper text reads *"Students can see first name, last initial and level of every active trainee who is shown on leaderboards. No scores are shown. You can hide an individual student on the Students page."*, switch it to **Off**, and click **Save Global Switch**.
+  3. Log in as a student and open `/pages/leaderboard.html`:
+     - Verify the **Global (all trainees)** option is hidden and the page shows the student's own level scope.
+
+
 
