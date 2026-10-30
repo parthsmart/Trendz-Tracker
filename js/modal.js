@@ -129,6 +129,19 @@ export function setupAdminNav() {
   const setupBtn = document.getElementById('btn-nav-setup') || document.getElementById('btn-setup-dropdown');
   const setupMenu = document.getElementById('setup-dropdown-menu') || setupDropdown?.querySelector('.nav-dropdown-menu');
 
+  if (setupMenu && !setupMenu.querySelector('a[href="/pages/announcements.html"]')) {
+    const annLink = document.createElement('a');
+    annLink.href = '/pages/announcements.html';
+    const existingItem = setupMenu.querySelector('.dropdown-item, .nav-dropdown-item');
+    annLink.className = existingItem ? existingItem.className.replace(/\bactive\b/g, '').trim() : 'dropdown-item';
+    annLink.setAttribute('role', 'menuitem');
+    annLink.textContent = 'Announcements';
+    if (window.location.pathname.endsWith('/announcements.html')) {
+      annLink.classList.add('active');
+    }
+    setupMenu.insertBefore(annLink, setupMenu.firstChild);
+  }
+
   if (setupDropdown && setupBtn) {
     // Auto-highlight Setup parent if any dropdown item is active
     if (setupDropdown.querySelector('.nav-dropdown-item.active, .dropdown-item.active')) {

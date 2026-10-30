@@ -14,6 +14,7 @@ import weeklyReportHandler from './api/weekly-report.js';
 import backupHandler from './api/backup.js';
 import drillHandler from './api/drill.js';
 import memoriadHandler from './api/memoriad.js';
+import weeklyTestHandler from './api/weekly-test.js';
 import { getSupabaseServerConfig } from './api/_configHelper.js';
 
 dotenv.config();
@@ -60,6 +61,7 @@ app.all('/api/weekly-report', safeHandler(weeklyReportHandler));
 app.all('/api/backup', safeHandler(backupHandler));
 app.all('/api/drill', safeHandler(drillHandler));
 app.all(['/api/memoriad', '/api/memoriad.js'], safeHandler(memoriadHandler));
+app.all(['/api/weekly-test', '/api/weekly-test.js'], safeHandler(weeklyTestHandler));
 
 async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';

@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Weekly Test &mdash; Trendz Tracker</title>
+    <meta name="description" content="Take online weekly tests and view your weekly test scores across sections and categories." />
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="app-layout">
+      <!-- App Header -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <a href="/pages/student.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <nav class="nav-zone" aria-label="Student Navigation">
+            <a href="/pages/student.html" class="nav-link">Home</a>
+            <a href="/pages/weekly-test.html" class="nav-link active">Weekly Test</a>
+            <a href="/pages/round-scores.html" class="nav-link">Round Scores</a>
+            <a href="/pages/basics.html" class="nav-link">Basics</a>
+            <a href="/pages/elements.html" class="nav-link">Elements</a>
+            <a href="/pages/flash.html" class="nav-link">Flash Anzan</a>
+            <a href="/pages/memoriad.html" class="nav-link">Memoriad</a>
+            <a href="/pages/leaderboard.html" class="nav-link">Leaderboard</a>
+            <a href="/pages/monthly-report.html" class="nav-link">Monthly Report</a>
+            <a href="/pages/notifications.html" class="nav-link" style="display: inline-flex; align-items: center; gap: 5px;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+              </svg>
+              <span>Notifications</span>
+              <span id="nav-notifications-badge" class="nav-notifications-badge num" style="display: none; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: #DC2626; color: #FFFFFF; font-size: 11px; font-weight: 700; line-height: 1;" aria-hidden="true"></span>
+            </a>
+          </nav>
+
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Student</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-code" class="num" style="color: var(--text-muted);">STU000</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign Out
+            </button>
+            <button type="button" class="nav-hamburger-btn" id="btn-nav-hamburger" aria-label="Toggle navigation menu" aria-expanded="false">
+              ☰
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Content -->
+      <main class="main-content">
+        <div class="container" style="max-width: 860px;">
+          <!-- Demo Mode Banner Placeholder -->
+          <div id="config-banner-placeholder"></div>
+
+          <!-- Top Error Banner -->
+          <div id="weekly-test-error-banner" class="banner banner-error" style="display: none; margin-bottom: var(--space-5);" role="alert"></div>
+
+          <!-- ============================================================ -->
+          <!-- SCREEN 1: WEEKLY TESTS LIST (Available now / Upcoming / Past) -->
+          <!-- ============================================================ -->
+          <section id="screen-list">
+            <div class="section-header-row" style="margin-bottom: var(--space-6);">
+              <div>
+                <div class="meta-row" style="margin-bottom: var(--space-1); font-size: var(--text-xs);">
+                  <a href="/pages/student.html" style="color: var(--color-primary); text-decoration: none; font-weight: 600;">
+                    &larr; Back to Home
+                  </a>
+                </div>
+                <h1>Weekly Test</h1>
+                <p style="font-size: var(--text-sm);">
+                  Complete online weekly test sections when open or check your offline and past test scores.
+                </p>
+              </div>
+            </div>
+
+            <div id="weekly-tests-content">
+              <div class="card" style="text-align: center; padding: var(--space-8);">
+                <div class="loading-state">Loading your weekly tests...</div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ============================================================ -->
+          <!-- SCREEN 2: TIMED SECTION PLAYER                                -->
+          <!-- ============================================================ -->
+          <section id="screen-player" style="display: none;">
+            <div class="card" style="padding: var(--space-6);">
+              <!-- Player Top Bar -->
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3); padding-bottom: var(--space-4); border-bottom: 1px solid var(--border-hairline);">
+                <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
+                  <span class="status-chip" id="player-test-badge" style="background-color: var(--color-primary-subtle); color: var(--color-primary); font-weight: 700;">
+                    Weekly Test
+                  </span>
+                  <span class="status-chip chip-unverified" id="player-category-badge" style="font-weight: 700;">
+                    1d4r
+                  </span>
+                  <span id="player-answered-label" class="num" style="font-size: var(--text-sm); font-weight: 700; color: var(--text-main);">
+                    Answered 0
+                  </span>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: var(--space-3);">
+                  <div style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: var(--radius-sm); background: var(--bg-surface-subtle); border: 1px solid var(--border-subtle);">
+                    <span aria-hidden="true">⏱️</span>
+                    <span id="player-stopwatch" class="num" style="font-size: var(--text-base); font-weight: 700; color: var(--text-main);">0:30</span>
+                  </div>
+                  <button type="button" id="btn-player-finish" class="btn btn-outline btn-sm" style="min-height: 36px;">
+                    Finish Section
+                  </button>
+                </div>
+              </div>
+
+              <!-- Countdown Progress Bar -->
+              <div id="player-progress-bar-track" style="height: 6px; background: var(--bg-surface-subtle); border-radius: 999px; overflow: hidden; margin-top: var(--space-3);">
+                <div id="player-progress-bar-fill" style="height: 100%; width: 100%; background: var(--color-primary); transition: width 0.2s linear;"></div>
+              </div>
+
+              <!-- Question Display Area -->
+              <div id="player-question-stage" style="min-height: 220px; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: var(--space-6) var(--space-4); margin: var(--space-4) 0; background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-lg);">
+                <!-- Populated dynamically -->
+              </div>
+
+              <!-- Answer Input & Controls -->
+              <form id="player-answer-form" autocomplete="off" style="max-width: 420px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-3);">
+                <div>
+                  <label for="player-answer-input" class="sr-only">Your Answer</label>
+                  <input
+                    type="text"
+                    id="player-answer-input"
+                    class="form-input num"
+                    inputmode="numeric"
+                    placeholder="Type answer..."
+                    autocomplete="off"
+                    style="font-size: var(--text-xl); font-weight: 700; text-align: center; min-height: 54px; letter-spacing: 0.03em;"
+                  />
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr auto; gap: var(--space-3);">
+                  <button type="submit" id="btn-player-next" class="btn btn-primary" style="min-height: 46px; font-weight: 700;">
+                    Next &rarr; (Enter)
+                  </button>
+                  <button type="button" id="btn-player-skip" class="btn btn-outline" style="min-height: 46px;">
+                    Skip
+                  </button>
+                </div>
+              </form>
+
+              <!-- Network Retry Box (Shown only if submission fails while answers remain in memory) -->
+              <div id="player-submit-retry-box" style="display: none; margin-top: var(--space-5); padding: var(--space-4); border-radius: var(--radius-md); background: var(--color-score-danger-bg); border: 1px solid var(--color-score-danger); text-align: center;">
+                <p id="player-submit-retry-msg" style="color: var(--color-score-danger); font-weight: 600; font-size: var(--text-sm); margin-bottom: var(--space-3);">
+                  Could not send your section answers. Your answers are still safe in memory.
+                </p>
+                <button type="button" id="btn-retry-submit" class="btn btn-primary btn-sm">
+                  Try sending again
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <!-- ============================================================ -->
+          <!-- SCREEN 3: SECTION RESULTS SUMMARY                             -->
+          <!-- ============================================================ -->
+          <section id="screen-results" style="display: none;">
+            <div class="card" style="padding: var(--space-6); text-align: center;">
+              <div style="margin-bottom: var(--space-3);">
+                <span class="status-chip chip-verified" id="results-saved-badge" style="font-size: var(--text-xs);">
+                  ✓ Saved as part of Weekly Test
+                </span>
+              </div>
+
+              <h2 id="results-headline" style="font-size: var(--text-2xl); margin-bottom: var(--space-2);">
+                18 out of 20
+              </h2>
+              <p id="results-subheadline" style="font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-5);">
+                Section completed
+              </p>
+
+              <!-- Metrics Grid -->
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--space-3); margin-bottom: var(--space-6); text-align: left;">
+                <div style="padding: var(--space-3) var(--space-4); background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md);">
+                  <div style="font-size: var(--text-xs); color: var(--text-muted);">Score</div>
+                  <div id="results-score-text" class="num" style="font-size: var(--text-lg); font-weight: 700; margin-top: 2px;">18 / 20</div>
+                </div>
+                <div style="padding: var(--space-3) var(--space-4); background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md);">
+                  <div style="font-size: var(--text-xs); color: var(--text-muted);">Accuracy</div>
+                  <div id="results-accuracy-text" class="num" style="font-size: var(--text-lg); font-weight: 700; margin-top: 2px;">90%</div>
+                </div>
+                <div style="padding: var(--space-3) var(--space-4); background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md);">
+                  <div style="font-size: var(--text-xs); color: var(--text-muted);">Time</div>
+                  <div id="results-time-text" class="num" style="font-size: var(--text-lg); font-weight: 700; margin-top: 2px;">0:30</div>
+                </div>
+              </div>
+
+              <!-- Actions: Next section OR Test complete -->
+              <div style="display: flex; justify-content: center; gap: var(--space-3); flex-wrap: wrap;">
+                <button type="button" id="btn-results-next-section" class="btn btn-primary" style="min-height: 44px; display: none;">
+                  Next section &rarr;
+                </button>
+                <button type="button" id="btn-results-back-list" class="btn btn-outline" style="min-height: 44px;">
+                  Back to Weekly Tests
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <!-- MODAL: Confirm Start Section (Single Attempt Warning) -->
+    <div id="start-section-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="start-section-modal-title">
+      <div class="modal-dialog" style="max-width: 440px;">
+        <header class="modal-header">
+          <h2 class="modal-title" id="start-section-modal-title">Start Test Section</h2>
+          <button type="button" class="modal-close" data-close-modal="start-section-modal" aria-label="Close modal">&times;</button>
+        </header>
+
+        <div class="modal-body">
+          <p id="start-section-modal-summary" style="font-size: var(--text-sm); font-weight: 600; margin-top: 0; margin-bottom: var(--space-3);">
+            Section: 1d4r (30 seconds)
+          </p>
+          <div style="padding: var(--space-3); background: #FFFBEB; border: 1px solid #FDE68A; border-radius: var(--radius-md); font-size: var(--text-sm); color: #92400E; font-weight: 500;">
+            You can take this section only once. If you leave the page, the section is lost.
+          </div>
+        </div>
+
+        <footer class="modal-footer">
+          <button type="button" class="btn btn-outline" data-close-modal="start-section-modal">Cancel</button>
+          <button type="button" id="btn-confirm-start-section" class="btn btn-primary">
+            Start
+          </button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Toast Notifications Container -->
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <script type="module" src="/js/weeklyTest.js"></script>
+  </body>
+</html>

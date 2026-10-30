@@ -188,9 +188,14 @@ export function buildWeeklyEmail(data = {}) {
   const sortedStudents = [...rawStudents].sort(compareStudentsByLevelAndName);
   const sessions = Array.isArray(safeData.sessions) ? safeData.sessions : [];
   const weeklyTests = Array.isArray(safeData.weekly_tests) ? safeData.weekly_tests : [];
+  const upcomingWeeklyTests = Array.isArray(safeData.upcoming_weekly_tests)
+    ? safeData.upcoming_weekly_tests
+    : Array.isArray(safeData.upcoming_tests)
+      ? safeData.upcoming_tests
+      : [];
 
   // ---------------------------------------------------------------------------
-  // PLAIN TEXT VERSION (strictly ordered 1 -> 6)
+  // PLAIN TEXT VERSION
   // ---------------------------------------------------------------------------
   const textLines = [];
   textLines.push(subject);
@@ -285,6 +290,22 @@ export function buildWeeklyEmail(data = {}) {
       const title = wt?.title || 'Weekly Test';
       const scores = Number(wt?.scores ?? 0);
       textLines.push(`- ${dateStr} — ${title}: ${scores} score${scores === 1 ? '' : 's'} recorded`);
+    });
+  }
+  textLines.push('');
+
+  // 6b. Upcoming weekly tests (next 7 days)
+  textLines.push('Upcoming weekly tests (next 7 days)');
+  if (upcomingWeeklyTests.length === 0) {
+    textLines.push('No weekly tests scheduled');
+  } else {
+    upcomingWeeklyTests.forEach((ut) => {
+      const dateStr = formatReportDateIST(ut?.date || ut?.test_date);
+      const title = ut?.title || 'Weekly Test';
+      const rawType = String(ut?.type || ut?.test_type || 'offline').toLowerCase();
+      const typeLabel = rawType === 'online' ? 'Online' : 'Offline';
+      const levelLabel = ut?.level || ut?.audience_level || 'All levels';
+      textLines.push(`- ${dateStr} — ${title} (${typeLabel}, Level: ${levelLabel})`);
     });
   }
   textLines.push('');
@@ -502,6 +523,37 @@ export function buildWeeklyEmail(data = {}) {
           </tbody>
         </table>`;
 
+  const upcomingWeeklyTestsHtml =
+    upcomingWeeklyTests.length === 0
+      ? `<p style="margin: 0; color: #475569; font-size: 14px;">No weekly tests scheduled</p>`
+      : `<table width="100%" cellpadding="8" cellspacing="0" style="border-collapse: collapse; font-size: 13px; border: 1px solid #e2e8f0;">
+          <thead>
+            <tr style="background-color: #f8fafc; color: #334155; text-align: left;">
+              <th style="padding: 8px; border-bottom: 1px solid #cbd5e1;">Title</th>
+              <th style="padding: 8px; border-bottom: 1px solid #cbd5e1;">Type</th>
+              <th style="padding: 8px; border-bottom: 1px solid #cbd5e1;">Date</th>
+              <th style="padding: 8px; border-bottom: 1px solid #cbd5e1;">Level</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${upcomingWeeklyTests
+              .map((ut) => {
+                const title = escapeHtml(ut?.title || 'Weekly Test');
+                const rawType = String(ut?.type || ut?.test_type || 'offline').toLowerCase();
+                const typeLabel = escapeHtml(rawType === 'online' ? 'Online' : 'Offline');
+                const dateStr = escapeHtml(formatReportDateIST(ut?.date || ut?.test_date));
+                const levelStr = escapeHtml(ut?.level || ut?.audience_level || 'All levels');
+                return `<tr style="border-bottom: 1px solid #e2e8f0;">
+                  <td style="padding: 8px; font-weight: 600;">${title}</td>
+                  <td style="padding: 8px; color: #475569;">${typeLabel}</td>
+                  <td style="padding: 8px; white-space: nowrap;">${dateStr}</td>
+                  <td style="padding: 8px; color: #475569;">${levelStr}</td>
+                </tr>`;
+              })
+              .join('')}
+          </tbody>
+        </table>`;
+
   const mirrorHtmlBlock = `<p style="margin: 8px 0 0 0; color: #1e293b; font-size: 14px; line-height: 1.6;">
     Score-sheet mirror: <strong>${mirrorUpToDate} of ${mirrorTotal} up to date</strong>
     &middot; Last built: <strong>${escapeHtml(mirrorLastBuiltAt ? formatReportDateIST(mirrorLastBuiltAt) : 'Never')}</strong>
@@ -562,6 +614,12 @@ export function buildWeeklyEmail(data = {}) {
     <h2 style="margin: 0 0 10px 0; font-size: 16px; color: #0f172a; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;">Weekly tests this week</h2>
     <div style="margin-bottom: 24px;">
       ${weeklyTestsHtml}
+    </div>
+
+    <!-- 6b. Upcoming Weekly Tests (next 7 days) -->
+    <h2 style="margin: 0 0 10px 0; font-size: 16px; color: #0f172a; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;">Upcoming weekly tests (next 7 days)</h2>
+    <div style="margin-bottom: 24px;">
+      ${upcomingWeeklyTestsHtml}
     </div>
 
     <!-- 7. Backup -->

@@ -11,8 +11,12 @@
  */
 
 import { requireAuth } from './guard.js';
+import { getSupabase, DemoDB } from './supabaseClient.js';
+import { isSupabaseConfigured } from './config.js';
+import { isDemoMode } from './demoDb.js';
 import { formatTodayHeadingIST } from './periods.js';
 import { fetchStudentDashboardData } from './dashboardData.js';
+import { groupTests, isSectionStartable } from './weeklyTestView.js';
 import {
   renderStreakCard,
   renderTodaySummaryMetrics,
@@ -28,6 +32,12 @@ import {
 import { loadAndRenderLeaderboardCard } from './leaderboardCard.js';
 import { renderElementsCard } from './elementsCard.js';
 import { renderMemoriadCard } from './memoriadCard.js';
+import { fetchMyNotificationsCached } from './notificationBadge.js';
+import {
+  stageLabel,
+  formatEventDateChipIST,
+  sanitizeNotificationLink,
+} from './notificationsView.js';
 
 async function initStudentDashboard() {
   // 1. Guard check: Strictly for logged-in students (or admin viewing their own student record).
@@ -42,8 +52,10 @@ async function initStudentDashboard() {
   renderHeaderUser(loggedInProfile);
   renderStudentHero(loggedInProfile);
 
-  // Load Leaderboard summary card (Phase 5a) in parallel
+  // Load Leaderboard summary card (Phase 5a), Available Weekly Test banner (Phase 13a), and compact reminders strip (Phase 13b)
   loadAndRenderLeaderboardCard('leaderboard-card-container', loggedInProfile);
+  loadAndRenderAvailableWeeklyTestCard(currentStudentId);
+  loadAndRenderHomeRemindersStrip(currentStudentId);
 
   // 2. Fetch and render all dashboard data using shared loader
   try {
@@ -140,18 +152,156 @@ function renderHeaderUser(profile) {
   });
 }
 
-function renderDemoBanner() {
-  const placeholder = document.getElementById('demo-banner-placeholder');
-  if (!placeholder) return;
-  placeholder.innerHTML = `
-    <div class="banner banner-demo" style="margin-bottom: var(--space-4);">
-      <span class="banner-icon" aria-hidden="true">ℹ️</span>
-      <div class="banner-body">
-        <strong>DEMO MODE &mdash; data is fake:</strong>
-        Sample scores, streaks, and to-do items loaded for local testing.
-      </div>
-    </div>
-  `;
+async function loadAndRenderAvailableWeeklyTestCard(studentId) {
+  const container = document.getElementById('available-weekly-test-card-container');
+  if (!container) return;
+
+  try {
+    let tests = [];
+    if (isSupabaseConfigured()) {
+      const supabase = await getSupabase();
+      const { data, error } = await supabase.rpc('my_weekly_tests');
+      if (error) throw error;
+      tests = Array.isArray(data) ? data : [];
+    } else if (isDemoMode() && DemoDB && DemoDB.mockMyWeeklyTests) {
+      tests = DemoDB.mockMyWeeklyTests(studentId);
+    }
+
+    const { availableNow } = groupTests(tests);
+    if (!availableNow || availableNow.length === 0) {
+      container.innerHTML = '';
+      return;
+    }
+
+    // Prefer an online test with sections still to do, or the first available test
+    const activeTest =
+      availableNow.find(
+        (t) =>
+          String(t.type || t.test_type).toLowerCase() === 'online' &&
+          Array.isArray(t.sections) &&
+          t.sections.some((sec) => isSectionStartable(sec, t.state))
+      ) || availableNow[0];
+
+    const isOnline =
+      String(activeTest.type || activeTest.test_type || 'offline').toLowerCase() === 'online';
+    const sections = Array.isArray(activeTest.sections) ? activeTest.sections : [];
+    const todoCount = isOnline
+      ? sections.filter((sec) => isSectionStartable(sec, activeTest.state)).length
+      : 0;
+
+    const subtitleText = isOnline
+      ? `${todoCount} ${todoCount === 1 ? 'section' : 'sections'} still to do`
+      : 'Scheduled for today (with your trainer)';
+
+    container.innerHTML = `
+      <section class="card" style="margin-bottom: var(--space-4); padding: var(--space-4) var(--space-5); border-left: 4px solid var(--color-primary); background: var(--bg-surface);" aria-label="Available Weekly Test">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3);">
+          <div>
+            <div style="font-weight: 800; font-size: var(--text-base); color: var(--text-main);">
+              Weekly test: ${escapeHtml(activeTest.title)}
+            </div>
+            <div style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">
+              ${escapeHtml(subtitleText)}
+            </div>
+          </div>
+          <a href="/pages/weekly-test.html" class="btn btn-primary btn-sm" style="text-decoration: none;">
+            Start
+          </a>
+        </div>
+      </section>
+    `;
+  } catch (err) {
+    console.warn('Could not load available weekly test card:', err);
+  }
+}
+
+/**
+ * Phase 13b: Shows up to 3 reminders in a compact strip above the to-do list,
+ * each with its link and a link "See all notifications".
+ */
+async function loadAndRenderHomeRemindersStrip(studentId) {
+  const container = document.getElementById('student-home-reminders-strip-container');
+  if (!container) return;
+
+  try {
+    const items = await fetchMyNotificationsCached({ studentId, forceRefresh: false });
+    if (!Array.isArray(items) || items.length === 0) {
+      container.innerHTML = '';
+      return;
+    }
+
+    const topItems = items.slice(0, 3);
+    const rowsHtml = topItems
+      .map((item) => {
+        const title = escapeHtml(item.title || 'Reminder');
+        const dateChip = formatEventDateChipIST(item.event_date || item.created_at);
+        const stageText = stageLabel(item.days_left);
+        const link = sanitizeNotificationLink(
+          item.link,
+          item.kind === 'announcement' ? '/pages/notifications.html' : '/pages/weekly-test.html'
+        );
+
+        let stageBadge = '';
+        if (stageText) {
+          let stageStyle = 'background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE;';
+          if (stageText === 'Today') {
+            stageStyle = 'background: #FEF2F2; color: #B91C1C; border: 1px solid #FECACA;';
+          } else if (stageText === 'Tomorrow') {
+            stageStyle = 'background: #FFFBEB; color: #B45309; border: 1px solid #FDE68A;';
+          }
+          stageBadge = `<span class="num" style="display: inline-block; padding: 1px 6px; border-radius: 5px; font-size: 11px; font-weight: 700; ${stageStyle}">${escapeHtml(stageText)}</span>`;
+        }
+
+        return `
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding: 6px 0; border-bottom: 1px solid var(--border-hairline);">
+            <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; min-width: 0; font-size: var(--text-sm);">
+              ${stageBadge}
+              ${
+                dateChip
+                  ? `<span class="num" style="font-size: 11px; font-weight: 600; color: var(--text-muted);">${escapeHtml(dateChip)}</span>`
+                  : ''
+              }
+              <a href="${escapeHtml(link)}" style="font-weight: 600; color: var(--text-main); text-decoration: none;">
+                ${title}
+              </a>
+            </div>
+            <a href="${escapeHtml(link)}" class="btn btn-outline btn-sm" style="font-size: 11px; padding: 2px 8px; text-decoration: none; flex-shrink: 0;">
+              Open
+            </a>
+          </div>
+        `;
+      })
+      .join('');
+
+    container.innerHTML = `
+      <section class="card" style="margin-bottom: var(--space-4); padding: var(--space-3) var(--space-5); background: var(--bg-surface);" aria-label="Reminders and Notifications">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); margin-bottom: 4px;">
+          <div style="display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);">
+            <span>🔔 Reminders</span>
+            <span class="num">(${items.length})</span>
+          </div>
+          <a href="/pages/notifications.html" style="font-size: var(--text-xs); font-weight: 700; color: var(--color-primary); text-decoration: none;">
+            See all notifications &rarr;
+          </a>
+        </div>
+        <div>
+          ${rowsHtml}
+        </div>
+      </section>
+    `;
+  } catch (err) {
+    console.warn('Could not load home reminders strip:', err);
+  }
+}
+
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 document.addEventListener('DOMContentLoaded', initStudentDashboard);

@@ -230,4 +230,34 @@ The serverless functions in `/api/create-student.js` and `/api/reset-password.js
    - **Global Kill-Switch (`global_leaderboard = 'off'`)**: Administrators can switch off the global leaderboard at any time on `/pages/competition.html`. The database RPC `leaderboard()` enforces this setting server-side: if a student calls `leaderboard(..., p_scope => 'global')` when `global_leaderboard = 'off'`, the database rejects the call with `"The global leaderboard is switched off."` and the UI falls back to `'level'` scope.
    - **Per-Student Opt-Out (`profiles.leaderboard_visible = false`)**: Administrators can hide any individual student on `/pages/students.html` (or `/pages/student-detail.html`), immediately excluding that student from both level-scoped and global leaderboards.
 
+---
+
+## Phase 13a: Online Weekly Tests, Single-Attempt Lock & 30-Day Removal Snapshot Threat Controls
+
+1. **Authoritative Eligibility & Window Check (`weekly_test_check`)**:
+   - `POST /api/weekly-test` (`action: 'start'`) first authenticates the student token via `verifyStudentCaller(req, res)` and then invokes the database RPC `weekly_test_check(p_test, p_student, p_category)` using the service-role client.
+   - Eligibility rules (whether the test is `'online'`, within its `opens_at` / `closes_at` or `test_date` India-time window, matches `audience_level`, includes `category_id`, and has not already been attempted) are evaluated exclusively in Postgres. Client-side code never evaluates test eligibility.
+2. **Single-Attempt Lock (`weekly_test_attempts`) & Rollback on Startup Failure**:
+   - Before generating questions or returning a payload, `/api/weekly-test` inserts a row into `weekly_test_attempts` (`status = 'started'`, unique on `(test_id, student_id, category_id)`). Any duplicate or concurrent start request fails the unique constraint or `weekly_test_check` and is rejected.
+   - If creating the underlying `drill_sessions` row fails, the server deletes the newly inserted `weekly_test_attempts` row so the student is not locked out by a transient server error.
+   - Only an administrator can reset a student's section attempt (by deleting the `weekly_test_attempts` row and corresponding `weekly_test_scores` row on `/pages/weekly-tests.html`).
+3. **Server-Side Answer Stripping, Expiry Buffer & Human Speed Gate**:
+   - Full questions with expected answers (`a`) are stored only in `drill_sessions.questions` (service-role only) with `expires_at = now + seconds + 90s`. The client receives only `stripBasicsExpected(questions)` (`{ i, prompt }`).
+   - On `action: 'submit'`, `/api/weekly-test` verifies ownership (`attempt.student_id === caller.user.id` and `session.student_id === caller.user.id`), checks `checkTimedBasicsSubmission` (`0.25s` minimum per attempted question when `attempted > 0`, `expires_at` window, max 20 chars per answer), grades against the server-stored `drill_sessions.questions`, upserts `weekly_test_scores` (`source = 'online'`), and marks `weekly_test_attempts.status = 'submitted'`.
+   - Raw student answers and bearer tokens are never logged.
+4. **Audited Weekly Test Removal & 30-Day Restore (`weekly_test_removals`)**:
+   - Removing a weekly test via `admin_remove_weekly_test(p_test, p_reason)` requires an administrator and a mandatory reason (`1..200` characters), atomically snapshotting the test and its sections, attempts, and scores into `weekly_test_removals` for 30 days before deletion so accidental removals can be restored via `admin_restore_weekly_test(p_removal)`.
+
+---
+
+## Phase 13b: Announcements & Student Notifications Threat Model & Security Controls
+
+1. **Admin-Only Announcement Authoring & Strict Plain-Text Escaping**:
+   - **Access Control**: The `public.announcements` table is writable exclusively by administrators (`is_admin()` RLS policy on `INSERT`, `UPDATE`, `DELETE`, and admin-only route guard on `/pages/announcements.html`). Students cannot create, edit, or delete announcements, and can only view active announcements targeted to their `level` (or `audience_level IS NULL`) via `my_notifications()`.
+   - **Plain-Text Rendering & XSS Prevention**: Although announcements and weekly test titles/notes are authored by trusted administrators, they are treated as untrusted text everywhere they are rendered:
+     - On `/pages/notifications.html`, `/pages/student.html` (home reminder strip), and `/pages/announcements.html` (list and `"What students see"` preview), titles, bodies, levels, and chips are inserted via `textContent` or `escapeHtml()`.
+     - In `/api/_reportEmail.js` (`buildWeeklyEmail`), every test `title`, `type`, `date`, and `level` in the `"Upcoming weekly tests (next 7 days)"` section is passed through `escapeHtml()` before building the HTML email body.
+     - Notification action links (`item.link`) are validated via `sanitizeNotificationLink()` so only internal relative paths starting with `/` (and never `javascript:`, `data:`, or protocol-relative `//` URLs) are navigated.
+2. **Zero Phone Number Storage for WhatsApp Test Sharing**:
+   - The **Share on WhatsApp** button on `/pages/announcements.html` opens `https://wa.me/?text=<encodeURIComponent(message)>` in a new tab with `rel="noopener noreferrer"`. No student or parent phone numbers are requested, stored, or transmitted by the application.
 

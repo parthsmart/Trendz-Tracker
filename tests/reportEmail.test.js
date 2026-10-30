@@ -242,6 +242,43 @@ describe('buildWeeklyEmail', () => {
     assert.ok(neverBuiltEmail.text.includes('Warning: Score-sheet mirror has never been built.'));
     assert.ok(neverBuiltEmail.html.includes('Score-sheet mirror has never been built.'));
   });
+
+  it('includes "Upcoming weekly tests (next 7 days)" with escaped titles and shows "No weekly tests scheduled" when empty', () => {
+    // 1. Empty upcoming_weekly_tests list
+    const emptyUpcoming = buildWeeklyEmail({
+      ...sampleData,
+      upcoming_weekly_tests: [],
+    });
+    assert.ok(emptyUpcoming.html.includes('Upcoming weekly tests (next 7 days)'));
+    assert.ok(emptyUpcoming.html.includes('No weekly tests scheduled'));
+    assert.ok(emptyUpcoming.text.includes('Upcoming weekly tests (next 7 days)'));
+    assert.ok(emptyUpcoming.text.includes('No weekly tests scheduled'));
+
+    // 2. Populated upcoming_weekly_tests with HTML characters in title and level
+    const withUpcoming = buildWeeklyEmail({
+      ...sampleData,
+      upcoming_weekly_tests: [
+        {
+          title: 'Sprint <script>alert(1)</script> & Speed #5',
+          type: 'online',
+          date: '2026-10-22',
+          level: 'Junior <2>',
+        },
+      ],
+    });
+    assert.ok(!withUpcoming.html.includes('<script>alert(1)</script>'));
+    assert.ok(
+      withUpcoming.html.includes('Sprint &lt;script&gt;alert(1)&lt;/script&gt; &amp; Speed #5')
+    );
+    assert.ok(withUpcoming.html.includes('Online'));
+    assert.ok(withUpcoming.html.includes('22 Oct 2026'));
+    assert.ok(withUpcoming.html.includes('Junior &lt;2&gt;'));
+    assert.ok(
+      withUpcoming.text.includes(
+        '- 22 Oct 2026 — Sprint <script>alert(1)</script> & Speed #5 (Online, Level: Junior <2>)'
+      )
+    );
+  });
 });
 
 describe('buildMilestoneMessage', () => {

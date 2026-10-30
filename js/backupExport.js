@@ -11,10 +11,10 @@
 export const EXPORT_PAGE_SIZE = 1000;
 
 /**
- * The 18 tables exported in a full backup ZIP, in the same canonical order as `api/_backupTables.js`.
+ * The 22 tables exported in a full backup ZIP, in the same canonical order as `api/_backupTables.js`.
  */
 export const EXPORT_TABLES = [
-  // 12 Snapshot tables
+  // 16 Snapshot tables
   { name: 'profiles', mode: 'snapshot', primaryKey: ['id'], defaultColumns: ['id', 'student_code', 'full_name', 'role', 'level', 'active', 'leaderboard_visible', 'created_at'] },
   { name: 'round_series', mode: 'snapshot', primaryKey: ['id'], defaultColumns: ['id', 'name', 'sort_order', 'is_current', 'created_at'] },
   { name: 'categories', mode: 'snapshot', primaryKey: ['id'], defaultColumns: ['id', 'name', 'section', 'sort_order', 'active', 'created_at'] },
@@ -25,12 +25,16 @@ export const EXPORT_TABLES = [
   { name: 'competition_settings', mode: 'snapshot', primaryKey: ['id'], fallbackPrimaryKey: ['key'], defaultColumns: ['key', 'value', 'updated_at'] },
   { name: 'category_aliases', mode: 'snapshot', primaryKey: ['alias'], fallbackPrimaryKey: ['id'], defaultColumns: ['alias', 'category_id', 'created_at'] },
   { name: 'attendance_sessions', mode: 'snapshot', primaryKey: ['id'], defaultColumns: ['id', 'session_date', 'title', 'session_type', 'notes', 'created_by', 'created_at'] },
-  { name: 'weekly_tests', mode: 'snapshot', primaryKey: ['id'], defaultColumns: ['id', 'test_date', 'title', 'notes', 'created_at'] },
+  { name: 'weekly_tests', mode: 'snapshot', primaryKey: ['id'], defaultColumns: ['id', 'test_date', 'title', 'notes', 'test_type', 'audience_level', 'opens_at', 'closes_at', 'remind_days_before', 'created_at'] },
+  { name: 'weekly_test_sections', mode: 'snapshot', primaryKey: ['id'], defaultColumns: ['id', 'test_id', 'position', 'category_id', 'seconds'] },
+  { name: 'weekly_test_attempts', mode: 'snapshot', primaryKey: ['id'], defaultColumns: ['id', 'test_id', 'student_id', 'category_id', 'session_id', 'status', 'started_at', 'finished_at'] },
+  { name: 'weekly_test_removals', mode: 'snapshot', primaryKey: ['id'], defaultColumns: ['id', 'removed_by', 'removed_at', 'reason', 'title', 'test_date', 'scores_count', 'restored_at'] },
+  { name: 'announcements', mode: 'snapshot', primaryKey: ['id'], defaultColumns: ['id', 'title', 'body', 'audience_level', 'active', 'created_by', 'created_at'] },
   { name: 'import_batches', mode: 'snapshot', primaryKey: ['id'], defaultColumns: ['id', 'student_id', 'file_name', 'conflict_mode', 'status', 'rounds_created', 'results_inserted', 'results_updated', 'results_skipped', 'acknowledgments', 'created_by', 'created_at', 'undone_at', 'undone_by'] },
   // 6 Append tables
   { name: 'student_rounds', mode: 'append', primaryKey: ['id'], defaultColumns: ['id', 'student_id', 'series_id', 'round_number', 'round_date', 'round_type', 'time_taken_seconds', 'import_batch_id', 'created_at', 'updated_at'] },
   { name: 'results', mode: 'append', primaryKey: ['id'], defaultColumns: ['id', 'student_id', 'category_id', 'student_round_id', 'round_number', 'correct', 'total', 'time_seconds', 'entry_date', 'note', 'verified', 'verified_at', 'verified_by', 'flagged', 'flag_note', 'corrected_at', 'corrected_by', 'import_batch_id', 'created_at', 'updated_at'] },
-  { name: 'weekly_test_scores', mode: 'append', primaryKey: ['id'], defaultColumns: ['id', 'test_id', 'student_id', 'category_id', 'correct', 'total', 'time_seconds', 'created_at', 'updated_at'] },
+  { name: 'weekly_test_scores', mode: 'append', primaryKey: ['id'], defaultColumns: ['id', 'test_id', 'student_id', 'category_id', 'correct', 'total', 'time_seconds', 'source', 'created_at', 'updated_at'] },
   { name: 'attendance', mode: 'append', primaryKey: ['id'], defaultColumns: ['id', 'session_id', 'student_id', 'status', 'note', 'marked_by', 'created_at', 'updated_at'] },
   { name: 'activity_results', mode: 'append', primaryKey: ['id'], defaultColumns: ['id', 'student_id', 'activity_type', 'score', 'entry_date', 'created_at', 'updated_at'] },
   { name: 'result_audit', mode: 'append', primaryKey: ['id'], defaultColumns: ['id', 'result_id', 'action', 'old_values', 'new_values', 'reason', 'changed_by', 'changed_at'] },

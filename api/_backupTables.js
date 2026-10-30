@@ -19,7 +19,7 @@ export const GOOGLE_SHEETS_CELL_LIMIT = 10000000;
 export const GOOGLE_SHEETS_WARN_RATIO = 0.7;
 
 /**
- * 12 Snapshot tables (fully rewritten on each backup run, in this exact order).
+ * 16 Snapshot tables (fully rewritten on each backup run, in this exact order).
  */
 export const SNAPSHOT_TABLES = [
   {
@@ -87,6 +87,30 @@ export const SNAPSHOT_TABLES = [
   },
   {
     name: 'weekly_tests',
+    mode: 'snapshot',
+    primaryKey: ['id'],
+    cursorColumn: null,
+  },
+  {
+    name: 'weekly_test_sections',
+    mode: 'snapshot',
+    primaryKey: ['id'],
+    cursorColumn: null,
+  },
+  {
+    name: 'weekly_test_attempts',
+    mode: 'snapshot',
+    primaryKey: ['id'],
+    cursorColumn: null,
+  },
+  {
+    name: 'weekly_test_removals',
+    mode: 'snapshot',
+    primaryKey: ['id'],
+    cursorColumn: null,
+  },
+  {
+    name: 'announcements',
     mode: 'snapshot',
     primaryKey: ['id'],
     cursorColumn: null,

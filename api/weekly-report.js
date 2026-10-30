@@ -402,6 +402,68 @@ async function attachBackupSummaryIfMissing(client, reportData) {
 }
 
 /**
+ * Helper to add days to a YYYY-MM-DD date string cleanly in UTC.
+ */
+function addDaysDateStr(dateStr, days) {
+  const [y, m, d] = String(dateStr).split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + days));
+  return dt.toISOString().split('T')[0];
+}
+
+/**
+ * Phase 13b: Queries `weekly_tests` for the next 7 days (listing title, type, date, and level)
+ * using the service-role client (or admin caller client fallback) if not already embedded.
+ */
+async function attachUpcomingWeeklyTestsIfMissing(client, reportData) {
+  if (!reportData || typeof reportData !== 'object') {
+    return reportData;
+  }
+  if (Array.isArray(reportData.upcoming_weekly_tests)) {
+    return reportData;
+  }
+
+  try {
+    const baseDate =
+      reportData.generated_on ||
+      reportData.week_end ||
+      new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+    const startStr = String(baseDate).slice(0, 10);
+    const endStr = addDaysDateStr(startStr, 7);
+
+    const { data, error } = await client
+      .from('weekly_tests')
+      .select('title, test_type, test_date, audience_level')
+      .gte('test_date', startStr)
+      .lte('test_date', endStr)
+      .order('test_date', { ascending: true });
+
+    if (error || !Array.isArray(data)) {
+      return {
+        ...reportData,
+        upcoming_weekly_tests: [],
+      };
+    }
+
+    const upcomingWeeklyTests = data.map((row) => ({
+      title: row.title || 'Weekly Test',
+      type: row.test_type || 'offline',
+      date: row.test_date,
+      level: row.audience_level || null,
+    }));
+
+    return {
+      ...reportData,
+      upcoming_weekly_tests: upcomingWeeklyTests,
+    };
+  } catch {
+    return {
+      ...reportData,
+      upcoming_weekly_tests: [],
+    };
+  }
+}
+
+/**
  * Fetches weekly report data using the Supabase service-role client,
  * or falls back to the verified admin caller client when SUPABASE_SERVICE_ROLE_KEY is not configured.
  */
@@ -413,14 +475,16 @@ async function fetchWeeklyReportData(supabase, callerClient = null) {
 
   const { data, error } = await clientToTry.rpc('weekly_report_data');
   if (!error && data && typeof data === 'object') {
-    return attachBackupSummaryIfMissing(clientToTry, data);
+    const withBackup = await attachBackupSummaryIfMissing(clientToTry, data);
+    return attachUpcomingWeeklyTestsIfMissing(clientToTry, withBackup);
   }
 
   // If weekly_report_data requires service_role and we have an authenticated admin callerClient,
   // assemble the report from the admin-authorized SQL RPCs.
   if (callerClient) {
     const fallbackData = await buildWeeklyReportDataFromAdminSession(callerClient);
-    return attachBackupSummaryIfMissing(callerClient, fallbackData);
+    const withBackup = await attachBackupSummaryIfMissing(callerClient, fallbackData);
+    return attachUpcomingWeeklyTestsIfMissing(callerClient, withBackup);
   }
 
   if (error) {
