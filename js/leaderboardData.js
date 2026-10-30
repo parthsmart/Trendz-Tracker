@@ -14,18 +14,19 @@ import { formatBoardValue } from './leaderboardView.js';
 import { getSupabase, DemoDB, clearStaleSupabaseSession } from './supabaseClient.js';
 
 /**
- * Calls RPC `leaderboard(p_board, p_period, p_level, p_limit, p_scope)`
+ * Calls RPC `leaderboard(p_board, p_period, p_level, p_limit, p_scope, p_task_id)`
  * @param {Object} params
  * @param {'points'|'streak'|'practice_days'|'todo'|'improved'} params.board
  * @param {'week'|'month'|'all'} params.period
  * @param {string|null} params.level
  * @param {number} params.limit
  * @param {'level'|'global'} [params.scope='level']
+ * @param {string|null} [params.taskId=null]
  * @param {Object|null} callerProfile
  * @returns {Promise<Array<{rank: number, student_id: string|null, display_name: string, value: number, is_me: boolean, level?: string|null}>>}
  */
 export async function fetchLeaderboard(
-  { board = 'points', period = 'week', level = null, limit = 10, scope = 'level' } = {},
+  { board = 'points', period = 'week', level = null, limit = 10, scope = 'level', taskId = null } = {},
   callerProfile = null
 ) {
   if (!isSupabaseConfigured()) {
@@ -38,7 +39,8 @@ export async function fetchLeaderboard(
         p_period: period,
         p_level: level,
         p_limit: limit,
-        p_scope: scope
+        p_scope: scope,
+        p_task_id: taskId
       },
       callerProfile
     );
@@ -49,13 +51,36 @@ export async function fetchLeaderboard(
     throw new Error('Database client unavailable.');
   }
 
-  const { data, error } = await supabase.rpc('leaderboard', {
+  const baseArgs = {
     p_board: board,
     p_period: period,
     p_level: level,
     p_limit: limit,
     p_scope: scope
-  });
+  };
+
+  let { data, error } = await supabase.rpc(
+    'leaderboard',
+    board === 'todo' && taskId
+      ? { ...baseArgs, p_task_id: taskId }
+      : baseArgs
+  );
+
+  // If the live database has not yet been updated with the 6-argument leaderboard(..., p_task_id) signature,
+  // fall back to calling the 5-argument signature so the leaderboard page continues working without crashing.
+  if (error && board === 'todo' && taskId) {
+    const errCode = error.code || '';
+    const errMsg = error.message || '';
+    if (
+      errCode === 'PGRST202' ||
+      errMsg.includes('p_task_id') ||
+      errMsg.includes('Could not find the function')
+    ) {
+      const retry = await supabase.rpc('leaderboard', baseArgs);
+      data = retry.data;
+      error = retry.error;
+    }
+  }
 
   if (error) {
     const msg = error.message || '';
@@ -68,6 +93,68 @@ export async function fetchLeaderboard(
   }
 
   return Array.isArray(data) ? data : [];
+}
+
+/**
+ * Loads the active Daily To-Do tasks for the Daily To-Do Leaderboard task filter ("Task 1", "Task 2", "Task 3", ...).
+ * Filters tasks according to the active scope/level:
+ * - Student in 'level' scope: tasks assigned to their level or all levels (level IS NULL).
+ * - Student in 'global' scope or Admin with 'all' levels: all active tasks.
+ * - Admin with a specific level selected: tasks assigned to that level or all levels (level IS NULL).
+ *
+ * @param {Object} [params]
+ * @param {string|null} [params.level=null]
+ * @param {'level'|'global'} [params.scope='level']
+ * @param {Object|null} [callerProfile=null]
+ * @returns {Promise<Array<Object>>}
+ */
+export async function fetchTodoLeaderboardTasks(
+  { level = null, scope = 'level' } = {},
+  callerProfile = null
+) {
+  let rawTasks = [];
+
+  if (!isSupabaseConfigured()) {
+    if (!isDemoAllowedHost()) {
+      return [];
+    }
+    rawTasks = DemoDB.getTodos().filter(t => t && t.active !== false);
+  } else {
+    const supabase = await getSupabase();
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('daily_tasks')
+        .select('id, title, section, category_id, activity_key, level, required_count, sort_order, active')
+        .eq('active', true)
+        .order('sort_order', { ascending: true })
+        .order('created_at', { ascending: true });
+      if (!error && Array.isArray(data)) {
+        rawTasks = data;
+      }
+    }
+  }
+
+  const isAdmin = callerProfile?.role === 'admin';
+  const targetLevel = isAdmin
+    ? level && level !== 'all'
+      ? String(level).trim()
+      : null
+    : scope === 'global'
+      ? null
+      : callerProfile?.level
+        ? String(callerProfile.level).trim()
+        : null;
+
+  if (!targetLevel) {
+    return rawTasks;
+  }
+
+  const filtered = rawTasks.filter(t => {
+    const tLevel = typeof t.level === 'string' ? t.level.trim() : '';
+    return !tLevel || tLevel.toLowerCase() === targetLevel.toLowerCase();
+  });
+
+  return filtered.length > 0 ? filtered : rawTasks;
 }
 
 /**
@@ -171,7 +258,7 @@ export function buildHowItWorksText(board, rules) {
     case 'practice_days':
       return `Practice days = days you entered scores. Only your level is shown.`;
     case 'todo':
-      return `Days on which you finished every task on your daily list. Different levels have different tasks, so we count days, not tasks.`;
+      return `Students who completed the selected Daily To-Do task in this period, ranked from fastest to slowest attempt time. Pick Task 1, Task 2, Task 3, etc. above to filter by task.`;
     case 'streak':
       return `Streak = consecutive days you entered scores in Indian time. Only your level is shown.`;
     default:
@@ -187,7 +274,7 @@ export function buildHowItWorksText(board, rules) {
  */
 export function getLeaderboardEmptyMessage(board, period = 'week') {
   if (board === 'todo') {
-    return 'Nobody has finished a full day yet in this period';
+    return 'No student has recorded a timed attempt for this task in this period yet.';
   }
   if (board === 'points') {
     if (period === 'week') {

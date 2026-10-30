@@ -15,6 +15,7 @@ import { isSupabaseConfigured } from './config.js';
 import { requireAuth } from './guard.js';
 import {
   fetchLeaderboard,
+  fetchTodoLeaderboardTasks,
   fetchGlobalLeaderboardEnabled,
   fetchCompetitionRules,
   buildHowItWorksText,
@@ -25,6 +26,7 @@ import {
   boardUsesPeriod,
   scopeLabel,
   boardTitle,
+  formatTaskFilterOptions,
   mapLeaderboardRows
 } from './leaderboardView.js';
 import { setupAdminNav } from './modal.js';
@@ -39,6 +41,8 @@ let currentBoard = 'points'; // 'points' | 'streak' | 'practice_days' | 'todo' |
 let currentPeriod = 'week'; // 'week' | 'month' | 'all'
 let currentLevel = 'all'; // used by admin only
 let currentScope = 'level'; // 'level' | 'global' (used by students)
+let todoTaskOptions = []; // [{ id, taskNumber, shortLabel, optionLabel, title, section, level }]
+let currentTaskId = null;
 let globalEnabled = true;
 let competitionRules = {
   weekly_test_multiplier: 2,
@@ -91,11 +95,122 @@ function getValueColumnHeader(board) {
     case 'practice_days':
       return 'Practice days';
     case 'todo':
-      return 'Days completed';
+      return 'Fastest time';
     case 'improved':
       return 'Accuracy Gain';
     default:
       return 'Value';
+  }
+}
+
+function getSelectedTaskOption() {
+  if (!Array.isArray(todoTaskOptions) || todoTaskOptions.length === 0) return null;
+  return (
+    todoTaskOptions.find(opt => String(opt.id) === String(currentTaskId)) ||
+    todoTaskOptions[0]
+  );
+}
+
+/**
+ * Loads and renders the Task 1, Task 2, Task 3... filter controls for the Daily To-Do Leaderboard.
+ */
+async function syncTodoTaskFilterOptions() {
+  const effectiveLevel = isAdmin ? (currentLevel === 'all' ? 'all' : currentLevel) : null;
+  const effectiveScope = isAdmin
+    ? currentLevel === 'all'
+      ? 'global'
+      : 'level'
+    : currentScope;
+
+  const rawTasks = await fetchTodoLeaderboardTasks(
+    { level: effectiveLevel, scope: effectiveScope },
+    currentProfile
+  ).catch(() => []);
+
+  todoTaskOptions = formatTaskFilterOptions(rawTasks);
+
+  if (todoTaskOptions.length > 0) {
+    const stillExists = todoTaskOptions.some(opt => String(opt.id) === String(currentTaskId));
+    if (!stillExists) {
+      currentTaskId = todoTaskOptions[0].id;
+    }
+  } else {
+    currentTaskId = null;
+  }
+
+  renderTodoTaskFilterUI();
+}
+
+/**
+ * Renders the Task filter dropdown and quick Task 1 / Task 2 / Task 3 buttons.
+ */
+function renderTodoTaskFilterUI() {
+  const wrapper = document.getElementById('todo-task-filter-wrapper');
+  const selectEl = document.getElementById('select-todo-task');
+  const pillsContainer = document.getElementById('todo-task-pills');
+  const metaEl = document.getElementById('todo-selected-task-meta');
+
+  if (!wrapper) return;
+
+  if (currentBoard !== 'todo') {
+    wrapper.style.display = 'none';
+    return;
+  }
+
+  wrapper.style.display = 'flex';
+
+  if (todoTaskOptions.length === 0) {
+    if (selectEl) {
+      selectEl.innerHTML = '<option value="">No active daily tasks found</option>';
+      selectEl.disabled = true;
+    }
+    if (pillsContainer) {
+      pillsContainer.innerHTML = '';
+      pillsContainer.style.display = 'none';
+    }
+    if (metaEl) {
+      metaEl.textContent = 'No active daily tasks configured';
+    }
+    return;
+  }
+
+  const selectedOpt = getSelectedTaskOption();
+  if (selectedOpt && currentTaskId !== selectedOpt.id) {
+    currentTaskId = selectedOpt.id;
+  }
+
+  if (selectEl) {
+    selectEl.disabled = false;
+    selectEl.innerHTML = todoTaskOptions
+      .map(
+        opt =>
+          `<option value="${escapeHtml(opt.id)}" ${String(opt.id) === String(currentTaskId) ? 'selected' : ''}>${escapeHtml(opt.optionLabel)}</option>`
+      )
+      .join('');
+  }
+
+  if (pillsContainer) {
+    pillsContainer.style.display = 'flex';
+    pillsContainer.innerHTML = todoTaskOptions
+      .map(opt => {
+        const isActive = String(opt.id) === String(currentTaskId);
+        return `
+          <button
+            type="button"
+            class="segmented-btn ${isActive ? 'active' : ''}"
+            data-todo-task-id="${escapeHtml(opt.id)}"
+            aria-pressed="${isActive ? 'true' : 'false'}"
+            title="${escapeHtml(opt.optionLabel)}"
+          >
+            ${escapeHtml(opt.shortLabel)}: ${escapeHtml(opt.title)}
+          </button>
+        `;
+      })
+      .join('');
+  }
+
+  if (metaEl && selectedOpt) {
+    metaEl.textContent = `${selectedOpt.shortLabel} of ${todoTaskOptions.length} · Ranked fastest to slowest attempt`;
   }
 }
 
@@ -143,6 +258,9 @@ function updateBoardChrome() {
     periodWrapper.style.display = usesPeriod ? 'inline-flex' : 'none';
   }
 
+  // 1b. Show or hide the Daily To-Do Task filter bar
+  renderTodoTaskFilterUI();
+
   // 2. Update "How it works" explanation
   const howItWorksEl = document.getElementById('how-it-works-text');
   if (howItWorksEl) {
@@ -161,13 +279,19 @@ function updateBoardChrome() {
   }
 
   // 4. Update card title & value column header
+  const selectedTaskOpt = currentBoard === 'todo' ? getSelectedTaskOption() : null;
+  const activeTaskLabel = selectedTaskOpt
+    ? `${selectedTaskOpt.shortLabel}: ${selectedTaskOpt.title}`
+    : null;
+
   const cardTitleEl = document.getElementById('board-card-title');
   if (cardTitleEl) {
     cardTitleEl.textContent = boardTitle(
       currentBoard,
       currentPeriod,
       isAdmin ? activeScopeLabel : currentScope,
-      currentProfile?.level
+      currentProfile?.level,
+      activeTaskLabel
     );
   }
 
@@ -257,6 +381,9 @@ function renderSkeleton() {
  * Fetches and renders the active leaderboard from RPC `leaderboard()`.
  */
 async function loadActiveBoard() {
+  if (currentBoard === 'todo' && todoTaskOptions.length === 0) {
+    await syncTodoTaskFilterOptions();
+  }
   updateBoardChrome();
   renderSkeleton();
 
@@ -284,7 +411,8 @@ async function loadActiveBoard() {
         period: effectivePeriod,
         level: effectiveLevel,
         limit: effectiveLimit,
-        scope: effectiveScope
+        scope: effectiveScope,
+        taskId: currentBoard === 'todo' ? currentTaskId : null
       },
       currentProfile
     );
@@ -299,9 +427,12 @@ async function loadActiveBoard() {
       if (tbody) tbody.innerHTML = '';
       if (tableEl) tableEl.style.display = 'none';
       if (emptyTitle) {
+        const selectedTaskOpt = currentBoard === 'todo' ? getSelectedTaskOption() : null;
         emptyTitle.textContent =
           currentBoard === 'todo'
-            ? 'No full days finished yet'
+            ? selectedTaskOpt
+              ? `No timed attempts yet for ${selectedTaskOpt.shortLabel}`
+              : 'No task attempts yet'
             : `No ${getBoardLabel(currentBoard).toLowerCase()} rankings yet`;
       }
       if (emptyDesc) {
@@ -394,6 +525,7 @@ async function loadActiveBoard() {
       globalEnabled = false;
       currentScope = 'level';
       writeStoredScope('level');
+      await syncTodoTaskFilterOptions();
       await loadActiveBoard();
       return;
     }
@@ -408,13 +540,13 @@ async function loadActiveBoard() {
 }
 
 /**
- * Sets up board tabs, period switch, student scope switch, and admin level selector listeners.
+ * Sets up board tabs, period switch, task filter, student scope switch, and admin level selector listeners.
  */
 function setupControls() {
   // Board Tabs
   const boardButtons = document.querySelectorAll('[data-board]');
   boardButtons.forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const targetBoard = btn.getAttribute('data-board');
       if (!targetBoard || targetBoard === currentBoard) return;
 
@@ -425,9 +557,38 @@ function setupControls() {
         b.setAttribute('aria-selected', active ? 'true' : 'false');
       });
 
+      if (currentBoard === 'todo') {
+        await syncTodoTaskFilterOptions();
+      }
       loadActiveBoard();
     });
   });
+
+  // Daily To-Do Task Dropdown
+  const taskSelectEl = document.getElementById('select-todo-task');
+  if (taskSelectEl) {
+    taskSelectEl.addEventListener('change', () => {
+      const chosenId = taskSelectEl.value;
+      if (!chosenId || chosenId === currentTaskId) return;
+      currentTaskId = chosenId;
+      renderTodoTaskFilterUI();
+      loadActiveBoard();
+    });
+  }
+
+  // Daily To-Do Task Quick Pill Buttons (Task 1, Task 2, Task 3...)
+  const taskPillsEl = document.getElementById('todo-task-pills');
+  if (taskPillsEl) {
+    taskPillsEl.addEventListener('click', e => {
+      const btn = e.target.closest('[data-todo-task-id]');
+      if (!btn) return;
+      const chosenId = btn.getAttribute('data-todo-task-id');
+      if (!chosenId || chosenId === currentTaskId) return;
+      currentTaskId = chosenId;
+      renderTodoTaskFilterUI();
+      loadActiveBoard();
+    });
+  }
 
   // Period Switch
   const periodButtons = document.querySelectorAll('[data-period]');
@@ -449,7 +610,7 @@ function setupControls() {
   // Student Scope Switch ('level' | 'global')
   const scopeButtons = document.querySelectorAll('[data-scope]');
   scopeButtons.forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const targetScope = btn.getAttribute('data-scope');
       if (!targetScope || targetScope === currentScope) return;
       if (targetScope === 'global' && !globalEnabled) return;
@@ -457,6 +618,9 @@ function setupControls() {
       currentScope = targetScope === 'global' ? 'global' : 'level';
       writeStoredScope(currentScope);
       syncScopeControlsUI();
+      if (currentBoard === 'todo') {
+        await syncTodoTaskFilterOptions();
+      }
       loadActiveBoard();
     });
   });
@@ -464,8 +628,11 @@ function setupControls() {
   // Admin Level Filter
   const levelSelect = document.getElementById('select-leaderboard-level');
   if (levelSelect) {
-    levelSelect.addEventListener('change', () => {
+    levelSelect.addEventListener('change', async () => {
       currentLevel = levelSelect.value || 'all';
+      if (currentBoard === 'todo') {
+        await syncTodoTaskFilterOptions();
+      }
       loadActiveBoard();
     });
   }

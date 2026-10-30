@@ -51,20 +51,28 @@ export function scopeLabel(level, scope = 'level') {
 }
 
 /**
- * Builds the card header title showing the board, period (when applicable), and scope.
+ * Builds the card header title showing the board, optional task label, period (when applicable), and scope.
  * Examples:
  * - boardTitle('streak', 'week', 'global') -> "Streak - Global (all trainees)"
  * - boardTitle('todo', 'week', 'level', 'Junior 2') -> "Daily To-Do - This week - Junior 2 (your level only)"
+ * - boardTitle('todo', 'week', 'level', 'Junior 2', 'Task 1: Addition') -> "Daily To-Do (Task 1: Addition) - This week - Junior 2 (your level only)"
  * - boardTitle('points', 'month', 'Junior 2 (your level only)') -> "Points - This month - Junior 2 (your level only)"
  *
  * @param {string} board - 'points' | 'streak' | 'practice_days' | 'todo' | 'improved'
  * @param {string|null|undefined} period - 'week' | 'month' | 'all'
  * @param {string} scope - 'level' | 'global' or a pre-formatted scope label string
  * @param {string|null|undefined} [level=null] - optional student level when scope === 'level'
+ * @param {string|null|undefined} [taskLabel=null] - optional selected task label when board === 'todo'
  * @returns {string}
  */
-export function boardTitle(board, period, scope, level = null) {
-  const bLabel = BOARD_LABELS[board] || 'Leaderboard';
+export function boardTitle(board, period, scope, level = null, taskLabel = null) {
+  const baseLabel = BOARD_LABELS[board] || 'Leaderboard';
+  const cleanTaskLabel =
+    board === 'todo' && typeof taskLabel === 'string' && taskLabel.trim()
+      ? taskLabel.trim()
+      : '';
+  const bLabel = cleanTaskLabel ? `${baseLabel} (${cleanTaskLabel})` : baseLabel;
+
   const usesPeriod = boardUsesPeriod(board);
   const pLabel = usesPeriod && period ? (PERIOD_LABELS[period] || PERIOD_LABELS.week) : null;
 
@@ -86,7 +94,45 @@ export function boardTitle(board, period, scope, level = null) {
 }
 
 /**
+ * Formats a list of daily_tasks rows into numbered Task filter options
+ * ("Task 1", "Task 2", "Task 3", ...).
+ *
+ * @param {Array<Object>} tasks
+ * @returns {Array<{
+ *   id: string,
+ *   taskNumber: number,
+ *   shortLabel: string,
+ *   optionLabel: string,
+ *   title: string,
+ *   section: string,
+ *   level: string|null
+ * }>}
+ */
+export function formatTaskFilterOptions(tasks) {
+  if (!Array.isArray(tasks)) return [];
+  return tasks
+    .filter(t => t && t.id)
+    .map((t, index) => {
+      const taskNumber = index + 1;
+      const title = String(t.title || `Task ${taskNumber}`).trim();
+      const shortLabel = `Task ${taskNumber}`;
+      const levelSuffix =
+        typeof t.level === 'string' && t.level.trim() ? ` [${t.level.trim()}]` : '';
+      return {
+        id: String(t.id),
+        taskNumber,
+        shortLabel,
+        optionLabel: `${shortLabel}: ${title}${levelSuffix}`,
+        title,
+        section: String(t.section || 'round').trim().toLowerCase(),
+        level: typeof t.level === 'string' && t.level.trim() ? t.level.trim() : null
+      };
+    });
+}
+
+/**
  * Formats the authoritative `value` returned by `leaderboard()` with its unit.
+ * For `'todo'`, `value` is the student's fastest attempt time in seconds (ranked fastest to slowest).
  * Never performs any score or rank calculation.
  * @param {'points'|'streak'|'practice_days'|'todo'|'improved'} board
  * @param {number|string} value
@@ -105,8 +151,19 @@ export function formatBoardValue(board, value) {
       return `${formattedNum} ${num === 1 ? 'point' : 'points'}`;
     case 'streak':
     case 'practice_days':
-    case 'todo':
       return `${formattedNum} ${num === 1 ? 'day' : 'days'}`;
+    case 'todo': {
+      if (!Number.isFinite(num) || num <= 0) {
+        return '0s';
+      }
+      const totalSeconds = Math.round(num);
+      if (totalSeconds < 60) {
+        return `${totalSeconds}s`;
+      }
+      const mins = Math.floor(totalSeconds / 60);
+      const secs = totalSeconds % 60;
+      return `${mins}m ${String(secs).padStart(2, '0')}s`;
+    }
     case 'improved': {
       const prefix = num > 0 ? '+' : '';
       return `${prefix}${formattedNum}% accuracy`;
@@ -117,7 +174,7 @@ export function formatBoardValue(board, value) {
 }
 
 /**
- * Purely maps RPC rows returned by `leaderboard(p_board, p_period, p_level, p_limit, p_scope)`
+ * Purely maps RPC rows returned by `leaderboard(p_board, p_period, p_level, p_limit, p_scope, p_task_id)`
  * into presentation row objects without computing ranks or values in JavaScript.
  *
  * @param {Array<Object>} rows

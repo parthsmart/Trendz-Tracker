@@ -12,6 +12,7 @@ import {
   boardTitle,
   boardUsesPeriod,
   formatBoardValue,
+  formatTaskFilterOptions,
   mapLeaderboardRows
 } from '../js/leaderboardView.js';
 import {
@@ -47,8 +48,8 @@ describe('boardUsesPeriod(board)', () => {
   });
 });
 
-describe('boardTitle(board, period, scope, level)', () => {
-  it('formats board, period (when applicable), and scope accurately', () => {
+describe('boardTitle(board, period, scope, level, taskLabel)', () => {
+  it('formats board, optional task label, period (when applicable), and scope accurately', () => {
     assert.equal(
       boardTitle('streak', 'week', 'global'),
       'Streak - Global (all trainees)'
@@ -58,8 +59,12 @@ describe('boardTitle(board, period, scope, level)', () => {
       'Daily To-Do - This week - Junior 2 (your level only)'
     );
     assert.equal(
-      boardTitle('todo', 'month', 'global'),
-      'Daily To-Do - This month - Global (all trainees)'
+      boardTitle('todo', 'week', 'level', 'Junior 2', 'Task 1: Round Drill: Addition (ADD)'),
+      'Daily To-Do (Task 1: Round Drill: Addition (ADD)) - This week - Junior 2 (your level only)'
+    );
+    assert.equal(
+      boardTitle('todo', 'month', 'global', null, 'Task 2: Subtraction'),
+      'Daily To-Do (Task 2: Subtraction) - This month - Global (all trainees)'
     );
     assert.equal(
       boardTitle('points', 'all', 'Junior 2 (your level only)'),
@@ -72,24 +77,43 @@ describe('boardTitle(board, period, scope, level)', () => {
   });
 });
 
+describe('formatTaskFilterOptions(tasks)', () => {
+  it('numbers active tasks sequentially as Task 1, Task 2, Task 3', () => {
+    const tasks = [
+      { id: 'todo-1', title: 'Round Drill: Addition (ADD)', section: 'round', level: null },
+      { id: 'todo-2', title: 'Round Drill: Subtraction (SUB)', section: 'round', level: 'Level 3' },
+      { id: 'todo-3', title: 'Mental Basics: 1d4r', section: 'basics', level: null }
+    ];
+    const options = formatTaskFilterOptions(tasks);
+    assert.equal(options.length, 3);
+    assert.equal(options[0].shortLabel, 'Task 1');
+    assert.equal(options[0].optionLabel, 'Task 1: Round Drill: Addition (ADD)');
+    assert.equal(options[1].shortLabel, 'Task 2');
+    assert.equal(options[1].optionLabel, 'Task 2: Round Drill: Subtraction (SUB) [Level 3]');
+    assert.equal(options[2].shortLabel, 'Task 3');
+    assert.equal(options[2].optionLabel, 'Task 3: Mental Basics: 1d4r');
+  });
+});
+
 describe('formatBoardValue(board, value) & Daily To-Do texts', () => {
-  it('formats todo board value in days (1 day vs n days)', () => {
-    assert.equal(formatBoardValue('todo', 1), '1 day');
-    assert.equal(formatBoardValue('todo', 5), '5 days');
+  it('formats todo board value as fastest attempt time in seconds or minutes + seconds', () => {
+    assert.equal(formatBoardValue('todo', 28), '28s');
+    assert.equal(formatBoardValue('todo', 65), '1m 05s');
+    assert.equal(formatBoardValue('todo', 120), '2m 00s');
   });
 
-  it('returns the exact explanation and empty state for Daily To-Do', () => {
+  it('returns the exact explanation and empty state for Daily To-Do task rankings', () => {
     assert.equal(
       buildHowItWorksText('todo', {}),
-      'Days on which you finished every task on your daily list. Different levels have different tasks, so we count days, not tasks.'
+      'Students who completed the selected Daily To-Do task in this period, ranked from fastest to slowest attempt time. Pick Task 1, Task 2, Task 3, etc. above to filter by task.'
     );
     assert.equal(
       getLeaderboardEmptyMessage('todo', 'week'),
-      'Nobody has finished a full day yet in this period'
+      'No student has recorded a timed attempt for this task in this period yet.'
     );
     assert.equal(
       getLeaderboardEmptyMessage('todo', 'month'),
-      'Nobody has finished a full day yet in this period'
+      'No student has recorded a timed attempt for this task in this period yet.'
     );
   });
 });
@@ -100,7 +124,7 @@ describe('mapLeaderboardRows(rows, options)', () => {
       rank: 1,
       student_id: 'usr-301',
       display_name: 'Ishaan K.',
-      value: 6,
+      value: 28,
       is_me: false,
       level: 'Level 3'
     },
@@ -108,7 +132,7 @@ describe('mapLeaderboardRows(rows, options)', () => {
       rank: 2,
       student_id: 'usr-101',
       display_name: 'Aarav S.',
-      value: 1,
+      value: 32,
       is_me: true,
       level: 'Level 3'
     },
@@ -116,7 +140,7 @@ describe('mapLeaderboardRows(rows, options)', () => {
       rank: 14,
       student_id: 'usr-109',
       display_name: 'Vihaan L.',
-      value: 1,
+      value: 75,
       is_me: true,
       level: 'Junior 2'
     }
@@ -133,12 +157,12 @@ describe('mapLeaderboardRows(rows, options)', () => {
     assert.equal(mapped[0].rank, 1);
     assert.equal(mapped[0].student_id, null);
     assert.equal(mapped[0].display_name, 'Ishaan K.');
-    assert.equal(mapped[0].formatted_value, '6 days');
+    assert.equal(mapped[0].formatted_value, '28s');
     assert.equal(mapped[0].is_me, false);
     assert.equal(mapped[0].show_level_chip, false);
 
     assert.equal(mapped[1].rank, 2);
-    assert.equal(mapped[1].formatted_value, '1 day');
+    assert.equal(mapped[1].formatted_value, '32s');
     assert.equal(mapped[1].is_me, true);
     assert.equal(mapped[1].is_outside_top_10, false);
     assert.equal(mapped[1].show_level_chip, false);
@@ -154,6 +178,7 @@ describe('mapLeaderboardRows(rows, options)', () => {
     assert.equal(mapped[0].show_level_chip, true);
     assert.equal(mapped[0].level, 'Level 3');
     assert.equal(mapped[2].rank, 14);
+    assert.equal(mapped[2].formatted_value, '1m 15s');
     assert.equal(mapped[2].is_me, true);
     assert.equal(mapped[2].is_outside_top_10, true);
     assert.equal(mapped[2].show_level_chip, true);
