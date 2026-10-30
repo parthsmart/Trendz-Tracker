@@ -124,27 +124,6 @@
             </div>
           </div>
 
-          <!-- Milestone Alerts Section (Phase 5b: admin_milestones(7)) -->
-          <section class="card" id="milestone-alerts-card" style="margin-bottom: var(--space-6);" aria-labelledby="milestone-alerts-heading">
-            <div class="card-header" style="padding: var(--space-4) var(--space-5);">
-              <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: var(--space-2);">
-                <div>
-                  <h2 id="milestone-alerts-heading" class="card-title" style="display: flex; align-items: center; gap: 6px; font-size: var(--text-base);">
-                    <span aria-hidden="true">🎉</span>
-                    <span>Streak Milestones Reached (Last 7 Days)</span>
-                  </h2>
-                  <p style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">
-                    Students who reached a 25, 50, 100, or 200-day practice streak milestone this week. Copy a message or open in WhatsApp to congratulate them.
-                  </p>
-                </div>
-                <span id="milestone-alerts-count" style="font-size: var(--text-xs); font-weight: 700; color: var(--color-primary);">Loading...</span>
-              </div>
-            </div>
-            <div class="card-body" id="milestone-alerts-list" style="padding: var(--space-4) var(--space-5);">
-              <div class="skeleton-row"></div>
-            </div>
-          </section>
-
           <!-- Needs Attention Section (Students with no entry in 3+ days) -->
           <div id="needs-attention-box" class="attention-card" style="display: none;">
             <div class="attention-header">
@@ -254,6 +233,26 @@
               </div>
             </div>
           </div>
+
+          <!-- Milestone Alerts Section (Phase 5b: admin_milestones(7)) -->
+          <section class="card" id="milestone-alerts-card" style="margin-bottom: var(--space-6);" aria-labelledby="milestone-alerts-heading">
+            <div class="card-header" style="padding: var(--space-4) var(--space-5);">
+              <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: var(--space-2);">
+                <div>
+                  <h2 id="milestone-alerts-heading" class="card-title" style="display: flex; align-items: center; gap: 6px; font-size: var(--text-base);">
+                    <span>Streak Milestones Reached (Last 7 Days)</span>
+                  </h2>
+                  <p style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">
+                    Students who reached a 25, 50, 100, or 200-day practice streak milestone this week. Copy a message or open in WhatsApp to congratulate them.
+                  </p>
+                </div>
+                <span id="milestone-alerts-count" style="font-size: var(--text-xs); font-weight: 700; color: var(--color-primary);">Loading...</span>
+              </div>
+            </div>
+            <div class="card-body" id="milestone-alerts-list" style="padding: var(--space-4) var(--space-5);">
+              <div class="skeleton-row"></div>
+            </div>
+          </section>
 
           <!-- Weekly Report Email & Delivery Log Card (Phase 5b) -->
           <section class="card" id="weekly-report-card" style="margin-bottom: var(--space-6);" aria-labelledby="weekly-report-heading">

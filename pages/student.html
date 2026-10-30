@@ -20,23 +20,32 @@
             <span>Trendz Tracker</span>
           </a>
 
-          <!-- Zone 2: Navigation Links -->
+          <!-- Zone 2: Clean Navigation Links (Practice dropdown for online drills; Round Scores stays top-level) -->
           <nav class="nav-zone" aria-label="Student Navigation">
-            <a href="/pages/student.html" class="nav-link active">Home</a>
-            <a href="/pages/weekly-test.html" class="nav-link">Weekly Test</a>
+            <a href="/pages/student.html" class="nav-link active" aria-current="page">Home</a>
             <a href="/pages/round-scores.html" class="nav-link">Round Scores</a>
-            <a href="/pages/basics.html" class="nav-link">Basics</a>
-            <a href="/pages/flash.html" class="nav-link">Flash Anzan</a>
-            <a href="/pages/elements.html" class="nav-link">Elements</a>
-            <a href="/pages/memoriad.html" class="nav-link">Memoriad</a>
+
+            <div class="nav-dropdown" id="nav-practice-dropdown">
+              <button type="button" class="nav-link nav-dropdown-toggle" id="btn-practice-dropdown" aria-expanded="false" aria-haspopup="true">
+                Practice <span style="font-size: 10px; margin-left: 2px;">▾</span>
+              </button>
+              <div class="nav-dropdown-menu" id="practice-dropdown-menu" role="menu">
+                <a href="/pages/basics.html" class="dropdown-item" role="menuitem">Basics</a>
+                <a href="/pages/flash.html" class="dropdown-item" role="menuitem">Flash Anzan</a>
+                <a href="/pages/elements.html" class="dropdown-item" role="menuitem">Elements</a>
+                <a href="/pages/memoriad.html" class="dropdown-item" role="menuitem">Memoriad</a>
+              </div>
+            </div>
+
+            <a href="/pages/weekly-test.html" class="nav-link">Weekly Test</a>
             <a href="/pages/leaderboard.html" class="nav-link">Leaderboard</a>
             <a href="/pages/monthly-report.html" class="nav-link">Monthly Report</a>
-            <a href="/pages/notifications.html" class="nav-link" style="display: inline-flex; align-items: center; gap: 5px;">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <a href="/pages/notifications.html" class="nav-link nav-bell-link" title="Notifications" aria-label="Notifications" style="display: inline-flex; align-items: center; gap: 5px;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
                 <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
               </svg>
-              <span>Notifications</span>
+              <span class="nav-bell-text">Alerts</span>
               <span id="nav-notifications-badge" class="nav-notifications-badge num" style="display: none; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: #DC2626; color: #FFFFFF; font-size: 11px; font-weight: 700; line-height: 1;" aria-hidden="true"></span>
             </a>
           </nav>
@@ -58,17 +67,68 @@
       <!-- Main Page Content -->
       <main class="main-content">
         <div class="container">
-          <!-- 1. Header "Today" with the date in India time -->
-          <section class="card" style="margin-bottom: var(--space-4); padding: var(--space-4) var(--space-5);" aria-labelledby="welcome-heading">
-            <div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: var(--space-2);">
-              <h1 id="welcome-heading" style="font-size: 1.5rem; font-weight: 800; margin: 0; color: var(--text-main);">
+          <!-- Demo Mode Banner Placeholder -->
+          <div id="config-banner-placeholder"></div>
+
+          <!-- 1. Unified Calm Top Overview Banner (Today Date + Student Info + Streak + 7-Day Snapshot) -->
+          <section class="card student-overview-banner" id="streak-card" style="margin-bottom: var(--space-5); padding: var(--space-5) var(--space-6);" aria-labelledby="welcome-heading">
+            <!-- Top Row: Today IST & Student Identity -->
+            <div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: var(--space-3); padding-bottom: var(--space-4); border-bottom: 1px solid var(--border-hairline);">
+              <h1 id="welcome-heading" style="font-size: 1.5rem; font-weight: 800; margin: 0; color: var(--text-main); letter-spacing: -0.02em;">
                 Today &middot; <span id="display-today-ist" class="num" style="color: var(--color-primary);">—</span>
               </h1>
-              <div style="font-size: var(--text-sm); color: var(--text-muted); display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap;">
-                <span><strong id="student-display-name" style="color: var(--text-main);">Student</strong> (<strong id="student-display-code" class="num">—</strong>)</span>
-                <span aria-hidden="true">·</span>
+              <div class="meta-row" style="font-size: var(--text-sm); color: var(--text-muted);">
+                <span><strong id="student-display-name" style="color: var(--text-main);">Student</strong> (<span id="student-display-code" class="num" style="font-weight: 600;">—</span>)</span>
+                <span class="meta-separator" aria-hidden="true">·</span>
                 <span>Level: <strong id="student-display-level" style="color: var(--text-main);">—</strong></span>
               </div>
+            </div>
+
+            <!-- Middle Row: Unified 4-Metric Strip (Streak + 7-Day Accuracy, Speed, Practice Days) -->
+            <div id="today-summary-metrics" class="student-kpi-strip" aria-label="Practice streak and last 7 days summary">
+              <!-- Metric 1: Practice Streak -->
+              <div class="student-kpi-item">
+                <div class="student-kpi-label" id="streak-heading">
+                  Practice Streak
+                </div>
+                <div class="student-kpi-value num">
+                  <span id="stat-current-streak">0</span> <span style="font-size: var(--text-sm); font-weight: 600; color: var(--text-muted);">days</span>
+                </div>
+                <div class="student-kpi-sub">
+                  <span>Best: <strong id="stat-best-streak" class="num">0</strong>d</span>
+                  <span aria-hidden="true">·</span>
+                  <span>Shields: <strong id="stat-shield-lbl">0 ready</strong><span id="stat-shield-count" style="display: none;">0</span></span>
+                </div>
+              </div>
+
+              <!-- Metric 2: 7-Day Accuracy -->
+              <div class="student-kpi-item">
+                <div class="student-kpi-label">Accuracy (7d)</div>
+                <div id="metric-7d-accuracy" class="student-kpi-value num">—</div>
+                <div id="metric-7d-accuracy-range" class="student-kpi-sub">Last 7 days</div>
+              </div>
+
+              <!-- Metric 3: 7-Day Speed -->
+              <div class="student-kpi-item">
+                <div class="student-kpi-label">Speed (q / min)</div>
+                <div id="metric-7d-speed" class="student-kpi-value num">—</div>
+                <div id="metric-7d-speed-range" class="student-kpi-sub">Last 7 days</div>
+              </div>
+
+              <!-- Metric 4: Practice Days -->
+              <div class="student-kpi-item">
+                <div class="student-kpi-label">Practice Days</div>
+                <div id="metric-7d-days" class="student-kpi-value num">—</div>
+                <div id="metric-7d-days-range" class="student-kpi-sub">Last 7 days</div>
+              </div>
+            </div>
+
+            <!-- Bottom Subtle Streak Status Bar -->
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2); padding-top: var(--space-3); margin-top: var(--space-3); border-top: 1px solid var(--border-hairline); font-size: var(--text-xs);">
+              <p id="streak-rule-note" style="color: var(--text-muted); margin: 0;">
+                No tasks today, so any practice counts.
+              </p>
+              <strong id="streak-today-badge" style="color: var(--text-main);">Today counts: Not yet</strong>
             </div>
           </section>
 
@@ -78,315 +138,263 @@
           <!-- 1c. Compact Reminders Strip (up to 3 reminders above the daily to-do list) -->
           <div id="student-home-reminders-strip-container"></div>
 
-          <!-- 2. "Today's plan" card (the to-do tasks) first -->
-          <section class="card" id="todays-plan-card" style="margin-bottom: var(--space-4);" aria-labelledby="todo-heading">
-            <div class="card-header">
-              <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2);">
-                <h2 id="todo-heading" class="card-title" style="display: flex; align-items: center; gap: 6px;">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M9 11l3 3L22 4"/>
-                    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
-                  </svg>
-                  <span>Today's plan</span>
+          <!-- Calm View Switcher to prevent vertical scroll overload -->
+          <div class="student-view-bar" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3); margin-bottom: var(--space-4);">
+            <div class="segmented-control" role="tablist" aria-label="Dashboard view">
+              <button type="button" class="segmented-btn active" id="tab-student-view-focus" data-student-view="focus" role="tab" aria-selected="true">
+                Today's Focus
+              </button>
+              <button type="button" class="segmented-btn" id="tab-student-view-progress" data-student-view="progress" role="tab" aria-selected="false">
+                Score Sheet &amp; Progress
+              </button>
+              <button type="button" class="segmented-btn" id="tab-student-view-all" data-student-view="all" role="tab" aria-selected="false">
+                Show All
+              </button>
+            </div>
+            <div style="display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-xs);">
+              <a href="/pages/round-scores.html" class="btn btn-outline btn-sm" style="text-decoration: none;">
+                Enter Round Scores &rarr;
+              </a>
+            </div>
+          </div>
+
+          <!-- =========================================================================
+               VIEW PANE 1: TODAY'S FOCUS (Default Visible)
+               ========================================================================= -->
+          <div id="student-pane-focus">
+            <!-- 2. "Today's plan" card (the to-do tasks) -->
+            <section class="card" id="todays-plan-card" style="margin-bottom: var(--space-5);" aria-labelledby="todo-heading">
+              <div class="card-header" style="padding: var(--space-4) var(--space-5);">
+                <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; gap: var(--space-2);">
+                  <h2 id="todo-heading" class="card-title" style="display: flex; align-items: center; gap: 8px; font-size: var(--text-base);">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M9 11l3 3L22 4"/>
+                      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                    </svg>
+                    <span>Today's plan</span>
+                  </h2>
+                  <span id="todo-progress-count" style="font-size: var(--text-xs); font-weight: 700; color: var(--color-primary);">
+                    Loading...
+                  </span>
+                </div>
+              </div>
+
+              <div class="card-body" style="padding: var(--space-4) var(--space-5);">
+                <div id="todo-list-container" class="todo-list-container">
+                  <div class="loading-state">Loading today's tasks...</div>
+                </div>
+              </div>
+            </section>
+
+            <!-- 3. Quick Online Practice Modes Strip -->
+            <section class="card" id="explore-practice-card" style="margin-bottom: var(--space-5); padding: var(--space-4) var(--space-5);" aria-labelledby="explore-modes-heading">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3);">
+                <h2 id="explore-modes-heading" class="card-title" style="margin: 0; font-size: var(--text-base);">
+                  Online practice modes
                 </h2>
-                <span id="todo-progress-count" style="font-size: var(--text-xs); font-weight: 700; color: var(--color-primary);">
-                  Loading...
+                <span style="font-size: var(--text-xs); color: var(--text-muted);">
+                  Pick any discipline to practice on the website
                 </span>
               </div>
-            </div>
-
-            <div class="card-body">
-              <div id="todo-list-container" class="todo-list-container">
-                <div class="loading-state">Loading today's tasks...</div>
-              </div>
-            </div>
-          </section>
-
-          <!-- 3. Compact streak card in one row -->
-          <section class="card" id="streak-card" style="margin-bottom: var(--space-4); padding: var(--space-4) var(--space-5);" aria-labelledby="streak-heading">
-            <div class="streak-compact-row" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3);">
-              <h2 id="streak-heading" class="card-title" style="display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: var(--text-base);">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F97316" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>
-                </svg>
-                <span>Practice Streak</span>
-              </h2>
-              <div style="display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-4); font-size: var(--text-sm);">
-                <span>Current streak: <strong id="stat-current-streak" class="num">0</strong> days</span>
-                <span>Best: <strong id="stat-best-streak" class="num">0</strong> days</span>
-                <span>Shield status: <strong id="stat-shield-lbl">0 ready</strong><span id="stat-shield-count" style="display: none;">0</span></span>
-                <strong id="streak-today-badge">Today counts: Not yet</strong>
-              </div>
-            </div>
-            <p id="streak-rule-note" style="font-size: var(--text-xs); color: var(--text-muted); margin: var(--space-2) 0 0 0;">
-              No tasks today, so any practice counts.
-            </p>
-          </section>
-
-          <!-- 4. Three small cards: Accuracy, Speed (questions per minute), and Practice days -->
-          <section
-            id="today-summary-metrics"
-            aria-label="Last 7 days summary"
-            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-4); margin-bottom: var(--space-4);"
-          >
-            <div class="card" style="padding: var(--space-4);">
-              <div style="font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);">
-                Accuracy
-              </div>
-              <div id="metric-7d-accuracy" class="num" style="font-size: 1.5rem; font-weight: 800; color: var(--text-main); margin: 4px 0;">
-                —
-              </div>
-              <div id="metric-7d-accuracy-range" style="font-size: var(--text-xs); color: var(--text-dim);">
-                Last 7 days
-              </div>
-            </div>
-
-            <div class="card" style="padding: var(--space-4);">
-              <div style="font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);">
-                Speed (questions / min)
-              </div>
-              <div id="metric-7d-speed" class="num" style="font-size: 1.5rem; font-weight: 800; color: var(--text-main); margin: 4px 0;">
-                —
-              </div>
-              <div id="metric-7d-speed-range" style="font-size: var(--text-xs); color: var(--text-dim);">
-                Last 7 days
-              </div>
-            </div>
-
-            <div class="card" style="padding: var(--space-4);">
-              <div style="font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);">
-                Practice days
-              </div>
-              <div id="metric-7d-days" class="num" style="font-size: 1.5rem; font-weight: 800; color: var(--text-main); margin: 4px 0;">
-                —
-              </div>
-              <div id="metric-7d-days-range" style="font-size: var(--text-xs); color: var(--text-dim);">
-                Last 7 days
-              </div>
-            </div>
-          </section>
-
-          <!-- 5. Compact card "Explore practice modes" listing Basics, Flash Anzan, Elements and Memoriad -->
-          <section class="card" id="explore-practice-card" style="margin-bottom: var(--space-5); padding: var(--space-4) var(--space-5);" aria-labelledby="explore-modes-heading">
-            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3);">
-              <h2 id="explore-modes-heading" class="card-title" style="margin: 0;">
-                Explore practice modes
-              </h2>
-              <a href="/pages/round-scores.html" style="font-size: var(--text-xs); font-weight: 600; color: var(--color-primary); text-decoration: none;">
-                Log Round Scores &rarr;
-              </a>
-            </div>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--space-3);">
-              <a href="/pages/basics.html" class="action-card-btn" style="padding: var(--space-3); min-height: 48px;">
-                <div class="action-card-content">
-                  <h3 style="font-size: var(--text-sm); margin: 0;">⚡ Basics</h3>
-                  <p style="font-size: var(--text-xs); margin: 2px 0 0 0;">Timed speed drills &amp; log</p>
-                </div>
-                <span class="action-card-arrow" aria-hidden="true">&rarr;</span>
-              </a>
-              <a href="/pages/flash.html" class="action-card-btn" style="padding: var(--space-3); min-height: 48px;">
-                <div class="action-card-content">
-                  <h3 style="font-size: var(--text-sm); margin: 0;">🔢 Flash Anzan</h3>
-                  <p style="font-size: var(--text-xs); margin: 2px 0 0 0;">Rapid flashing numbers</p>
-                </div>
-                <span class="action-card-arrow" aria-hidden="true">&rarr;</span>
-              </a>
-              <a href="/pages/elements.html" class="action-card-btn" style="padding: var(--space-3); min-height: 48px;">
-                <div class="action-card-content">
-                  <h3 style="font-size: var(--text-sm); margin: 0;">🧮 Elements</h3>
-                  <p style="font-size: var(--text-xs); margin: 2px 0 0 0;">24 timed worksheets</p>
-                </div>
-                <span class="action-card-arrow" aria-hidden="true">&rarr;</span>
-              </a>
-              <a href="/pages/memoriad.html" class="action-card-btn" style="padding: var(--space-3); min-height: 48px;">
-                <div class="action-card-content">
-                  <h3 style="font-size: var(--text-sm); margin: 0;">🧠 Memoriad</h3>
-                  <p style="font-size: var(--text-xs); margin: 2px 0 0 0;">Competition disciplines</p>
-                </div>
-                <span class="action-card-arrow" aria-hidden="true">&rarr;</span>
-              </a>
-            </div>
-          </section>
-
-          <!-- 6. Everything else below -->
-          <div class="dashboard-top-grid">
-            <!-- Basics Card -->
-            <section class="card" aria-labelledby="basics-week-heading">
-              <div class="card-header">
-                <h2 id="basics-week-heading" class="card-title" style="display: flex; align-items: center; gap: 6px;">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#EAB308" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-                  </svg>
-                  <span>Basics</span>
-                </h2>
-              </div>
-
-              <div class="card-body">
-                <div id="basics-week-container">
-                  <div class="loading-state">Loading basics summary...</div>
-                </div>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-3);">
+                <a href="/pages/basics.html" class="action-card-btn" style="padding: var(--space-3) var(--space-4); min-height: 54px;">
+                  <div class="action-card-content">
+                    <h3 style="font-size: var(--text-sm); margin: 0; font-weight: 700;">Basics</h3>
+                    <p style="font-size: var(--text-xs); margin: 2px 0 0 0; color: var(--text-muted);">Timed speed drills &amp; log</p>
+                  </div>
+                  <span class="action-card-arrow" aria-hidden="true">&rarr;</span>
+                </a>
+                <a href="/pages/flash.html" class="action-card-btn" style="padding: var(--space-3) var(--space-4); min-height: 54px;">
+                  <div class="action-card-content">
+                    <h3 style="font-size: var(--text-sm); margin: 0; font-weight: 700;">Flash Anzan</h3>
+                    <p style="font-size: var(--text-xs); margin: 2px 0 0 0; color: var(--text-muted);">Rapid flashing numbers</p>
+                  </div>
+                  <span class="action-card-arrow" aria-hidden="true">&rarr;</span>
+                </a>
+                <a href="/pages/elements.html" class="action-card-btn" style="padding: var(--space-3) var(--space-4); min-height: 54px;">
+                  <div class="action-card-content">
+                    <h3 style="font-size: var(--text-sm); margin: 0; font-weight: 700;">Elements</h3>
+                    <p style="font-size: var(--text-xs); margin: 2px 0 0 0; color: var(--text-muted);">Timed mental worksheets</p>
+                  </div>
+                  <span class="action-card-arrow" aria-hidden="true">&rarr;</span>
+                </a>
+                <a href="/pages/memoriad.html" class="action-card-btn" style="padding: var(--space-3) var(--space-4); min-height: 54px;">
+                  <div class="action-card-content">
+                    <h3 style="font-size: var(--text-sm); margin: 0; font-weight: 700;">Memoriad</h3>
+                    <p style="font-size: var(--text-xs); margin: 2px 0 0 0; color: var(--text-muted);">Competition disciplines</p>
+                  </div>
+                  <span class="action-card-arrow" aria-hidden="true">&rarr;</span>
+                </a>
               </div>
             </section>
 
-            <!-- Flash Anzan Card -->
-            <section class="card" aria-labelledby="flash-week-heading">
-              <div class="card-header">
-                <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-                  <h2 id="flash-week-heading" class="card-title" style="display: flex; align-items: center; gap: 6px;">
-                    <span aria-hidden="true">🔢</span>
-                    <span>Flash Anzan</span>
-                  </h2>
-                  <a href="/pages/flash.html" style="font-size: var(--text-xs); font-weight: 600; color: var(--color-primary); text-decoration: none;">
-                    Practice &rarr;
-                  </a>
-                </div>
-              </div>
-              <div class="card-body">
-                <div id="flash-week-container">
-                  <div class="loading-state">Loading Flash Anzan summary...</div>
-                </div>
-              </div>
-            </section>
-
-            <!-- Elements Drills Card -->
-            <section class="card" aria-labelledby="elements-week-heading">
-              <div class="card-header">
-                <h2 id="elements-week-heading" class="card-title" style="display: flex; align-items: center; gap: 6px;">
-                  <span aria-hidden="true">🧮</span>
-                  <span>Elements</span>
-                </h2>
-              </div>
-              <div class="card-body">
-                <div id="elements-week-container">
-                  <div class="loading-state">Loading Elements drills summary...</div>
-                </div>
-              </div>
-            </section>
-
-            <!-- Memoriad Competition Practice Card -->
-            <section class="card" aria-labelledby="memoriad-week-heading">
-              <div class="card-header">
-                <h2 id="memoriad-week-heading" class="card-title" style="display: flex; align-items: center; gap: 6px;">
-                  <span aria-hidden="true">🧠</span>
-                  <span>Memoriad</span>
-                </h2>
-              </div>
-              <div class="card-body">
-                <div id="memoriad-week-container">
-                  <div class="loading-state">Loading Memoriad practice summary...</div>
-                </div>
-              </div>
-            </section>
-
-            <!-- Attendance Card (Phase 4a) -->
-            <section class="card" aria-labelledby="attendance-heading">
-              <div class="card-header">
-                <h2 id="attendance-heading" class="card-title" style="display: flex; align-items: center; gap: 6px;">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-                    <line x1="16" y1="2" x2="16" y2="6"/>
-                    <line x1="8" y1="2" x2="8" y2="6"/>
-                    <line x1="3" y1="10" x2="21" y2="10"/>
-                  </svg>
-                  <span>Attendance</span>
-                </h2>
-              </div>
-              <div class="card-body" id="attendance-card-container">
-                <div class="loading-state">Loading attendance summary...</div>
-              </div>
-            </section>
-
-            <!-- Weekly Tests Card (Phase 4b) -->
-            <section class="card" aria-labelledby="weekly-tests-heading">
-              <div class="card-header">
-                <h2 id="weekly-tests-heading" class="card-title" style="display: flex; align-items: center; gap: 6px;">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                    <polyline points="14 2 14 8 20 8"/>
-                    <line x1="16" y1="13" x2="8" y2="13"/>
-                    <line x1="16" y1="17" x2="8" y2="17"/>
-                    <polyline points="10 9 9 9 8 9"/>
-                  </svg>
-                  <span>Weekly Tests</span>
-                </h2>
-              </div>
-              <div class="card-body" id="weekly-tests-card-container">
-                <div class="loading-state">Loading weekly test scores...</div>
-              </div>
-            </section>
-
-            <!-- Leaderboard Card (Phase 5a) -->
-            <section class="card" aria-labelledby="leaderboard-card-heading">
-              <div class="card-header">
-                <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: var(--space-2);">
-                  <h2 id="leaderboard-card-heading" class="card-title" style="display: flex; align-items: center; gap: 6px;">
-                    <span aria-hidden="true">🏅</span>
-                    <span>Leaderboard</span>
-                  </h2>
-                  <div style="display: flex; align-items: center; gap: var(--space-3);">
-                    <a id="leaderboard-card-see-global" href="/pages/leaderboard.html?scope=global" style="font-size: var(--text-xs); font-weight: 600; color: var(--color-primary); text-decoration: none;">
-                      See global
-                    </a>
-                    <a href="/pages/leaderboard.html" style="font-size: var(--text-xs); font-weight: 600; color: var(--color-primary); text-decoration: none;">
-                      Full Board &rarr;
+            <!-- 4. Clean 2-Column Row: Weekly Tests & Leaderboard -->
+            <div class="dashboard-top-grid" style="margin-bottom: var(--space-5);">
+              <!-- Weekly Tests Card (Phase 4b) -->
+              <section class="card" aria-labelledby="weekly-tests-heading">
+                <div class="card-header" style="padding: var(--space-4) var(--space-5);">
+                  <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; gap: var(--space-2);">
+                    <h2 id="weekly-tests-heading" class="card-title" style="font-size: var(--text-base);">
+                      Weekly Tests
+                    </h2>
+                    <a href="/pages/weekly-test.html" style="font-size: var(--text-xs); font-weight: 600; color: var(--color-primary); text-decoration: none;">
+                      All tests &rarr;
                     </a>
                   </div>
                 </div>
+                <div class="card-body" id="weekly-tests-card-container" style="padding: var(--space-4) var(--space-5);">
+                  <div class="loading-state">Loading weekly test scores...</div>
+                </div>
+              </section>
+
+              <!-- Leaderboard Card (Phase 5a) -->
+              <section class="card" aria-labelledby="leaderboard-card-heading">
+                <div class="card-header" style="padding: var(--space-4) var(--space-5);">
+                  <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: var(--space-2);">
+                    <h2 id="leaderboard-card-heading" class="card-title" style="font-size: var(--text-base);">
+                      Leaderboard
+                    </h2>
+                    <div style="display: flex; align-items: center; gap: var(--space-3);">
+                      <a id="leaderboard-card-see-global" href="/pages/leaderboard.html?scope=global" style="font-size: var(--text-xs); font-weight: 600; color: var(--color-primary); text-decoration: none;">
+                        See global
+                      </a>
+                      <a href="/pages/leaderboard.html" style="font-size: var(--text-xs); font-weight: 600; color: var(--color-primary); text-decoration: none;">
+                        Full Board &rarr;
+                      </a>
+                    </div>
+                  </div>
+                </div>
+                <div class="card-body" id="leaderboard-card-container" style="padding: var(--space-4) var(--space-5);">
+                  <div class="loading-state">Loading leaderboard...</div>
+                </div>
+              </section>
+            </div>
+          </div> <!-- /student-pane-focus -->
+
+          <!-- =========================================================================
+               VIEW PANE 2: SCORE SHEET, PROGRESS CHARTS & WEEKLY BREAKDOWN
+               ========================================================================= -->
+          <div id="student-pane-progress" style="display: none;">
+            <!-- FULL-WIDTH SCORE SHEET TABLE (5-ROUND PAGINATION) -->
+            <section class="card" style="margin-bottom: var(--space-5); padding: 0; overflow: hidden;" aria-labelledby="sheet-heading">
+              <div style="padding: var(--space-4) var(--space-5); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3); border-bottom: 1px solid var(--border-hairline);">
+                <div>
+                  <h2 id="sheet-heading" class="card-title" style="margin-bottom: 2px; font-size: var(--text-base);">
+                    Competition Round Score Sheet
+                  </h2>
+                  <span id="sheet-range-label" style="font-size: var(--text-xs); color: var(--text-muted); font-weight: 500;">
+                    Loading rounds...
+                  </span>
+                </div>
+
+                <!-- Pagination: Older / Newer shifting by 5 rounds -->
+                <div style="display: flex; gap: var(--space-2); align-items: center;">
+                  <button type="button" id="btn-sheet-older" class="btn btn-outline btn-sm" disabled>
+                    &larr; Older Rounds
+                  </button>
+                  <button type="button" id="btn-sheet-newer" class="btn btn-outline btn-sm" disabled>
+                    Newer Rounds &rarr;
+                  </button>
+                </div>
               </div>
-              <div class="card-body" id="leaderboard-card-container">
-                <div class="loading-state">Loading leaderboard...</div>
+
+              <!-- Sticky Horizontal Scrollable Table -->
+              <div class="sheet-table-wrapper" id="sheet-table-wrapper">
+                <div class="loading-state" style="padding: var(--space-6);">Loading competition score table...</div>
               </div>
             </section>
 
-            <!-- Card 6: Learning Resources (spans inside top 2-column grid on desktop) -->
-            <section class="card" style="grid-column: 1 / -1;" aria-labelledby="resources-heading">
-              <div class="card-header">
-                <h2 id="resources-heading" class="card-title" style="display: flex; align-items: center; gap: 6px;">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
-                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-                  </svg>
-                  <span>Learning Resources & Guidelines</span>
-                </h2>
-              </div>
-              <div class="card-body" id="resources-container">
-                <div class="loading-state">Loading study materials...</div>
-              </div>
-            </section>
+            <!-- FULL-WIDTH PROGRESS CHARTS SECTION -->
+            <div id="charts-wrapper-container" style="margin-bottom: var(--space-5);"></div>
 
-          </div> <!-- /dashboard-top-grid -->
+            <!-- Weekly Practice Summaries & Attendance Grid -->
+            <div class="dashboard-top-grid" style="margin-bottom: var(--space-5);">
+              <!-- Basics Card -->
+              <section class="card" aria-labelledby="basics-week-heading">
+                <div class="card-header" style="padding: var(--space-4) var(--space-5);">
+                  <h2 id="basics-week-heading" class="card-title" style="font-size: var(--text-base);">
+                    Basics (This Week)
+                  </h2>
+                </div>
+                <div class="card-body" style="padding: var(--space-4) var(--space-5);">
+                  <div id="basics-week-container">
+                    <div class="loading-state">Loading basics summary...</div>
+                  </div>
+                </div>
+              </section>
 
-          <!-- FULL-WIDTH SCORE SHEET TABLE (5-ROUND PAGINATION) -->
-          <section class="card" style="margin-bottom: var(--space-6); padding: 0; overflow: hidden;" aria-labelledby="sheet-heading">
-            <div style="padding: var(--space-4) var(--space-5); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3); border-bottom: 1px solid var(--border-hairline);">
-              <div>
-                <h2 id="sheet-heading" class="card-title" style="margin-bottom: 2px;">
-                  Competition Round Score Sheet
-                </h2>
-                <span id="sheet-range-label" style="font-size: var(--text-xs); color: var(--text-muted); font-weight: 500;">
-                  Loading rounds...
-                </span>
-              </div>
+              <!-- Flash Anzan Card -->
+              <section class="card" aria-labelledby="flash-week-heading">
+                <div class="card-header" style="padding: var(--space-4) var(--space-5);">
+                  <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                    <h2 id="flash-week-heading" class="card-title" style="font-size: var(--text-base);">
+                      Flash Anzan (This Week)
+                    </h2>
+                    <a href="/pages/flash.html" style="font-size: var(--text-xs); font-weight: 600; color: var(--color-primary); text-decoration: none;">
+                      Practice &rarr;
+                    </a>
+                  </div>
+                </div>
+                <div class="card-body" style="padding: var(--space-4) var(--space-5);">
+                  <div id="flash-week-container">
+                    <div class="loading-state">Loading Flash Anzan summary...</div>
+                  </div>
+                </div>
+              </section>
 
-              <!-- Pagination: Older / Newer shifting by 5 rounds -->
-              <div style="display: flex; gap: var(--space-2); align-items: center;">
-                <button type="button" id="btn-sheet-older" class="btn btn-outline btn-sm" disabled>
-                  &larr; Older Rounds
-                </button>
-                <button type="button" id="btn-sheet-newer" class="btn btn-outline btn-sm" disabled>
-                  Newer Rounds &rarr;
-                </button>
-              </div>
+              <!-- Elements Drills Card -->
+              <section class="card" aria-labelledby="elements-week-heading">
+                <div class="card-header" style="padding: var(--space-4) var(--space-5);">
+                  <h2 id="elements-week-heading" class="card-title" style="font-size: var(--text-base);">
+                    Elements (This Week)
+                  </h2>
+                </div>
+                <div class="card-body" style="padding: var(--space-4) var(--space-5);">
+                  <div id="elements-week-container">
+                    <div class="loading-state">Loading Elements drills summary...</div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- Memoriad Competition Practice Card -->
+              <section class="card" aria-labelledby="memoriad-week-heading">
+                <div class="card-header" style="padding: var(--space-4) var(--space-5);">
+                  <h2 id="memoriad-week-heading" class="card-title" style="font-size: var(--text-base);">
+                    Memoriad (This Week)
+                  </h2>
+                </div>
+                <div class="card-body" style="padding: var(--space-4) var(--space-5);">
+                  <div id="memoriad-week-container">
+                    <div class="loading-state">Loading Memoriad practice summary...</div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- Attendance Card (Phase 4a) -->
+              <section class="card" aria-labelledby="attendance-heading">
+                <div class="card-header" style="padding: var(--space-4) var(--space-5);">
+                  <h2 id="attendance-heading" class="card-title" style="font-size: var(--text-base);">
+                    Attendance
+                  </h2>
+                </div>
+                <div class="card-body" id="attendance-card-container" style="padding: var(--space-4) var(--space-5);">
+                  <div class="loading-state">Loading attendance summary...</div>
+                </div>
+              </section>
+
+              <!-- Learning Resources -->
+              <section class="card" aria-labelledby="resources-heading">
+                <div class="card-header" style="padding: var(--space-4) var(--space-5);">
+                  <h2 id="resources-heading" class="card-title" style="font-size: var(--text-base);">
+                    Learning Resources &amp; Guidelines
+                  </h2>
+                </div>
+                <div class="card-body" id="resources-container" style="padding: var(--space-4) var(--space-5);">
+                  <div class="loading-state">Loading study materials...</div>
+                </div>
+              </section>
             </div>
-
-            <!-- Sticky Horizontal Scrollable Table -->
-            <div class="sheet-table-wrapper" id="sheet-table-wrapper">
-              <div class="loading-state" style="padding: var(--space-6);">Loading competition score table...</div>
-            </div>
-          </section>
-
-          <!-- FULL-WIDTH PROGRESS CHARTS SECTION -->
-          <div id="charts-wrapper-container"></div>
+          </div> <!-- /student-pane-progress -->
 
         </div> <!-- /container -->
       </main>

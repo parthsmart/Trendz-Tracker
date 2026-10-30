@@ -19,20 +19,29 @@
 
           <nav class="nav-zone" aria-label="Student Navigation">
             <a href="/pages/student.html" class="nav-link">Home</a>
-            <a href="/pages/weekly-test.html" class="nav-link active">Weekly Test</a>
             <a href="/pages/round-scores.html" class="nav-link">Round Scores</a>
-            <a href="/pages/basics.html" class="nav-link">Basics</a>
-            <a href="/pages/elements.html" class="nav-link">Elements</a>
-            <a href="/pages/flash.html" class="nav-link">Flash Anzan</a>
-            <a href="/pages/memoriad.html" class="nav-link">Memoriad</a>
+
+            <div class="nav-dropdown" id="nav-practice-dropdown">
+              <button type="button" class="nav-link nav-dropdown-toggle" id="btn-practice-dropdown" aria-expanded="false" aria-haspopup="true">
+                Practice <span style="font-size: 10px; margin-left: 2px;">▾</span>
+              </button>
+              <div class="nav-dropdown-menu" id="practice-dropdown-menu" role="menu">
+                <a href="/pages/basics.html" class="dropdown-item" role="menuitem">Basics</a>
+                <a href="/pages/flash.html" class="dropdown-item" role="menuitem">Flash Anzan</a>
+                <a href="/pages/elements.html" class="dropdown-item" role="menuitem">Elements</a>
+                <a href="/pages/memoriad.html" class="dropdown-item" role="menuitem">Memoriad</a>
+              </div>
+            </div>
+
+            <a href="/pages/weekly-test.html" class="nav-link active" aria-current="page">Weekly Test</a>
             <a href="/pages/leaderboard.html" class="nav-link">Leaderboard</a>
             <a href="/pages/monthly-report.html" class="nav-link">Monthly Report</a>
-            <a href="/pages/notifications.html" class="nav-link" style="display: inline-flex; align-items: center; gap: 5px;">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <a href="/pages/notifications.html" class="nav-link nav-bell-link" title="Notifications" aria-label="Notifications" style="display: inline-flex; align-items: center; gap: 5px;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
                 <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
               </svg>
-              <span>Notifications</span>
+              <span class="nav-bell-text">Alerts</span>
               <span id="nav-notifications-badge" class="nav-notifications-badge num" style="display: none; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: #DC2626; color: #FFFFFF; font-size: 11px; font-weight: 700; line-height: 1;" aria-hidden="true"></span>
             </a>
           </nav>

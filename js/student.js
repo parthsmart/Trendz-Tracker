@@ -51,6 +51,7 @@ async function initStudentDashboard() {
   // Render header details
   renderHeaderUser(loggedInProfile);
   renderStudentHero(loggedInProfile);
+  setupStudentHomeViewTabs();
 
   // Load Leaderboard summary card (Phase 5a), Available Weekly Test banner (Phase 13a), and compact reminders strip (Phase 13b)
   loadAndRenderLeaderboardCard('leaderboard-card-container', loggedInProfile);
@@ -194,7 +195,7 @@ async function loadAndRenderAvailableWeeklyTestCard(studentId) {
       : 'Scheduled for today (with your trainer)';
 
     container.innerHTML = `
-      <section class="card" style="margin-bottom: var(--space-4); padding: var(--space-4) var(--space-5); border-left: 4px solid var(--color-primary); background: var(--bg-surface);" aria-label="Available Weekly Test">
+      <section class="card" style="margin-bottom: var(--space-4); padding: var(--space-4) var(--space-5); border: 1px solid var(--color-primary); background: var(--color-primary-subtle);" aria-label="Available Weekly Test">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3);">
           <div>
             <div style="font-weight: 800; font-size: var(--text-base); color: var(--text-main);">
@@ -243,29 +244,35 @@ async function loadAndRenderHomeRemindersStrip(studentId) {
 
         let stageBadge = '';
         if (stageText) {
-          let stageStyle = 'background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE;';
+          let stageStyle = 'color: var(--color-primary-text); font-weight: 700;';
           if (stageText === 'Today') {
-            stageStyle = 'background: #FEF2F2; color: #B91C1C; border: 1px solid #FECACA;';
+            stageStyle = 'color: var(--color-danger-text); font-weight: 700;';
           } else if (stageText === 'Tomorrow') {
-            stageStyle = 'background: #FFFBEB; color: #B45309; border: 1px solid #FDE68A;';
+            stageStyle = 'color: var(--color-warning-text); font-weight: 700;';
           }
-          stageBadge = `<span class="num" style="display: inline-block; padding: 1px 6px; border-radius: 5px; font-size: 11px; font-weight: 700; ${stageStyle}">${escapeHtml(stageText)}</span>`;
+          stageBadge = `<span class="num" style="font-size: 12px; ${stageStyle}">${escapeHtml(stageText)}</span>`;
         }
 
         return `
-          <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding: 6px 0; border-bottom: 1px solid var(--border-hairline);">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding: 8px 0; border-bottom: 1px solid var(--border-hairline);">
             <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; min-width: 0; font-size: var(--text-sm);">
               ${stageBadge}
               ${
-                dateChip
-                  ? `<span class="num" style="font-size: 11px; font-weight: 600; color: var(--text-muted);">${escapeHtml(dateChip)}</span>`
+                stageBadge && dateChip
+                  ? `<span class="meta-separator" aria-hidden="true">·</span>`
                   : ''
               }
+              ${
+                dateChip
+                  ? `<span class="num" style="font-size: 12px; font-weight: 600; color: var(--text-muted);">${escapeHtml(dateChip)}</span>`
+                  : ''
+              }
+              <span class="meta-separator" aria-hidden="true">·</span>
               <a href="${escapeHtml(link)}" style="font-weight: 600; color: var(--text-main); text-decoration: none;">
                 ${title}
               </a>
             </div>
-            <a href="${escapeHtml(link)}" class="btn btn-outline btn-sm" style="font-size: 11px; padding: 2px 8px; text-decoration: none; flex-shrink: 0;">
+            <a href="${escapeHtml(link)}" class="btn btn-outline btn-sm" style="font-size: 11px; padding: 2px 10px; text-decoration: none; flex-shrink: 0;">
               Open
             </a>
           </div>
@@ -277,7 +284,7 @@ async function loadAndRenderHomeRemindersStrip(studentId) {
       <section class="card" style="margin-bottom: var(--space-4); padding: var(--space-3) var(--space-5); background: var(--bg-surface);" aria-label="Reminders and Notifications">
         <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); margin-bottom: 4px;">
           <div style="display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);">
-            <span>🔔 Reminders</span>
+            <span>Reminders</span>
             <span class="num">(${items.length})</span>
           </div>
           <a href="/pages/notifications.html" style="font-size: var(--text-xs); font-weight: 700; color: var(--color-primary); text-decoration: none;">
@@ -294,6 +301,43 @@ async function loadAndRenderHomeRemindersStrip(studentId) {
   }
 }
 
+/**
+ * Wires the calm view switcher on Student Home ("Today's Focus" | "Score Sheet & Progress" | "Show All")
+ * so the page does not stack 16 cards on a single vertical scroll unless requested.
+ */
+function setupStudentHomeViewTabs() {
+  const focusPane = document.getElementById('student-pane-focus');
+  const progressPane = document.getElementById('student-pane-progress');
+  const tabBtns = document.querySelectorAll('[data-student-view]');
+  if (!focusPane || !progressPane || tabBtns.length === 0) return;
+
+  const applyView = (mode) => {
+    tabBtns.forEach((btn) => {
+      const isMatch = btn.getAttribute('data-student-view') === mode;
+      btn.classList.toggle('active', isMatch);
+      btn.setAttribute('aria-selected', isMatch ? 'true' : 'false');
+    });
+
+    if (mode === 'progress') {
+      focusPane.style.display = 'none';
+      progressPane.style.display = '';
+    } else if (mode === 'all') {
+      focusPane.style.display = '';
+      progressPane.style.display = '';
+    } else {
+      focusPane.style.display = '';
+      progressPane.style.display = 'none';
+    }
+  };
+
+  tabBtns.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const mode = btn.getAttribute('data-student-view') || 'focus';
+      applyView(mode);
+    });
+  });
+}
+
 function escapeHtml(str) {
   if (str === null || str === undefined) return '';
   return String(str)
@@ -305,3 +349,4 @@ function escapeHtml(str) {
 }
 
 document.addEventListener('DOMContentLoaded', initStudentDashboard);
+
