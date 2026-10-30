@@ -1269,5 +1269,90 @@ This document contains step-by-step test scenarios to verify security boundaries
   3. Log in as a student and open `/pages/leaderboard.html`:
      - Verify the **Global (all trainees)** option is hidden and the page shows the student's own level scope.
 
+### Test Case 69: Pure Weekly Test View & Backup Table Unit Tests (`tests/weeklyTestView.test.js`, `tests/backup.test.js`)
+- **Command**: `node --test tests/weeklyTestView.test.js tests/backup.test.js`
+- **Expected**:
+  - `sectionStatusLabel(section, testState)` returns `'Done'` when `attempt === 'submitted'`, `'Not finished'` when `attempt === 'started'`, `'Missed'` when `testState === 'closed'` and not started, `'Ready'` when `testState === 'open'` and not started, and `'Upcoming'` when `testState === 'upcoming'`.
+  - `isSectionStartable(section, testState)` returns `true` only when `testState === 'open'` and `!section.attempt`.
+  - `nextSection(sections)` returns the first section in position order with `!section.attempt`, or `null` when all sections have been started or submitted.
+  - `windowText(opens_at, closes_at)` returns `"Open all day (India time)"` when both are empty, or formatted India-time window strings when set.
+  - `groupTests(tests)` partitions tests into `availableNow` (`type === 'online' && state === 'open'`), `upcoming` (`state === 'upcoming'` or offline `'today'` without scores), and `past` (`state === 'closed'`, `'past'`, or offline `'today'` with scores).
+  - `SNAPSHOT_TABLES` in `api/_backupTables.js` includes `weekly_test_sections`, `weekly_test_attempts`, `weekly_test_removals`, and `announcements` (16 snapshot tables + 6 append tables = 22 total tables).
 
+### Test Case 70: Admin Create/Edit Online & Offline Weekly Tests, Online Results & Section Reset (`/pages/weekly-tests.html`)
+- **Action**:
+  1. Log in as Admin (`ADMIN01` / `admin123`) and open **Tests** (`/pages/weekly-tests.html`).
+  2. Click **+ New Weekly Test**:
+     - Verify the type radio defaults to **"Offline - the trainer enters the scores"** and switching to **"Online - students take it on the website"** reveals the **Sections (1 to 6)** builder and optional **Opens at** / **Closes at** fields.
+     - Verify the **Category** dropdown in each section lists active Basics categories supported online, while unsupported Basics categories are disabled with **"(Not available online)"**, and **Time limit** offers `30 seconds`, `1 minute`, `2 minutes`, and `5 minutes`.
+     - Add 2 sections, fill in Date, Title, optional Level, and Remind days (`7`), and click **Save Test**.
+  3. Select the online test in the left list (verify the **`Online`** badge and **`n sections`** count):
+     - Verify the offline score grid is hidden, the info banner reads *"Scores come from students taking the test online. To enter paper scores, create an Offline test."*, and the **Online Test Results** table displays each student's per-section status (`Not started`, `Started, not finished`, or `Done` with `<correct> of <total>`, accuracy %, and time).
+  4. For a student with a `Started, not finished` or `Done` section, click **Reset** next to that section:
+     - Verify the confirmation prompt reads *"Delete this student's attempt and score for <section>? They will be able to take this section again while the test is open."* and confirming resets that section to `Not started`.
 
+### Test Case 71: Admin Remove Weekly Test & 30-Day Recently Removed Restore Drawer (`/pages/weekly-tests.html`)
+- **Action**:
+  1. On `/pages/weekly-tests.html`, select a weekly test and click **Remove this test** in the test header.
+  2. Verify the confirmation dialog shows the test title, date, and number of recorded scores, states *"Removing this test deletes its scores and recalculates points and leaderboards. A backup copy is kept for 30 days."*, and requires a reason (`1..200` characters) before **Remove test** is enabled.
+  3. Enter a reason and confirm: verify the test disappears from the active list.
+  4. Click **Recently removed** at the bottom of the left panel: verify the removed test appears with its title, date, removal date, score count, reason, and a **Restore** button. Click **Restore** and verify the test and its scores return to the active list.
+
+### Test Case 72: Student Home Available Test Banner & Student Online Weekly Test Player (`/pages/student.html`, `/pages/weekly-test.html`)
+- **Action**:
+  1. Log in as a student (`STU101` / `pass123`) and open `/pages/student.html`:
+     - Verify that when an online test is open (`state = 'open'`) with at least one unattempted section, a highlighted **Weekly Test Available Now** card appears above **Today's To-Do** showing `"Weekly test available now: <title>"`, `"<done> of <total> sections done"`, and an **"Open test"** button.
+  2. Click **"Open test"** (or **Weekly Test** in the top navigation bar to open `/pages/weekly-test.html`):
+     - Verify tests are grouped into **Available now**, **Upcoming**, and **Past**, with offline tests showing *"Offline test (on paper)"* (and read-only teacher scores once entered).
+  3. On an **Available now** online test, click **Start section** on a `Ready` section:
+     - Verify the confirmation modal states *"You can take this section only once. If you leave the page, the section is lost."* with **Cancel** and **Start now**.
+     - Click **Start now**: verify the one-question-at-a-time timed player starts with the section's countdown timer, question counter (`Question 1 of N`), and answer input (`Enter` submits each answer).
+     - Complete or wait out the timer: verify the results view shows `correct out of attempted`, `accuracy %`, `time taken`, `"Saved as part of <test title>"`, and a **Next section** button (or **Test complete** when all sections are finished), and the completed section is now locked as **`Done`**.
+
+---
+
+## Phase 13b Test Cases (Student Notifications, Admin Announcements, WhatsApp Test Share & Weekly Email Upcoming Tests)
+
+### Test Case 73: Pure Notification, Share Message & Weekly Report Email Unit Tests (`tests/notificationsView.test.js`, `tests/reportMessage.test.js`, `tests/reportEmail.test.js`)
+- **Command**: `node --test tests/notificationsView.test.js tests/reportMessage.test.js tests/reportEmail.test.js`
+- **Expected**:
+  - `stageLabel(days_left)` returns `'Today'` for `0`, `'Tomorrow'` for `1`, `'In N days'` for `>= 2`, and `''` for `null`/`undefined`/`< 0`.
+  - `groupNotifications(items)` partitions notifications into `{ weeklyTests, announcements }` and sorts weekly tests by `days_left` ascending.
+  - `badgeText(count)` returns `''` for `0` or negative, `'1'`..`'9'` for `1..9`, and `'9+'` for `> 9`.
+  - `buildWeeklyTestShareMessage(test)` formats `"Weekly test: <title> on <weekday, day month>. <Online on the Trendz Tracker website / With your trainer>. <notes shortened to 120 characters>"`.
+  - `buildWeeklyEmail(data)` includes the `"Upcoming weekly tests (next 7 days)"` section with HTML-escaped titles, types, dates, and levels, or `"No weekly tests scheduled"` when the list is empty.
+
+### Test Case 74: Student Notification Bell Badge, Home Reminder Strip & Notifications Page (`/pages/student.html`, `/pages/notifications.html`)
+- **Action**:
+  1. Log in as a student (`STU101` / `pass123`) and open `/pages/student.html`.
+  2. Inspect the top navigation bar:
+     - Verify the **Notifications** bell link is visible and displays a numeric badge (`1`–`9` or `9+`) when `my_notifications()` returns items, or hides the badge when `0`.
+     - Verify the count is cached in `sessionStorage` for 60 seconds (`tt_student_notifications_cache_v1`) so navigating across student pages does not re-fetch on every click.
+  3. Inspect the **Reminders** strip above **Today's To-Do** on `/pages/student.html`:
+     - Verify up to 3 active reminders are shown with stage chip (`Today`, `Tomorrow`, `In N days` or `Announcement`), title, **Open** link, and a **See all notifications →** link.
+  4. Click **Notifications** in the top navigation bar (`/pages/notifications.html`):
+     - Verify items are grouped under **Weekly tests** and **Announcements**.
+     - Verify each card shows the title, body, date chip (e.g. `Sun 2 Nov`), stage text chip (`In 4 days`, `Tomorrow`, `Today`), an **Open** button, and a **Dismiss** button.
+     - Click **Dismiss** on an item: verify the item is removed immediately, the bell badge count updates and refreshes the `sessionStorage` cache, and a 5-second toast appears with an **Undo** button.
+     - Click **Undo** within 5 seconds: verify the item is restored to the list; if not undone within 5 seconds, `dismiss_notification(p_ref)` persists the dismissal.
+     - When all notifications are dismissed, verify the friendly empty state **"You are all caught up"** is shown.
+
+### Test Case 75: Admin Announcements Page, Live Student Preview & Upcoming Tests WhatsApp Share (`/pages/announcements.html`)
+- **Action**:
+  1. Log in as Admin (`ADMIN01` / `admin123`) and open **Setup ▾ → Announcements** (`/pages/announcements.html`).
+  2. In the **Post an announcement** form:
+     - Type a title (`1..80` chars) and message (`1..500` chars) and watch the live character counter (`0 / 500`) and the **"What students see"** preview card update in real time.
+     - Switch **Audience** between **Everyone** and **Specific level** (with level suggestions from existing students).
+     - Verify **Show from** defaults to current India time and **Hide after** is optional (and rejects a hide-after timestamp that is not after show-from).
+     - Click **Publish announcement**: verify the button disables during save to prevent double clicks and adds the announcement to the list with a status chip (`Active`, `Scheduled`, or `Expired`).
+  3. On any announcement in the list, click **Delete**, confirm in the modal, and verify the announcement is removed.
+  4. Inspect the **Upcoming tests (next 14 days)** panel on `/pages/announcements.html`:
+     - Verify weekly tests scheduled in the next 14 days appear with title, type chip (`Online` / `Offline`), date, level, reminder days, and section count.
+     - Click **Copy text**: verify the formatted share message (`Weekly test: <title> on <weekday, day month>...`) is copied to the clipboard.
+     - Click **Share on WhatsApp**: verify it opens `https://wa.me/?text=<encoded>` in a new tab with no phone numbers stored or requested.
+
+### Test Case 76: Admin Weekly Test Reminder Date Preview (`/pages/weekly-tests.html`)
+- **Action**:
+  1. Logged in as Admin, open **Tests** (`/pages/weekly-tests.html`) and click **+ New Weekly Test**.
+  2. Change the **Date** or **Remind students from N days before** (`0` to `30`, default `7`).
+  3. Verify the live preview line next to the input updates immediately to read: `"Students will see a reminder from <date> until the test day."` (or `"Students will see a reminder on the test day only."` when `0`).

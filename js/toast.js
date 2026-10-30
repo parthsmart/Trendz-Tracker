@@ -24,6 +24,18 @@ function ensureToastContainer() {
  * @param {number} durationMs
  */
 export function showToast(type, message, durationMs = 4000) {
+  return showActionToast(type, message, null, null, durationMs);
+}
+
+/**
+ * Shows a toast message with an optional action button (e.g. "Undo").
+ * @param {'success' | 'error' | 'info'} type
+ * @param {string} message
+ * @param {string|null} actionLabel
+ * @param {(() => void)|null} onAction
+ * @param {number} [durationMs=5000]
+ */
+export function showActionToast(type, message, actionLabel = null, onAction = null, durationMs = 5000) {
   const container = ensureToastContainer();
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
@@ -31,8 +43,26 @@ export function showToast(type, message, durationMs = 4000) {
 
   const textSpan = document.createElement('span');
   textSpan.textContent = message;
+  toast.appendChild(textSpan);
+
+  if (actionLabel && typeof onAction === 'function') {
+    const actionBtn = document.createElement('button');
+    actionBtn.type = 'button';
+    actionBtn.className = 'btn btn-outline btn-sm';
+    actionBtn.style.marginLeft = '10px';
+    actionBtn.style.padding = '2px 8px';
+    actionBtn.style.fontSize = '12px';
+    actionBtn.style.fontWeight = '700';
+    actionBtn.textContent = actionLabel;
+    actionBtn.onclick = () => {
+      toast.remove();
+      onAction();
+    };
+    toast.appendChild(actionBtn);
+  }
 
   const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
   closeBtn.innerHTML = '&times;';
   closeBtn.className = 'modal-close';
   closeBtn.style.padding = '0';
@@ -42,7 +72,6 @@ export function showToast(type, message, durationMs = 4000) {
     toast.remove();
   };
 
-  toast.appendChild(textSpan);
   toast.appendChild(closeBtn);
   container.appendChild(toast);
 
@@ -56,4 +85,6 @@ export function showToast(type, message, durationMs = 4000) {
       }
     }, durationMs);
   }
+
+  return toast;
 }

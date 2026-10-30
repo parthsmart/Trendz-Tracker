@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Announcements &amp; Reminders - Trendz Tracker</title>
+    <meta name="description" content="Compose student announcements and share upcoming weekly test notices on Trendz Tracker." />
+
+    <!-- Design tokens & unified styles -->
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- Top Bar Contract: 3-Zone Navigation -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <!-- Zone 1: Wordmark & Brand -->
+          <a href="/pages/admin.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <!-- Mobile Menu Toggle -->
+          <button type="button" class="mobile-menu-btn" id="btn-mobile-menu" aria-label="Toggle Navigation" aria-expanded="false">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+
+          <!-- Zone 2: Navigation Links -->
+          <nav class="nav-zone" id="admin-nav-zone" aria-label="Admin Navigation">
+            <a href="/pages/admin.html" class="nav-link">Overview</a>
+            <a href="/pages/review.html" class="nav-link">Review</a>
+            <a href="/pages/students.html" class="nav-link">Students</a>
+            <a href="/pages/attendance.html" class="nav-link">Attendance</a>
+            <a href="/pages/weekly-tests.html" class="nav-link">Weekly Tests</a>
+            <a href="/pages/leaderboard.html" class="nav-link">Leaderboard</a>
+            <a href="/pages/monthly-report.html" class="nav-link">Monthly Report</a>
+
+            <!-- Setup Dropdown -->
+            <div class="nav-dropdown">
+              <button type="button" class="nav-link nav-dropdown-toggle active" id="btn-setup-dropdown" aria-expanded="false" aria-haspopup="true">
+                Setup <span style="font-size: 10px; margin-left: 2px;">▾</span>
+              </button>
+              <div class="nav-dropdown-menu" id="setup-dropdown-menu" role="menu">
+                <a href="/pages/announcements.html" class="dropdown-item active" role="menuitem" aria-current="page">Announcements</a>
+                <a href="/pages/todos.html" class="dropdown-item" role="menuitem">Daily To-Do</a>
+                <a href="/pages/resources.html" class="dropdown-item" role="menuitem">Resources</a>
+                <a href="/pages/categories.html" class="dropdown-item" role="menuitem">Categories</a>
+                <a href="/pages/rounds.html" class="dropdown-item" role="menuitem">Rounds</a>
+                <a href="/pages/targets.html" class="dropdown-item" role="menuitem">Targets</a>
+                <a href="/pages/competition.html" class="dropdown-item" role="menuitem">Competition</a>
+                <a href="/pages/import.html" class="dropdown-item" role="menuitem">Import</a>
+                <a href="/pages/backup.html" class="dropdown-item" role="menuitem">Backup</a>
+              </div>
+            </div>
+          </nav>
+
+          <!-- Zone 3: User Details & Logout Action -->
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Admin</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-role" style="color: var(--text-muted);">Teacher</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Page Content -->
+      <main class="main-content">
+        <div class="container">
+          <!-- Demo Mode Banner Placeholder -->
+          <div id="config-banner-placeholder"></div>
+
+          <!-- Page Header -->
+          <section class="card" style="margin-bottom: var(--space-5); padding: var(--space-4) var(--space-5);" aria-labelledby="announcements-page-heading">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3);">
+              <div>
+                <h1 id="announcements-page-heading" style="font-size: 1.5rem; font-weight: 800; margin: 0; color: var(--text-main);">
+                  Announcements &amp; Test Reminders
+                </h1>
+                <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 4px 0 0 0;">
+                  Post announcements for everyone or a specific level, and share upcoming weekly tests on WhatsApp.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: var(--space-5); align-items: start; margin-bottom: var(--space-5);">
+            <!-- Left Column: Compose Announcement & Live Student Preview -->
+            <div style="display: flex; flex-direction: column; gap: var(--space-4);">
+              <section class="card" aria-labelledby="compose-announcement-heading">
+                <div class="card-header">
+                  <h2 id="compose-announcement-heading" class="card-title">Compose announcement</h2>
+                </div>
+
+                <div class="card-body">
+                  <form id="announcement-form" novalidate>
+                    <div class="form-group">
+                      <label for="ann-title-input" class="form-label">Title (1 to 80 characters) *</label>
+                      <input
+                        type="text"
+                        id="ann-title-input"
+                        class="form-input"
+                        maxlength="80"
+                        required
+                        placeholder="e.g. Sunday Speed Batch at 10 AM IST"
+                      />
+                    </div>
+
+                    <div class="form-group">
+                      <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                        <label for="ann-body-input" class="form-label">Message (1 to 500 characters) *</label>
+                        <span id="ann-body-counter" class="num" style="font-size: 11px; color: var(--text-muted);">0 / 500</span>
+                      </div>
+                      <textarea
+                        id="ann-body-input"
+                        class="form-input"
+                        rows="4"
+                        maxlength="500"
+                        required
+                        placeholder="Write a short message for students..."
+                      ></textarea>
+                    </div>
+
+                    <div class="form-group">
+                      <label class="form-label">Audience *</label>
+                      <div style="display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; margin-bottom: var(--space-2);">
+                        <label style="display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-sm); cursor: pointer;">
+                          <input type="radio" name="ann-audience-mode" id="ann-audience-everyone" value="everyone" checked />
+                          <span>Everyone</span>
+                        </label>
+                        <label style="display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-sm); cursor: pointer;">
+                          <input type="radio" name="ann-audience-mode" id="ann-audience-level" value="level" />
+                          <span>Specific level</span>
+                        </label>
+                      </div>
+                      <div id="ann-level-input-wrapper" style="display: none;">
+                        <input
+                          type="text"
+                          id="ann-level-input"
+                          class="form-input"
+                          list="ann-levels-datalist"
+                          placeholder="Choose or type level (e.g. Junior 2, Level 1)"
+                        />
+                        <datalist id="ann-levels-datalist"></datalist>
+                      </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3);">
+                      <div class="form-group">
+                        <label for="ann-starts-at-input" class="form-label">Show from (India time) *</label>
+                        <input type="datetime-local" id="ann-starts-at-input" class="form-input num" required />
+                      </div>
+
+                      <div class="form-group">
+                        <label for="ann-expires-at-input" class="form-label">Hide after (optional, India time)</label>
+                        <input type="datetime-local" id="ann-expires-at-input" class="form-input num" />
+                      </div>
+                    </div>
+
+                    <div id="ann-form-error" class="banner banner-error" style="display: none; margin-bottom: var(--space-3);" role="alert"></div>
+
+                    <div style="display: flex; justify-content: flex-end; gap: var(--space-2);">
+                      <button type="button" id="btn-reset-ann-form" class="btn btn-outline btn-sm">
+                        Reset
+                      </button>
+                      <button type="submit" id="btn-submit-announcement" class="btn btn-primary btn-sm">
+                        Post Announcement
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </section>
+
+              <!-- Live Student Preview Card ("What students see") -->
+              <section class="card" aria-labelledby="preview-card-heading">
+                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                  <h2 id="preview-card-heading" class="card-title">What students see</h2>
+                  <span id="preview-audience-label" style="font-size: var(--text-xs); color: var(--text-muted); font-weight: 600;">
+                    Audience: Everyone
+                  </span>
+                </div>
+                <div class="card-body">
+                  <div
+                    id="student-preview-card"
+                    style="padding: var(--space-4); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-surface); display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-4); flex-wrap: wrap;"
+                  >
+                    <div style="flex: 1 1 240px; min-width: 0;">
+                      <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin-bottom: 6px;">
+                        <h3 id="preview-title-text" style="font-size: var(--text-base); font-weight: 700; margin: 0; color: var(--text-main);">
+                          Your announcement title
+                        </h3>
+                        <span id="preview-date-chip" class="num" style="display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; background: var(--bg-surface-subtle); color: var(--text-muted); border: 1px solid var(--border-hairline);">
+                          Today
+                        </span>
+                      </div>
+                      <p id="preview-body-text" style="font-size: var(--text-sm); color: var(--text-muted); margin: 0; line-height: 1.5; white-space: pre-line;">
+                        Your message will appear here as plain text.
+                      </p>
+                    </div>
+                    <div style="display: inline-flex; align-items: center; gap: var(--space-2); flex-shrink: 0;">
+                      <span class="btn btn-primary btn-sm" style="pointer-events: none; opacity: 0.85;">Open</span>
+                      <span class="btn btn-outline btn-sm" style="pointer-events: none; opacity: 0.85;">Dismiss</span>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <!-- Right Column: Upcoming Weekly Tests (Next 14 Days) -->
+            <section class="card" aria-labelledby="upcoming-tests-panel-heading">
+              <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                  <h2 id="upcoming-tests-panel-heading" class="card-title">Upcoming tests (next 14 days)</h2>
+                  <p style="font-size: 11px; color: var(--text-muted); margin: 2px 0 0 0;">
+                    Share test reminders with parents or trainees on WhatsApp. No phone numbers are stored.
+                  </p>
+                </div>
+              </div>
+              <div class="card-body" id="upcoming-tests-panel-body" style="display: flex; flex-direction: column; gap: var(--space-3);">
+                <div class="loading-state">Loading upcoming weekly tests...</div>
+              </div>
+            </section>
+          </div>
+
+          <!-- Announcements List (Newest First) -->
+          <section class="card" aria-labelledby="announcements-list-heading">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+              <h2 id="announcements-list-heading" class="card-title">Announcements</h2>
+              <span id="announcements-total-count" class="num" style="font-size: var(--text-xs); font-weight: 700; color: var(--text-muted);">0</span>
+            </div>
+            <div class="card-body" id="announcements-list-container" style="display: flex; flex-direction: column; gap: var(--space-3);">
+              <div class="loading-state">Loading announcements...</div>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <!-- MODAL: Delete Announcement Confirmation -->
+    <div id="delete-announcement-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="delete-ann-modal-title">
+      <div class="modal-dialog" style="max-width: 440px;">
+        <header class="modal-header">
+          <h2 class="modal-title" id="delete-ann-modal-title" style="color: #DC2626;">Delete Announcement</h2>
+          <button type="button" class="modal-close" data-close-modal="delete-announcement-modal" aria-label="Close modal">&times;</button>
+        </header>
+        <div class="modal-body">
+          <p style="font-size: var(--text-sm); margin: 0;">
+            Are you sure you want to delete <strong id="delete-ann-title-label">this announcement</strong>? Students will no longer see it.
+          </p>
+        </div>
+        <footer class="modal-footer">
+          <button type="button" class="btn btn-outline" data-close-modal="delete-announcement-modal">Cancel</button>
+          <button type="button" id="btn-confirm-delete-ann" class="btn btn-primary" style="background: #DC2626; border-color: #DC2626;">
+            Delete
+          </button>
+        </footer>
+      </div>
+    </div>
+
+    <script type="module" src="/js/announcements.js"></script>
+  </body>
+</html>

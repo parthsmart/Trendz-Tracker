@@ -8,6 +8,7 @@ import { isSupabaseConfigured, isDemoAllowedHost } from './config.js';
 import { isDemoMode } from './demoDb.js';
 import { openModal } from './modal.js';
 import { showToast } from './toast.js';
+import { initStudentNotificationBell } from './notificationBadge.js';
 
 /**
  * Enforces production configuration lock:
@@ -60,6 +61,9 @@ export async function requireAuth(allowedRoles = ['student', 'admin']) {
   // Populate header UI elements if present
   setupHeaderUserUI(profile);
   renderConfigBanner();
+  if (profile.role === 'student') {
+    initStudentNotificationBell(profile);
+  }
 
   return profile;
 }

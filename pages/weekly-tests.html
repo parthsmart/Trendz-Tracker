@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Weekly Tests &mdash; Trendz Tracker</title>
-    <meta name="description" content="Manage weekly tests and enter official teacher test scores for students across categories." />
+    <meta name="description" content="Manage offline and online weekly tests, enter teacher scores, view online test results, and restore removed tests." />
     <link rel="stylesheet" href="/css/style.css" />
   </head>
   <body>
@@ -74,16 +74,22 @@
               <div class="meta-row" style="margin-bottom: var(--space-1); font-size: var(--text-xs);">
                 <a href="/pages/admin.html" style="color: var(--color-primary); text-decoration: none;">&larr; Back to Overview</a>
                 <span class="meta-separator">·</span>
-                <span style="color: var(--text-dim);">Evaluations & Testing</span>
+                <span style="color: var(--text-dim);">Evaluations &amp; Testing</span>
               </div>
               <h1>Weekly Tests</h1>
               <p style="font-size: var(--text-sm);">
-                Schedule weekly assessments and enter official teacher scores for active students. Scores are labeled "Entered by teacher".
+                Schedule offline or online weekly assessments, enter teacher scores, or review online test attempts.
               </p>
             </div>
-            <button type="button" id="btn-create-test" class="btn btn-primary">
-              + New Weekly Test
-            </button>
+            <div style="display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;">
+              <button type="button" id="btn-recently-removed" class="btn btn-outline">
+                Recently removed
+                <span id="removed-count-badge" class="status-chip chip-unverified" style="font-size: 11px; margin-left: 6px; display: none;">0</span>
+              </button>
+              <button type="button" id="btn-create-test" class="btn btn-primary">
+                + New Weekly Test
+              </button>
+            </div>
           </div>
 
           <!-- Two-column Layout: Tests List on Left, Test Scoring Detail on Right -->
@@ -103,19 +109,23 @@
               </div>
             </section>
 
-            <!-- RIGHT COLUMN: Test Detail & Score Entry Grid -->
+            <!-- RIGHT COLUMN: Test Detail & Score Entry / Online Results -->
             <section class="card" id="test-detail-section" style="padding: 0; overflow: hidden;">
               <!-- Detail Header -->
               <div class="card-header" style="padding: var(--space-4) var(--space-6); display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: var(--space-3);">
                 <div>
-                  <div style="display: flex; align-items: center; gap: var(--space-2);">
+                  <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
                     <h2 id="active-test-title" class="card-title" style="font-size: var(--text-lg); margin: 0;">Select a Test</h2>
+                    <span id="active-test-type-chip" class="status-chip" style="display: none; font-size: 11px;">Offline</span>
                     <button type="button" id="btn-edit-active-test" class="btn btn-outline btn-sm" style="padding: 2px 8px; font-size: 11px;">
                       Edit Details
                     </button>
+                    <button type="button" id="btn-remove-active-test" class="btn btn-outline btn-sm" style="padding: 2px 8px; font-size: 11px; color: #DC2626; border-color: #FCA5A5;">
+                      Remove this test
+                    </button>
                   </div>
                   <div style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 4px;" id="active-test-meta">
-                    Select a weekly test from the list on the left to enter scores.
+                    Select a weekly test from the list on the left to view or enter scores.
                   </div>
                 </div>
 
@@ -126,10 +136,15 @@
                 </div>
               </div>
 
-              <!-- Controls Toolbar: Category Selector grouped by section + Student Filter -->
-              <div style="padding: var(--space-4) var(--space-6); background: var(--bg-surface-subtle); border-bottom: 1px solid var(--border-hairline); display: grid; grid-template-columns: minmax(220px, 300px) 1fr 140px; gap: var(--space-3); align-items: center;">
-                <!-- Grouped Category Selector -->
-                <div>
+              <!-- Online Test Read-Only Info Banner (Shown only for Online tests) -->
+              <div id="online-test-info-banner" style="display: none; padding: var(--space-3) var(--space-6); background: #EFF6FF; border-bottom: 1px solid #BFDBFE; color: #1E40AF; font-size: var(--text-xs);">
+                <strong>Online test:</strong> Online scores come from the website as students complete each timed section and cannot be typed manually. You can reset an individual student's section below if they need to retake it.
+              </div>
+
+              <!-- Controls Toolbar: Category Selector (offline only) + Student Filter -->
+              <div id="test-controls-toolbar" style="padding: var(--space-4) var(--space-6); background: var(--bg-surface-subtle); border-bottom: 1px solid var(--border-hairline); display: grid; grid-template-columns: minmax(220px, 300px) 1fr 140px; gap: var(--space-3); align-items: center;">
+                <!-- Grouped Category Selector (Hidden for Online tests) -->
+                <div id="offline-category-select-wrapper">
                   <label for="score-category-select" class="form-label" style="font-size: 11px; margin-bottom: 2px;">Select Category *</label>
                   <select id="score-category-select" class="form-select" style="min-height: 38px; font-weight: 600;">
                     <option value="">Loading categories...</option>
@@ -157,40 +172,63 @@
                 </div>
               </div>
 
-              <!-- Active Students Scoring Table -->
-              <div style="overflow-x: auto; max-height: 520px; overflow-y: auto;">
-                <table class="table" style="margin: 0;" id="weekly-scores-table">
-                  <thead>
-                    <tr>
-                      <th style="min-width: 170px;">Student</th>
-                      <th style="width: 80px;">Level</th>
-                      <th style="width: 100px;">Correct</th>
-                      <th style="width: 100px;">Total</th>
-                      <th style="width: 110px;">Time (mm:ss)</th>
-                      <th style="width: 120px; text-align: center;">Wrong / Status</th>
-                      <th style="width: 130px; text-align: center;">Entry State</th>
-                    </tr>
-                  </thead>
-                  <tbody id="scores-roster-tbody">
-                    <tr>
-                      <td colspan="7" class="loading-state" style="text-align: center; padding: var(--space-8);">
-                        Select a test to enter scores.
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+              <!-- OFFLINE VIEW: Active Students Scoring Table -->
+              <div id="offline-scores-view">
+                <div style="overflow-x: auto; max-height: 520px; overflow-y: auto;">
+                  <table class="table" style="margin: 0;" id="weekly-scores-table">
+                    <thead>
+                      <tr>
+                        <th style="min-width: 170px;">Student</th>
+                        <th style="width: 80px;">Level</th>
+                        <th style="width: 100px;">Correct</th>
+                        <th style="width: 100px;">Total</th>
+                        <th style="width: 110px;">Time (mm:ss)</th>
+                        <th style="width: 120px; text-align: center;">Wrong / Status</th>
+                        <th style="width: 130px; text-align: center;">Entry State</th>
+                      </tr>
+                    </thead>
+                    <tbody id="scores-roster-tbody">
+                      <tr>
+                        <td colspan="7" class="loading-state" style="text-align: center; padding: var(--space-8);">
+                          Select a test to enter scores.
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <!-- Bottom Save & Feedback Bar -->
+                <div style="padding: var(--space-3) var(--space-6); background: var(--bg-surface-subtle); border-top: 1px solid var(--border-hairline); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2);">
+                  <div style="font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: var(--space-2);">
+                    <span>💡 <em>Press <strong>Enter</strong> to move between Correct, Total, Time and next student.</em></span>
+                    <span id="unsaved-warning-indicator" style="display: none; color: #DC2626; font-weight: 700;">● Unsaved changes</span>
+                  </div>
+                  <div style="display: inline-flex; gap: var(--space-3);">
+                    <button type="button" id="btn-save-scores" class="btn btn-primary btn-sm">
+                      💾 Save Scores (Entered by teacher)
+                    </button>
+                  </div>
+                </div>
               </div>
 
-              <!-- Bottom Save & Feedback Bar -->
-              <div style="padding: var(--space-3) var(--space-6); background: var(--bg-surface-subtle); border-top: 1px solid var(--border-hairline); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2);">
-                <div style="font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: var(--space-2);">
-                  <span>💡 <em>Press <strong>Enter</strong> to move between Correct, Total, Time and next student.</em></span>
-                  <span id="unsaved-warning-indicator" style="display: none; color: #DC2626; font-weight: 700;">● Unsaved changes</span>
-                </div>
-                <div style="display: inline-flex; gap: var(--space-3);">
-                  <button type="button" id="btn-save-scores" class="btn btn-primary btn-sm">
-                    💾 Save Scores (Entered by teacher)
-                  </button>
+              <!-- ONLINE VIEW: Student Section Results & Attempt Reset Table -->
+              <div id="online-results-view" style="display: none;">
+                <div style="overflow-x: auto; max-height: 560px; overflow-y: auto;">
+                  <table class="table" style="margin: 0;" id="online-results-table">
+                    <thead id="online-results-thead">
+                      <tr>
+                        <th>Student</th>
+                        <th>Level</th>
+                      </tr>
+                    </thead>
+                    <tbody id="online-results-tbody">
+                      <tr>
+                        <td colspan="2" class="loading-state" style="text-align: center; padding: var(--space-8);">
+                          Loading online test results...
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </section>
@@ -202,7 +240,7 @@
 
     <!-- MODAL: Create / Edit Weekly Test -->
     <div id="test-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="test-modal-title">
-      <div class="modal-dialog">
+      <div class="modal-dialog" style="max-width: 640px;">
         <header class="modal-header">
           <h2 class="modal-title" id="test-modal-title">Create Weekly Test</h2>
           <button type="button" class="modal-close" data-close-modal="test-modal" aria-label="Close modal">&times;</button>
@@ -211,21 +249,110 @@
         <form id="test-form">
           <input type="hidden" id="test-id-input" />
 
-          <div class="modal-body">
-            <div class="form-group">
-              <label for="test-date-input" class="form-label">Test Date (IST) *</label>
-              <input type="date" id="test-date-input" class="form-input" required />
+          <div class="modal-body" style="max-height: 75vh; overflow-y: auto;">
+            <!-- Locked Sections Warning when editing an Online Test with existing attempts -->
+            <div id="test-attempts-locked-banner" class="banner banner-warning" style="display: none; margin-bottom: var(--space-4); font-size: var(--text-xs);" role="status">
+              Students have already started or submitted attempts for this online test. The test type and sections cannot be changed, but you can still update the title, notes, level, reminder days, and open/close window.
             </div>
 
+            <!-- Test Type Radio Choice -->
             <div class="form-group">
-              <label for="test-title-input" class="form-label">Test Title *</label>
-              <input
-                type="text"
-                id="test-title-input"
-                class="form-input"
-                required
-                placeholder="e.g. Weekly Speed & Accuracy Sprint #43"
-              />
+              <label class="form-label">Test Type *</label>
+              <div style="display: grid; grid-template-columns: 1fr; gap: var(--space-2);">
+                <label style="display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); cursor: pointer;">
+                  <input type="radio" name="test-type-radio" id="test-type-offline" value="offline" checked />
+                  <span style="font-size: var(--text-sm); font-weight: 500;">Offline - the trainer enters the scores</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); cursor: pointer;">
+                  <input type="radio" name="test-type-radio" id="test-type-online" value="online" />
+                  <span style="font-size: var(--text-sm); font-weight: 500;">Online - students take it on the website</span>
+                </label>
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4);">
+              <div class="form-group">
+                <label for="test-date-input" class="form-label">Test Date (IST) *</label>
+                <input type="date" id="test-date-input" class="form-input" required />
+              </div>
+
+              <div class="form-group">
+                <label for="test-level-input" class="form-label">Level (optional)</label>
+                <input
+                  type="text"
+                  id="test-level-input"
+                  class="form-input"
+                  list="student-levels-datalist"
+                  placeholder="All levels (leave empty)"
+                />
+                <datalist id="student-levels-datalist"></datalist>
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 180px; gap: var(--space-4);">
+              <div class="form-group">
+                <label for="test-title-input" class="form-label">Test Title (1–80 chars) *</label>
+                <input
+                  type="text"
+                  id="test-title-input"
+                  class="form-input"
+                  required
+                  maxlength="80"
+                  placeholder="e.g. Weekly Speed & Accuracy Sprint #43"
+                />
+              </div>
+
+              <div class="form-group">
+                <label for="test-remind-days-input" class="form-label">Remind students from N days before</label>
+                <input
+                  type="number"
+                  id="test-remind-days-input"
+                  class="form-input num"
+                  min="0"
+                  max="30"
+                  step="1"
+                  value="7"
+                />
+                <div id="test-remind-preview-text" class="num" style="font-size: 11px; color: var(--text-muted); margin-top: 4px; line-height: 1.35;">
+                  Students will see a reminder from — until the test day.
+                </div>
+              </div>
+            </div>
+
+            <!-- ONLINE-ONLY SETTINGS -->
+            <div id="online-test-fields-container" style="display: none; padding: var(--space-4); background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); margin-bottom: var(--space-4);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-2);">
+                <div>
+                  <h3 style="font-size: var(--text-sm); font-weight: 700; margin: 0;">Online Test Sections (1 to 6)</h3>
+                  <p style="font-size: 11px; color: var(--text-muted); margin: 2px 0 0 0;">
+                    Only Basics categories supported by the online generator can be selected. Each category can appear once.
+                  </p>
+                </div>
+                <button type="button" id="btn-add-section-row" class="btn btn-outline btn-sm" style="font-size: 12px;">
+                  + Add Section
+                </button>
+              </div>
+
+              <div id="sections-builder-list" style="display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-4);"></div>
+
+              <div style="border-top: 1px solid var(--border-hairline); padding-top: var(--space-3);">
+                <div style="font-size: var(--text-xs); font-weight: 600; margin-bottom: var(--space-2);">
+                  Opening &amp; Closing Window (Optional &mdash; India Time)
+                </div>
+                <p style="font-size: 11px; color: var(--text-muted); margin: 0 0 var(--space-3) 0;">
+                  Leave both empty to keep the test open all day on the test date in India time.
+                </p>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3);">
+                  <div>
+                    <label for="test-opens-at-input" class="form-label" style="font-size: 11px;">Opens at (IST)</label>
+                    <input type="datetime-local" id="test-opens-at-input" class="form-input" />
+                  </div>
+                  <div>
+                    <label for="test-closes-at-input" class="form-label" style="font-size: 11px;">Closes at (IST)</label>
+                    <input type="datetime-local" id="test-closes-at-input" class="form-input" />
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div class="form-group" style="margin-bottom: 0;">
@@ -233,7 +360,7 @@
               <textarea
                 id="test-notes-input"
                 class="form-input"
-                rows="3"
+                rows="2"
                 placeholder="Details about topics covered, preparation requirements, or difficulty..."
               ></textarea>
             </div>
@@ -246,6 +373,108 @@
             <button type="submit" id="btn-submit-test" class="btn btn-primary">Save Test</button>
           </footer>
         </form>
+      </div>
+    </div>
+
+    <!-- MODAL: Remove Weekly Test Confirmation -->
+    <div id="remove-test-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="remove-test-modal-title">
+      <div class="modal-dialog" style="max-width: 480px;">
+        <header class="modal-header">
+          <h2 class="modal-title" id="remove-test-modal-title" style="color: #DC2626;">Remove Weekly Test</h2>
+          <button type="button" class="modal-close" data-close-modal="remove-test-modal" aria-label="Close modal">&times;</button>
+        </header>
+
+        <form id="remove-test-form">
+          <div class="modal-body">
+            <p style="font-size: var(--text-sm); margin-top: 0;">
+              You are about to remove <strong id="remove-test-title-label">this test</strong>.
+            </p>
+            <div style="padding: var(--space-3); background: #FEF2F2; border: 1px solid #FECACA; border-radius: var(--radius-md); margin-bottom: var(--space-4); font-size: var(--text-xs); color: #991B1B;">
+              <div id="remove-test-counts-summary" style="font-weight: 700; margin-bottom: 4px;">
+                0 saved scores and 0 attempts will be removed.
+              </div>
+              <div>
+                You can restore a removed test for 30 days. Points from this test are removed from the leaderboards while it is removed.
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="remove-test-reason-input" class="form-label">Reason (Optional)</label>
+              <input
+                type="text"
+                id="remove-test-reason-input"
+                class="form-input"
+                maxlength="200"
+                placeholder="e.g. Created duplicate test session by mistake"
+              />
+            </div>
+
+            <label style="display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); font-weight: 600; cursor: pointer; margin-top: var(--space-2);">
+              <input type="checkbox" id="remove-test-confirm-checkbox" required />
+              <span>I understand</span>
+            </label>
+
+            <div id="remove-test-error-banner" class="banner banner-error" style="display: none; margin-top: var(--space-3); margin-bottom: 0;" role="alert"></div>
+          </div>
+
+          <footer class="modal-footer">
+            <button type="button" class="btn btn-outline" data-close-modal="remove-test-modal">Cancel</button>
+            <button type="submit" id="btn-confirm-remove-test" class="btn btn-primary" style="background-color: #DC2626; border-color: #DC2626;" disabled>
+              Remove this test
+            </button>
+          </footer>
+        </form>
+      </div>
+    </div>
+
+    <!-- MODAL / DRAWER: Recently Removed Weekly Tests (30 days) -->
+    <div id="recently-removed-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="recently-removed-title">
+      <div class="modal-dialog" style="max-width: 680px;">
+        <header class="modal-header">
+          <h2 class="modal-title" id="recently-removed-title">Recently Removed Tests (Last 30 Days)</h2>
+          <button type="button" class="modal-close" data-close-modal="recently-removed-modal" aria-label="Close modal">&times;</button>
+        </header>
+
+        <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+          <p style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 0;">
+            Removed tests are kept here for 30 days. Restoring a test puts back its sections, student attempts, and saved scores.
+          </p>
+          <div id="recently-removed-list-container">
+            <div class="loading-state" style="text-align: center; padding: var(--space-6);">
+              Loading removed tests...
+            </div>
+          </div>
+        </div>
+
+        <footer class="modal-footer">
+          <button type="button" class="btn btn-outline" data-close-modal="recently-removed-modal">Close</button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- MODAL: Reset Online Section Attempt Confirmation -->
+    <div id="reset-attempt-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="reset-attempt-title">
+      <div class="modal-dialog" style="max-width: 440px;">
+        <header class="modal-header">
+          <h2 class="modal-title" id="reset-attempt-title">Reset Section Attempt</h2>
+          <button type="button" class="modal-close" data-close-modal="reset-attempt-modal" aria-label="Close modal">&times;</button>
+        </header>
+
+        <div class="modal-body">
+          <p style="font-size: var(--text-sm); margin-top: 0;" id="reset-attempt-student-summary">
+            Reset this section for the student?
+          </p>
+          <div style="padding: var(--space-3); background: #FFFBEB; border: 1px solid #FDE68A; border-radius: var(--radius-md); font-size: var(--text-xs); color: #92400E;">
+            The student will be able to take this section again; their score for it is removed.
+          </div>
+        </div>
+
+        <footer class="modal-footer">
+          <button type="button" class="btn btn-outline" data-close-modal="reset-attempt-modal">Cancel</button>
+          <button type="button" id="btn-confirm-reset-attempt" class="btn btn-primary" style="background-color: #DC2626; border-color: #DC2626;">
+            Reset Section
+          </button>
+        </footer>
       </div>
     </div>
 

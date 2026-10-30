@@ -756,3 +756,34 @@ Every meaningful technical and architectural decision made for **Trendz Tracker*
      - Providing an admin switch (`global_leaderboard` = `'on'` | `'off'`) backed by `global_leaderboard_enabled()` and server-side enforcement in `leaderboard(..., p_scope)` lets administrators enable or disable global visibility at any time without code changes. When switched off, the client hides the Global option and, if a request fails with `"The global leaderboard is switched off."`, displays the message and falls back automatically to the student's own level.
      - *Future Option*: Currently the global switch applies across all five boards; if an institute later wants certain boards (such as `points`) to remain level-only while consistency boards (`streak`, `todo`) allow global scope, per-board scope configuration can be added as a later option.
 
+---
+
+### Decision 34: Online & Offline Weekly Tests, Single-Attempt Section Lock, and 30-Day Removal Snapshot (Phase 13a)
+- **Date**: 2026-10-30
+- **Context**:
+  - Phase 13a introduces two weekly test types (`'offline'` where the trainer enters scores and `'online'` where students take timed Basics sections on the website), an admin results and section reset table for online tests, a student Weekly Test page (`/pages/weekly-test.html`) + Home prompt card, and a 30-day reversible `"Remove this test"` flow (`admin_remove_weekly_test` / `admin_restore_weekly_test`).
+- **Decisions & Rationale**:
+  1. **Authoritative Database Eligibility Check (`weekly_test_check`) & Single-Attempt Lock (`weekly_test_attempts`)**:
+     - Before starting any online weekly test section, `/api/weekly-test.js` calls `weekly_test_check(p_test, p_student, p_category)` with the service role and never re-implements eligibility, level filtering, or India-time open/close window rules in JavaScript.
+     - Immediately after `weekly_test_check` succeeds, the server inserts a row into `weekly_test_attempts` (`status = 'started'`, unique per `(test_id, student_id, category_id)`). Because the attempt row is created at `start` time rather than `submit` time, refreshing or leaving the page mid-section cannot be used to preview questions and restart for a fresh pool. If any server step after inserting the attempt row fails during `start`, the server deletes that newly created attempt row so the student is not locked out by a server error.
+     - If a student has a genuine connection drop or device issue, an administrator can click **Reset** on that student's section cell in `/pages/weekly-tests.html`, which deletes both the `weekly_test_attempts` row and the matching `weekly_test_scores` row so the student can take that section again.
+  2. **Reusing the Phase 10g Timed Basics Engine (`/api/_drills.js` & `js/drillPlayer.js`)**:
+     - Online weekly test sections reuse the exact Basics category generator (`generateBasicsSet`, `stripBasicsExpected`, pool sizes `30 -> 50`, `60 -> 100`, `120 -> 200`, `300 -> 500`), grading logic (`checkTimedBasicsSubmission`), and one-question-at-a-time countdown player (`createDrillPlayer`, `computeRemainingSeconds`). When `attempted === 0`, the attempt is marked `'submitted'` and no score row is inserted into `weekly_test_scores`.
+  3. **30-Day Reversible Test Removal (`weekly_test_removals`)**:
+     - Rather than permanently destroying a weekly test on accidental deletion, `admin_remove_weekly_test(p_test, p_reason)` snapshots the test, its sections, attempts, and scores into `weekly_test_removals` for 30 days and removes the live rows (automatically updating points, leaderboards, and reports that read `weekly_test_scores`). Administrators can inspect and restore any removed test within 30 days via the **Recently removed** drawer (`admin_restore_weekly_test(p_removal)`).
+
+---
+
+### Decision 35: Live-Derived Student Weekly Test Reminders, Stage-Based Dismissal (`my_notifications` / `dismiss_notification`), and Why There Is No Scheduled Job or Push Notification Yet (Phase 13b)
+- **Date**: 2026-10-30
+- **Context**:
+  - Phase 13b adds a student **Notifications** tab (`/pages/notifications.html`), a top-nav bell icon with a 60-second `sessionStorage` cached count badge (`js/notificationBadge.js`), a compact 3-item reminder strip on Student Home (`/pages/student.html`), and an admin **Announcements** & **Upcoming tests** page (`/pages/announcements.html`) with one-click WhatsApp/clipboard sharing (`js/reportMessage.js`).
+- **Decisions & Rationale**:
+  1. **Why Weekly Test Reminders Are Derived Live Instead of Stored and Sent by a Scheduled Job**:
+     - If reminders were pre-generated into a notification queue table by a daily cron job, any teacher edit to a weekly test (changing `test_date`, `title`, `audience_level`, `remind_days_before`, or removing/restoring the test) or any student completing all sections of an online test on test day would leave stale or inaccurate reminder rows behind until the next reconciliation job.
+     - By computing reminders on the fly inside `my_notifications()` whenever the student opens the site (and caching the badge count in `sessionStorage` for 60 seconds), reminders always reflect the exact current database state in Indian Standard Time (`Asia/Kolkata`) with zero cron infrastructure, zero background worker cost, and zero stale notification cleanup.
+     - Dismissal is tracked by stage-qualified reference (`test:<id>:upcoming`, `test:<id>:tomorrow`, `test:<id>:today` and `ann:<id>` via `dismiss_notification(p_ref)`). If a student dismisses an early `'upcoming'` reminder (`2+` days left), the reminder automatically reappears when the stage advances to `'tomorrow'` and again on `'today'`, and disappears automatically on test day as soon as the student finishes all online sections.
+  2. **Why There Is No Web Push or Automated WhatsApp Messaging Yet**:
+     - Browser Web Push requires Service Worker registration, VAPID key management, per-device subscription storage, and persistent OS notification permission prompts—which are frequently blocked on shared family tablets or school browsers and add operational complexity.
+     - Automated WhatsApp delivery requires a paid WhatsApp Business API template approval workflow and storing parent/student phone numbers (increasing PII surface). Instead, trainers use the **Upcoming tests (next 14 days)** panel on `/pages/announcements.html` to click **Share on WhatsApp** (`https://wa.me/?text=<encoded>`) or **Copy text** (`buildWeeklyTestShareMessage` in `js/reportMessage.js`) and paste directly into their existing class WhatsApp groups—storing zero phone numbers while giving trainers full control.
+

@@ -58,9 +58,9 @@ import {
 } from '../js/backupExport.js';
 
 describe('Phase 5c — 1. Table Configuration & Sheet Value Helpers (api/_backupTables.js)', () => {
-  it('defines all 18 tables (12 snapshot + 6 append) in exact order', () => {
-    assert.equal(BACKUP_TABLES.length, 18);
-    assert.equal(SNAPSHOT_TABLES.length, 12);
+  it('defines all 22 tables (16 snapshot + 6 append) in exact order', () => {
+    assert.equal(BACKUP_TABLES.length, 22);
+    assert.equal(SNAPSHOT_TABLES.length, 16);
     assert.equal(APPEND_TABLES.length, 6);
 
     const expectedSnapshot = [
@@ -75,6 +75,10 @@ describe('Phase 5c — 1. Table Configuration & Sheet Value Helpers (api/_backup
       'category_aliases',
       'attendance_sessions',
       'weekly_tests',
+      'weekly_test_sections',
+      'weekly_test_attempts',
+      'weekly_test_removals',
+      'announcements',
       'import_batches',
     ];
     assert.deepEqual(
@@ -220,7 +224,7 @@ describe('Phase 5c — 2. RFC 4180 CSV, Formula Protection, CRC-32 & Store ZIP (
     assert.equal(crc32(new Uint8Array(0)), 0x00000000);
   });
 
-  it('builds and parses a valid uncompressed Store ZIP archive with 18 CSVs + README.txt', () => {
+  it('builds and parses a valid uncompressed Store ZIP archive with 22 CSVs + README.txt', () => {
     const fixedDate = new Date('2026-10-19T12:30:00Z');
     const files = EXPORT_TABLES.map((t, idx) => ({
       name: `${t.name}.csv`,
@@ -229,19 +233,19 @@ describe('Phase 5c — 2. RFC 4180 CSV, Formula Protection, CRC-32 & Store ZIP (
     const readmeContent = buildExportReadme({
       dateIst: '2026-10-19',
       tableSummaries: Object.fromEntries(EXPORT_TABLES.map((t) => [t.name, 1])),
-      totalRows: 18,
+      totalRows: 22,
     });
     files.push({ name: 'README.txt', content: readmeContent });
 
     const zipBytes = buildStoreZip(files, fixedDate);
     const parsedEntries = parseStoreZip(zipBytes);
 
-    assert.equal(parsedEntries.length, 19);
+    assert.equal(parsedEntries.length, 23);
     assert.equal(parsedEntries[0].name, 'profiles.csv');
     assert.ok(parsedEntries[0].text.includes('row_0'));
-    assert.equal(parsedEntries[18].name, 'README.txt');
-    assert.ok(parsedEntries[18].text.includes('TRENDZ TRACKER — FULL DATA BACKUP ARCHIVE'));
-    assert.ok(parsedEntries[18].text.includes('2026-10-19'));
+    assert.equal(parsedEntries[22].name, 'README.txt');
+    assert.ok(parsedEntries[22].text.includes('TRENDZ TRACKER — FULL DATA BACKUP ARCHIVE'));
+    assert.ok(parsedEntries[22].text.includes('2026-10-19'));
   });
 });
 
