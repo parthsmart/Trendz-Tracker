@@ -74,19 +74,42 @@ BEGIN
 END;
 $$;
 
--- 5. RPC: leaderboard(p_board, p_period, p_level, p_limit)
+-- 5. RPC: global_leaderboard_enabled()
+CREATE OR REPLACE FUNCTION public.global_leaderboard_enabled()
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+  SELECT COALESCE(
+    (SELECT value FROM public.competition_settings WHERE key = 'global_leaderboard'),
+    'on'
+  ) <> 'off';
+$$;
+
+GRANT EXECUTE ON FUNCTION public.global_leaderboard_enabled() TO authenticated;
+
+-- 6. RPC: leaderboard(p_board, p_period, p_level, p_limit, p_scope, p_task_id)
+DROP FUNCTION IF EXISTS public.leaderboard(text, text, text, integer);
+DROP FUNCTION IF EXISTS public.leaderboard(text, text, text, integer, text);
+DROP FUNCTION IF EXISTS public.leaderboard(text, text, text, integer, text, uuid);
+
 CREATE OR REPLACE FUNCTION public.leaderboard(
   p_board TEXT DEFAULT 'points',
   p_period TEXT DEFAULT 'week',
   p_level TEXT DEFAULT NULL,
-  p_limit INTEGER DEFAULT 10
+  p_limit INTEGER DEFAULT 10,
+  p_scope TEXT DEFAULT 'level',
+  p_task_id UUID DEFAULT NULL
 )
 RETURNS TABLE (
   rank INTEGER,
   student_id UUID,
   display_name TEXT,
   value NUMERIC,
-  is_me BOOLEAN
+  is_me BOOLEAN,
+  level TEXT
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -107,17 +130,33 @@ DECLARE
   v_att_pts INTEGER;
   v_min_entries INTEGER;
   v_name_mode TEXT;
+  v_scope TEXT := LOWER(TRIM(COALESCE(p_scope, 'level')));
+  v_target_task_id UUID;
+  v_task_section TEXT;
+  v_task_cat_id UUID;
+  v_task_activity_key TEXT;
 BEGIN
   SELECT weekly_test_multiplier, attendance_present_points, improved_min_entries, leaderboard_names
   INTO v_test_mult, v_att_pts, v_min_entries, v_name_mode
   FROM public.competition_rules();
 
   IF v_is_admin THEN
-    v_effective_level := CASE WHEN p_level IS NULL OR LOWER(TRIM(p_level)) IN ('', 'all') THEN NULL ELSE TRIM(p_level) END;
+    IF v_scope = 'global' OR p_level IS NULL OR LOWER(TRIM(p_level)) IN ('', 'all') THEN
+      v_effective_level := NULL;
+    ELSE
+      v_effective_level := TRIM(p_level);
+    END IF;
     v_effective_limit := LEAST(GREATEST(COALESCE(p_limit, 200), 1), 200);
   ELSE
-    SELECT level INTO v_caller_level FROM public.profiles WHERE id = v_caller_id;
-    v_effective_level := v_caller_level;
+    IF v_scope = 'global' THEN
+      IF NOT public.global_leaderboard_enabled() THEN
+        RAISE EXCEPTION 'The global leaderboard is switched off.';
+      END IF;
+      v_effective_level := NULL;
+    ELSE
+      SELECT p.level INTO v_caller_level FROM public.profiles p WHERE p.id = v_caller_id;
+      v_effective_level := v_caller_level;
+    END IF;
     v_effective_limit := LEAST(GREATEST(COALESCE(p_limit, 10), 1), 10);
   END IF;
 
@@ -132,9 +171,34 @@ BEGIN
   v_prev_start := (date_trunc('week', v_today::timestamp)::date - 7);
   v_prev_end := (date_trunc('week', v_today::timestamp)::date - 1);
 
+  -- Resolve target task when p_board = 'todo' (defaults to Task 1 if p_task_id is null)
+  IF p_board = 'todo' THEN
+    IF p_task_id IS NOT NULL THEN
+      v_target_task_id := p_task_id;
+    ELSE
+      SELECT dt.id INTO v_target_task_id
+      FROM public.daily_tasks dt
+      WHERE dt.active = true
+        AND (
+          v_effective_level IS NULL
+          OR dt.level IS NULL
+          OR LOWER(TRIM(dt.level)) = LOWER(TRIM(v_effective_level))
+        )
+      ORDER BY dt.sort_order ASC, dt.created_at ASC
+      LIMIT 1;
+    END IF;
+
+    IF v_target_task_id IS NOT NULL THEN
+      SELECT LOWER(TRIM(dt.section)), dt.category_id, dt.activity_key
+      INTO v_task_section, v_task_cat_id, v_task_activity_key
+      FROM public.daily_tasks dt
+      WHERE dt.id = v_target_task_id;
+    END IF;
+  END IF;
+
   RETURN QUERY
   WITH eligible_students AS (
-    SELECT p.id, p.student_code, p.full_name, p.level
+    SELECT p.id, p.student_code, p.full_name, p.level AS s_level
     FROM public.profiles p
     WHERE p.role = 'student'
       AND p.active = true
@@ -145,7 +209,69 @@ BEGIN
     SELECT
       es.id AS s_id,
       public.format_leaderboard_name(es.full_name, es.student_code, v_name_mode) AS d_name,
+      es.s_level,
       CASE
+        WHEN p_board = 'todo' THEN (
+          -- Per-task speed leaderboard: fastest attempt time in seconds (MIN(time_seconds))
+          CASE
+            WHEN v_target_task_id IS NULL THEN 0::numeric
+            WHEN v_task_section IN ('basics', 'round') THEN COALESCE((
+              SELECT MIN(r.time_seconds)::numeric
+              FROM public.results r
+              JOIN public.categories c ON c.id = r.category_id
+              WHERE r.student_id = es.id
+                AND r.entry_date BETWEEN v_start_date AND v_today
+                AND COALESCE(r.total, 0) > 0
+                AND COALESCE(r.correct, 0) > 0
+                AND COALESCE(r.time_seconds, 0) > 0
+                AND (
+                  (v_task_cat_id IS NOT NULL AND r.category_id = v_task_cat_id)
+                  OR (v_task_cat_id IS NULL AND c.section = v_task_section)
+                )
+            ), 0::numeric)
+            WHEN v_task_section = 'elements' THEN COALESCE((
+              SELECT MIN(ar.time_seconds)::numeric
+              FROM public.activity_results ar
+              WHERE ar.student_id = es.id
+                AND ar.activity_type = 'element'
+                AND (timezone('Asia/Kolkata', ar.created_at))::date BETWEEN v_start_date AND v_today
+                AND COALESCE(ar.total, 0) > 0
+                AND COALESCE(ar.correct, 0) > 0
+                AND COALESCE(ar.time_seconds, 0) > 0
+                AND (
+                  v_task_activity_key IS NULL
+                  OR ar.activity_name = v_task_activity_key
+                  OR (ar.settings->>'drill_key') = v_task_activity_key
+                )
+            ), 0::numeric)
+            WHEN v_task_section = 'memoriad' THEN COALESCE((
+              SELECT MIN(ar.time_seconds)::numeric
+              FROM public.activity_results ar
+              WHERE ar.student_id = es.id
+                AND ar.activity_type = 'memoriad'
+                AND (timezone('Asia/Kolkata', ar.created_at))::date BETWEEN v_start_date AND v_today
+                AND COALESCE(ar.total, 0) > 0
+                AND COALESCE(ar.correct, 0) > 0
+                AND COALESCE(ar.time_seconds, 0) > 0
+                AND (
+                  v_task_activity_key IS NULL
+                  OR ar.activity_name = v_task_activity_key
+                  OR (ar.settings->>'module') = v_task_activity_key
+                )
+            ), 0::numeric)
+            WHEN v_task_section = 'flash' THEN COALESCE((
+              SELECT MIN(ar.time_seconds)::numeric
+              FROM public.activity_results ar
+              WHERE ar.student_id = es.id
+                AND ar.activity_type = 'flash_anzan'
+                AND (timezone('Asia/Kolkata', ar.created_at))::date BETWEEN v_start_date AND v_today
+                AND COALESCE(ar.total, 0) > 0
+                AND COALESCE(ar.correct, 0) > 0
+                AND COALESCE(ar.time_seconds, 0) > 0
+            ), 0::numeric)
+            ELSE 0::numeric
+          END
+        )
         WHEN p_board = 'streak' THEN (
           SELECT st.current_streak::numeric FROM public.streak_for(es.id) st
         )
@@ -197,9 +323,15 @@ BEGIN
   ),
   ranked AS (
     SELECT
-      RANK() OVER (ORDER BY metric_val DESC, d_name ASC)::INTEGER AS rnk,
+      CASE
+        WHEN p_board = 'todo' THEN
+          RANK() OVER (ORDER BY metric_val ASC, d_name ASC)::INTEGER
+        ELSE
+          RANK() OVER (ORDER BY metric_val DESC, d_name ASC)::INTEGER
+      END AS rnk,
       s_id,
       d_name,
+      s_level,
       metric_val,
       (s_id = v_caller_id) AS me_flag
     FROM scored
@@ -210,9 +342,12 @@ BEGIN
     CASE WHEN v_is_admin THEN rk.s_id ELSE NULL END AS student_id,
     rk.d_name AS display_name,
     rk.metric_val AS value,
-    CASE WHEN v_is_admin THEN false ELSE rk.me_flag END AS is_me
+    CASE WHEN v_is_admin THEN false ELSE rk.me_flag END AS is_me,
+    rk.s_level AS level
   FROM ranked rk
   WHERE rk.rnk <= v_effective_limit OR (NOT v_is_admin AND rk.me_flag = true)
   ORDER BY rk.rnk ASC, rk.d_name ASC;
 END;
 $$;
+
+GRANT EXECUTE ON FUNCTION public.leaderboard(text, text, text, integer, text, uuid) TO authenticated;

@@ -2578,7 +2578,14 @@ export const DemoDB = {
   },
 
   mockLeaderboard(
-    { p_board = 'points', p_period = 'week', p_level = null, p_limit = 10, p_scope = 'level' } = {},
+    {
+      p_board = 'points',
+      p_period = 'week',
+      p_level = null,
+      p_limit = 10,
+      p_scope = 'level',
+      p_task_id = null
+    } = {},
     callerProfile = null
   ) {
     initDemoStorage();
@@ -2691,33 +2698,57 @@ export const DemoDB = {
         ]
       },
       todo: {
-        week: [
-          { student_id: 'usr-301', name_initial: 'Ishaan K.', code: 'STU301', level: 'Level 3', value: 6 },
-          { student_id: 'usr-101', name_initial: 'Aarav S.', code: 'STU101', level: 'Level 3', value: 5 },
-          { student_id: 'usr-302', name_initial: 'Tanvi R.', code: 'STU302', level: 'Level 3', value: 4 },
-          { student_id: 'usr-106', name_initial: 'Mira J.', code: 'STU106', level: 'Level 3', value: 3 },
-          { student_id: 'usr-102', name_initial: 'Diya P.', code: 'STU102', level: 'Level 2', value: 5 },
-          { student_id: 'usr-108', name_initial: 'Riya S.', code: 'STU108', level: 'Level 2', value: 4 },
-          { student_id: 'usr-103', name_initial: 'Kabir V.', code: 'STU103', level: 'Level 4', value: 6 },
-          { student_id: 'usr-107', name_initial: 'Arjun N.', code: 'STU107', level: 'Master', value: 7 }
+        // Per-task fastest attempt times in seconds (sorted fastest-to-slowest)
+        'todo-1': [
+          { student_id: 'usr-107', name_initial: 'Arjun N.', code: 'STU107', level: 'Master', value: 24 },
+          { student_id: 'usr-301', name_initial: 'Ishaan K.', code: 'STU301', level: 'Level 3', value: 28 },
+          { student_id: 'usr-103', name_initial: 'Kabir V.', code: 'STU103', level: 'Level 4', value: 30 },
+          { student_id: 'usr-101', name_initial: 'Aarav S.', code: 'STU101', level: 'Level 3', value: 32 },
+          { student_id: 'usr-302', name_initial: 'Tanvi R.', code: 'STU302', level: 'Level 3', value: 36 },
+          { student_id: 'usr-102', name_initial: 'Diya P.', code: 'STU102', level: 'Level 2', value: 39 },
+          { student_id: 'usr-106', name_initial: 'Mira J.', code: 'STU106', level: 'Level 3', value: 44 },
+          { student_id: 'usr-108', name_initial: 'Riya S.', code: 'STU108', level: 'Level 2', value: 48 }
         ],
-        month: [
-          { student_id: 'usr-301', name_initial: 'Ishaan K.', code: 'STU301', level: 'Level 3', value: 22 },
-          { student_id: 'usr-101', name_initial: 'Aarav S.', code: 'STU101', level: 'Level 3', value: 20 },
-          { student_id: 'usr-302', name_initial: 'Tanvi R.', code: 'STU302', level: 'Level 3', value: 17 },
-          { student_id: 'usr-106', name_initial: 'Mira J.', code: 'STU106', level: 'Level 3', value: 14 },
-          { student_id: 'usr-102', name_initial: 'Diya P.', code: 'STU102', level: 'Level 2', value: 19 },
-          { student_id: 'usr-103', name_initial: 'Kabir V.', code: 'STU103', level: 'Level 4', value: 23 },
-          { student_id: 'usr-107', name_initial: 'Arjun N.', code: 'STU107', level: 'Master', value: 26 }
+        'todo-2': [
+          { student_id: 'usr-107', name_initial: 'Arjun N.', code: 'STU107', level: 'Master', value: 26 },
+          { student_id: 'usr-101', name_initial: 'Aarav S.', code: 'STU101', level: 'Level 3', value: 29 },
+          { student_id: 'usr-301', name_initial: 'Ishaan K.', code: 'STU301', level: 'Level 3', value: 31 },
+          { student_id: 'usr-103', name_initial: 'Kabir V.', code: 'STU103', level: 'Level 4', value: 33 },
+          { student_id: 'usr-106', name_initial: 'Mira J.', code: 'STU106', level: 'Level 3', value: 38 },
+          { student_id: 'usr-302', name_initial: 'Tanvi R.', code: 'STU302', level: 'Level 3', value: 41 },
+          { student_id: 'usr-102', name_initial: 'Diya P.', code: 'STU102', level: 'Level 2', value: 45 }
         ],
-        all: [
-          { student_id: 'usr-301', name_initial: 'Ishaan K.', code: 'STU301', level: 'Level 3', value: 84 },
-          { student_id: 'usr-101', name_initial: 'Aarav S.', code: 'STU101', level: 'Level 3', value: 78 },
-          { student_id: 'usr-302', name_initial: 'Tanvi R.', code: 'STU302', level: 'Level 3', value: 70 },
-          { student_id: 'usr-106', name_initial: 'Mira J.', code: 'STU106', level: 'Level 3', value: 58 },
-          { student_id: 'usr-102', name_initial: 'Diya P.', code: 'STU102', level: 'Level 2', value: 68 },
-          { student_id: 'usr-103', name_initial: 'Kabir V.', code: 'STU103', level: 'Level 4', value: 90 },
-          { student_id: 'usr-107', name_initial: 'Arjun N.', code: 'STU107', level: 'Master', value: 108 }
+        'todo-3': [
+          { student_id: 'usr-103', name_initial: 'Kabir V.', code: 'STU103', level: 'Level 4', value: 34 },
+          { student_id: 'usr-107', name_initial: 'Arjun N.', code: 'STU107', level: 'Master', value: 35 },
+          { student_id: 'usr-301', name_initial: 'Ishaan K.', code: 'STU301', level: 'Level 3', value: 38 },
+          { student_id: 'usr-302', name_initial: 'Tanvi R.', code: 'STU302', level: 'Level 3', value: 42 },
+          { student_id: 'usr-101', name_initial: 'Aarav S.', code: 'STU101', level: 'Level 3', value: 46 },
+          { student_id: 'usr-108', name_initial: 'Riya S.', code: 'STU108', level: 'Level 2', value: 52 }
+        ],
+        'todo-4': [
+          { student_id: 'usr-107', name_initial: 'Arjun N.', code: 'STU107', level: 'Master', value: 31 },
+          { student_id: 'usr-101', name_initial: 'Aarav S.', code: 'STU101', level: 'Level 3', value: 35 },
+          { student_id: 'usr-301', name_initial: 'Ishaan K.', code: 'STU301', level: 'Level 3', value: 39 },
+          { student_id: 'usr-106', name_initial: 'Mira J.', code: 'STU106', level: 'Level 3', value: 43 },
+          { student_id: 'usr-102', name_initial: 'Diya P.', code: 'STU102', level: 'Level 2', value: 47 }
+        ],
+        'todo-5': [
+          { student_id: 'usr-301', name_initial: 'Ishaan K.', code: 'STU301', level: 'Level 3', value: 30 },
+          { student_id: 'usr-101', name_initial: 'Aarav S.', code: 'STU101', level: 'Level 3', value: 32 },
+          { student_id: 'usr-302', name_initial: 'Tanvi R.', code: 'STU302', level: 'Level 3', value: 35 },
+          { student_id: 'usr-102', name_initial: 'Diya P.', code: 'STU102', level: 'Level 2', value: 37 },
+          { student_id: 'usr-106', name_initial: 'Mira J.', code: 'STU106', level: 'Level 3', value: 40 }
+        ],
+        default: [
+          { student_id: 'usr-107', name_initial: 'Arjun N.', code: 'STU107', level: 'Master', value: 24 },
+          { student_id: 'usr-301', name_initial: 'Ishaan K.', code: 'STU301', level: 'Level 3', value: 28 },
+          { student_id: 'usr-103', name_initial: 'Kabir V.', code: 'STU103', level: 'Level 4', value: 30 },
+          { student_id: 'usr-101', name_initial: 'Aarav S.', code: 'STU101', level: 'Level 3', value: 32 },
+          { student_id: 'usr-302', name_initial: 'Tanvi R.', code: 'STU302', level: 'Level 3', value: 36 },
+          { student_id: 'usr-102', name_initial: 'Diya P.', code: 'STU102', level: 'Level 2', value: 39 },
+          { student_id: 'usr-106', name_initial: 'Mira J.', code: 'STU106', level: 'Level 3', value: 44 },
+          { student_id: 'usr-108', name_initial: 'Riya S.', code: 'STU108', level: 'Level 2', value: 48 }
         ]
       },
       improved: {
@@ -2734,10 +2765,15 @@ export const DemoDB = {
     };
 
     const boardGroup = STATIC_FIXTURES[p_board] || STATIC_FIXTURES.points;
-    const rawPool =
-      p_board === 'streak' || p_board === 'improved'
-        ? boardGroup.default || []
-        : boardGroup[p_period] || boardGroup.week || [];
+    let rawPool = [];
+    if (p_board === 'todo') {
+      const taskKey = p_task_id && boardGroup[p_task_id] ? p_task_id : 'default';
+      rawPool = boardGroup[taskKey] || boardGroup.default || [];
+    } else if (p_board === 'streak' || p_board === 'improved') {
+      rawPool = boardGroup.default || [];
+    } else {
+      rawPool = boardGroup[p_period] || boardGroup.week || [];
+    }
 
     // Filter out hidden students and zero values
     let pool = rawPool.filter(item => !hiddenSet.has(item.student_id) && item.value > 0);
@@ -2753,8 +2789,10 @@ export const DemoDB = {
       pool = pool.filter(item => item.level === p_level);
     }
 
-    // Sort descending by static value and assign sequential pre-baked ranks
-    pool = [...pool].sort((a, b) => b.value - a.value);
+    // Sort: for 'todo', fastest (smallest time in seconds) ranks #1; for other boards, highest value ranks #1
+    pool = [...pool].sort((a, b) =>
+      p_board === 'todo' ? a.value - b.value : b.value - a.value
+    );
     const ranked = pool.map((item, idx) => ({
       rank: idx + 1,
       student_id: isAdmin ? item.student_id : null,
