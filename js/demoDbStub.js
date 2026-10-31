@@ -34,4 +34,18 @@ export function isDemoMode() {
   return false;
 }
 
-export const DemoDB = null;
+export const DemoDB = new Proxy(
+  {
+    getDemoAuth: () => null,
+    setDemoAuth: () => {},
+    getBackupStatus: () => null,
+  },
+  {
+    get(target, prop) {
+      if (prop in target) return target[prop];
+      return () => [];
+    },
+  }
+);
+
+

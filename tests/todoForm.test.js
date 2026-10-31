@@ -15,6 +15,7 @@ import {
   formatTaskTarget,
   isTaskActivityAvailable,
   requiredCountLabelForSection,
+  flashSummary,
   MEMORIAD_MODULES,
 } from '../js/todoForm.js';
 import { DRILL_CATALOG } from '../js/drillCatalog.js';
@@ -207,6 +208,171 @@ describe('normalizeTaskInput', () => {
     assert.equal(requiredCountLabelForSection('flash'), 'Tries per day');
     assert.equal(requiredCountLabelForSection('memoriad'), 'Rounds per day');
   });
+
+  it('normalizes Flash Anzan fields: empty, each field alone, all four, 0.2 and 5.0 s, 1.1 s (1100 ms), 2 and 1000 numbers, out-of-range values (including 1 number), and non-flash section clearing them', () => {
+    // 1. All empty or "any" -> null
+    const emptyFlash = normalizeTaskInput(
+      {
+        title: 'Any Flash',
+        flash_digits: '',
+        flash_count: 'any',
+        flash_speed_ms: 'Any',
+        flash_mode: '   ',
+      },
+      'flash'
+    );
+    assert.ok(emptyFlash.value);
+    assert.equal(emptyFlash.value.flash_digits, null);
+    assert.equal(emptyFlash.value.flash_count, null);
+    assert.equal(emptyFlash.value.flash_speed_ms, null);
+    assert.equal(emptyFlash.value.flash_mode, null);
+
+    // 2. Each field alone
+    const digitsOnly = normalizeTaskInput({ title: 'D1', flash_digits: '1' }, 'flash');
+    assert.equal(digitsOnly.value.flash_digits, 1);
+    assert.equal(digitsOnly.value.flash_count, null);
+    assert.equal(digitsOnly.value.flash_speed_ms, null);
+    assert.equal(digitsOnly.value.flash_mode, null);
+
+    const countOnly = normalizeTaskInput({ title: 'C50', flash_count: 50 }, 'flash');
+    assert.equal(countOnly.value.flash_digits, null);
+    assert.equal(countOnly.value.flash_count, 50);
+    assert.equal(countOnly.value.flash_speed_ms, null);
+    assert.equal(countOnly.value.flash_mode, null);
+
+    const speedOnly = normalizeTaskInput({ title: 'S05', flash_speed_ms: '0.5' }, 'flash');
+    assert.equal(speedOnly.value.flash_digits, null);
+    assert.equal(speedOnly.value.flash_count, null);
+    assert.equal(speedOnly.value.flash_speed_ms, 500);
+    assert.equal(speedOnly.value.flash_mode, null);
+
+    const modeOnly = normalizeTaskInput({ title: 'MAddSub', flash_mode: 'add_sub' }, 'flash');
+    assert.equal(modeOnly.value.flash_digits, null);
+    assert.equal(modeOnly.value.flash_count, null);
+    assert.equal(modeOnly.value.flash_speed_ms, null);
+    assert.equal(modeOnly.value.flash_mode, 'add_sub');
+
+    // 3. All four fields together + floating-point check (0.5 -> 500, 1.1 -> 1100)
+    const allFour = normalizeTaskInput(
+      {
+        title: 'Flash: 1 digit, 50 numbers, 0.5 s, add only',
+        flash_digits: 1,
+        flash_count: 50,
+        flash_speed_ms: 0.5,
+        flash_mode: 'add',
+      },
+      'flash'
+    );
+    assert.ok(allFour.value);
+    assert.equal(allFour.value.flash_digits, 1);
+    assert.equal(allFour.value.flash_count, 50);
+    assert.equal(allFour.value.flash_speed_ms, 500);
+    assert.equal(allFour.value.flash_mode, 'add');
+
+    const speed11 = normalizeTaskInput({ title: 'Speed 1.1', flash_speed_ms: 1.1 }, 'flash');
+    assert.ok(speed11.value);
+    assert.equal(speed11.value.flash_speed_ms, 1100);
+
+    // 4. Boundary speeds: 0.2 s (200 ms) and 5.0 s (5000 ms)
+    const speed02 = normalizeTaskInput({ title: 'Speed 0.2', flash_speed_ms: '0.2' }, 'flash');
+    assert.equal(speed02.value.flash_speed_ms, 200);
+
+    const speed50 = normalizeTaskInput({ title: 'Speed 5.0', flash_speed_ms: '5.0' }, 'flash');
+    assert.equal(speed50.value.flash_speed_ms, 5000);
+
+    // 5. Boundary counts: 2 and 1000 accepted; 1 rejected
+    const count2 = normalizeTaskInput({ title: 'Count 2', flash_count: 2 }, 'flash');
+    assert.equal(count2.value.flash_count, 2);
+
+    const count1000 = normalizeTaskInput({ title: 'Count 1000', flash_count: '1000' }, 'flash');
+    assert.equal(count1000.value.flash_count, 1000);
+
+    const count1 = normalizeTaskInput({ title: 'Count 1', flash_count: 1 }, 'flash');
+    assert.ok(count1.errors?.flash_count);
+    assert.equal(count1.value, undefined);
+
+    // 6. Out-of-range values
+    assert.ok(normalizeTaskInput({ title: 'T', flash_digits: 0 }, 'flash').errors?.flash_digits);
+    assert.ok(normalizeTaskInput({ title: 'T', flash_digits: 6 }, 'flash').errors?.flash_digits);
+    assert.ok(normalizeTaskInput({ title: 'T', flash_digits: 2.5 }, 'flash').errors?.flash_digits);
+    assert.ok(normalizeTaskInput({ title: 'T', flash_count: 1001 }, 'flash').errors?.flash_count);
+    assert.ok(normalizeTaskInput({ title: 'T', flash_count: 10.5 }, 'flash').errors?.flash_count);
+    assert.ok(normalizeTaskInput({ title: 'T', flash_speed_ms: 0.1 }, 'flash').errors?.flash_speed_ms);
+    assert.ok(normalizeTaskInput({ title: 'T', flash_speed_ms: 5.1 }, 'flash').errors?.flash_speed_ms);
+    assert.ok(normalizeTaskInput({ title: 'T', flash_speed_ms: 0.25 }, 'flash').errors?.flash_speed_ms);
+    assert.ok(normalizeTaskInput({ title: 'T', flash_mode: 'mult' }, 'flash').errors?.flash_mode);
+
+    // 7. Non-flash section clears all flash_* fields to null
+    for (const nonFlashSec of ['basics', 'round', 'elements', 'memoriad']) {
+      const cleared = normalizeTaskInput(
+        {
+          title: 'Non-flash task',
+          flash_digits: 2,
+          flash_count: 50,
+          flash_speed_ms: 0.5,
+          flash_mode: 'add',
+        },
+        nonFlashSec
+      );
+      assert.ok(cleared.value);
+      assert.equal(cleared.value.flash_digits, null);
+      assert.equal(cleared.value.flash_count, null);
+      assert.equal(cleared.value.flash_speed_ms, null);
+      assert.equal(cleared.value.flash_mode, null);
+    }
+  });
+});
+
+describe('flashSummary', () => {
+  it('formats empty, each field alone, all four fields, 0.2 s, 5.0 s, and 2..1000 numbers', () => {
+    // Empty
+    assert.equal(flashSummary({}), 'Any flash anzan try');
+    assert.equal(
+      flashSummary({
+        flash_digits: null,
+        flash_count: null,
+        flash_speed_ms: null,
+        flash_mode: null,
+      }),
+      'Any flash anzan try'
+    );
+
+    // Each field alone
+    assert.equal(flashSummary({ flash_digits: 1 }), '1 digit');
+    assert.equal(flashSummary({ flash_digits: 3 }), '3 digits');
+    assert.equal(flashSummary({ flash_count: 50 }), '50 numbers');
+    assert.equal(flashSummary({ flash_count: 2 }), '2 numbers');
+    assert.equal(flashSummary({ flash_count: 1000 }), '1000 numbers');
+    assert.equal(flashSummary({ flash_speed_ms: 200 }), '0.2 s');
+    assert.equal(flashSummary({ flash_speed_ms: 500 }), '0.5 s');
+    assert.equal(flashSummary({ flash_speed_ms: 5000 }), '5.0 s');
+    assert.equal(flashSummary({ flash_mode: 'add' }), 'add only');
+    assert.equal(flashSummary({ flash_mode: 'add_sub' }), 'add and subtract');
+
+    // All four together
+    assert.equal(
+      flashSummary({
+        flash_digits: 1,
+        flash_count: 50,
+        flash_speed_ms: 500,
+        flash_mode: 'add',
+      }),
+      '1 digit, 50 numbers, 0.5 s, add only'
+    );
+    assert.equal(
+      flashSummary({
+        flash_digits: 2,
+        flash_count: 1000,
+        flash_speed_ms: 200,
+        flash_mode: 'add_sub',
+      }),
+      '2 digits, 1000 numbers, 0.2 s, add and subtract'
+    );
+
+    // Ignores out-of-range values
+    assert.equal(flashSummary({ flash_count: 1 }), 'Any flash anzan try');
+    assert.equal(flashSummary({ flash_digits: 9, flash_speed_ms: 100 }), 'Any flash anzan try');
+  });
 });
 
 describe('optionsForSection', () => {
@@ -340,10 +506,30 @@ describe('taskLink', () => {
       '/pages/memoriad.html'
     );
 
-    // flash
+    // flash (Phase 14a: builds /pages/flash.html?task=1 plus any set parameters)
     assert.equal(
       taskLink({ task_section: 'flash', task_category_id: null, task_activity_key: null }),
-      '/pages/flash.html'
+      '/pages/flash.html?task=1'
+    );
+    assert.equal(
+      taskLink({
+        section: 'flash',
+        flash_digits: 1,
+        flash_count: 50,
+        flash_speed_ms: 500,
+        flash_mode: 'add',
+      }),
+      '/pages/flash.html?task=1&digits=1&count=50&speed=500&mode=add'
+    );
+    assert.equal(
+      taskLink({
+        task_section: 'flash',
+        flash_digits: 2,
+        flash_count: null,
+        flash_speed_ms: 1100,
+        flash_mode: null,
+      }),
+      '/pages/flash.html?task=1&digits=2&speed=1100'
     );
   });
 });
@@ -368,7 +554,20 @@ describe('formatTaskTarget & isTaskActivityAvailable', () => {
     );
     assert.deepEqual(
       formatTaskTarget({ section: 'flash', category_id: null, activity_key: null }, SAMPLE_CATEGORIES),
-      { text: 'Any activity in Flash Anzan', isAny: true }
+      { text: 'Any flash anzan try', isAny: true }
+    );
+    assert.deepEqual(
+      formatTaskTarget(
+        {
+          section: 'flash',
+          flash_digits: 1,
+          flash_count: 50,
+          flash_speed_ms: 500,
+          flash_mode: 'add',
+        },
+        SAMPLE_CATEGORIES
+      ),
+      { text: '1 digit, 50 numbers, 0.5 s, add only', isAny: false }
     );
   });
 

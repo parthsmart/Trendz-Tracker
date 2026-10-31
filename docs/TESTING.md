@@ -1356,3 +1356,43 @@ This document contains step-by-step test scenarios to verify security boundaries
   1. Logged in as Admin, open **Tests** (`/pages/weekly-tests.html`) and click **+ New Weekly Test**.
   2. Change the **Date** or **Remind students from N days before** (`0` to `30`, default `7`).
   3. Verify the live preview line next to the input updates immediately to read: `"Students will see a reminder from <date> until the test day."` (or `"Students will see a reminder on the test day only."` when `0`).
+
+---
+
+## Phase 14a Test Cases (Flash Anzan Daily Task Settings & Live Task Match)
+
+### Test Case 77: Automated Unit Tests for Flash Task Normalization, Summary, Links & Matching (`tests/todoForm.test.js`, `tests/flashTaskMatch.test.js`)
+- **Command**: `node --test tests/todoForm.test.js tests/flashTaskMatch.test.js`
+- **Expected**:
+  - `normalizeTaskInput` accepts `flash_digits` (`1..5`), `flash_count` (`2..1000`), `flash_speed_ms` (input `0.2..5.0` s in `0.1` s steps converted to `200..5000` ms without floating-point rounding errors, e.g. `0.5 -> 500`, `1.1 -> 1100`), and `flash_mode` (`'add'` | `'add_sub'`) for section `'flash'`, converts empty/`"any"` to `null`, rejects out-of-range values (including `1` number), and clears all four fields to `null` for non-flash sections.
+  - `flashSummary(task)` returns `"Any flash anzan try"` when empty and comma-separated summaries such as `"1 digit, 50 numbers, 0.5 s, add only"` when fields are set.
+  - `taskLink(task)` builds `/pages/flash.html?task=1` plus only the parameters that are set (`digits`, `count`, `speed` in ms, `mode`).
+  - `matchesTask(settings, task)` returns `true` when every non-empty task setting matches `settings` and `false` when any fixed field differs.
+
+### Test Case 78: Admin Add & Edit Flash Anzan Daily Task (`/pages/todos.html`)
+- **Action**:
+  1. Log in as Admin (`ADMIN01` / `admin123`) and open **Setup ▾ → Daily To-Do** (`/pages/todos.html`).
+  2. Click **+ Add Task** and set **Section Track** to **Flash Anzan**:
+     - Verify the standard category/activity dropdown is replaced by the **"Flash Anzan settings (optional)"** group with four fields: **Digits** (`Any`, `1` to `5`), **Numbers in the question** (`2` to `1000` or empty for Any), **Speed per number in seconds** (`0.2` to `5.0` in steps of `0.1` or empty for Any), and **Mode** (`Any`, `Add only`, `Add and subtract`).
+     - Verify the helper text reads: *"Leave a field on Any to accept every value. A try counts when it matches every field you set."*
+     - Verify the count field is labelled **"Tries per day"**.
+  3. Set Digits = `1`, Numbers = `50`, Speed = `0.5`, Mode = `Add only`, and click **"Use these settings as the title"**:
+     - Verify the **Task Title** fills with `"Flash: 1 digit, 50 numbers, 0.5 s, add only"`.
+     - Change Digits to `2` and click **"Use these settings as the title"** again: verify the title updates because it was filled by the button. Type a custom title manually and click the button again: verify manual text is not overwritten.
+  4. Click **Save Task**:
+     - Verify the **Assigned Target** column in the Flash Anzan section of the table shows `"1 digit, 50 numbers, 0.5 s, add only"` (or *"Any flash anzan try"* when all four fields are left on Any).
+     - Click **Edit** on the saved task: verify Digits (`1`), Numbers (`50`), Speed (`0.5`), and Mode (`Add only`) load back into the form accurately.
+
+### Test Case 79: Student To-Do Card Flash Summary & Flash Anzan Live Task Banner (`/pages/student.html`, `/pages/flash.html`)
+- **Action**:
+  1. Log in as a student (`STU101` / `pass123`) and open **Home** (`/pages/student.html`).
+  2. In **Today's Plan (To-Do List)**, locate the **Flash Anzan** task:
+     - Verify the summary (e.g. `"1 digit, 50 numbers, 0.5 s, add only"`) is displayed directly under the task title.
+  3. Click **Practice online** on that Flash Anzan task:
+     - Verify it opens `/pages/flash.html?task=1&digits=1&count=50&speed=500&mode=add` and prefills the Setup controls with those exact values.
+     - Verify the task banner appears above the setup card: *"Today's task needs: 1 digit, 50 numbers, 0.5 s, add only. A try counts for the task only with these settings."* alongside **"✓ This try counts for today's task"**.
+  4. Change any fixed control on the setup screen (for example, click `2` under Digits or change Mode to `Add and subtract`):
+     - Verify the banner immediately switches to **"⚠ These settings will not count for today's task"** and shows the **"Restore task settings"** button.
+  5. Click **"Restore task settings"**:
+     - Verify the controls return to the task's required settings and the status returns to **"✓ This try counts for today's task"**.
+

@@ -162,6 +162,10 @@ export function normalizeTaskInput(input = {}, sectionOverride) {
 
   let category_id = null;
   let activity_key = null;
+  let flash_digits = null;
+  let flash_count = null;
+  let flash_speed_ms = null;
+  let flash_mode = null;
 
   if (section === 'basics' || section === 'round') {
     category_id = rawCategoryId.length > 0 ? rawCategoryId : null;
@@ -169,8 +173,109 @@ export function normalizeTaskInput(input = {}, sectionOverride) {
   } else if (section === 'elements' || section === 'memoriad') {
     category_id = null;
     activity_key = rawActivityKey.length > 0 ? rawActivityKey : null;
+  } else if (section === 'flash') {
+    category_id = null;
+    activity_key = null;
+
+    // 1. flash_digits: empty or "any" -> null; otherwise whole number 1..5
+    const rawDigits = safeInput.flash_digits;
+    if (
+      rawDigits === undefined ||
+      rawDigits === null ||
+      trimText(String(rawDigits)) === '' ||
+      trimText(String(rawDigits)).toLowerCase() === 'any'
+    ) {
+      flash_digits = null;
+    } else {
+      const strDigits = trimText(String(rawDigits));
+      const numDigits = typeof rawDigits === 'number' ? rawDigits : Number(strDigits);
+      if (
+        typeof rawDigits === 'boolean' ||
+        !/^\d+$/.test(strDigits) ||
+        !Number.isInteger(numDigits) ||
+        numDigits < 1 ||
+        numDigits > 5
+      ) {
+        errors.flash_digits = 'Digits must be a whole number from 1 to 5 (or Any).';
+      } else {
+        flash_digits = numDigits;
+      }
+    }
+
+    // 2. flash_count: empty or "any" -> null; otherwise whole number 2..1000
+    const rawCount = safeInput.flash_count;
+    if (
+      rawCount === undefined ||
+      rawCount === null ||
+      trimText(String(rawCount)) === '' ||
+      trimText(String(rawCount)).toLowerCase() === 'any'
+    ) {
+      flash_count = null;
+    } else {
+      const strCount = trimText(String(rawCount));
+      const numCount = typeof rawCount === 'number' ? rawCount : Number(strCount);
+      if (
+        typeof rawCount === 'boolean' ||
+        !/^\d+$/.test(strCount) ||
+        !Number.isInteger(numCount) ||
+        numCount < 2 ||
+        numCount > 1000
+      ) {
+        errors.flash_count = 'Numbers in the question must be a whole number from 2 to 1000 (or empty for Any).';
+      } else {
+        flash_count = numCount;
+      }
+    }
+
+    // 3. flash_speed_ms: input in seconds (0.2 to 5.0 in steps of 0.1), stored as milliseconds (200 to 5000)
+    const rawSpeed =
+      safeInput.flash_speed_ms !== undefined
+        ? safeInput.flash_speed_ms
+        : safeInput.flash_speed_seconds;
+    if (
+      rawSpeed === undefined ||
+      rawSpeed === null ||
+      trimText(String(rawSpeed)) === '' ||
+      trimText(String(rawSpeed)).toLowerCase() === 'any'
+    ) {
+      flash_speed_ms = null;
+    } else {
+      const strSpeed = trimText(String(rawSpeed));
+      const sec = typeof rawSpeed === 'number' ? rawSpeed : Number(strSpeed);
+      const tenths = Math.round(sec * 10);
+      if (
+        typeof rawSpeed === 'boolean' ||
+        !/^\d+(\.\d+)?$/.test(strSpeed) ||
+        !Number.isFinite(sec) ||
+        Math.abs(sec * 10 - tenths) > 1e-6 ||
+        tenths < 2 ||
+        tenths > 50
+      ) {
+        errors.flash_speed_ms = 'Speed per number must be from 0.2 to 5.0 seconds in steps of 0.1 (or empty for Any).';
+      } else {
+        flash_speed_ms = tenths * 100;
+      }
+    }
+
+    // 4. flash_mode: empty or "any" -> null; otherwise 'add' or 'add_sub'
+    const rawMode = safeInput.flash_mode;
+    if (
+      rawMode === undefined ||
+      rawMode === null ||
+      trimText(String(rawMode)) === '' ||
+      trimText(String(rawMode)).toLowerCase() === 'any'
+    ) {
+      flash_mode = null;
+    } else {
+      const cleanMode = trimText(String(rawMode)).toLowerCase();
+      if (cleanMode !== 'add' && cleanMode !== 'add_sub') {
+        errors.flash_mode = 'Mode must be Add only, Add and subtract, or Any.';
+      } else {
+        flash_mode = cleanMode;
+      }
+    }
   } else {
-    // 'flash' or invalid section: neither target is set
+    // invalid section: clear all targets
     category_id = null;
     activity_key = null;
   }
@@ -187,11 +292,88 @@ export function normalizeTaskInput(input = {}, sectionOverride) {
       section,
       category_id,
       activity_key,
+      flash_digits,
+      flash_count,
+      flash_speed_ms,
+      flash_mode,
       level,
       required_count,
       active,
     },
   };
+}
+
+/**
+ * Formats a human-readable summary of a Flash Anzan task's fixed settings.
+ * Returns text such as `"1 digit, 50 numbers, 0.5 s, add only"` or `"Any flash anzan try"`.
+ *
+ * @param {object} task
+ * @returns {string}
+ */
+export function flashSummary(task = {}) {
+  const safeTask = task && typeof task === 'object' ? task : {};
+  const parts = [];
+
+  const rawDigits =
+    safeTask.flash_digits !== undefined
+      ? safeTask.flash_digits
+      : safeTask.task_flash_digits !== undefined
+        ? safeTask.task_flash_digits
+        : safeTask.digits;
+  if (rawDigits !== null && rawDigits !== undefined && trimText(String(rawDigits)) !== '') {
+    const d = Number(rawDigits);
+    if (Number.isInteger(d) && d >= 1 && d <= 5) {
+      parts.push(d === 1 ? '1 digit' : `${d} digits`);
+    }
+  }
+
+  const rawCount =
+    safeTask.flash_count !== undefined
+      ? safeTask.flash_count
+      : safeTask.task_flash_count !== undefined
+        ? safeTask.task_flash_count
+        : safeTask.count;
+  if (rawCount !== null && rawCount !== undefined && trimText(String(rawCount)) !== '') {
+    const c = Number(rawCount);
+    if (Number.isInteger(c) && c >= 2 && c <= 1000) {
+      parts.push(`${c} numbers`);
+    }
+  }
+
+  const rawSpeedMs =
+    safeTask.flash_speed_ms !== undefined
+      ? safeTask.flash_speed_ms
+      : safeTask.task_flash_speed_ms !== undefined
+        ? safeTask.task_flash_speed_ms
+        : safeTask.speed_ms !== undefined
+          ? safeTask.speed_ms
+          : safeTask.speed;
+  if (rawSpeedMs !== null && rawSpeedMs !== undefined && trimText(String(rawSpeedMs)) !== '') {
+    const ms = Number(rawSpeedMs);
+    if (Number.isInteger(ms) && ms >= 200 && ms <= 5000 && ms % 100 === 0) {
+      parts.push(`${(ms / 1000).toFixed(1)} s`);
+    }
+  }
+
+  const rawMode =
+    safeTask.flash_mode !== undefined
+      ? safeTask.flash_mode
+      : safeTask.task_flash_mode !== undefined
+        ? safeTask.task_flash_mode
+        : safeTask.mode;
+  if (rawMode !== null && rawMode !== undefined && trimText(String(rawMode)) !== '') {
+    const m = trimText(String(rawMode)).toLowerCase();
+    if (m === 'add') {
+      parts.push('add only');
+    } else if (m === 'add_sub') {
+      parts.push('add and subtract');
+    }
+  }
+
+  if (parts.length === 0) {
+    return 'Any flash anzan try';
+  }
+  return parts.join(', ');
 }
 
 /**
@@ -268,7 +450,7 @@ export function optionsForSection(
  * - `elements` without -> `/pages/elements.html`
  * - `memoriad` with a key -> `/pages/memoriad-play.html?module=<key>`
  * - `memoriad` without -> `/pages/memoriad.html`
- * - `flash` -> `/pages/flash.html`
+ * - `flash` -> `/pages/flash.html?task=1` plus any set parameters (`digits`, `count`, `speed`, `mode`)
  *
  * @param {object} task
  * @returns {string}
@@ -314,7 +496,47 @@ export function taskLink(task = {}) {
   }
 
   if (section === 'flash') {
-    return '/pages/flash.html';
+    const queryParts = ['task=1'];
+
+    const rawDigits =
+      safeTask.flash_digits !== undefined ? safeTask.flash_digits : safeTask.task_flash_digits;
+    if (rawDigits !== null && rawDigits !== undefined && trimText(String(rawDigits)) !== '') {
+      const d = Number(rawDigits);
+      if (Number.isInteger(d) && d >= 1 && d <= 5) {
+        queryParts.push(`digits=${encodeURIComponent(String(d))}`);
+      }
+    }
+
+    const rawCount =
+      safeTask.flash_count !== undefined ? safeTask.flash_count : safeTask.task_flash_count;
+    if (rawCount !== null && rawCount !== undefined && trimText(String(rawCount)) !== '') {
+      const c = Number(rawCount);
+      if (Number.isInteger(c) && c >= 2 && c <= 1000) {
+        queryParts.push(`count=${encodeURIComponent(String(c))}`);
+      }
+    }
+
+    const rawSpeedMs =
+      safeTask.flash_speed_ms !== undefined
+        ? safeTask.flash_speed_ms
+        : safeTask.task_flash_speed_ms;
+    if (rawSpeedMs !== null && rawSpeedMs !== undefined && trimText(String(rawSpeedMs)) !== '') {
+      const ms = Number(rawSpeedMs);
+      if (Number.isInteger(ms) && ms >= 200 && ms <= 5000 && ms % 100 === 0) {
+        queryParts.push(`speed=${encodeURIComponent(String(ms))}`);
+      }
+    }
+
+    const rawMode =
+      safeTask.flash_mode !== undefined ? safeTask.flash_mode : safeTask.task_flash_mode;
+    if (rawMode !== null && rawMode !== undefined && trimText(String(rawMode)) !== '') {
+      const m = trimText(String(rawMode)).toLowerCase();
+      if (m === 'add' || m === 'add_sub') {
+        queryParts.push(`mode=${encodeURIComponent(m)}`);
+      }
+    }
+
+    return `/pages/flash.html?${queryParts.join('&')}`;
   }
 
   return '/pages/student.html';
@@ -397,6 +619,11 @@ export function formatTaskTarget(
       return { text: trimText(matched.title ?? matched.label), isAny: false };
     }
     return { text: 'Activity no longer available', isAny: false, unavailable: true };
+  }
+
+  if (section === 'flash') {
+    const text = flashSummary(safeTask);
+    return { text, isAny: text === 'Any flash anzan try' };
   }
 
   return { text: `Any activity in ${sectionTitle}`, isAny: true };

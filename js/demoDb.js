@@ -310,7 +310,8 @@ function initDemoStorage() {
       { id: 'todo-4', title: 'Round Drill: Division (DIV)', section: 'round', category_id: 'cat-rnd-5', activity_key: null, level: null, sort_order: 4, active: true },
       { id: 'todo-5', title: 'Mental Basics: 1-digit 4-rows (1d4r)', section: 'basics', category_id: 'cat-bas-1', activity_key: null, level: null, sort_order: 5, active: true },
       { id: 'todo-6', title: 'Mental Basics: 2-digit 2-rows (2d2r)', section: 'basics', category_id: 'cat-bas-2', activity_key: null, level: null, sort_order: 6, active: true },
-      { id: 'todo-7', title: 'Any Round Competition Task', section: 'round', category_id: null, activity_key: null, level: null, sort_order: 7, active: true }
+      { id: 'todo-7', title: 'Any Round Competition Task', section: 'round', category_id: null, activity_key: null, level: null, sort_order: 7, active: true },
+      { id: 'todo-8', title: 'Flash: 1 digit, 50 numbers, 0.5 s, add only', section: 'flash', category_id: null, activity_key: null, flash_digits: 1, flash_count: 50, flash_speed_ms: 500, flash_mode: 'add', required_count: 2, level: null, sort_order: 8, active: true }
     ];
     localStorage.setItem(DEMO_STORAGE_KEY_TODOS, JSON.stringify(initialTodos));
   }
@@ -1057,6 +1058,10 @@ export const DemoDB = {
         task_section: t.section,
         task_category_id: t.category_id || null,
         task_activity_key: t.activity_key || null,
+        flash_digits: t.flash_digits ?? null,
+        flash_count: t.flash_count ?? null,
+        flash_speed_ms: t.flash_speed_ms ?? null,
+        flash_mode: t.flash_mode ?? null,
         required_count: reqCount,
         done_count: isDone ? reqCount : 0,
         done: isDone
@@ -1137,7 +1142,19 @@ export const DemoDB = {
   saveTodos(todos) {
     localStorage.setItem(DEMO_STORAGE_KEY_TODOS, JSON.stringify(todos));
   },
-  addTodo({ title, section, category_id, activity_key, level, required_count = 1, active = true }) {
+  addTodo({
+    title,
+    section,
+    category_id,
+    activity_key,
+    flash_digits = null,
+    flash_count = null,
+    flash_speed_ms = null,
+    flash_mode = null,
+    level,
+    required_count = 1,
+    active = true
+  }) {
     if (!isDemoMode()) throw new Error('Blocked in production mode');
     const todos = this.getTodos();
     const newTodo = {
@@ -1146,6 +1163,10 @@ export const DemoDB = {
       section,
       category_id: category_id || null,
       activity_key: activity_key || null,
+      flash_digits: section === 'flash' ? (flash_digits ?? null) : null,
+      flash_count: section === 'flash' ? (flash_count ?? null) : null,
+      flash_speed_ms: section === 'flash' ? (flash_speed_ms ?? null) : null,
+      flash_mode: section === 'flash' ? (flash_mode ?? null) : null,
       level: level ? level.trim() : null,
       required_count: Number(required_count) || 1,
       sort_order: todos.length + 1,

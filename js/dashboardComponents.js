@@ -17,7 +17,7 @@
 import { getScoreFeedback } from './scoreColors.js';
 import { buildFlashCardSummary } from './flashStats.js';
 import { isBasicsOnlineAvailable } from './practiceStats.js';
-import { taskLink, isTaskActivityAvailable } from './todoForm.js';
+import { taskLink, isTaskActivityAvailable, flashSummary } from './todoForm.js';
 import { progressText, percent, summary } from './todoProgress.js';
 import {
   getISTDateYMD,
@@ -339,9 +339,16 @@ export function renderTodoList(todos = [], containerId = 'todo-list-container', 
                   <span class="todo-checkbox ${isDone ? 'checked' : ''}" aria-hidden="true">
                     ${isDone ? '✓' : '○'}
                   </span>
-                  <span style="font-size: var(--text-sm); font-weight: 600; color: ${isDone ? 'var(--text-muted)' : 'var(--text-main)'};">
-                    ${escapeHtml(t.task_title)}
-                  </span>
+                  <div style="display: flex; flex-direction: column; min-width: 0;">
+                    <span style="font-size: var(--text-sm); font-weight: 600; color: ${isDone ? 'var(--text-muted)' : 'var(--text-main)'};">
+                      ${escapeHtml(t.task_title)}
+                    </span>
+                    ${
+                      sec === 'flash'
+                        ? `<span class="num" style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">${escapeHtml(flashSummary(t))}</span>`
+                        : ''
+                    }
+                  </div>
                   <div style="display: inline-flex; align-items: center; gap: 6px;">
                     <span class="num" style="font-size: var(--text-xs); font-weight: 600; color: ${isDone ? 'var(--color-score-perfect)' : 'var(--text-muted)'};">
                       ${escapeHtml(progLabel)}

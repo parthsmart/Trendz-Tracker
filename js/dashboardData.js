@@ -82,19 +82,64 @@ export async function fetchStudentDashboardData(studentId) {
       return await DemoDB.mockStreakFor(studentId);
     })(),
 
-    // 3. Authoritative to-do status via RPC
+    // 3. Authoritative to-do status via RPC + one query on daily_tasks for Flash Anzan settings
     (async () => {
       if (supabase) {
         try {
           const { data, error } = await supabase.rpc('todo_for', { p_student: studentId });
           if (!error && data) {
-            return Array.isArray(data) ? data : [data];
+            const rows = Array.isArray(data) ? data : [data];
+            const taskIds = Array.from(
+              new Set(rows.map((r) => r && (r.task_id || r.id)).filter(Boolean))
+            );
+            if (taskIds.length > 0) {
+              try {
+                const { data: taskRows, error: taskErr } = await supabase
+                  .from('daily_tasks')
+                  .select('id, flash_digits, flash_count, flash_speed_ms, flash_mode')
+                  .in('id', taskIds);
+                if (!taskErr && Array.isArray(taskRows)) {
+                  const taskMap = new Map(taskRows.map((tr) => [String(tr.id), tr]));
+                  return rows.map((r) => {
+                    const tid = String(r.task_id || r.id || '');
+                    const extra = taskMap.get(tid);
+                    return extra
+                      ? {
+                          ...r,
+                          flash_digits: extra.flash_digits ?? null,
+                          flash_count: extra.flash_count ?? null,
+                          flash_speed_ms: extra.flash_speed_ms ?? null,
+                          flash_mode: extra.flash_mode ?? null,
+                        }
+                      : r;
+                  });
+                }
+              } catch {
+                // Returntodo_for rows even if daily_tasks enrichment fails
+              }
+            }
+            return rows;
           }
         } catch {
           // fall through
         }
       }
-      return await DemoDB.mockTodoFor(studentId);
+      const demoRows = await DemoDB.mockTodoFor(studentId);
+      const demoTasks = DemoDB.getTodos ? DemoDB.getTodos() : [];
+      const demoMap = new Map(demoTasks.map((tr) => [String(tr.id), tr]));
+      return (Array.isArray(demoRows) ? demoRows : []).map((r) => {
+        const tid = String(r.task_id || r.id || '');
+        const extra = demoMap.get(tid);
+        return extra
+          ? {
+              ...r,
+              flash_digits: extra.flash_digits ?? r.flash_digits ?? null,
+              flash_count: extra.flash_count ?? r.flash_count ?? null,
+              flash_speed_ms: extra.flash_speed_ms ?? r.flash_speed_ms ?? null,
+              flash_mode: extra.flash_mode ?? r.flash_mode ?? null,
+            }
+          : r;
+      });
     })(),
 
     // 4. Categories table (all categories including inactive historical ones so Old simulator rounds display properly)

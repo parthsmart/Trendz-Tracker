@@ -181,23 +181,44 @@ export async function getCurrentProfile() {
   return DemoDB.getDemoAuth();
 }
 
+let isLoggingOut = false;
+
 /**
  * Sign out the current user
  */
 export async function logoutUser() {
-  if (isSupabaseConfigured()) {
-    try {
+  if (isLoggingOut) return;
+  isLoggingOut = true;
+
+  try {
+    await ensurePreviewConfigLoaded();
+    if (isSupabaseConfigured()) {
       const supabase = await getSupabase();
       if (supabase) {
-        await supabase.auth.signOut();
+        // Clear local session immediately, then best-effort revoke on server with a short timeout
+        await Promise.race([
+          supabase.auth.signOut(),
+          new Promise((resolve) => setTimeout(resolve, 1500)),
+        ]).catch((err) => {
+          console.warn('Sign out warning:', err);
+        });
+        await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
       }
-    } catch (err) {
-      console.warn('Sign out error:', err);
     }
+  } catch (err) {
+    console.warn('Sign out error:', err);
+  } finally {
+    clearStaleSupabaseSession();
+    try {
+      if (DemoDB && typeof DemoDB.setDemoAuth === 'function') {
+        DemoDB.setDemoAuth(null);
+      }
+    } catch {
+      // ignore in production stub
+    }
+    isLoggingOut = false;
+    window.location.replace('/index.html');
   }
-  clearStaleSupabaseSession();
-  DemoDB.setDemoAuth(null);
-  window.location.href = '/index.html';
 }
 
 /**
