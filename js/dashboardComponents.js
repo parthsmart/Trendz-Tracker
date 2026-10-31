@@ -339,7 +339,7 @@ export function renderTodoList(todos = [], containerId = 'todo-list-container', 
                   <span class="todo-checkbox ${isDone ? 'checked' : ''}" aria-hidden="true">
                     ${isDone ? '✓' : '○'}
                   </span>
-                  <span style="font-size: var(--text-sm); font-weight: 600; color: ${isDone ? 'var(--text-muted)' : 'var(--text-main)'};">
+                  <span class="todo-task-title" style="font-size: var(--text-sm); font-weight: 600; color: ${isDone ? 'var(--text-muted)' : 'var(--text-main)'};">
                     ${escapeHtml(t.task_title)}
                   </span>
                   <div style="display: inline-flex; align-items: center; gap: 6px;">
