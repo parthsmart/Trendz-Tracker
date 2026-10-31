@@ -16,7 +16,9 @@
         <div class="container header-inner">
           <!-- Zone 1: Wordmark & Brand -->
           <a href="/pages/admin.html" class="brand-zone">
-            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span class="brand-icon" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="16" y1="14" x2="16" y2="18"/><path d="M16 10h.01"/><path d="M12 10h.01"/><path d="M8 10h.01"/><path d="M12 14h.01"/><path d="M8 14h.01"/><path d="M12 18h.01"/><path d="M8 18h.01"/></svg>
+            </span>
             <span>Trendz Tracker</span>
           </a>
 
@@ -32,29 +34,12 @@
           <!-- Zone 2: Navigation Links -->
           <nav class="nav-zone" id="admin-nav-zone" aria-label="Admin Navigation">
             <a href="/pages/admin.html" class="nav-link">Overview</a>
-            <a href="/pages/review.html" class="nav-link">Review</a>
             <a href="/pages/students.html" class="nav-link">Students</a>
+            <a href="/pages/review.html" class="nav-link">Review</a>
             <a href="/pages/attendance.html" class="nav-link">Attendance</a>
             <a href="/pages/weekly-tests.html" class="nav-link">Weekly Tests</a>
             <a href="/pages/leaderboard.html" class="nav-link">Leaderboard</a>
-            <a href="/pages/monthly-report.html" class="nav-link">Monthly Report</a>
-            
-            <!-- Setup Dropdown -->
-            <div class="nav-dropdown">
-              <button type="button" class="nav-link nav-dropdown-toggle active" id="btn-setup-dropdown" aria-expanded="false" aria-haspopup="true">
-                Setup <span style="font-size: 10px; margin-left: 2px;">▾</span>
-              </button>
-              <div class="nav-dropdown-menu" id="setup-dropdown-menu" role="menu">
-                <a href="/pages/todos.html" class="dropdown-item" role="menuitem">Daily To-Do</a>
-                <a href="/pages/resources.html" class="dropdown-item active" role="menuitem" aria-current="page">Resources</a>
-                <a href="/pages/categories.html" class="dropdown-item" role="menuitem">Categories</a>
-                <a href="/pages/rounds.html" class="dropdown-item" role="menuitem">Rounds</a>
-                <a href="/pages/targets.html" class="dropdown-item" role="menuitem">Targets</a>
-                <a href="/pages/competition.html" class="dropdown-item" role="menuitem">Competition</a>
-                <a href="/pages/import.html" class="dropdown-item" role="menuitem">Import</a>
-                <a href="/pages/backup.html" class="dropdown-item" role="menuitem">Backup</a>
-              </div>
-            </div>
+            <a href="/pages/settings.html" class="nav-link active" aria-current="page">Settings</a>
           </nav>
 
           <!-- Zone 3: User Details & Logout Action -->
@@ -77,6 +62,13 @@
           <!-- Demo Mode Banner Placeholder -->
           <div id="config-banner-placeholder"></div>
 
+          <!-- Breadcrumb -->
+          <nav class="breadcrumb-nav" aria-label="Breadcrumb">
+            <a href="/pages/settings.html">Settings</a>
+            <span class="breadcrumb-sep" aria-hidden="true">&gt;</span>
+            <span aria-current="page">Resources</span>
+          </nav>
+
           <!-- Page Heading & Action -->
           <div class="section-header-row" style="margin-bottom: var(--space-6);">
             <div>
@@ -97,7 +89,7 @@
                 <thead>
                   <tr>
                     <th style="width: 70px;">Order</th>
-                    <th>Resource Title & Description</th>
+                    <th>Resource Title &amp; Description</th>
                     <th style="width: 160px;">Topic</th>
                     <th>External Link</th>
                     <th style="width: 100px;">Status</th>
@@ -118,26 +110,58 @@
 
     <!-- Add/Edit Resource Modal -->
     <div id="modal-resource" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="modal-resource-title">
-      <div class="modal-dialog">
+      <div class="modal-dialog" style="max-width: 520px;">
         <header class="modal-header">
-          <h2 id="modal-resource-title" class="modal-title">Add Learning Resource</h2>
+          <div>
+            <h2 id="modal-resource-title" class="modal-title">Add Learning Resource</h2>
+            <p class="modal-subtitle">Share a guide, rulebook, or worksheet link with students.</p>
+          </div>
           <button type="button" class="modal-close" data-close-modal="modal-resource" aria-label="Close modal">&times;</button>
         </header>
 
-        <form id="form-resource">
+        <form id="form-resource" novalidate>
           <input type="hidden" id="resource-id" value="" />
 
           <div class="modal-body">
-            <div class="form-group">
-              <label for="resource-title" class="form-label required">Resource Title</label>
-              <input
-                type="text"
-                id="resource-title"
-                class="form-control"
-                placeholder="e.g. Junior Championship Competition Rules 2026"
-                required
-                maxlength="120"
-              />
+            <!-- Top Error Summary Banner -->
+            <div id="resource-error-banner" class="banner banner-error" style="display: none; margin-bottom: var(--space-4);" role="alert"></div>
+
+            <div class="form-row-2">
+              <div class="form-group">
+                <label for="resource-title" class="form-label required">Resource title</label>
+                <input
+                  type="text"
+                  id="resource-title"
+                  class="form-control"
+                  placeholder="e.g. Championship Rules 2026"
+                  required
+                  maxlength="120"
+                />
+                <div id="error-resource-title" class="form-error" style="display: none;"></div>
+              </div>
+
+              <div class="form-group">
+                <label for="resource-topic" class="form-label required">
+                  Topic / grouping
+                  <span class="info-tooltip-btn" title="Resources are grouped under this topic on the student dashboard." aria-label="Resources are grouped under this topic on the student dashboard.">i</span>
+                </label>
+                <input
+                  type="text"
+                  id="resource-topic"
+                  class="form-control"
+                  list="topic-datalist"
+                  placeholder="e.g. Championship Guidelines"
+                  required
+                  maxlength="60"
+                />
+                <datalist id="topic-datalist">
+                  <option value="Championship Guidelines"></option>
+                  <option value="Calculation Techniques"></option>
+                  <option value="Practice Materials"></option>
+                  <option value="Rules &amp; Scoring"></option>
+                </datalist>
+                <div id="error-resource-topic" class="form-error" style="display: none;"></div>
+              </div>
             </div>
 
             <div class="form-group">
@@ -151,51 +175,44 @@
                 pattern="^https?://.+"
                 title="URL must start with http:// or https://"
               />
-              <span class="form-hint">Security restriction: only valid http:// or https:// web addresses are accepted.</span>
+              <span class="form-hint">Must start with http:// or https://.</span>
+              <div id="error-resource-url" class="form-error" style="display: none;"></div>
             </div>
 
-            <div class="form-group">
-              <label for="resource-topic" class="form-label required">Topic / Grouping</label>
-              <input
-                type="text"
-                id="resource-topic"
-                class="form-control"
-                list="topic-datalist"
-                placeholder="e.g. Championship Guidelines, Calculation Guides, Drills"
-                required
-                maxlength="60"
-              />
-              <datalist id="topic-datalist">
-                <option value="Championship Guidelines"></option>
-                <option value="Calculation Techniques"></option>
-                <option value="Practice Materials"></option>
-                <option value="Rules & Scoring"></option>
-              </datalist>
-              <span class="form-hint">Resources are grouped under this topic on the student dashboard.</span>
-            </div>
+            <!-- Collapsible More Options -->
+            <details id="resource-more-options" class="form-more-options">
+              <summary>More options</summary>
+              <div class="form-more-options-body">
+                <div class="form-group">
+                  <label for="resource-desc" class="form-label">Description (optional)</label>
+                  <textarea
+                    id="resource-desc"
+                    class="form-control"
+                    rows="3"
+                    placeholder="Brief guidance for students on how to use this study material..."
+                    maxlength="300"
+                  ></textarea>
+                </div>
 
-            <div class="form-group">
-              <label for="resource-desc" class="form-label">Summary / Description (Optional)</label>
-              <textarea
-                id="resource-desc"
-                class="form-control"
-                rows="3"
-                placeholder="Brief guidance for students on how to use this study material..."
-                maxlength="300"
-              ></textarea>
-            </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="custom-checkbox">
+                    <input type="checkbox" id="resource-active" checked />
+                    <span>Active (visible on student dashboards)</span>
+                  </label>
+                </div>
+              </div>
+            </details>
 
-            <div class="form-group" style="margin-top: var(--space-3); margin-bottom: 0;">
-              <label class="custom-checkbox">
-                <input type="checkbox" id="resource-active" checked />
-                <span>Active (Visible on student dashboards)</span>
-              </label>
+            <!-- Live Summary Sentence -->
+            <div id="resource-live-summary" class="form-live-summary" aria-live="polite">
+              Resource: Untitled resource, General, active
             </div>
           </div>
 
           <footer class="modal-footer">
-            <button type="button" class="btn btn-outline" data-close-modal="modal-resource">Cancel</button>
-            <button type="submit" id="btn-save-resource" class="btn btn-primary">Save Resource</button>
+            <button type="button" class="btn btn-ghost" data-close-modal="modal-resource">Cancel</button>
+            <button type="button" id="btn-save-add-another-resource" class="btn btn-secondary">Save and add another</button>
+            <button type="submit" id="btn-save-resource" class="btn btn-primary">Save</button>
           </footer>
         </form>
       </div>

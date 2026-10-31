@@ -26,6 +26,7 @@ import { showToast } from './toast.js';
 import { formatEventDateChipIST } from './notificationsView.js';
 import { buildWeeklyTestShareMessage } from './reportMessage.js';
 import { formatDisplayDateIST } from './stats.js';
+import { buildModalLiveSummary, setMoreOptionsOpen } from './formPattern.js';
 
 let currentProfile = null;
 let announcements = [];
@@ -33,6 +34,7 @@ let upcomingTests = [];
 let studentLevels = [];
 let isSavingAnnouncement = false;
 let pendingDeleteAnnouncementId = null;
+let submitAndAddAnotherAnn = false;
 
 function escapeHtml(str) {
   if (str === null || str === undefined) return '';
@@ -172,11 +174,23 @@ function resetComposeForm() {
   if (startsInput) startsInput.value = toIstDatetimeLocalValue(new Date());
   if (expiresInput) expiresInput.value = '';
 
+  setMoreOptionsOpen(document.getElementById('announcement-more-options'), false);
   showFormError('');
   updateLivePreview();
 }
 
-function showFormError(msg) {
+function showFormError(msg, fieldErrorId = null) {
+  ['error-ann-title', 'error-ann-body', 'error-ann-level', 'error-ann-starts', 'error-ann-expires'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  if (fieldErrorId && msg) {
+    const fieldEl = document.getElementById(fieldErrorId);
+    if (fieldEl) {
+      fieldEl.textContent = msg;
+      fieldEl.style.display = 'block';
+    }
+  }
   const errEl = document.getElementById('ann-form-error');
   if (!errEl) return;
   if (!msg) {
@@ -197,7 +211,14 @@ function setupComposeFormListeners() {
   const levelWrapper = document.getElementById('ann-level-input-wrapper');
   const levelInput = document.getElementById('ann-level-input');
   const startsInput = document.getElementById('ann-starts-at-input');
-  const resetBtn = document.getElementById('btn-reset-ann-form');
+  const expiresInput = document.getElementById('ann-expires-at-input');
+  const openModalBtn = document.getElementById('btn-open-announcement-modal');
+  const saveAddAnotherBtn = document.getElementById('btn-save-add-another-ann');
+
+  openModalBtn?.addEventListener('click', () => {
+    resetComposeForm();
+    openModal('announcement-modal');
+  });
 
   const onAudienceChange = () => {
     const isLevel = Boolean(levelRadio?.checked);
@@ -213,10 +234,14 @@ function setupComposeFormListeners() {
   bodyInput?.addEventListener('input', updateLivePreview);
   levelInput?.addEventListener('input', updateLivePreview);
   startsInput?.addEventListener('input', updateLivePreview);
+  expiresInput?.addEventListener('input', updateLivePreview);
 
-  resetBtn?.addEventListener('click', () => {
-    resetComposeForm();
-  });
+  if (saveAddAnotherBtn && form) {
+    saveAddAnotherBtn.addEventListener('click', () => {
+      submitAndAddAnotherAnn = true;
+      form.requestSubmit();
+    });
+  }
 
   form?.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -231,6 +256,8 @@ function updateLivePreview() {
   const levelRadio = document.getElementById('ann-audience-level');
   const levelInput = document.getElementById('ann-level-input');
   const startsInput = document.getElementById('ann-starts-at-input');
+  const expiresInput = document.getElementById('ann-expires-at-input');
+  const liveSummaryEl = document.getElementById('announcement-live-summary');
 
   const rawTitle = String(titleInput?.value || '').trim();
   const rawBody = String(bodyInput?.value || '');
@@ -264,6 +291,16 @@ function updateLivePreview() {
   if (previewAudienceEl) {
     previewAudienceEl.textContent =
       isSpecificLevel && chosenLevel ? `Audience: ${chosenLevel}` : 'Audience: Everyone';
+  }
+
+  if (liveSummaryEl) {
+    liveSummaryEl.textContent = buildModalLiveSummary('announcement', {
+      title: rawTitle,
+      audience_mode: isSpecificLevel ? 'level' : 'everyone',
+      audience_level: chosenLevel,
+      starts_at: startsInput?.value ? dateChip : '',
+      expires_at: expiresInput?.value || '',
+    });
   }
 }
 
@@ -324,23 +361,27 @@ async function handleCreateAnnouncement() {
   showFormError('');
 
   if (title.length < 1 || title.length > 80) {
-    showFormError('Please enter a title between 1 and 80 characters.');
+    showFormError('Please enter a title between 1 and 80 characters.', 'error-ann-title');
+    submitAndAddAnotherAnn = false;
     return;
   }
 
   if (body.length < 1 || body.length > 500) {
-    showFormError('Please enter a message between 1 and 500 characters.');
+    showFormError('Please enter a message between 1 and 500 characters.', 'error-ann-body');
+    submitAndAddAnotherAnn = false;
     return;
   }
 
   if (isSpecificLevel && !audienceLevel) {
-    showFormError('Please enter a level or choose "Everyone".');
+    showFormError('Please enter a level or choose "Everyone".', 'error-ann-level');
+    submitAndAddAnotherAnn = false;
     return;
   }
 
   const startsAtIso = parseIstDatetimeLocalToIso(startsInput?.value || '');
   if (!startsAtIso) {
-    showFormError('Please enter a valid "Show from" date and time.');
+    showFormError('Please enter a valid "Show from" date and time.', 'error-ann-starts');
+    submitAndAddAnotherAnn = false;
     return;
   }
 
@@ -349,11 +390,15 @@ async function handleCreateAnnouncement() {
   if (rawExpires) {
     expiresAtIso = parseIstDatetimeLocalToIso(rawExpires);
     if (!expiresAtIso) {
-      showFormError('Please enter a valid "Hide after" date and time.');
+      setMoreOptionsOpen(document.getElementById('announcement-more-options'), true);
+      showFormError('Please enter a valid "Hide after" date and time.', 'error-ann-expires');
+      submitAndAddAnotherAnn = false;
       return;
     }
     if (new Date(expiresAtIso).getTime() <= new Date(startsAtIso).getTime()) {
-      showFormError('"Hide after" must be later than "Show from".');
+      setMoreOptionsOpen(document.getElementById('announcement-more-options'), true);
+      showFormError('"Hide after" must be later than "Show from".', 'error-ann-expires');
+      submitAndAddAnotherAnn = false;
       return;
     }
   }
@@ -361,7 +406,7 @@ async function handleCreateAnnouncement() {
   isSavingAnnouncement = true;
   if (submitBtn) {
     submitBtn.disabled = true;
-    submitBtn.textContent = 'Posting...';
+    submitBtn.textContent = 'Saving...';
   }
 
   try {
@@ -383,16 +428,22 @@ async function handleCreateAnnouncement() {
     }
 
     showToast('success', 'Announcement posted.');
+    const addAnother = submitAndAddAnotherAnn;
+    submitAndAddAnotherAnn = false;
     resetComposeForm();
     await loadAnnouncements();
+    if (!addAnother) {
+      closeModal('announcement-modal');
+    }
   } catch (err) {
+    submitAndAddAnotherAnn = false;
     console.error('Failed to post announcement:', err);
     showFormError(err?.message || 'Could not post announcement. Please try again.');
   } finally {
     isSavingAnnouncement = false;
     if (submitBtn) {
       submitBtn.disabled = false;
-      submitBtn.textContent = 'Post Announcement';
+      submitBtn.textContent = 'Save';
     }
   }
 }
@@ -447,13 +498,6 @@ function renderAnnouncementsList() {
   container.innerHTML = announcements
     .map((ann) => {
       const status = getAnnouncementStatus(ann, nowMs);
-      let statusStyle = 'background: #DCFCE7; color: #166534; border: 1px solid #BBF7D0;';
-      if (status === 'Scheduled') {
-        statusStyle = 'background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE;';
-      } else if (status === 'Expired') {
-        statusStyle = 'background: #F1F5F9; color: #475569; border: 1px solid #CBD5E1;';
-      }
-
       const audienceText = ann.audience_level ? ann.audience_level : 'Everyone';
       const showFromStr = formatIstDateTimeReadable(ann.starts_at);
       const hideAfterStr = ann.expires_at ? formatIstDateTimeReadable(ann.expires_at) : 'No expiry';
@@ -467,7 +511,7 @@ function renderAnnouncementsList() {
               <h3 style="font-size: var(--text-base); font-weight: 700; margin: 0; color: var(--text-main);">
                 ${escapeHtml(ann.title)}
               </h3>
-              <span style="display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; ${statusStyle}">
+              <span class="status-chip">
                 ${escapeHtml(status)}
               </span>
               <span style="font-size: var(--text-xs); color: var(--text-muted); font-weight: 600;">
@@ -475,7 +519,7 @@ function renderAnnouncementsList() {
               </span>
             </div>
             <p style="font-size: var(--text-sm); color: var(--text-main); margin: 0 0 8px 0; line-height: 1.5; white-space: pre-line;">${escapeHtml(ann.body)}</p>
-            <div class="num" style="font-size: 11px; color: var(--text-muted);">
+            <div class="num" style="font-size: var(--text-xs); color: var(--text-muted);">
               Show from: <strong>${escapeHtml(showFromStr)}</strong> &middot; Hide after: <strong>${escapeHtml(hideAfterStr)}</strong>
             </div>
           </div>
@@ -486,7 +530,7 @@ function renderAnnouncementsList() {
               class="btn btn-outline btn-sm btn-delete-announcement"
               data-id="${escapeHtml(ann.id)}"
               data-title="${escapeHtml(ann.title)}"
-              style="color: #DC2626; border-color: #FECACA;"
+              style="color: var(--color-danger-text);"
             >
               Delete
             </button>
@@ -599,9 +643,6 @@ function renderUpcomingTestsPanel() {
     .map((test, idx) => {
       const isOnline = String(test.test_type || test.type || 'offline').toLowerCase() === 'online';
       const typeLabel = isOnline ? 'Online' : 'Offline';
-      const typeStyle = isOnline
-        ? 'background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE;'
-        : 'background: #F1F5F9; color: #334155; border: 1px solid #CBD5E1;';
       const dateStr = formatDisplayDateIST(test.test_date);
       const levelStr = test.audience_level ? test.audience_level : 'All levels';
       const remindDays =
@@ -623,13 +664,13 @@ function renderUpcomingTestsPanel() {
             <div style="font-weight: 700; font-size: var(--text-sm); color: var(--text-main);">
               ${escapeHtml(test.title)}
             </div>
-            <span style="display: inline-block; padding: 1px 7px; border-radius: 5px; font-size: 11px; font-weight: 700; ${typeStyle}">
+            <span class="status-chip">
               ${escapeHtml(typeLabel)}
             </span>
           </div>
 
           <div class="num" style="font-size: var(--text-xs); color: var(--text-muted); margin-bottom: var(--space-3); display: flex; flex-wrap: wrap; gap: 6px;">
-            <span>📅 ${escapeHtml(dateStr)}</span>
+            <span>${escapeHtml(dateStr)}</span>
             <span aria-hidden="true">&middot;</span>
             <span>Level: <strong>${escapeHtml(levelStr)}</strong></span>
             <span aria-hidden="true">&middot;</span>
@@ -646,8 +687,8 @@ function renderUpcomingTestsPanel() {
               href="${escapeHtml(waHref)}"
               target="_blank"
               rel="noopener noreferrer"
-              class="btn btn-primary btn-sm"
-              style="text-decoration: none; font-size: 12px;"
+              class="btn btn-secondary btn-sm"
+              style="text-decoration: none;"
             >
               Share on WhatsApp
             </a>
@@ -655,7 +696,6 @@ function renderUpcomingTestsPanel() {
               type="button"
               class="btn btn-outline btn-sm btn-copy-test-message"
               data-idx="${idx}"
-              style="font-size: 12px;"
             >
               Copy text
             </button>

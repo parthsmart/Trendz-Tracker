@@ -1,145 +1,110 @@
-# Trendz Tracker — Phase 13b: Student Notifications & Admin Announcements
+# Phase 14d — Trendz Tracker: Header Three-Dot Navigation Menu & Single Navigation Config
 
-This phase adds live, on-open student notifications (weekly test reminders and admin announcements) with a navigation bell badge, a dedicated Student Notifications page, a compact reminder strip on Student Home, an Admin Announcements & Upcoming Tests WhatsApp sharing page, a reminder start-date preview in the Weekly Test form, and an "Upcoming weekly tests (next 7 days)" section in the Admin Weekly Report Email.
+Introduce a unified, single-source navigation system and a responsive three-dot (`⋮`) header menu beside the **Trendz Tracker** brand title so students have full navigation on mobile phones and admin headers never wrap on desktop or tablet screens.
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> Please review the plan, architectural decisions, and alternatives below, then click **Proceed** (or reply "approved") to begin implementation.
+> **Dependencies**: **None** (`0` new npm packages or external libraries). All functionality uses plain HTML, CSS design tokens, vanilla JavaScript ES modules, and Node's built-in test runner (`node --test`).
 
-- **Zero New Dependencies**: Built strictly with plain HTML, CSS, vanilla ES modules, Supabase RPCs/tables, and existing Vercel serverless routes.
-- **Live On-Open Derivation (No Cron / No Push)**: Student weekly test reminders (`test_upcoming`, `test_today`) and active announcements (`announcement`) are computed live by the database RPC `my_notifications()` when the student opens the site, with a 60-second `sessionStorage` badge cache that invalidates immediately on dismiss or refresh.
-- **Strict Plain-Text Escaping**: All announcement titles, bodies, and weekly test titles/notes are rendered as plain text (`textContent` or HTML-escaped) and never interpreted as raw HTML.
+- **Single Source of Truth (`navConfig`)**: Both the $\ge 1100\text{ px}$ short inline link bar and the full grouped three-dot menu read from a single role-keyed configuration (`student` and `admin`). No page maintains a separate hard-coded link list.
+- **Responsive Breakpoints**:
+  - **$\ge 1100\text{ px}$**: Shows the short inline link list (`Today`, `Weekly Test`, `Leaderboard` for students; `Overview`, `Students`, `Review`, `Weekly Tests` for admins) alongside the three-dot menu button, which opens an anchored dropdown panel (`~300 px` wide, `max-height: calc(100vh - 80px)`) containing every page grouped by category.
+  - **$701\text{ px} \text{ – } 1099\text{ px}$**: Hides the inline links completely so the header never wraps; clicking the three-dot button opens the anchored dropdown panel under the button.
+  - **$\le 700\text{ px}$**: Hides the inline links, shortens the account display name to the user's first name when space is tight, and opens the menu as a left slide-in drawer with a dimmed backdrop overlay, focus trap, and body scroll lock.
+- **Full-Screen Stage Exclusion**: Focused practice and competition stages (`basics-practice`, `element-drill`, `memoriad-play`, plus active play states inside `flash` and `weekly-test`) never render or display the global header or three-dot menu—preserving their dedicated exit button without distraction.
 
 ---
 
 ## 1. Overview & Core Concept
 
-- **What It Does**:
-  1. **Student Notifications (`🔔` Bell Badge, `/pages/notifications.html`, & Student Home Strip)**:
-     - Every student navigation bar displays a bell link (`Notifications`) with a live count badge derived from `my_notifications()` (hidden when `0`, `"1"`–`"9"` for 1–9, `"9+"` above 9), cached in `sessionStorage` for 60 seconds and refreshed whenever a notification is dismissed or refreshed.
-     - `/pages/notifications.html` groups active items into **Weekly tests** and **Announcements**, displaying each item's title, body, formatted India-time date chip (e.g. `"Sun 2 Nov"`), stage text chip (`"In 4 days"`, `"Tomorrow"`, `"Today"`), an **Open** button linking to the target page, and a **Dismiss** button (`dismiss_notification(p_ref)`) with a 5-second undo toast.
-     - Student Home (`/pages/student.html`) shows up to 3 active reminders in a compact strip above the daily to-do list with direct links and a **"See all notifications"** link.
-  2. **Admin Announcements & Upcoming Tests Share Panel (`/pages/announcements.html`)**:
-     - Protected by `requireAuth(['admin'])` and added to the Admin **Setup ▾** dropdown as **Announcements**.
-     - Includes an announcement composer (`title` 1–80 chars, `body` 1–500 chars with live counter, `audience` `"Everyone"` or a specific level with `<datalist>` suggestions, `Show from` defaulting to now in IST, and optional `Hide after` in IST) plus a live **"What students see"** preview card.
-     - Lists all announcements (newest first) with audience, India-time window, computed status chip (**Active**, **Scheduled**, **Expired**), and a **Delete** button with confirmation.
-     - Includes an **Upcoming tests (next 14 days)** panel listing each scheduled test's title, type chip (`Online` / `Offline`), date, level, reminder days, section count, a **Share on WhatsApp** button (`https://wa.me/?text=<encoded>` in a new tab with `rel="noopener noreferrer"`), and a **Copy text** button powered by a pure helper in `js/reportMessage.js`.
-  3. **Admin Weekly Test Form Reminder Preview & Weekly Report Email**:
-     - On `/pages/weekly-tests.html`, changing the test date or `"Remind students from N days before"` updates a live helper line: *"Students will see a reminder from `<date>` until the test day."*
-     - `api/weekly-report.js` and `api/_reportEmail.js` add an **"Upcoming weekly tests (next 7 days)"** section (reading `weekly_tests` via the service role), or *"No weekly tests scheduled"* when empty.
-- **Target Audience / Persona**:
-  - **Students**: Need timely visibility into upcoming/today's weekly tests and trainer announcements without intrusive push prompts.
-  - **Administrators / Trainers**: Need a fast way to post level-targeted or academy-wide announcements, share upcoming test notices to parent/student WhatsApp groups without storing phone numbers, and see next week's scheduled tests in their weekly summary email.
+- **What It Does**: Replaces scattered inline navigation bars and missing mobile student navigation with a single, consistent header bar (`[Logo] [Trendz Tracker] [3-Dot Menu Button] [Short Inline Links >= 1100px] [Right Account Name, ID & Sign Out]`) powered by one navigation configuration per role.
+- **Target Audience / Persona**: Students practicing on phones/tablets who previously had no header navigation links, and teachers/admins whose 10+ top-bar links previously forced the brand title and teacher name onto multiple lines.
+- **Key Value**: Every student and admin page is reachable in two taps from any screen size, the brand title never wraps (`white-space: nowrap` with ellipsis truncation on ultra-narrow viewports), unread student notifications surface both on the menu button dot and next to the Notifications menu item without extra network requests, and full keyboard accessibility (`Escape`, `ArrowUp`/`ArrowDown` wrap-around, focus trap, and focus restoration) works across all viewports.
 
 ---
 
 ## 2. User Experience & Visual Design
 
 - **Key User Flows**:
-  1. **Student Bell & Compact Home Strip**:
-     - When a student logs in, a shared navigation badge helper checks `sessionStorage` (`tt_notif_badge_v1`, 60s TTL). If stale or missing, it calls `my_notifications()` (or `DemoDB.mockMyNotifications()` in Demo Mode), caches the result, and updates the bell badge (`hidden` when `0`, `1..9`, or `9+`).
-     - On `/pages/student.html`, up to 3 items from `my_notifications()` render in a compact strip above the daily to-do card, each with its stage label (`Today`, `Tomorrow`, `In N days`), title, action link, and a **"See all notifications"** link to `/pages/notifications.html`.
-  2. **Student Notifications Page (`/pages/notifications.html`)**:
-     - Header includes a **Refresh** button that bypasses the 60s cache and reloads `my_notifications()`.
-     - Items are partitioned by `groupNotifications(items)` into two sections: **Weekly tests** (`kind === 'test_upcoming' || kind === 'test_today'`) and **Announcements** (`kind === 'announcement'`).
-     - Each card displays the title, plain-text body, formatted date chip (`"Sun 2 Nov"`), stage text chip (`"In 4 days"`, `"Tomorrow"`, `"Today"`), **Open** button (`href` from `item.link`, validated as an internal relative path), and **Dismiss** button.
-     - Clicking **Dismiss** optimistically hides the card and shows a 5-second toast with an **Undo** button; if not undone within 5 seconds (or on page unload), it commits `dismiss_notification(p_ref)` and refreshes the 60s `sessionStorage` cache. When both groups are empty, the page displays *"You are all caught up"*.
-  3. **Admin Announcements & WhatsApp Share Flow (`/pages/announcements.html`)**:
-     - Left/top column: Compose form with live character counter (`0 / 500`), live **"What students see"** preview card, validation against empty/over-length inputs or `expires_at <= starts_at`, and double-submit prevention.
-     - Right/bottom column: **Upcoming tests (next 14 days)** panel with **Share on WhatsApp** and **Copy text** buttons, followed by the **All Announcements** list (newest first) with `Active` / `Scheduled` / `Expired` status text and a confirmation modal before deletion.
+  1. **Header Bar**: Left-to-right flow starting with the brand logo, `Trendz Tracker` (`white-space: nowrap; overflow: hidden; text-overflow: ellipsis`), and the `44 × 44 px` vertical three-dot button (`aria-label="Menu"`, `aria-haspopup="true"`, `aria-expanded`, `aria-controls`).
+  2. **Student Unread Notification Indicator**: Reads the existing cached unread count from session storage / notification badge state (zero additional database requests). When unread $> 0$, displays a subtle semantic dot on the `44 × 44 px` menu button and a numeric badge next to **Notifications** inside the menu.
+  3. **Opening the Menu**:
+     - On viewports $> 700\text{ px}$, opens a clean card panel anchored directly below the menu button (`~300 px` wide, `max-height: calc(100vh - 80px)`, internal vertical scroll).
+     - On viewports $\le 700\text{ px}$, slides in a left drawer over a dimmed overlay (`backdrop`), locks page scroll (`overflow: hidden` on `<body>`), and traps `Tab` / `Shift+Tab` focus inside the drawer.
+     - Automatically moves keyboard focus to the first menu item upon open.
+  4. **Navigating & Closing**:
+     - Each menu row is at least `44 px` tall, grouped under subtle group headings (`Today`, `Practice`, `Weekly Test`, `Leaderboard`, `Monthly Report`, `Notifications`, `Account` for students; `Main`, `Settings` with the Settings hub link + all sub-pages, `Account` for admins).
+     - The active page has `aria-current="page"` and a visible check mark / `"Current"` indicator (never relying on colour alone).
+     - Pressing `ArrowDown` / `ArrowUp` (with wrap-around between last and first item), `Home`, or `End` moves focus across items.
+     - Pressing `Escape`, clicking/tapping the backdrop or outside the panel, choosing a link, or changing pages closes the menu and restores focus to the three-dot menu button.
 - **Visual Identity & Theme**:
-  - Consistent with the existing Trendz Tracker light/clean workspace theme (`css/main.css`), using tabular numerals (`font-variant-numeric: tabular-nums`) for dates, counts, and character counters, high-contrast status indicators (`Active` green, `Scheduled` blue/amber, `Expired` neutral slate), and accessible modal/toast patterns (`js/modal.js`, `js/toast.js`).
+  - Uses existing Phase 14b design tokens exclusively (`--bg-page`, `--bg-card`, `--border-color`, `--text-main`, `--text-muted`, `--accent`, `--accent-soft`, `--shadow-modal`, `--radius-md`, `--radius-lg`, spacing `4/8/12/16/24/32`, type scale `14/16/18/22/28`).
+  - Single clean SVG stroke icon style (vertical three-dot icon and check mark indicator); zero emoji anywhere in headers, groups, or menu items.
+  - Respects `@media (prefers-reduced-motion: reduce)` by disabling drawer slide transitions when reduced motion is enabled.
 
 ---
 
 ## 3. Key Product Decisions & Trade-Offs
 
-- **Decision 1: Live On-Open Reminder Derivation (`my_notifications()`) with 60s `sessionStorage` Caching**
-  - *Chosen Approach*: Compute weekly test reminders (`test_upcoming`, `test_today`) and active announcements on the fly in Postgres when the student opens the app, caching the count/list in `sessionStorage` for 60 seconds and invalidating immediately on dismissal or manual refresh.
-  - *Why*: Eliminates background cron jobs for daily reminder fan-out, avoids stale notification rows when an admin edits a test's date, level, or `remind_days_before` (or removes a test), and automatically hides an online test reminder on test day once the student completes all sections.
-  - *Alternatives Considered*:
-    - *Alternative A (Scheduled cron job materializing rows into a `student_notifications` table)*: Rejected because any change to a weekly test's date, level, or deletion would require complex synchronization and extra cron quota.
-    - *Alternative B (Web Push / Service Worker notifications)*: Rejected for this phase because students often share family devices or use browsers where push permissions are blocked, and on-open reminders + WhatsApp group sharing match the academy's workflow without permission prompts.
-
-- **Decision 2: 5-Second Undo Toast on Notification Dismissal**
-  - *Chosen Approach*: When a student clicks **Dismiss**, immediately remove the item from the visible list, update the badge count, and show a 5-second toast (`"Notification dismissed"` with an **Undo** action). Commit the RPC `dismiss_notification(p_ref)` after the 5-second window (or immediately if the student navigates away) so accidental clicks can be reversed cleanly without needing an `undismiss` RPC.
-  - *Why*: The database provides `dismiss_notification(p_ref)` (one-way insert into dismissals), and an optimistic 5-second undo window before committing gives instant UI feedback and genuine undo capability with zero schema changes.
-  - *Alternatives Considered*:
-    - *Calling `dismiss_notification(p_ref)` immediately before showing Undo*: Rejected because without a database `undismiss` RPC, clicking Undo could not remove the dismissal record from the database.
-
-- **Decision 3: Pure WhatsApp / Copy Message Builder (`js/reportMessage.js`) Without Phone Numbers**
-  - *Chosen Approach*: Build the share message in a pure, unit-tested function `buildWeeklyTestShareMessage(test)` producing `"Weekly test: <title> on <weekday, day month>. <Online on the Trendz Tracker website / With your trainer>. <notes shortened to 120 characters>"`, and open `https://wa.me/?text=<encodeURIComponent(msg)>` in a new tab (`rel="noopener noreferrer"`).
-  - *Why*: Trainers post announcements to existing class WhatsApp groups; `wa.me/?text=...` lets the trainer pick any group or contact in WhatsApp without Trendz Tracker ever collecting or storing student/parent phone numbers.
+- **Decision 1: Single Navigation Config Driving Both Inline Bar and Menu**
+  - *Chosen Approach*: Define every student and admin destination once in a single module with `{ id, label, href, group, inline, badge }`, validated by an automated test against the Vite multi-page build inputs.
+  - *Why*: Eliminates drift between desktop inline links, mobile drawer links, and individual HTML templates. Adding or renaming a page updates every viewport automatically and is enforced by unit tests.
+- **Decision 2: Menu as the Sole Navigation Below `1100 px`**
+  - *Chosen Approach*: Show the 3–4 highest-frequency inline links only at $\ge 1100\text{ px}$ and hide inline links below `1100 px`.
+  - *Why*: At tablet and phone widths (`390 px` – `1024 px`), even four inline links alongside the brand title, three-dot button, student/teacher name, ID chip, and Sign Out button cause line wrapping or horizontal overflow. Moving all navigation into the three-dot menu below `1100 px` guarantees a single-line, calm header at every width.
 
 ---
 
 ## 4. Technical Architecture & Data Strategy *(Technical Reference)*
 
-### Architecture & Component Diagram
-
 ```
-┌───────────────────────────────────────────────────────────────────────────────┐
-│                              STUDENT EXPERIENCE                               │
-│                                                                               │
-│  ┌──────────────────────────────┐      ┌───────────────────────────────────┐  │
-│  │ Student Top Nav (All Pages)  │      │ Student Home (/pages/student.html)│  │
-│  │ • Bell Icon + Badge (1..9,9+)│      │ • Compact Strip (up to 3 items)   │  │
-│  │ • 60s sessionStorage cache   │      │ • "See all notifications" link    │  │
-│  └──────────────┬───────────────┘      └─────────────────┬─────────────────┘  │
-│                 │                                        │                    │
-│                 ▼                                        ▼                    │
-│  ┌─────────────────────────────────────────────────────────────────────────┐  │
-│  │           Student Notifications Page (/pages/notifications.html)        │  │
-│  │  • Groups: "Weekly tests" & "Announcements" (js/notificationsView.js)   │  │
-│  │  • Chips: Date ("Sun 2 Nov") + Stage ("In 4 days" | "Tomorrow" | "Today")│ │
-│  │  • Actions: "Open" (internal link) & "Dismiss" (5s Undo -> RPC commit)  │  │
-│  └──────────────┬────────────────────────────────────────┬─────────────────┘  │
-└─────────────────┼────────────────────────────────────────┼────────────────────┘
-                  │ RPC: my_notifications()                │ RPC: dismiss_notification(p_ref)
-                  ▼                                        ▼
-┌───────────────────────────────────────────────────────────────────────────────┐
-│                         SUPABASE POSTGRES / DEMO DB                           │
-│  • RPC my_notifications()         • RPC dismiss_notification(p_ref)           │
-│  • Table announcements            • Table weekly_tests (+ sections)           │
-└─────────────────▲────────────────────────────────────────▲────────────────────┘
-                  │ CRUD: announcements / weekly_tests     │ Service Role: weekly_tests (next 7d)
-┌─────────────────┼────────────────────────────────────────┼────────────────────┐
-│                 │             ADMIN EXPERIENCE           │                    │
-│  ┌──────────────┴───────────────────────────────┐  ┌─────┴─────────────────┐  │
-│  │ Admin Announcements (/pages/announcements)   │  │ Weekly Report Email   │  │
-│  │ • Compose (1-80 title, 1-500 body, IST dates)│  │ (api/weekly-report.js │  │
-│  │ • "What students see" live preview card      │  │  & api/_reportEmail)  │  │
-│  │ • List (Active/Scheduled/Expired) + Delete   │  │ • "Upcoming weekly    │  │
-│  │ • Upcoming Tests (14d) WhatsApp & Copy share │  │   tests (next 7 days)"│  │
-│  │   via pure js/reportMessage.js               │  └───────────────────────┘  │
-│  └──────────────────────────────────────────────┘                             │
-└───────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                     Vite Multi-Page Entry Points                         │
+│  • Student pages (10)   • Admin pages (17)   • Stage/Public allowlist (5)│
+└───────────────────────────────────┬──────────────────────────────────────┘
+                                    │Validated by node --test
+                                    ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                        Single Navigation Config                          │
+│  • Role: 'student' (Today, Practice[5], Weekly Test, Leaderboard,        │
+│    Monthly Report, Notifications[badge], Account, Sign out)              │
+│  • Role: 'admin' (Overview, Students, Review, Attendance, Weekly Tests,  │
+│    Leaderboard, Monthly Report, Settings Hub + 10 Settings pages,        │
+│    Account, Sign out)                                                    │
+└─────────────────┬───────────────────────────────────────┬────────────────┘
+                  │                                       │
+                  ▼                                       ▼
+┌───────────────────────────────────┐   ┌──────────────────────────────────┐
+│       Pure Menu State Engine      │   │     Unified Header Controller    │
+│  • open / close state transitions │   │  • Mounts [Logo][Title][⋮ Button]│
+│  • ArrowUp / ArrowDown wrap index │   │  • Renders short inline links    │
+│  • Home / End & Tab focus trap    │   │    (>= 1100px only)              │
+│  • Full-screen stage detection    │   │  • Renders anchored panel (>700) │
+└───────────────────────────────────┘   │    or left drawer (<=700px)      │
+                                        │  • Syncs cached unread badge dot │
+                                        └──────────────────────────────────┘
 ```
 
-### Pure Helpers & Unit Test Specifications
+- **Data Model & State**:
+  - **Role Navigation Entry**: `{ id, label, href, group, inline, badge, action }` where `action: 'signout'` handles the Sign Out item and `action: 'account'` jumps to or highlights the user's account section/profile action.
+  - **Menu State Object**: `{ isOpen: boolean, focusedIndex: number, itemCount: number, triggerReturnFocus: boolean }` managed by pure functions so every keyboard transition (`ArrowDown`, `ArrowUp`, `Home`, `End`, `Tab`, `Shift+Tab`, `Escape`) is deterministically testable without a browser DOM.
+  - **Stage Exclusion Guard**: Automatically skips rendering the header/menu on `/pages/basics-practice.html`, `/pages/element-drill.html`, `/pages/memoriad-play.html`, and dynamically hides the `.header` when `flash.html` or `weekly-test.html` enters an active timed play/test stage.
 
-1. **`js/notificationsView.js` (tested in `tests/notificationsView.test.js`)**:
-   - `stageLabel(days_left)`:
-     - Returns `'Today'` when `days_left === 0` (or `<= 0`).
-     - Returns `'Tomorrow'` when `days_left === 1`.
-     - Returns `'In N days'` when `days_left >= 2` (e.g. `'In 4 days'`).
-     - Returns `''` when `days_left` is `null` or `undefined` (such as general announcements without a countdown stage).
-   - `groupNotifications(items)`:
-     - Splits an array of notification rows into `{ tests: [...], announcements: [...] }` where `kind === 'test_upcoming' || kind === 'test_today'` go into `tests` and `kind === 'announcement'` go into `announcements`, preserving order.
-   - `badgeText(count)`:
-     - Returns `''` when `count <= 0` or not a positive number (badge hidden).
-     - Returns `String(count)` for integers `1` through `9`.
-     - Returns `'9+'` when `count > 9`.
-   - `formatShortEventDateIST(dateVal)`:
-     - Formats `YYYY-MM-DD` or ISO timestamp in `Asia/Kolkata` as `"Sun 2 Nov"`.
+---
 
-2. **`js/reportMessage.js` (tested in `tests/reportMessage.test.js`)**:
-   - `buildWeeklyTestShareMessage(test)`:
-     - Builds: `"Weekly test: <title> on <weekday, day month>. <Online on the Trendz Tracker website | With your trainer>. <notes shortened to 120 characters>"` (when `notes` is empty/blank, omits the trailing notes sentence cleanly or trims trailing whitespace; when `notes` exceeds 120 characters, truncates to 120 characters).
-   - `formatReminderStartPreview(testDateStr, remindDaysBefore)`:
-     - Computes the India-time start date (`test_date - remind_days_before` days) and returns `"Students will see a reminder from <date> until the test day."` for `/pages/weekly-tests.html`.
+## 5. Five-Line Session Summary & Beginner Test Guide
 
-3. **`api/weekly-report.js` & `api/_reportEmail.js` (tested in `tests/reportEmail.test.js`)**:
-   - `api/weekly-report.js` queries `weekly_tests` for the next 7 days after `week_end` (`test_date > week_end` through `week_end + 7 days`, or from today through `+7 days` in IST) using the service-role client (with admin session fallback) and attaches `upcoming_weekly_tests: [{ title, type, date, level }]` to `reportData`.
-   - `buildWeeklyEmail(data)` adds the **"Upcoming weekly tests (next 7 days)"** section in both plain text and HTML (with full HTML escaping of `title`, `type`, `date`, and `level`), outputting `"No weekly tests scheduled"` when the list is empty.
+### 5-Line Session Summary
+1. Audited all 32 HTML entry points in the Vite build configuration and mapped every student and admin page into a single role-based navigation design (`student` and `admin`) with an explicit allowlist for login and full-screen drill stages.
+2. Designed the pure menu state engine covering open/close state transitions, wrap-around `ArrowUp`/`ArrowDown` focus indexing, and `Tab`/`Shift+Tab` focus trapping.
+3. Designed the unified non-wrapping header layout (`[Logo] [Trendz Tracker] [44×44 Three-Dot Menu Button] [Short Inline Links >=1100px] [Right Account & Sign Out]`) using existing Phase 14b CSS tokens.
+4. Configured student unread notification counts to reuse the existing cached badge state so both the menu button dot and the Notifications menu row update with zero extra network calls.
+5. Prepared automated `node --test` suites and step-by-step responsive verification guides at `1280 px`, `1024 px`, `768 px`, and `390 px`.
+
+### Beginner Test Guide (After Approval)
+1. **Run Automated Tests**: Run `node --test tests/navConfig.test.js tests/navMenuState.test.js` in the terminal and confirm every page in `vite.config.ts` is accounted for with zero duplicate links and all keyboard state tests pass.
+2. **Check Desktop Width (`1280 px`)**: Sign in as a Student and as an Admin; confirm `Trendz Tracker` stays on one line, the `⋮` button sits right beside it, only the short inline links appear (`Today, Weekly Test, Leaderboard` for student; `Overview, Students, Review, Weekly Tests` for admin), and clicking `⋮` opens a `~300 px` panel anchored under the button.
+3. **Check Tablet Widths (`1024 px` and `768 px`)**: Resize the browser to `1024 px` and `768 px`; confirm all inline links hide, the header stays on a single clean line, and clicking `⋮` opens the anchored menu panel with all grouped pages and a visible checkmark on the current page.
+4. **Check Phone Width (`390 px`)**: Resize to `390 px`; confirm clicking `⋮` opens a left slide-in drawer over a dimmed backdrop, locks background scrolling, traps `Tab` focus inside the drawer, and closes when pressing `Escape` or tapping the backdrop (returning focus to `⋮`).
+5. **Check Full-Screen Practice Stages**: Start a Flash Anzan try, Basics timed round, Elements drill, Memoriad stage, or active Weekly Test section and confirm the global header and `⋮` menu are hidden while the stage's own exit button remains visible.

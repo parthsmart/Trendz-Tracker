@@ -1396,3 +1396,109 @@ This document contains step-by-step test scenarios to verify security boundaries
   5. Click **"Restore task settings"**:
      - Verify the controls return to the task's required settings and the status returns to **"✓ This try counts for today's task"**.
 
+---
+
+## Phase 14b Test Cases & Visual Checklist (Calmer UI, Pass 1)
+
+### Test Case 80: Automated Unit Tests for Form Pattern, Settings Hub & Table Density (`tests/formPattern.test.js`, `tests/settingsHub.test.js`, `tests/tableDensity.test.js`)
+- **Command**: `npm test`
+- **Expected**:
+  - `shouldOpenMoreOptions(optionalValues, isEdit)` returns `false` on create flows, `false` when editing with all optional fields empty/`"any"`, and `true` when editing and at least one optional field has a value.
+  - `buildModalLiveSummary(kind, values)` returns accurate single-line summaries for all modal kinds (`todo`, `weeklyTest`, `profile`, `studentCreate`, `target`, `resource`, `announcement`, `attendance`, `round`).
+  - `filterSettingsEntries(groupId, query)` filters Settings hub entries by category group and search query; `getSettingsBreadcrumb(pathname)` resolves sub-page breadcrumbs.
+  - `getTableDensity` and `setTableDensity` read/write `trendz_table_density` safely inside `try/catch`.
+
+### Test Case 81: Admin Settings Hub & Navigation (`/pages/settings.html`)
+- **Action**:
+  1. Log in as Admin (`ADMIN01` / `admin123`).
+  2. Verify the top navigation bar across all admin pages shows: **Overview, Students, Review, Attendance, Weekly Tests, Leaderboard, Settings**, plus the right-hand account menu (**name, Account, Sign out**).
+  3. Click **Settings** (`/pages/settings.html`):
+     - Verify the left group list shows **All settings, Practice, Competition, Communication, Data**.
+     - Type `"flash"` or `"zip"` in the search box: verify entries filter immediately with one-line descriptions.
+     - Click **Daily To-Do** (`/pages/todos.html`): verify the page loads at its existing address and displays the breadcrumb **Settings > Daily To-Do** at the top.
+
+### Test Case 82: Standardized 520px Modal Pattern Across All 8 Modals
+- **Action**:
+  1. Open each of the 8 modals:
+     - **Add Daily Task** (`/pages/todos.html` $\rightarrow$ `+ Add Task`)
+     - **Create Weekly Test** (`/pages/weekly-tests.html` $\rightarrow$ `+ New Weekly Test`)
+     - **Edit Profile / Add Student** (`/pages/students.html` $\rightarrow$ `Edit` or `+ Add Student`)
+     - **Add Target** (`/pages/targets.html` $\rightarrow$ `+ Add Target Rule`)
+     - **Add Resource** (`/pages/resources.html` $\rightarrow$ `+ Add Resource`)
+     - **Post Announcement** (`/pages/announcements.html` $\rightarrow$ `+ Post announcement`)
+     - **Create Attendance Session** (`/pages/attendance.html` $\rightarrow$ `+ New Session`)
+     - **Create / Edit Student Round** (`/pages/rounds.html` $\rightarrow$ `+ Custom Round` or `Edit`)
+  2. Verify in every modal:
+     - Max width is `520px` with title + one short subtitle sentence.
+     - Field labels are sentence-case (`14px`, weight `500`), including **"Type"**, **"Specific activity (optional)"**, and **"Level (optional)"**.
+     - Required fields appear first; optional fields are inside **More options** (collapsed on create; automatically open when editing a record with an optional value).
+     - A live summary sentence updates above the footer buttons as fields change.
+     - Footer has right-aligned **Cancel** (ghost), **Save and add another** (secondary, on create flows), and **Save** (single primary button).
+
+### Test Case 83: Visual & Responsive Checklist at `1280px`, `1024px`, `768px`, and `390px`
+- **How to run**: Open browser DevTools (`F12`), toggle the Device Toolbar (`Ctrl+Shift+M` / `Cmd+Shift+M`), and inspect `/pages/admin.html`, `/pages/settings.html`, `/pages/todos.html`, `/pages/students.html`, and `/pages/attendance.html` at each width:
+  1. **`1280px` (Desktop Wide)**:
+     - Top navigation displays all 7 admin links inline (`Overview` through `Settings`) plus the right-hand account menu without wrapping.
+     - `/pages/settings.html` shows the 2-column layout (`240px` left group nav + right settings cards).
+     - Modals center at `520px` max-width; `.form-row-2` pairs (`Per day` + `Level (optional)`, `Date` + `Type`) sit side-by-side in 2 columns.
+     - Admin tables show sticky headers, `12px` vertical cell padding, no zebra stripes, hover row highlight, and the **Compact** density toggle in the table toolbar (`8px` vertical padding when active).
+  2. **`1024px` (Laptop / Landscape Tablet)**:
+     - Top bar remains on a single row with comfortable spacing; cards have `1px solid #E3E8EF` border and `none` box-shadow by default.
+     - At most one `.btn-primary` button is visible on any screen or inside any open modal.
+     - Status chips for completed/active informational states use neutral slate (`#F1F5F9` / `#334155`), while semantic colours appear only on states needing attention.
+  3. **`768px` (Portrait Tablet)**:
+     - Mobile hamburger menu button toggles the admin navigation drawer cleanly; account menu and **Sign out** remain reachable.
+     - On `/pages/settings.html`, the left sidebar switches to the mobile `<select>` category selector above the search input.
+     - Modals (`520px` max-width) keep `.form-row-2` side-by-side (since `768px >= 600px`) and scroll internally if content exceeds viewport height.
+  4. **`390px` (Mobile Phone Touch Viewport)**:
+     - All interactive buttons, inputs, selects, and touch targets meet the `44px` minimum height rule.
+     - Inside modals, `.form-row-2` stacks cleanly into a single column (`< 600px`), and modal footer buttons wrap cleanly without horizontal overflow.
+     - Wide admin tables scroll horizontally inside `.table-wrapper` while page layout remains locked to `390px` width with zero horizontal page scroll.
+
+---
+
+## Phase 14c Verification — Daily To-Do Task Speed Leaderboard & Leaderboard Date Options
+
+### Test Case 84: Automated Pure Helper Unit Tests (`js/periods.js` & `js/leaderboardView.js`)
+1. Run the Node test suite:
+   ```bash
+   node --test tests/periods.test.js tests/leaderboardView.test.js
+   ```
+2. **Expected**:
+   - `parsePeriod`, `periodValue`, `periodLabel`, and `validatePeriodDate` pass all cases:
+     - `'today'`, `'yesterday'`, `'week'`, `'month'`, `'year'`, `'all'`, and `'date:YYYY-MM-DD'`.
+     - Future dates (after `todayIST`), dates before `2020-01-01`, non-leap `2026-02-29`, and malformed strings are rejected.
+     - Leap day `2028-02-29` is accepted when `todayIST >= '2028-02-29'`.
+     - `periodLabel` returns `"Today, Sat 31 Oct"`, `"Yesterday, Fri 30 Oct"`, `"26 Oct to 1 Nov"`, `"Oct 2026"`, `"2026"`, `"All time"`, and `"Thu 29 Oct 2026"` for reference date `2026-10-31`.
+   - `isSpeedRankableTask` returns `true` only for `section === 'basics'` with a non-empty `category_id`.
+   - `formatBoardValue('todo', value)` formats completed days (`"1 day"`, `"3 days"`) and never formats seconds.
+   - `mapTaskLeaderboardRows` formats `Best` (`"42 correct/min"`), `Best round` (`"21 of 22 in 30 s"`), and `Rounds` (`"5"`).
+
+### Test Case 85: Daily To-Do Leaderboard — All Tasks vs. Basics Task with Category vs. Other Task Types
+1. Sign in as a student or admin and open `/pages/leaderboard.html`.
+2. Click the **Daily To-Do** tab.
+3. **Default (`All tasks`)**:
+   - Confirm **All tasks** is selected by default in the task filter.
+   - Confirm the table shows 3 columns: `Rank`, `Student`, and `Days completed` (showing values like `5 days`, `4 days` — never `3s` or `1s`).
+   - Confirm the card title reads `Daily To-Do - <period label> - <scope or level>`.
+4. **Basics task with a category**:
+   - Select a Basics task that has a specific category (e.g. `Mental Basics: 1-digit 4-rows (1d4r)`).
+   - Confirm the page calls `todo_task_leaderboard` and displays 5 columns: `Rank`, `Student` (with level chip in Global scope), `Best` (e.g. `42 correct/min`), `Best round` (e.g. `21 of 22 in 30 s`), and `Rounds`.
+   - Confirm the explanation text reads: *"Ranked by correct answers per minute in each student's best round on the website. Typed scores, rounds under 20 seconds and rounds under 10 questions do not count."*
+   - Confirm the card title reads `<task title> - <period label> - <scope or level>`.
+   - If no qualifying rounds exist in the chosen period, confirm the empty state reads *"No qualifying rounds in this period."*
+5. **Every other task type (`flash`, `elements`, `memoriad`, `round`, or `basics` without a category)**:
+   - Select a Round, Flash Anzan, Elements, Memoriad, or Any-Basics task.
+   - Confirm `todo_task_leaderboard` is **not** called, no time column is shown, and the info banner *"Speed ranking is not available for this kind of task yet."* appears above the **All tasks** days-completed board.
+   - Confirm the card title reads `<task title> - <period label> - <scope or level>`.
+
+### Test Case 86: Period Selector, Date Picker, and Shareable URL State
+1. On `/pages/leaderboard.html`, verify the period selector appears on **Points**, **Practice days**, **Daily To-Do**, and the task board, and is hidden on **Streak** and **Most improved**.
+2. Click each period option (**Today**, **Yesterday**, **This week**, **This month**, **This year**, **All time**) and verify:
+   - The badge next to the card title shows the exact India-time range (`Today, Sat 31 Oct`, `Yesterday, Fri 30 Oct`, `26 Oct to 1 Nov`, `Oct 2026`, `2026`, `All time`).
+   - The browser address bar updates (`?board=...&period=...`).
+3. Click **Pick a date**:
+   - Confirm a date input (`min="2020-01-01"`, `max="<today in IST>"`) appears.
+   - Pick a valid past date (e.g. `2026-10-29`) and confirm the URL updates to `period=date:2026-10-29` and the range badge next to the title shows `Thu 29 Oct 2026`.
+   - Reload the page (or open the URL in a new tab) and confirm the board, period (`date:2026-10-29`), and selected task are restored.
+   - Test an invalid URL such as `?board=todo&period=date:2099-01-01` or `?period=bad`: confirm invalid values are ignored and the board falls back cleanly to `This week`.

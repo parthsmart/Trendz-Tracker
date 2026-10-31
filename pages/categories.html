@@ -16,7 +16,20 @@
         <div class="container header-inner">
           <!-- Zone 1: Wordmark & Brand -->
           <a href="/pages/admin.html" class="brand-zone">
-            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span class="brand-icon" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="4" y="2" width="16" height="20" rx="2"></rect>
+                <line x1="8" y1="6" x2="16" y2="6"></line>
+                <line x1="16" y1="14" x2="16" y2="18"></line>
+                <path d="M16 10h.01"></path>
+                <path d="M12 10h.01"></path>
+                <path d="M8 10h.01"></path>
+                <path d="M12 14h.01"></path>
+                <path d="M8 14h.01"></path>
+                <path d="M12 18h.01"></path>
+                <path d="M8 18h.01"></path>
+              </svg>
+            </span>
             <span>Trendz Tracker</span>
           </a>
 
@@ -32,40 +45,23 @@
           <!-- Zone 2: Navigation Links -->
           <nav class="nav-zone" id="admin-nav-zone" aria-label="Admin Navigation">
             <a href="/pages/admin.html" class="nav-link">Overview</a>
-            <a href="/pages/review.html" class="nav-link">Review</a>
             <a href="/pages/students.html" class="nav-link">Students</a>
+            <a href="/pages/review.html" class="nav-link">Review</a>
             <a href="/pages/attendance.html" class="nav-link">Attendance</a>
             <a href="/pages/weekly-tests.html" class="nav-link">Weekly Tests</a>
             <a href="/pages/leaderboard.html" class="nav-link">Leaderboard</a>
-            <a href="/pages/monthly-report.html" class="nav-link">Monthly Report</a>
-            
-            <!-- Setup Dropdown -->
-            <div class="nav-dropdown">
-              <button type="button" class="nav-link nav-dropdown-toggle active" id="btn-setup-dropdown" aria-expanded="false" aria-haspopup="true">
-                Setup <span style="font-size: 10px; margin-left: 2px;">▾</span>
-              </button>
-              <div class="nav-dropdown-menu" id="setup-dropdown-menu" role="menu">
-                <a href="/pages/todos.html" class="dropdown-item" role="menuitem">Daily To-Do</a>
-                <a href="/pages/resources.html" class="dropdown-item" role="menuitem">Resources</a>
-                <a href="/pages/categories.html" class="dropdown-item active" role="menuitem" aria-current="page">Categories</a>
-                <a href="/pages/rounds.html" class="dropdown-item" role="menuitem">Rounds</a>
-                <a href="/pages/targets.html" class="dropdown-item" role="menuitem">Targets</a>
-                <a href="/pages/competition.html" class="dropdown-item" role="menuitem">Competition</a>
-                <a href="/pages/import.html" class="dropdown-item" role="menuitem">Import</a>
-                <a href="/pages/backup.html" class="dropdown-item" role="menuitem">Backup</a>
-              </div>
-            </div>
+            <a href="/pages/settings.html" class="nav-link active" aria-current="page">Settings</a>
           </nav>
 
           <!-- Zone 3: User Details & Logout Action -->
           <div class="actions-zone">
-            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+            <div class="meta-row" style="font-size: var(--text-sm); display: none;" id="user-pill-container">
               <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Admin</span>
               <span class="meta-separator" aria-hidden="true">·</span>
               <span id="header-user-role" style="color: var(--text-muted);">Teacher</span>
             </div>
             <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
-              Sign Out
+              Sign out
             </button>
           </div>
         </div>
@@ -74,13 +70,20 @@
       <!-- Main Page Content -->
       <main class="main-content">
         <div class="container">
+          <!-- Breadcrumb -->
+          <nav class="settings-breadcrumb" aria-label="Breadcrumb">
+            <a href="/pages/settings.html">Settings</a>
+            <span class="settings-breadcrumb-sep" aria-hidden="true">&gt;</span>
+            <span aria-current="page">Categories</span>
+          </nav>
+
           <!-- Demo Mode Banner Placeholder -->
           <div id="config-banner-placeholder"></div>
 
           <!-- Page Heading & Primary Action Button -->
           <div class="section-header-row" style="margin-bottom: var(--space-6);">
             <div>
-              <h1>Categories & Competition Tracks</h1>
+              <h1>Categories &amp; Competition Tracks</h1>
               <p style="font-size: var(--text-sm);">
                 Manage Junior Mental Calculation World Championship rounds, speed basics, elements, and flash anzan.
               </p>
@@ -93,7 +96,7 @@
           <!-- Data Integrity Notice -->
           <div class="banner banner-info" style="margin-bottom: var(--space-6);">
             <div>
-              <strong>🔒 Historical Data Integrity:</strong> Categories are never permanently deleted once created.
+              <strong>Historical Data Integrity:</strong> Categories are never permanently deleted once created.
               If a category is no longer used, click <em>Deactivate</em> so past competition records and practice scores remain preserved.
             </div>
           </div>
@@ -128,23 +131,28 @@
     <div id="add-category-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="add-cat-title">
       <div class="modal-dialog">
         <header class="modal-header">
-          <h2 id="add-cat-title" class="modal-title">Add Category</h2>
+          <div>
+            <h2 id="add-cat-title" class="modal-title">Add Category</h2>
+            <p class="modal-subtitle">Create a new competition round or practice drill category.</p>
+          </div>
           <button type="button" class="modal-close" data-close-modal="add-category-modal" aria-label="Close modal">&times;</button>
         </header>
         <form id="add-category-form">
           <div class="modal-body">
+            <div id="add-cat-error" class="form-error-summary" style="display: none;" role="alert"></div>
+
             <div class="form-group">
-              <label for="new-cat-section" class="form-label">Section *</label>
+              <label for="new-cat-section" class="form-label">Type *</label>
               <select id="new-cat-section" class="form-select" required>
                 <option value="round">Championship Round</option>
-                <option value="basics">Basics (Digits & Rows)</option>
+                <option value="basics">Basics (Digits &amp; Rows)</option>
                 <option value="elements">Elements</option>
                 <option value="flash">Flash Anzan</option>
               </select>
             </div>
 
-            <div class="form-group">
-              <label for="new-cat-name" class="form-label">Category Name *</label>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="new-cat-name" class="form-label">Category name *</label>
               <input
                 type="text"
                 id="new-cat-name"
@@ -153,11 +161,9 @@
                 required
               />
             </div>
-
-            <div id="add-cat-error" class="banner banner-error" style="display: none; margin-bottom: 0;" role="alert"></div>
           </div>
           <footer class="modal-footer">
-            <button type="button" class="btn btn-outline" data-close-modal="add-category-modal">Cancel</button>
+            <button type="button" class="btn btn-ghost" data-close-modal="add-category-modal">Cancel</button>
             <button type="submit" id="btn-submit-add-cat" class="btn btn-primary">
               <span id="btn-add-cat-text">Add Category</span>
             </button>
@@ -170,14 +176,18 @@
     <div id="rename-category-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="rename-cat-title">
       <div class="modal-dialog">
         <header class="modal-header">
-          <h2 id="rename-cat-title" class="modal-title">Rename Category</h2>
+          <div>
+            <h2 id="rename-cat-title" class="modal-title">Rename Category</h2>
+            <p class="modal-subtitle">Update the display name for this category across all views.</p>
+          </div>
           <button type="button" class="modal-close" data-close-modal="rename-category-modal" aria-label="Close modal">&times;</button>
         </header>
         <form id="rename-category-form">
           <input type="hidden" id="rename-cat-id" />
           <div class="modal-body">
-            <div class="form-group">
-              <label for="rename-cat-name" class="form-label">New Category Name *</label>
+            <div id="rename-cat-error" class="form-error-summary" style="display: none;" role="alert"></div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="rename-cat-name" class="form-label">New category name *</label>
               <input
                 type="text"
                 id="rename-cat-name"
@@ -185,10 +195,9 @@
                 required
               />
             </div>
-            <div id="rename-cat-error" class="banner banner-error" style="display: none; margin-bottom: 0;" role="alert"></div>
           </div>
           <footer class="modal-footer">
-            <button type="button" class="btn btn-outline" data-close-modal="rename-category-modal">Cancel</button>
+            <button type="button" class="btn btn-ghost" data-close-modal="rename-category-modal">Cancel</button>
             <button type="submit" id="btn-submit-rename-cat" class="btn btn-primary">
               <span id="btn-rename-cat-text">Save Changes</span>
             </button>

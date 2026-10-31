@@ -7,8 +7,10 @@ import { isSupabaseConfigured } from './config.js';
 import { getSupabase, DemoDB } from './supabaseClient.js';
 import { openModal, closeModal, setupModalListeners, setupAdminNav } from './modal.js';
 import { showToast } from './toast.js';
+import { shouldOpenMoreOptions, buildModalLiveSummary, setMoreOptionsOpen } from './formPattern.js';
 
 let allResources = [];
+let submitAndAddAnotherResource = false;
 
 /**
  * Validates that a URL strictly starts with http:// or https://
@@ -63,7 +65,6 @@ function renderResourcesTable() {
       <tr>
         <td colspan="6" class="empty-state-cell">
           <div class="empty-state">
-            <div class="empty-state-icon" aria-hidden="true">📚</div>
             <h3 class="empty-state-title">No learning resources published yet</h3>
             <p class="empty-state-desc">Click <strong>+ Add Resource</strong> above to add curriculum guides, competition rulebooks, or practice worksheets.</p>
           </div>
@@ -110,7 +111,7 @@ function renderResourcesTable() {
             <button type="button" class="btn btn-outline btn-sm btn-edit-resource" data-id="${res.id}">
               Edit
             </button>
-            <button type="button" class="btn ${res.active ? 'btn-outline' : 'btn-primary'} btn-sm btn-toggle-resource" data-id="${res.id}" data-active="${res.active}">
+            <button type="button" class="btn ${res.active ? 'btn-outline' : 'btn-secondary'} btn-sm btn-toggle-resource" data-id="${res.id}" data-active="${res.active}">
               ${res.active ? 'Deactivate' : 'Activate'}
             </button>
           </div>
@@ -147,10 +148,47 @@ function attachTableEventListeners() {
   });
 }
 
+function clearResourceErrors() {
+  const errBanner = document.getElementById('resource-error-banner');
+  if (errBanner) errBanner.style.display = 'none';
+  ['error-resource-title', 'error-resource-topic', 'error-resource-url'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+}
+
+function showResourceError(msg, fieldErrId = null) {
+  if (fieldErrId) {
+    const el = document.getElementById(fieldErrId);
+    if (el) {
+      el.textContent = msg;
+      el.style.display = 'block';
+    }
+  }
+  const errBanner = document.getElementById('resource-error-banner');
+  if (errBanner) {
+    errBanner.textContent = msg;
+    errBanner.style.display = 'block';
+  } else {
+    showToast(msg, 'error');
+  }
+}
+
+function updateResourceLiveSummary() {
+  const summaryEl = document.getElementById('resource-live-summary');
+  if (!summaryEl) return;
+  summaryEl.textContent = buildModalLiveSummary('resource', {
+    title: document.getElementById('resource-title')?.value || '',
+    topic: document.getElementById('resource-topic')?.value || '',
+    active: Boolean(document.getElementById('resource-active')?.checked),
+  });
+}
+
 function openEditModal(resourceId) {
   const res = allResources.find(r => r.id === resourceId);
   if (!res) return;
 
+  clearResourceErrors();
   document.getElementById('modal-resource-title').textContent = 'Edit Learning Resource';
   document.getElementById('resource-id').value = res.id;
   document.getElementById('resource-title').value = res.title;
@@ -159,35 +197,60 @@ function openEditModal(resourceId) {
   document.getElementById('resource-desc').value = res.description || '';
   document.getElementById('resource-active').checked = !!res.active;
 
+  const btnSaveAnother = document.getElementById('btn-save-add-another-resource');
+  if (btnSaveAnother) btnSaveAnother.style.display = 'none';
+
+  setMoreOptionsOpen(
+    document.getElementById('resource-more-options'),
+    shouldOpenMoreOptions([res.description, res.active === false ? 'inactive' : ''], true)
+  );
+
+  updateResourceLiveSummary();
   openModal('modal-resource');
 }
 
 function openAddModal() {
+  clearResourceErrors();
   document.getElementById('modal-resource-title').textContent = 'Add Learning Resource';
   document.getElementById('form-resource').reset();
   document.getElementById('resource-id').value = '';
   document.getElementById('resource-active').checked = true;
 
+  const btnSaveAnother = document.getElementById('btn-save-add-another-resource');
+  if (btnSaveAnother) btnSaveAnother.style.display = 'inline-flex';
+
+  setMoreOptionsOpen(document.getElementById('resource-more-options'), false);
+  updateResourceLiveSummary();
   openModal('modal-resource');
 }
 
 async function handleFormSubmit(e) {
   e.preventDefault();
+  clearResourceErrors();
   const id = document.getElementById('resource-id').value;
   const title = document.getElementById('resource-title').value.trim();
   const url = document.getElementById('resource-url').value.trim();
-  const topic = document.getElementById('resource-topic').value.trim() || 'General';
+  const topicRaw = document.getElementById('resource-topic').value.trim();
+  const topic = topicRaw || 'General';
   const description = document.getElementById('resource-desc').value.trim();
   const active = document.getElementById('resource-active').checked;
 
   if (!title) {
-    showToast('Please enter a resource title', 'warning');
+    showResourceError('Please enter a resource title.', 'error-resource-title');
+    submitAndAddAnotherResource = false;
+    return;
+  }
+
+  if (!topicRaw) {
+    showResourceError('Please enter a topic or grouping.', 'error-resource-topic');
+    submitAndAddAnotherResource = false;
     return;
   }
 
   // Strict browser URL validation
   if (!isValidHttpUrl(url)) {
-    showToast('URL must start with http:// or https://', 'error');
+    showResourceError('URL must start with http:// or https://.', 'error-resource-url');
+    submitAndAddAnotherResource = false;
     return;
   }
 
@@ -214,8 +277,14 @@ async function handleFormSubmit(e) {
           if (error) throw error;
           showToast('Resource added successfully', 'success');
         }
-        closeModal('modal-resource');
+        const addAnother = submitAndAddAnotherResource && !id;
+        submitAndAddAnotherResource = false;
         await loadResources();
+        if (addAnother) {
+          openAddModal();
+        } else {
+          closeModal('modal-resource');
+        }
         return;
       }
     }
@@ -228,14 +297,21 @@ async function handleFormSubmit(e) {
       DemoDB.addResource({ title, url, topic, description });
       showToast('Resource added (Demo Mode)', 'success');
     }
-    closeModal('modal-resource');
+    const addAnother = submitAndAddAnotherResource && !id;
+    submitAndAddAnotherResource = false;
     await loadResources();
+    if (addAnother) {
+      openAddModal();
+    } else {
+      closeModal('modal-resource');
+    }
   } catch (err) {
+    submitAndAddAnotherResource = false;
     console.error('Error saving resource:', err);
-    showToast(`Error saving resource: ${err.message}`, 'error');
+    showResourceError(`Error saving resource: ${err.message}`);
   } finally {
     saveBtn.disabled = false;
-    saveBtn.textContent = 'Save Resource';
+    saveBtn.textContent = 'Save';
   }
 }
 
@@ -324,6 +400,21 @@ async function initResourcesPage() {
 
   document.getElementById('btn-open-add-resource')?.addEventListener('click', openAddModal);
   document.getElementById('form-resource')?.addEventListener('submit', handleFormSubmit);
+
+  ['resource-title', 'resource-topic', 'resource-active'].forEach((id) => {
+    const el = document.getElementById(id);
+    el?.addEventListener('input', updateResourceLiveSummary);
+    el?.addEventListener('change', updateResourceLiveSummary);
+  });
+
+  const btnSaveAnother = document.getElementById('btn-save-add-another-resource');
+  const formEl = document.getElementById('form-resource');
+  if (btnSaveAnother && formEl) {
+    btnSaveAnother.addEventListener('click', () => {
+      submitAndAddAnotherResource = true;
+      formEl.requestSubmit();
+    });
+  }
 
   await loadResources();
 }

@@ -14,35 +14,21 @@
         <div class="container header-inner">
           <!-- Zone 1: Wordmark & Brand -->
           <a href="/pages/admin.html" class="brand-zone">
-            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span class="brand-icon" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="16" y1="14" x2="16" y2="18"/><path d="M16 10h.01"/><path d="M12 10h.01"/><path d="M8 10h.01"/><path d="M12 14h.01"/><path d="M8 14h.01"/><path d="M12 18h.01"/><path d="M8 18h.01"/></svg>
+            </span>
             <span>Trendz Tracker</span>
           </a>
 
-          <!-- Zone 2: Navigation Links (Phase 4b Standard Order) -->
+          <!-- Zone 2: Navigation Links -->
           <nav class="nav-zone" aria-label="Admin Navigation">
             <a href="/pages/admin.html" class="nav-link">Overview</a>
-            <a href="/pages/review.html" class="nav-link">Review</a>
             <a href="/pages/students.html" class="nav-link">Students</a>
+            <a href="/pages/review.html" class="nav-link">Review</a>
             <a href="/pages/attendance.html" class="nav-link">Attendance</a>
             <a href="/pages/weekly-tests.html" class="nav-link">Weekly Tests</a>
             <a href="/pages/leaderboard.html" class="nav-link">Leaderboard</a>
-            <a href="/pages/monthly-report.html" class="nav-link">Monthly Report</a>
-            <div class="nav-dropdown active" id="nav-setup-dropdown">
-              <button type="button" class="nav-dropdown-btn active" id="btn-nav-setup" aria-haspopup="true">
-                <span>Setup</span>
-                <span aria-hidden="true">▾</span>
-              </button>
-              <div class="nav-dropdown-menu" role="menu">
-                <a href="/pages/todos.html" class="nav-dropdown-item" role="menuitem">Daily To-Do</a>
-                <a href="/pages/resources.html" class="nav-dropdown-item" role="menuitem">Resources</a>
-                <a href="/pages/categories.html" class="nav-dropdown-item" role="menuitem">Categories</a>
-                <a href="/pages/rounds.html" class="nav-dropdown-item" role="menuitem">Rounds</a>
-                <a href="/pages/targets.html" class="nav-dropdown-item active" role="menuitem">Targets</a>
-                <a href="/pages/competition.html" class="nav-dropdown-item" role="menuitem">Competition</a>
-                <a href="/pages/import.html" class="nav-dropdown-item" role="menuitem">Import</a>
-                <a href="/pages/backup.html" class="nav-dropdown-item" role="menuitem">Backup</a>
-              </div>
-            </div>
+            <a href="/pages/settings.html" class="nav-link active" aria-current="page">Settings</a>
           </nav>
 
           <!-- Zone 3: User Details & Logout Action -->
@@ -68,14 +54,16 @@
           <!-- Demo Mode Banner Placeholder -->
           <div id="config-banner-placeholder"></div>
 
+          <!-- Breadcrumb -->
+          <nav class="breadcrumb-nav" aria-label="Breadcrumb">
+            <a href="/pages/settings.html">Settings</a>
+            <span class="breadcrumb-sep" aria-hidden="true">&gt;</span>
+            <span aria-current="page">Targets</span>
+          </nav>
+
           <!-- Page Heading -->
           <div class="section-header-row" style="margin-bottom: var(--space-6);">
             <div>
-              <div class="meta-row" style="margin-bottom: var(--space-1); font-size: var(--text-xs);">
-                <a href="/pages/admin.html" style="color: var(--color-primary); text-decoration: none;">&larr; Back to Overview</a>
-                <span class="meta-separator">·</span>
-                <span style="color: var(--text-dim);">Basics Track Setup</span>
-              </div>
               <h1>Basics Targets</h1>
               <p style="font-size: var(--text-sm);">
                 Define minimum accuracy %, minimum questions per minute, and maximum time benchmarks for basics speed drills. A level rule overrides the default rule.
@@ -89,7 +77,7 @@
           <!-- Explanation Banner -->
           <div class="card" style="background-color: var(--bg-surface-subtle); border-left: 4px solid var(--color-primary); margin-bottom: var(--space-6); padding: var(--space-4);">
             <div style="font-size: var(--text-xs); line-height: 1.5; color: var(--text-main);">
-              <strong>Rule Hierarchy &amp; Mechanics:</strong> A level rule overrides the default rule. Timed and stopwatch rounds use accuracy and questions per minute. The maximum time only applies to old fixed-question sets and typed entries.
+              <strong>Rule hierarchy:</strong> A level rule overrides the default rule. Timed and stopwatch rounds use accuracy and questions per minute. The maximum time only applies to old fixed-question sets and typed entries.
             </div>
           </div>
 
@@ -105,102 +93,117 @@
 
     <!-- MODAL: Add / Edit Target Rule -->
     <div id="target-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="target-modal-title">
-      <div class="modal-dialog">
+      <div class="modal-dialog" style="max-width: 520px;">
         <header class="modal-header">
-          <h2 class="modal-title" id="target-modal-title">Add Target Rule</h2>
+          <div>
+            <h2 class="modal-title" id="target-modal-title">Add Target Rule</h2>
+            <p class="modal-subtitle">Set speed and accuracy benchmarks for a Basics category.</p>
+          </div>
           <button type="button" class="modal-close" data-close-modal="target-modal" aria-label="Close modal">&times;</button>
         </header>
 
-        <form id="target-form">
+        <form id="target-form" novalidate>
           <input type="hidden" id="target-id-input" />
 
           <div class="modal-body">
-            <!-- Short Explanation -->
-            <div style="background: var(--bg-surface-subtle); border-radius: var(--radius-sm); padding: var(--space-3); margin-bottom: var(--space-4); font-size: var(--text-xs); color: var(--text-muted); line-height: 1.4;">
-              Timed and stopwatch rounds use accuracy and questions per minute. The maximum time only applies to old fixed-question sets and typed entries.
-            </div>
+            <!-- Top Error Banner -->
+            <div id="target-error-banner" class="banner banner-error" style="display: none; margin-bottom: var(--space-4);" role="alert"></div>
 
-            <!-- Category (Basics only) -->
-            <div class="form-group">
-              <label for="target-category-select" class="form-label">Basics Category *</label>
-              <select id="target-category-select" class="form-select" required>
-                <option value="">Select a basics category...</option>
-              </select>
-              <span class="form-hint">Only categories in the Basics section can have target rules.</span>
-            </div>
-
-            <!-- Level (Optional) -->
-            <div class="form-group">
-              <label for="target-level-input" class="form-label">Student Level (Optional)</label>
-              <input
-                type="text"
-                id="target-level-input"
-                class="form-input"
-                list="levels-datalist"
-                placeholder="Leave blank for Default Category Rule, or enter Level 1, Level 2..."
-              />
-              <datalist id="levels-datalist">
-                <!-- Populated dynamically with student profile levels -->
-              </datalist>
-              <span class="form-hint">Leave blank to set the default rule for all levels.</span>
-            </div>
-
-            <!-- Accuracy, Questions per Minute, and Time -->
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--space-4);">
+            <!-- Required Fields side-by-side from 600px -->
+            <div class="form-row-2">
               <div class="form-group">
-                <label for="target-accuracy-input" class="form-label">Minimum Accuracy (%) *</label>
+                <label for="target-category-select" class="form-label">Basics category *</label>
+                <select id="target-category-select" class="form-select" required>
+                  <option value="">Select a basics category...</option>
+                </select>
+                <div id="error-target-category" class="form-error" style="display: none;"></div>
+              </div>
+
+              <div class="form-group">
+                <label for="target-accuracy-input" class="form-label">Minimum accuracy (%) *</label>
                 <input
                   type="number"
                   id="target-accuracy-input"
-                  class="form-input"
+                  class="form-input num"
                   min="0"
                   max="100"
                   step="1"
                   required
                   placeholder="e.g. 90"
                 />
-                <span class="form-hint">0 to 100 %</span>
-              </div>
-
-              <div class="form-group">
-                <label for="target-qpm-input" class="form-label">Minimum questions per minute</label>
-                <input
-                  type="number"
-                  id="target-qpm-input"
-                  class="form-input"
-                  min="1"
-                  max="500"
-                  step="any"
-                  placeholder="e.g. 40 (Optional)"
-                />
-                <span class="form-hint">Optional (1 to 500) for timed rounds.</span>
-              </div>
-
-              <div class="form-group">
-                <label for="target-time-input" class="form-label">Maximum Time (mm:ss)</label>
-                <input
-                  type="text"
-                  id="target-time-input"
-                  class="form-input"
-                  placeholder="e.g. 2:00 or 1:30 (Optional)"
-                />
-                <span class="form-hint">For old fixed sets &amp; typed entries.</span>
+                <span class="form-hint">Whole number from 0 to 100.</span>
+                <div id="error-target-accuracy" class="form-error" style="display: none;"></div>
               </div>
             </div>
 
-            <div class="form-group" style="margin-bottom: 0;">
-              <label class="custom-checkbox">
-                <input type="checkbox" id="target-active-input" checked />
-                <span>Active Rule (Applies to student targets)</span>
-              </label>
-            </div>
+            <!-- Collapsible More Options -->
+            <details id="target-more-options" class="form-more-options">
+              <summary>More options</summary>
+              <div class="form-more-options-body">
+                <div class="form-group">
+                  <label for="target-level-input" class="form-label">Level (optional)</label>
+                  <input
+                    type="text"
+                    id="target-level-input"
+                    class="form-input"
+                    list="levels-datalist"
+                    placeholder="Leave blank for default category rule"
+                  />
+                  <datalist id="levels-datalist"></datalist>
+                  <span class="form-hint">Leave blank to set the default rule for all levels.</span>
+                </div>
 
-            <div id="target-error-banner" class="banner banner-error" style="display: none; margin-top: var(--space-4); margin-bottom: 0;" role="alert"></div>
+                <div class="form-row-2">
+                  <div class="form-group">
+                    <label for="target-qpm-input" class="form-label">Minimum questions per minute</label>
+                    <input
+                      type="number"
+                      id="target-qpm-input"
+                      class="form-input num"
+                      min="1"
+                      max="500"
+                      step="any"
+                      placeholder="e.g. 40 (optional)"
+                    />
+                    <span class="form-hint">1 to 500 for timed rounds.</span>
+                    <div id="error-target-qpm" class="form-error" style="display: none;"></div>
+                  </div>
+
+                  <div class="form-group">
+                    <label for="target-time-input" class="form-label">
+                      Maximum time (mm:ss)
+                      <span class="info-tooltip-btn" title="The maximum time only applies to old fixed-question sets and typed entries." aria-label="The maximum time only applies to old fixed-question sets and typed entries.">i</span>
+                    </label>
+                    <input
+                      type="text"
+                      id="target-time-input"
+                      class="form-input num"
+                      placeholder="e.g. 2:00 (optional)"
+                    />
+                    <span class="form-hint">For fixed sets &amp; typed entries.</span>
+                    <div id="error-target-time" class="form-error" style="display: none;"></div>
+                  </div>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="custom-checkbox">
+                    <input type="checkbox" id="target-active-input" checked />
+                    <span>Active rule</span>
+                  </label>
+                </div>
+              </div>
+            </details>
+
+            <!-- Live Summary Sentence -->
+            <div id="target-live-summary" class="form-live-summary" aria-live="polite">
+              Target: Basics category, default rule (all levels), accuracy at least 90%
+            </div>
           </div>
 
           <footer class="modal-footer">
-            <button type="button" class="btn btn-outline" data-close-modal="target-modal">Cancel</button>
-            <button type="submit" id="btn-save-target" class="btn btn-primary">Save Rule</button>
+            <button type="button" class="btn btn-ghost" data-close-modal="target-modal">Cancel</button>
+            <button type="button" id="btn-save-add-another-target" class="btn btn-secondary">Save and add another</button>
+            <button type="submit" id="btn-save-target" class="btn btn-primary">Save</button>
           </footer>
         </form>
       </div>

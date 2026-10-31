@@ -16,7 +16,9 @@
         <div class="container header-inner">
           <!-- Zone 1: Wordmark & Brand -->
           <a href="/pages/admin.html" class="brand-zone">
-            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span class="brand-icon" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="16" y1="14" x2="16" y2="18"/><path d="M16 10h.01"/><path d="M12 10h.01"/><path d="M8 10h.01"/><path d="M12 14h.01"/><path d="M8 14h.01"/><path d="M12 18h.01"/><path d="M8 18h.01"/></svg>
+            </span>
             <span>Trendz Tracker</span>
           </a>
 
@@ -32,29 +34,12 @@
           <!-- Zone 2: Navigation Links -->
           <nav class="nav-zone" id="admin-nav-zone" aria-label="Admin Navigation">
             <a href="/pages/admin.html" class="nav-link">Overview</a>
-            <a href="/pages/review.html" class="nav-link">Review</a>
             <a href="/pages/students.html" class="nav-link active">Students</a>
+            <a href="/pages/review.html" class="nav-link">Review</a>
             <a href="/pages/attendance.html" class="nav-link">Attendance</a>
             <a href="/pages/weekly-tests.html" class="nav-link">Weekly Tests</a>
             <a href="/pages/leaderboard.html" class="nav-link">Leaderboard</a>
-            <a href="/pages/monthly-report.html" class="nav-link">Monthly Report</a>
-            
-            <!-- Setup Dropdown -->
-            <div class="nav-dropdown">
-              <button type="button" class="nav-link nav-dropdown-toggle" id="btn-setup-dropdown" aria-expanded="false" aria-haspopup="true">
-                Setup <span style="font-size: 10px; margin-left: 2px;">▾</span>
-              </button>
-              <div class="nav-dropdown-menu" id="setup-dropdown-menu" role="menu">
-                <a href="/pages/todos.html" class="dropdown-item" role="menuitem">Daily To-Do</a>
-                <a href="/pages/resources.html" class="dropdown-item" role="menuitem">Resources</a>
-                <a href="/pages/categories.html" class="dropdown-item" role="menuitem">Categories</a>
-                <a href="/pages/rounds.html" class="dropdown-item" role="menuitem">Rounds</a>
-                <a href="/pages/targets.html" class="dropdown-item" role="menuitem">Targets</a>
-                <a href="/pages/competition.html" class="dropdown-item" role="menuitem">Competition</a>
-                <a href="/pages/import.html" class="dropdown-item" role="menuitem">Import</a>
-                <a href="/pages/backup.html" class="dropdown-item" role="menuitem">Backup</a>
-              </div>
-            </div>
+            <a href="/pages/settings.html" class="nav-link">Settings</a>
           </nav>
 
           <!-- Zone 3: User Details & Logout Action -->
@@ -80,17 +65,16 @@
           <!-- TEACHER READ-ONLY BANNER -->
           <div class="teacher-readonly-banner" style="background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-left: 4px solid var(--color-primary); padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); margin-bottom: var(--space-5); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2);">
             <div style="display: flex; align-items: center; gap: var(--space-2);">
-              <span style="font-size: 1.1rem;" aria-hidden="true">👀</span>
               <span style="font-size: var(--text-sm); font-weight: 600; color: var(--text-main);">
                 Viewing as teacher &mdash; read-only
               </span>
             </div>
             <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
               <a href="/pages/monthly-report.html" class="btn btn-outline btn-sm" id="btn-monthly-report">
-                📊 Monthly Report
+                Monthly Report
               </a>
-              <a href="/pages/review.html" class="btn btn-primary btn-sm" id="btn-review-entries">
-                🔍 Review entries
+              <a href="/pages/review.html" class="btn btn-secondary btn-sm" id="btn-review-entries">
+                Review entries
               </a>
               <a href="/pages/admin.html" class="btn btn-outline btn-sm" id="btn-back-overview">
                 &larr; Back to Overview
@@ -100,14 +84,13 @@
 
           <!-- State: Student Not Found Alert Box (hidden by default) -->
           <div id="student-not-found-box" class="card" style="display: none; padding: var(--space-8); text-align: center; max-width: 540px; margin: 0 auto;">
-            <div style="font-size: 3rem; margin-bottom: var(--space-3);" aria-hidden="true">🔍</div>
-            <h1 style="font-size: 1.25rem; font-weight: 700; margin-bottom: var(--space-2); color: var(--text-main);">
+            <h1 style="font-size: var(--text-lg); font-weight: 700; margin-bottom: var(--space-2); color: var(--text-main);">
               Student Not Found
             </h1>
             <p style="font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-6); line-height: 1.5;" id="student-not-found-msg">
               We could not find a student matching the specified ID. The student may have been deactivated or removed from the institute roster.
             </p>
-            <a href="/pages/admin.html" class="btn btn-primary">
+            <a href="/pages/admin.html" class="btn btn-secondary">
               &larr; Return to Institute Overview
             </a>
           </div>
@@ -118,9 +101,9 @@
             <!-- Student Hero Header (Name, Code, Level, Date, Edit & Change History) -->
             <div class="section-header-row" style="margin-bottom: var(--space-5);">
               <div>
-                <h1 style="font-size: 1.5rem; font-weight: 800; margin-bottom: 4px; display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
+                <h1 style="font-size: var(--text-xl); font-weight: 800; margin-bottom: var(--space-1); display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
                   <span id="detail-student-name">Loading Student...</span>
-                  <span class="badge badge-active" id="detail-student-status" style="font-size: var(--text-xs); font-weight: 600;">Active</span>
+                  <span class="badge badge-active" id="detail-student-status">Active</span>
                 </h1>
                 <div style="font-size: var(--text-xs); color: var(--text-muted); display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap;">
                   <span>Student ID: <strong id="detail-student-code" class="num">—</strong></span>
@@ -131,8 +114,8 @@
                 </div>
               </div>
               <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
-                <button type="button" id="btn-edit-student-profile" class="btn btn-outline btn-sm">
-                  Edit
+                <button type="button" id="btn-edit-student-profile" class="btn btn-primary btn-sm">
+                  Edit profile
                 </button>
                 <button type="button" id="btn-student-change-history" class="btn btn-outline btn-sm">
                   Change history
@@ -289,7 +272,6 @@
               <section class="card" aria-labelledby="flash-week-heading">
                 <div class="card-header">
                   <h2 id="flash-week-heading" class="card-title" style="display: flex; align-items: center; gap: 6px;">
-                    <span aria-hidden="true">🔢</span>
                     <span>Flash Anzan</span>
                   </h2>
                 </div>
@@ -304,7 +286,6 @@
               <section class="card" aria-labelledby="elements-week-heading">
                 <div class="card-header">
                   <h2 id="elements-week-heading" class="card-title" style="display: flex; align-items: center; gap: 6px;">
-                    <span aria-hidden="true">🧮</span>
                     <span>Elements Drills</span>
                   </h2>
                 </div>
@@ -319,7 +300,6 @@
               <section class="card" aria-labelledby="memoriad-week-heading">
                 <div class="card-header">
                   <h2 id="memoriad-week-heading" class="card-title" style="display: flex; align-items: center; gap: 6px;">
-                    <span aria-hidden="true">🧠</span>
                     <span>Memoriad Practice</span>
                   </h2>
                 </div>

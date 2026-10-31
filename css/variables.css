@@ -1,90 +1,149 @@
 /**
- * Trendz Tracker - CSS Design Tokens & Variables
- * All theme variables are defined here so the institute branding can easily be changed later.
+ * Trendz Tracker - CSS Design Tokens & Variables (Phase 14b Calmer UI)
+ * Single source of truth for spacing, typography, radii, borders, shadows, and colors.
+ * All body and helper text tokens maintain >= 4.5:1 WCAG AA contrast on #FFFFFF and #F6F8FB.
  */
 
 :root {
-  /* Brand & Theme Colors (Refined deep slate & academic indigo) */
-  --color-primary: #3b5bdb;         /* Confident vibrant blue/indigo */
-  --color-primary-hover: #364fc7;
-  --color-primary-subtle: #edf2ff;
-  --color-primary-text: #2b3a67;
+  /* --------------------------------------------------------------------------
+     1. Spacing Scale (4, 8, 12, 16, 24, 32 px)
+     -------------------------------------------------------------------------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
 
-  --color-accent: #12b886;          /* Teal/emerald for successes & active status */
-  --color-accent-subtle: #ebfbee;
-  --color-accent-text: #0ca678;
+  /* Legacy spacing aliases mapped onto the strict 4..32 scale */
+  --space-5: var(--space-6);
+  --space-10: var(--space-8);
+  --space-12: var(--space-8);
 
-  --color-warning: #f59f00;         /* Warm amber */
-  --color-warning-subtle: #fff9db;
-  --color-warning-text: #d97706;
+  /* --------------------------------------------------------------------------
+     2. Typography Scale (14, 16, 18, 22, 28 px; body line-height 1.5)
+     -------------------------------------------------------------------------- */
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
-  --color-danger: #e03131;          /* Clean crimson */
-  --color-danger-subtle: #fff5f5;
-  --color-danger-text: #c92a2a;
+  --text-sm: 14px;    /* Small / labels / helpers / table text */
+  --text-base: 16px;  /* Body text */
+  --text-lg: 18px;    /* Section & card titles */
+  --text-xl: 22px;    /* Page & modal titles */
+  --text-2xl: 28px;   /* Hero / key metric headings */
 
-  /* Score Feedback Colors (Shared across Round scores & Basics) */
-  --color-score-perfect: #12b886;   /* Green for all correct (0 wrong, total > 0) */
-  --color-score-perfect-subtle: #ebfbee;
-  --color-score-warning: #f76707;   /* Orange for 1 to 10 wrong */
-  --color-score-warning-subtle: #fff4e6;
-  --color-score-alert: #0c8599;     /* Cyan for more than 10 wrong */
-  --color-score-alert-subtle: #e3fafc;
+  /* Legacy type aliases mapped onto the strict 14..28 scale */
+  --text-xs: var(--text-sm);
+  --text-3xl: var(--text-2xl);
 
-  /* Neutrals (60% dominant canvas, 30% structural surfaces) */
-  --bg-page: #f8f9fa;               /* Clean soft background */
-  --bg-surface: #ffffff;            /* Card & panel surfaces */
-  --bg-surface-subtle: #f1f3f5;     /* Input backdrops, hover states */
-  --bg-surface-elevated: #ffffff;
+  --line-height-body: 1.5;
+  --line-height-heading: 1.25;
 
-  --border-hairline: #e9ecef;       /* Subtle structural border */
-  --border-subtle: #dee2e6;         /* Standard input/card border */
-  --border-focus: #4c6ef5;
-
-  /* Typography Colors */
-  --text-main: #212529;             /* High-contrast body text */
-  --text-muted: #495057;            /* Secondary information */
-  --text-dim: #868e96;              /* Meta & microcopy */
-  --text-inverse: #ffffff;
-
-  /* Font Families */
-  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'JetBrains Mono', 'IBM Plex Mono', Menlo, Consolas, monospace;
-
-  /* Type Scale */
-  --text-xs: 0.75rem;     /* 12px */
-  --text-sm: 0.875rem;    /* 14px */
-  --text-base: 1rem;      /* 16px */
-  --text-lg: 1.125rem;    /* 18px */
-  --text-xl: 1.25rem;     /* 20px */
-  --text-2xl: 1.5rem;     /* 24px */
-  --text-3xl: 1.875rem;   /* 30px */
-
-  /* Spacing Scale */
-  --space-1: 0.25rem;     /* 4px */
-  --space-2: 0.5rem;      /* 8px */
-  --space-3: 0.75rem;     /* 12px */
-  --space-4: 1rem;        /* 16px */
-  --space-5: 1.25rem;     /* 20px */
-  --space-6: 1.5rem;      /* 24px */
-  --space-8: 2rem;        /* 32px */
-  --space-10: 2.5rem;     /* 40px */
-  --space-12: 3rem;       /* 48px */
-
-  /* Radii */
-  --radius-sm: 4px;
+  /* --------------------------------------------------------------------------
+     3. Radii (8 and 12 px)
+     -------------------------------------------------------------------------- */
   --radius-md: 8px;
   --radius-lg: 12px;
-  --radius-xl: 16px;
 
-  /* Shadows (Single-elevation, soft hairline focus) */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.05);
-  --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.08);
+  /* Legacy radius aliases mapped onto 8 and 12 px */
+  --radius-sm: var(--radius-md);
+  --radius-xl: var(--radius-lg);
+  --radius-full: 9999px;
 
-  /* Transitions */
-  --transition-fast: 150ms cubic-bezier(0.16, 1, 0.3, 1);
-  --transition-normal: 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  /* --------------------------------------------------------------------------
+     4. Surfaces & Single Border Colour
+     -------------------------------------------------------------------------- */
+  --bg-page: #F6F8FB;
+  --bg-app: var(--bg-page);
+  --bg-surface: #FFFFFF;
+  --surface-raised: var(--bg-surface);
+  --bg-surface-elevated: var(--bg-surface);
+  --bg-surface-subtle: #F1F5F9;
+  --bg-subtle: var(--bg-surface-subtle);
 
-  /* Max Container Width */
-  --container-max: 1160px;
+  --border-color: #E3E8EF;
+  --border-hairline: var(--border-color);
+  --border-subtle: var(--border-color);
+  --border-strong: var(--border-color);
+
+  /* --------------------------------------------------------------------------
+     5. Two Shadows Only (none by default; overlay shadow for modals & menus)
+     -------------------------------------------------------------------------- */
+  --shadow-none: none;
+  --shadow-overlay: 0 8px 24px rgba(23, 36, 61, 0.12);
+
+  /* Default surface shadows are none; modals/dropdowns use --shadow-overlay */
+  --shadow-sm: var(--shadow-none);
+  --shadow-md: var(--shadow-none);
+  --shadow-lg: var(--shadow-overlay);
+
+  /* --------------------------------------------------------------------------
+     6. Typography Colours (All >= 4.5:1 contrast on #FFFFFF and #F6F8FB)
+     -------------------------------------------------------------------------- */
+  --text-main: #17243D;     /* 15.2:1 on white, 14.1:1 on #F6F8FB */
+  --text-muted: #3E4C63;    /* 8.4:1 on white, 7.8:1 on #F6F8FB */
+  --text-dim: #4B5B76;      /* 6.6:1 on white, 6.1:1 on #F6F8FB */
+  --text-inverse: #FFFFFF;
+
+  /* --------------------------------------------------------------------------
+     7. One Accent Colour for Primary Actions
+     -------------------------------------------------------------------------- */
+  --color-primary: #2563EB;
+  --color-primary-hover: #1D4ED8;
+  --color-primary-subtle: #EFF6FF;
+  --color-primary-text: #1E40AF;
+  --border-focus: var(--color-primary);
+  --color-focus-ring: rgba(37, 99, 235, 0.22);
+
+  /* Map legacy --color-accent to the single primary accent */
+  --color-accent: var(--color-primary);
+  --color-accent-subtle: var(--color-primary-subtle);
+  --color-accent-text: var(--color-primary-text);
+
+  /* --------------------------------------------------------------------------
+     8. Neutral Slate for Completed / Informational Chips
+     -------------------------------------------------------------------------- */
+  --chip-neutral-bg: #F1F5F9;
+  --chip-neutral-text: #334155;
+  --chip-neutral-border: var(--border-color);
+
+  /* --------------------------------------------------------------------------
+     9. Semantic Colours (Only for states that need attention)
+     -------------------------------------------------------------------------- */
+  --color-success: #15803D;
+  --color-success-subtle: #DCFCE7;
+  --color-success-text: #14532D;
+  --color-success-border: #BBF7D0;
+
+  --color-warning: #B45309;
+  --color-warning-subtle: #FEF3C7;
+  --color-warning-text: #92400E;
+  --color-warning-border: #FDE68A;
+
+  --color-danger: #B91C1C;
+  --color-danger-hover: #991B1B;
+  --color-danger-subtle: #FEE2E2;
+  --color-danger-text: #991B1B;
+  --color-danger-border: #FECACA;
+
+  /* Score Feedback Tokens (0 wrong, 1-10 wrong, >10 wrong) */
+  --color-score-perfect: #15803D;
+  --color-score-perfect-subtle: #DCFCE7;
+  --color-score-warning: #B45309;
+  --color-score-warning-subtle: #FEF3C7;
+  --color-score-alert: #0369A1;
+  --color-score-alert-subtle: #E0F2FE;
+  --color-score-danger: #B91C1C;
+  --color-score-danger-subtle: #FEE2E2;
+
+  /* --------------------------------------------------------------------------
+     10. Layout & Transitions
+     -------------------------------------------------------------------------- */
+  --max-width: 1280px;
+  --container-max: 1280px;
+  --modal-max-width: 520px;
+  --header-height: 60px;
+
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }

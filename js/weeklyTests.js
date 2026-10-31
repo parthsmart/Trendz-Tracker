@@ -45,6 +45,7 @@ import {
   parseTimeToSeconds,
 } from './stats.js';
 import { openModal, closeModal, setupModalListeners, setupAdminNav } from './modal.js';
+import { shouldOpenMoreOptions, buildModalLiveSummary, setMoreOptionsOpen } from './formPattern.js';
 
 let currentProfile = null;
 let allTests = [];
@@ -219,7 +220,7 @@ function renderGroupedCategorySelect() {
   let html = '';
 
   if (basics.length > 0) {
-    html += `<optgroup label="⚡ Basics Track">`;
+    html += `<optgroup label="Basics Track">`;
     basics.forEach((c) => {
       html += `<option value="${c.id}">${escapeHtml(c.name)}</option>`;
     });
@@ -227,7 +228,7 @@ function renderGroupedCategorySelect() {
   }
 
   if (rounds.length > 0) {
-    html += `<optgroup label="🏆 Competition Rounds">`;
+    html += `<optgroup label="Competition Rounds">`;
     rounds.forEach((c) => {
       html += `<option value="${c.id}">${escapeHtml(c.name)}</option>`;
     });
@@ -235,7 +236,7 @@ function renderGroupedCategorySelect() {
   }
 
   if (elements.length > 0) {
-    html += `<optgroup label="🧩 Elements Track">`;
+    html += `<optgroup label="Elements Track">`;
     elements.forEach((c) => {
       html += `<option value="${c.id}">${escapeHtml(c.name)}</option>`;
     });
@@ -243,7 +244,7 @@ function renderGroupedCategorySelect() {
   }
 
   if (flash.length > 0) {
-    html += `<optgroup label="⚡ Flash Anzan">`;
+    html += `<optgroup label="Flash Anzan">`;
     flash.forEach((c) => {
       html += `<option value="${c.id}">${escapeHtml(c.name)}</option>`;
     });
@@ -384,8 +385,8 @@ function renderTestsList(requestedSelectId = null) {
     const isOnline = test.test_type === 'online';
     const typeChipLabel = isOnline ? 'Online' : 'Offline';
     const typeChipStyle = isOnline
-      ? 'background: #DBEAFE; color: #1E40AF;'
-      : 'background: var(--bg-surface-subtle); color: var(--text-muted); border: 1px solid var(--border-subtle);';
+      ? 'background: var(--color-primary-subtle); color: var(--color-primary-text);'
+      : 'background: var(--chip-neutral-bg); color: var(--chip-neutral-text); border: 1px solid var(--border-subtle);';
 
     const sectionsCount = Number(test.sections_count) || 0;
     const sectionsMeta = isOnline
@@ -406,32 +407,32 @@ function renderTestsList(requestedSelectId = null) {
         transition: all 0.15s ease;
         display: flex;
         flex-direction: column;
-        gap: 4px;
+        gap: var(--space-1);
         width: 100%;
       ">
         <div style="display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-2);">
           <span style="font-weight: 700; font-size: var(--text-sm); color: ${isSelected ? 'var(--color-primary)' : 'var(--text-main)'};">
             ${escapeHtml(test.title)}
           </span>
-          <span class="num" style="font-size: 11px; color: var(--text-muted); font-weight: 600; white-space: nowrap;">
+          <span class="num" style="font-size: var(--text-xs); color: var(--text-muted); font-weight: 600; white-space: nowrap;">
             ${escapeHtml(dateFormatted)}
           </span>
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 2px; gap: var(--space-2);">
           <div style="display: inline-flex; align-items: center; gap: 6px; min-width: 0;">
-            <span class="status-chip" style="font-size: 10px; padding: 1px 6px; ${typeChipStyle}">
+            <span class="status-chip" style="${typeChipStyle}">
               ${typeChipLabel}
             </span>
             ${
               test.audience_level
-                ? `<span class="status-chip" style="font-size: 10px; padding: 1px 6px; background: #F3E8FF; color: #6B21A8;">${escapeHtml(test.audience_level)}</span>`
+                ? `<span class="status-chip">${escapeHtml(test.audience_level)}</span>`
                 : ''
             }
-            <span style="font-size: 11px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+            <span style="font-size: var(--text-xs); color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
               ${sectionsMeta}
             </span>
           </div>
-          <span class="status-chip ${test.scores_count > 0 ? 'chip-verified' : 'chip-unverified'}" style="font-size: 10px; padding: 1px 6px; flex-shrink: 0;">
+          <span class="status-chip ${test.scores_count > 0 ? 'chip-verified' : 'chip-unverified'}" style="flex-shrink: 0;">
             ${test.scores_count} ${test.scores_count === 1 ? 'score' : 'scores'}
           </span>
         </div>
@@ -498,8 +499,8 @@ async function selectTest(testId) {
   if (typeChipEl) {
     typeChipEl.style.display = 'inline-flex';
     typeChipEl.textContent = isOnline ? 'Online' : 'Offline';
-    typeChipEl.style.background = isOnline ? '#DBEAFE' : 'var(--bg-surface-subtle)';
-    typeChipEl.style.color = isOnline ? '#1E40AF' : 'var(--text-muted)';
+    typeChipEl.style.background = isOnline ? 'var(--color-primary-subtle)' : 'var(--chip-neutral-bg)';
+    typeChipEl.style.color = isOnline ? 'var(--color-primary-text)' : 'var(--chip-neutral-text)';
   }
 
   if (metaEl) {
@@ -1568,10 +1569,12 @@ function renderSectionsBuilder() {
 function updateOnlineFieldsVisibility() {
   const onlineRadio = document.getElementById('test-type-online');
   const container = document.getElementById('online-test-fields-container');
+  const windowContainer = document.getElementById('online-window-fields-container');
   if (!container) return;
 
   const isOnline = Boolean(onlineRadio && onlineRadio.checked);
   container.style.display = isOnline ? 'block' : 'none';
+  if (windowContainer) windowContainer.style.display = isOnline ? 'block' : 'none';
 
   if (isOnline && modalSectionsDraft.length === 0) {
     modalSectionsDraft.push({
@@ -1580,7 +1583,28 @@ function updateOnlineFieldsVisibility() {
     });
     renderSectionsBuilder();
   }
+  updateTestLiveSummary();
 }
+
+function updateTestLiveSummary() {
+  const summaryEl = document.getElementById('test-live-summary');
+  if (!summaryEl) return;
+
+  const isOnline = Boolean(document.getElementById('test-type-online')?.checked);
+  const titleVal = document.getElementById('test-title-input')?.value || '';
+  const dateVal = document.getElementById('test-date-input')?.value || '';
+  const levelVal = document.getElementById('test-level-input')?.value || '';
+
+  summaryEl.textContent = buildModalLiveSummary('weeklyTest', {
+    title: titleVal,
+    test_type: isOnline ? 'online' : 'offline',
+    test_date: dateVal,
+    audience_level: levelVal,
+    sections_count: isOnline ? modalSectionsDraft.length : 0,
+  });
+}
+
+let submitAndAddAnotherTest = false;
 
 function setupTestModalHandlers() {
   const btnCreate = document.getElementById('btn-create-test');
@@ -1595,8 +1619,18 @@ function setupTestModalHandlers() {
 
   const dateInput = document.getElementById('test-date-input');
   const remindInput = document.getElementById('test-remind-days-input');
-  if (dateInput) dateInput.addEventListener('input', updateReminderPreviewText);
+  const titleInput = document.getElementById('test-title-input');
+  const levelInput = document.getElementById('test-level-input');
+
+  if (dateInput) {
+    dateInput.addEventListener('input', () => {
+      updateReminderPreviewText();
+      updateTestLiveSummary();
+    });
+  }
   if (remindInput) remindInput.addEventListener('input', updateReminderPreviewText);
+  if (titleInput) titleInput.addEventListener('input', updateTestLiveSummary);
+  if (levelInput) levelInput.addEventListener('input', updateTestLiveSummary);
 
   const btnAddSec = document.getElementById('btn-add-section-row');
   if (btnAddSec) {
@@ -1608,10 +1642,18 @@ function setupTestModalHandlers() {
         seconds: 60,
       });
       renderSectionsBuilder();
+      updateTestLiveSummary();
     };
   }
 
+  const btnSaveAddAnother = document.getElementById('btn-save-add-another-test');
   const form = document.getElementById('test-form');
+  if (btnSaveAddAnother && form) {
+    btnSaveAddAnother.addEventListener('click', () => {
+      submitAndAddAnotherTest = true;
+      form.requestSubmit();
+    });
+  }
   if (form) {
     form.onsubmit = async (e) => {
       e.preventDefault();
@@ -1821,9 +1863,16 @@ function setupTestModalHandlers() {
           showToast('success', 'New weekly test created.');
         }
 
-        closeModal('test-modal');
+        const addAnother = submitAndAddAnotherTest && !idVal;
+        submitAndAddAnotherTest = false;
         await loadTests(savedTestId);
+        if (addAnother) {
+          await openTestModal(null);
+        } else {
+          closeModal('test-modal');
+        }
       } catch (err) {
+        submitAndAddAnotherTest = false;
         console.error('Failed to save test:', err);
         showModalError(friendlyDbErrorMessage(err));
       } finally {
@@ -1913,6 +1962,28 @@ async function openTestModal(test = null) {
 
     if (offlineRadio) offlineRadio.disabled = modalSectionsLocked;
     if (onlineRadio) onlineRadio.disabled = modalSectionsLocked;
+
+    const btnSaveAnother = document.getElementById('btn-save-add-another-test');
+    if (btnSaveAnother) btnSaveAnother.style.display = 'none';
+
+    const moreDetails = document.getElementById('test-more-options');
+    const hasCustomRemind =
+      test.remind_days_before !== undefined &&
+      test.remind_days_before !== null &&
+      Number(test.remind_days_before) !== 7;
+    setMoreOptionsOpen(
+      moreDetails,
+      shouldOpenMoreOptions(
+        [
+          test.audience_level,
+          test.notes,
+          test.opens_at,
+          test.closes_at,
+          hasCustomRemind ? String(test.remind_days_before) : '',
+        ],
+        true
+      )
+    );
   } else {
     if (modalTitle) modalTitle.textContent = 'Create Weekly Test';
     if (idInput) idInput.value = '';
@@ -1937,11 +2008,18 @@ async function openTestModal(test = null) {
         seconds: 60,
       },
     ];
+
+    const btnSaveAnother = document.getElementById('btn-save-add-another-test');
+    if (btnSaveAnother) btnSaveAnother.style.display = 'inline-flex';
+
+    const moreDetails = document.getElementById('test-more-options');
+    setMoreOptionsOpen(moreDetails, false);
   }
 
   updateOnlineFieldsVisibility();
   updateReminderPreviewText();
   renderSectionsBuilder();
+  updateTestLiveSummary();
   openModal('test-modal');
 }
 

@@ -1,14 +1,30 @@
 /**
- * Trendz Tracker - Shared Universal Modal & Navigation Controller (js/modal.js)
- * 
- * Provides:
- * 1. Centered, accessible modals (ESC to close, backdrop click, focus trap/return)
- * 2. Setup dropdown menu & mobile hamburger for Admin Navigation
+ * Trendz Tracker - Shared Universal Modal & Admin Navigation Controller (js/modal.js)
+ *
+ * Phase 14b Calmer UI:
+ * 1. Centered, accessible modals (max-width 520px, ESC to close, backdrop click, focus return)
+ * 2. Unified Admin Navigation:
+ *    Overview, Students, Review, Attendance, Weekly Tests, Leaderboard, Settings,
+ *    plus the right-hand Account menu (name, Account, Sign out).
+ * 3. Automatic "Settings > <Page>" breadcrumb on Settings sub-pages.
+ * 4. Automatic table "Compact" density toggle remembered in localStorage.
  */
 
-// Track the element that triggered the modal for focus restoration
+import { getSettingsBreadcrumb } from './settingsHub.js';
+import { initTableDensityToggle } from './tableDensity.js';
+
 const modalFocusHistory = new Map();
 const activeEscapeListeners = new Map();
+
+const ADMIN_NAV_ITEMS = Object.freeze([
+  { label: 'Overview', href: '/pages/admin.html' },
+  { label: 'Students', href: '/pages/students.html' },
+  { label: 'Review', href: '/pages/review.html' },
+  { label: 'Attendance', href: '/pages/attendance.html' },
+  { label: 'Weekly Tests', href: '/pages/weekly-tests.html' },
+  { label: 'Leaderboard', href: '/pages/leaderboard.html' },
+  { label: 'Settings', href: '/pages/settings.html' },
+]);
 
 /**
  * Opens a modal dialog by ID
@@ -21,12 +37,10 @@ export function openModal(modalId) {
     return;
   }
 
-  // Save current focus for restoration
   if (document.activeElement && typeof document.activeElement.focus === 'function') {
     modalFocusHistory.set(modalId, document.activeElement);
   }
 
-  // Remove inline display none or hidden attribute if present
   if (modal.style.display === 'none') {
     modal.style.display = '';
   }
@@ -38,10 +52,13 @@ export function openModal(modalId) {
   modal.classList.add('open', 'is-open');
   modal.setAttribute('aria-hidden', 'false');
 
-  // Move focus into the modal (first interactive input or button)
-  const focusable = modal.querySelectorAll('input:not([type="hidden"]), select, textarea, button:not([data-close-modal]):not([data-modal-close]):not(.modal-close):not(.btn-modal-close)');
-  const closeBtn = modal.querySelector('[data-close-modal], [data-modal-close], .modal-close, .modal-close-btn, .btn-modal-close');
-  
+  const focusable = modal.querySelectorAll(
+    'input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([data-close-modal]):not([data-modal-close]):not(.modal-close):not(.btn-modal-close):not([disabled])'
+  );
+  const closeBtn = modal.querySelector(
+    '[data-close-modal], [data-modal-close], .modal-close, .modal-close-btn, .btn-modal-close'
+  );
+
   setTimeout(() => {
     if (focusable.length > 0) {
       focusable[0].focus();
@@ -50,14 +67,12 @@ export function openModal(modalId) {
     }
   }, 50);
 
-  // Bind Escape key listener
   const escapeHandler = (e) => {
     if (e.key === 'Escape' || e.key === 'Esc') {
       closeModal(modalId);
     }
   };
 
-  // Remove existing if any, then attach
   if (activeEscapeListeners.has(modalId)) {
     document.removeEventListener('keydown', activeEscapeListeners.get(modalId));
   }
@@ -76,13 +91,11 @@ export function closeModal(modalId) {
   modal.classList.remove('open', 'is-open');
   modal.setAttribute('aria-hidden', 'true');
 
-  // Clean up escape listener
   if (activeEscapeListeners.has(modalId)) {
     document.removeEventListener('keydown', activeEscapeListeners.get(modalId));
     activeEscapeListeners.delete(modalId);
   }
 
-  // Return focus to previous element
   const prevElement = modalFocusHistory.get(modalId);
   if (prevElement && typeof prevElement.focus === 'function' && document.body.contains(prevElement)) {
     setTimeout(() => prevElement.focus(), 50);
@@ -94,7 +107,6 @@ export function closeModal(modalId) {
  * Global helper to attach click handlers for all modal close triggers and backdrops
  */
 export function setupModalListeners() {
-  // Explicit close buttons with data-close-modal="modal-id" or data-modal-close="modal-id"
   document.querySelectorAll('[data-close-modal], [data-modal-close]').forEach((btn) => {
     btn.onclick = (e) => {
       e.preventDefault();
@@ -108,7 +120,6 @@ export function setupModalListeners() {
     };
   });
 
-  // Generic close buttons inside modals
   document.querySelectorAll('.modal-close, .modal-close-btn, .btn-modal-close').forEach((btn) => {
     btn.onclick = (e) => {
       e.preventDefault();
@@ -119,7 +130,6 @@ export function setupModalListeners() {
     };
   });
 
-  // Backdrop click to dismiss (when clicking directly on the overlay, outside the dialog)
   document.querySelectorAll('.modal-backdrop, .modal-overlay').forEach((backdrop) => {
     backdrop.onclick = (e) => {
       if (e.target === backdrop) {
@@ -130,75 +140,173 @@ export function setupModalListeners() {
 }
 
 /**
- * Sets up the Admin Navigation Setup Dropdown and Mobile Hamburger
+ * Normalizes the Admin Navigation bar, Account dropdown menu, Settings breadcrumb,
+ * and table Compact density toggle across all admin pages.
  */
 export function setupAdminNav() {
-  // 1. Setup Dropdown Trigger
-  const setupDropdown = document.getElementById('nav-setup-dropdown') || document.querySelector('.nav-dropdown');
-  const setupBtn = document.getElementById('btn-nav-setup') || document.getElementById('btn-setup-dropdown');
-  const setupMenu = document.getElementById('setup-dropdown-menu') || setupDropdown?.querySelector('.nav-dropdown-menu');
+  if (typeof document === 'undefined' || typeof window === 'undefined') return;
 
-  if (setupMenu && !setupMenu.querySelector('a[href="/pages/announcements.html"]')) {
-    const annLink = document.createElement('a');
-    annLink.href = '/pages/announcements.html';
-    const existingItem = setupMenu.querySelector('.dropdown-item, .nav-dropdown-item');
-    annLink.className = existingItem ? existingItem.className.replace(/\bactive\b/g, '').trim() : 'dropdown-item';
-    annLink.setAttribute('role', 'menuitem');
-    annLink.textContent = 'Announcements';
-    if (window.location.pathname.endsWith('/announcements.html')) {
-      annLink.classList.add('active');
-    }
-    setupMenu.insertBefore(annLink, setupMenu.firstChild);
+  const pathname = window.location.pathname || '';
+  const breadcrumbMeta = getSettingsBreadcrumb(pathname);
+  const isSettingsSection = pathname.endsWith('/settings.html') || Boolean(breadcrumbMeta);
+  const isStudentDetail = pathname.endsWith('/student-detail.html');
+
+  // 1. Standardize Admin Nav Links: Overview, Students, Review, Attendance, Weekly Tests, Leaderboard, Settings
+  const navZone = document.querySelector('.app-header .nav-zone');
+  if (navZone) {
+    navZone.innerHTML = ADMIN_NAV_ITEMS.map((item) => {
+      let isActive = pathname.endsWith(item.href);
+      if (item.href === '/pages/settings.html' && isSettingsSection) {
+        isActive = true;
+      }
+      if (item.href === '/pages/students.html' && isStudentDetail) {
+        isActive = true;
+      }
+      return `<a href="${item.href}" class="nav-link${isActive ? ' active' : ''}"${
+        isActive ? ' aria-current="page"' : ''
+      }>${item.label}</a>`;
+    }).join('');
   }
 
-  if (setupDropdown && setupBtn) {
-    // Auto-highlight Setup parent if any dropdown item is active
-    if (setupDropdown.querySelector('.nav-dropdown-item.active, .dropdown-item.active')) {
-      setupBtn.classList.add('active');
-      setupDropdown.classList.add('active');
+  // 2. Build the Account menu (name, Account, Sign out) in .actions-zone while preserving #header-user-name & #btn-header-logout
+  const actionsZone = document.querySelector('.app-header .actions-zone');
+  if (actionsZone && !actionsZone.querySelector('.account-dropdown')) {
+    const existingNameEl = document.getElementById('header-user-name');
+    const existingRoleEl = document.getElementById('header-user-role');
+    const existingPill = document.getElementById('user-pill-container');
+    const existingLogoutBtn = document.getElementById('btn-header-logout');
+
+    const currentName = existingNameEl?.textContent?.trim() || 'Admin';
+
+    // Hide the old standalone pill container and logout button visually, keeping them in DOM for legacy scripts
+    if (existingPill) {
+      existingPill.style.display = 'none';
+      existingPill.setAttribute('aria-hidden', 'true');
     }
 
-    setupBtn.onclick = (e) => {
-      e.stopPropagation();
-      const isOpen = setupDropdown.classList.toggle('open');
-      if (setupMenu) setupMenu.classList.toggle('open', isOpen);
-      setupBtn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
-    };
+    const accountDropdown = document.createElement('div');
+    accountDropdown.className = 'account-dropdown';
+    accountDropdown.innerHTML = `
+      <button
+        type="button"
+        class="account-dropdown-btn"
+        id="btn-account-menu"
+        aria-haspopup="true"
+        aria-expanded="false"
+      >
+        <span id="account-menu-user-name">${currentName}</span>
+        <span aria-hidden="true" style="font-size: 12px; color: var(--text-dim);">&#9662;</span>
+      </button>
+      <div class="account-dropdown-menu" id="account-dropdown-menu" role="menu">
+        <a href="/pages/settings.html" class="account-dropdown-item" role="menuitem">
+          <span>Account</span>
+          <span class="badge badge-neutral" style="font-size: 12px;">Admin</span>
+        </a>
+        <button type="button" class="account-dropdown-item" id="btn-account-signout" role="menuitem">
+          <span>Sign out</span>
+        </button>
+      </div>
+    `;
 
-    // Close when clicking outside
-    document.addEventListener('click', (e) => {
-      if (!setupDropdown.contains(e.target)) {
-        setupDropdown.classList.remove('open');
-        if (setupMenu) setupMenu.classList.remove('open');
-        setupBtn.setAttribute('aria-expanded', 'false');
+    actionsZone.appendChild(accountDropdown);
+
+    // Sync any subsequent changes to #header-user-name into #account-menu-user-name
+    if (existingNameEl && typeof MutationObserver !== 'undefined') {
+      const labelEl = document.getElementById('account-menu-user-name');
+      const syncName = () => {
+        const txt = existingNameEl.textContent?.trim();
+        if (txt && labelEl) labelEl.textContent = txt;
+      };
+      syncName();
+      const obs = new MutationObserver(syncName);
+      obs.observe(existingNameEl, { childList: true, characterData: true, subtree: true });
+    }
+    if (existingRoleEl) {
+      existingRoleEl.classList.remove('badge-role');
+      existingRoleEl.classList.add('badge-neutral');
+    }
+
+    // Wire Sign out inside Account menu to existing #btn-header-logout or logoutUser()
+    if (existingLogoutBtn) {
+      existingLogoutBtn.style.display = 'none';
+    }
+    const signOutMenuBtn = document.getElementById('btn-account-signout');
+    signOutMenuBtn?.addEventListener('click', async (e) => {
+      e.preventDefault();
+      if (existingLogoutBtn) {
+        existingLogoutBtn.click();
+      } else {
+        const { logoutUser } = await import('./auth.js');
+        await logoutUser();
       }
     });
 
-    // Close on Escape
+    const menuBtn = document.getElementById('btn-account-menu');
+    const menuPanel = document.getElementById('account-dropdown-menu');
+    menuBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isOpen = accountDropdown.classList.toggle('open');
+      menuPanel?.classList.toggle('open', isOpen);
+      menuBtn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!accountDropdown.contains(e.target)) {
+        accountDropdown.classList.remove('open');
+        menuPanel?.classList.remove('open');
+        menuBtn?.setAttribute('aria-expanded', 'false');
+      }
+    });
+
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
-        setupDropdown.classList.remove('open');
-        if (setupMenu) setupMenu.classList.remove('open');
-        setupBtn.setAttribute('aria-expanded', 'false');
+        accountDropdown.classList.remove('open');
+        menuPanel?.classList.remove('open');
+        menuBtn?.setAttribute('aria-expanded', 'false');
       }
     });
   }
 
-  // 2. Mobile Hamburger Toggle
-  const hamburgerBtn = document.getElementById('btn-nav-hamburger') || document.getElementById('btn-mobile-menu');
-  const navZone = document.querySelector('.nav-zone');
+  // 3. Inject "Settings > <Page>" breadcrumb on Settings sub-pages if not already present
+  if (breadcrumbMeta && !document.querySelector('.breadcrumb-nav')) {
+    const mainContainer =
+      document.querySelector('.main-content .container') ||
+      document.querySelector('.page-main .container') ||
+      document.querySelector('main .container');
+    const pageHeader = mainContainer?.querySelector('.page-header');
+    if (mainContainer) {
+      const nav = document.createElement('nav');
+      nav.className = 'breadcrumb-nav';
+      nav.setAttribute('aria-label', 'Breadcrumb');
+      nav.innerHTML = `
+        <a href="/pages/settings.html">Settings</a>
+        <span class="breadcrumb-sep" aria-hidden="true">&gt;</span>
+        <span class="breadcrumb-current" aria-current="page">${
+          breadcrumbMeta.breadcrumbTitle || breadcrumbMeta.title
+        }</span>
+      `;
+      if (pageHeader) {
+        mainContainer.insertBefore(nav, pageHeader);
+      } else {
+        mainContainer.insertBefore(nav, mainContainer.firstChild);
+      }
+    }
+  }
 
+  // 4. Mobile Hamburger Toggle
+  const hamburgerBtn =
+    document.getElementById('btn-nav-hamburger') || document.getElementById('btn-mobile-menu');
   if (hamburgerBtn && navZone) {
     hamburgerBtn.onclick = (e) => {
       e.stopPropagation();
       navZone.classList.toggle('mobile-open');
       navZone.classList.toggle('open');
-      const isOpen = navZone.classList.contains('mobile-open') || navZone.classList.contains('open');
+      const isOpen =
+        navZone.classList.contains('mobile-open') || navZone.classList.contains('open');
       hamburgerBtn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
     };
 
-    // Close mobile nav when clicking a link
-    navZone.querySelectorAll('.nav-link:not(.nav-dropdown-toggle), .nav-dropdown-item, .dropdown-item').forEach(link => {
+    navZone.querySelectorAll('.nav-link').forEach((link) => {
       link.addEventListener('click', () => {
         navZone.classList.remove('mobile-open');
         navZone.classList.remove('open');
@@ -206,4 +314,7 @@ export function setupAdminNav() {
       });
     });
   }
+
+  // 5. Initialize Compact table density toggle on admin tables
+  initTableDensityToggle();
 }

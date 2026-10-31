@@ -2,31 +2,56 @@
  * Trendz Tracker - Leaderboard & Competition Rules Data Access (js/leaderboardData.js)
  *
  * STRICT ARCHITECTURAL CONTRACT:
- * - Never calculate points, ranks, accuracy deltas, or streaks in JavaScript.
- * - Always call PostgreSQL RPCs `leaderboard(p_board, p_period, p_level, p_limit)`
- *   and `competition_rules()`.
- * - Never expose or render raw scores on leaderboards; only render the `value`
- *   and pre-formatted `display_name` returned by `leaderboard()`.
+ * - Never calculate points, ranks, accuracy deltas, times, speeds, or streaks in JavaScript.
+ * - Always call PostgreSQL RPCs `leaderboard(p_board, p_period, p_level, p_limit, p_scope)`,
+ *   `todo_task_leaderboard(p_task, p_period, p_level, p_limit, p_scope)`,
+ *   `global_leaderboard_enabled()`, and `competition_rules()`.
  */
 
 import { isSupabaseConfigured, isDemoAllowedHost } from './config.js';
-import { formatBoardValue } from './leaderboardView.js';
+import {
+  formatBoardValue,
+  TASK_SPEED_EXPLANATION_TEXT,
+  TASK_SPEED_EMPTY_MESSAGE
+} from './leaderboardView.js';
 import { getSupabase, DemoDB, clearStaleSupabaseSession } from './supabaseClient.js';
 
 /**
- * Calls RPC `leaderboard(p_board, p_period, p_level, p_limit, p_scope, p_task_id)`
+ * Normalizes known PostgreSQL / PostgREST error messages into friendly sentences.
+ * @param {string} rawMessage
+ * @returns {string}
+ */
+export function normalizeLeaderboardErrorMessage(rawMessage) {
+  const msg = String(rawMessage || '').trim();
+  const lower = msg.toLowerCase();
+  if (lower.includes('future')) {
+    return 'The date cannot be in the future.';
+  }
+  if (lower.includes('switched off')) {
+    return 'The global leaderboard is switched off.';
+  }
+  if (lower.includes('basics tasks with a category only')) {
+    return 'Speed ranking is available for basics tasks with a category only.';
+  }
+  if (lower.includes('before 2020')) {
+    return 'The date cannot be before 2020-01-01.';
+  }
+  return msg || 'Could not load leaderboard.';
+}
+
+/**
+ * Calls RPC `leaderboard(p_board, p_period, p_level, p_limit, p_scope)`
  * @param {Object} params
  * @param {'points'|'streak'|'practice_days'|'todo'|'improved'} params.board
- * @param {'week'|'month'|'all'} params.period
+ * @param {string} params.period - 'today' | 'yesterday' | 'week' | 'month' | 'year' | 'all' | 'date:YYYY-MM-DD'
  * @param {string|null} params.level
  * @param {number} params.limit
  * @param {'level'|'global'} [params.scope='level']
- * @param {string|null} [params.taskId=null]
  * @param {Object|null} callerProfile
  * @returns {Promise<Array<{rank: number, student_id: string|null, display_name: string, value: number, is_me: boolean, level?: string|null}>>}
  */
 export async function fetchLeaderboard(
-  { board = 'points', period = 'week', level = null, limit = 10, scope = 'level', taskId = null } = {},
+  { board = 'points', period = 'week', level = null, limit = 10, scope = 'level' } = {},
   callerProfile = null
 ) {
   if (!isSupabaseConfigured()) {
@@ -39,8 +64,7 @@ export async function fetchLeaderboard(
         p_period: period,
         p_level: level,
         p_limit: limit,
-        p_scope: scope,
-        p_task_id: taskId
+        p_scope: scope
       },
       callerProfile
     );
@@ -51,36 +75,13 @@ export async function fetchLeaderboard(
     throw new Error('Database client unavailable.');
   }
 
-  const baseArgs = {
+  const { data, error } = await supabase.rpc('leaderboard', {
     p_board: board,
     p_period: period,
     p_level: level,
     p_limit: limit,
     p_scope: scope
-  };
-
-  let { data, error } = await supabase.rpc(
-    'leaderboard',
-    board === 'todo' && taskId
-      ? { ...baseArgs, p_task_id: taskId }
-      : baseArgs
-  );
-
-  // If the live database has not yet been updated with the 6-argument leaderboard(..., p_task_id) signature,
-  // fall back to calling the 5-argument signature so the leaderboard page continues working without crashing.
-  if (error && board === 'todo' && taskId) {
-    const errCode = error.code || '';
-    const errMsg = error.message || '';
-    if (
-      errCode === 'PGRST202' ||
-      errMsg.includes('p_task_id') ||
-      errMsg.includes('Could not find the function')
-    ) {
-      const retry = await supabase.rpc('leaderboard', baseArgs);
-      data = retry.data;
-      error = retry.error;
-    }
-  }
+  });
 
   if (error) {
     const msg = error.message || '';
@@ -89,14 +90,88 @@ export async function fetchLeaderboard(
       window.location.href = '/index.html';
       return [];
     }
-    throw new Error(msg || 'Could not load leaderboard.');
+    throw new Error(normalizeLeaderboardErrorMessage(msg));
   }
 
   return Array.isArray(data) ? data : [];
 }
 
 /**
- * Loads the active Daily To-Do tasks for the Daily To-Do Leaderboard task filter ("Task 1", "Task 2", "Task 3", ...).
+ * Calls RPC `todo_task_leaderboard(p_task, p_period, p_level, p_limit, p_scope)`.
+ * Strictly for daily tasks of section 'basics' that have a category_id.
+ *
+ * @param {Object} params
+ * @param {string} params.taskId
+ * @param {string} params.period - 'today' | 'yesterday' | 'week' | 'month' | 'year' | 'all' | 'date:YYYY-MM-DD'
+ * @param {string|null} params.level
+ * @param {number} params.limit
+ * @param {'level'|'global'} [params.scope='level']
+ * @param {Object|null} callerProfile
+ * @returns {Promise<Array<{
+ *   rank: number,
+ *   student_id: string|null,
+ *   display_name: string,
+ *   level: string|null,
+ *   best_per_minute: number,
+ *   correct: number,
+ *   attempted: number,
+ *   seconds: number,
+ *   attempts: number,
+ *   is_me: boolean
+ * }>>}
+ */
+export async function fetchTodoTaskLeaderboard(
+  { taskId, period = 'week', level = null, limit = 10, scope = 'level' } = {},
+  callerProfile = null
+) {
+  if (!taskId) {
+    throw new Error('Speed ranking is available for basics tasks with a category only.');
+  }
+
+  if (!isSupabaseConfigured()) {
+    if (!isDemoAllowedHost()) {
+      throw new Error('Configuration error - contact the administrator.');
+    }
+    return DemoDB.mockTodoTaskLeaderboard(
+      {
+        p_task: taskId,
+        p_period: period,
+        p_level: level,
+        p_limit: limit,
+        p_scope: scope
+      },
+      callerProfile
+    );
+  }
+
+  const supabase = await getSupabase();
+  if (!supabase) {
+    throw new Error('Database client unavailable.');
+  }
+
+  const { data, error } = await supabase.rpc('todo_task_leaderboard', {
+    p_task: taskId,
+    p_period: period,
+    p_level: level,
+    p_limit: limit,
+    p_scope: scope
+  });
+
+  if (error) {
+    const msg = error.message || '';
+    if (msg.includes('JWT') || msg.includes('token') || msg.includes('Refresh')) {
+      clearStaleSupabaseSession();
+      window.location.href = '/index.html';
+      return [];
+    }
+    throw new Error(normalizeLeaderboardErrorMessage(msg));
+  }
+
+  return Array.isArray(data) ? data : [];
+}
+
+/**
+ * Loads the active Daily To-Do tasks for the Daily To-Do Leaderboard task filter.
  * Filters tasks according to the active scope/level:
  * - Student in 'level' scope: tasks assigned to their level or all levels (level IS NULL).
  * - Student in 'global' scope or Admin with 'all' levels: all active tasks.
@@ -243,38 +318,52 @@ export function formatLeaderboardValue(board, value) {
  * Builds the plain-English "How it works" explanation per board from `competition_rules()`.
  * @param {'points'|'streak'|'practice_days'|'todo'|'improved'} board
  * @param {Object} rules - returned by fetchCompetitionRules()
+ * @param {Object} [options]
+ * @param {boolean} [options.isTaskSpeedBoard=false]
  * @returns {string}
  */
-export function buildHowItWorksText(board, rules) {
+export function buildHowItWorksText(board, rules, { isTaskSpeedBoard = false } = {}) {
   const multiplier = rules?.weekly_test_multiplier ?? 2;
   const presentPts = rules?.attendance_present_points ?? 10;
   const minEntries = rules?.improved_min_entries ?? 5;
 
   switch (board) {
     case 'points':
-      return `Points = for each weekly test category, correct answers minus wrong answers (never below 0) times ${multiplier}, plus ${presentPts} points for each session you attended; excused sessions give nothing and cost nothing. Only your level is shown.`;
+      return `Points = for each weekly test category, correct answers minus wrong answers (never below 0) times ${multiplier}, plus ${presentPts} points for each session you attended; excused sessions give nothing and cost nothing.`;
     case 'improved':
-      return `Most improved = this week's accuracy minus last week's, needs at least ${minEntries} entries in each week. Only your level is shown.`;
+      return `Most improved = this week's accuracy minus last week's, needs at least ${minEntries} entries in each week.`;
     case 'practice_days':
-      return `Practice days = days you entered scores. Only your level is shown.`;
+      return `Practice days = days you entered scores in the selected period.`;
     case 'todo':
-      return `Students who completed the selected Daily To-Do task in this period, ranked from fastest to slowest attempt time. Pick Task 1, Task 2, Task 3, etc. above to filter by task.`;
+      if (isTaskSpeedBoard) {
+        return TASK_SPEED_EXPLANATION_TEXT;
+      }
+      return `Daily To-Do = days in this period on which you finished every task assigned to you for that day.`;
     case 'streak':
-      return `Streak = consecutive days you entered scores in Indian time. Only your level is shown.`;
+      return `Streak = consecutive days you completed your daily plan in India time.`;
     default:
-      return `Only your level is shown.`;
+      return `Rankings are computed by the database.`;
   }
 }
 
 /**
  * Returns an encouraging empty state message for the given board and period.
  * @param {'points'|'streak'|'practice_days'|'todo'|'improved'} board
- * @param {'week'|'month'|'all'} period
+ * @param {string} [period='week']
+ * @param {Object} [options]
+ * @param {boolean} [options.isTaskSpeedBoard=false]
  * @returns {string}
  */
-export function getLeaderboardEmptyMessage(board, period = 'week') {
+export function getLeaderboardEmptyMessage(
+  board,
+  period = 'week',
+  { isTaskSpeedBoard = false } = {}
+) {
   if (board === 'todo') {
-    return 'No student has recorded a timed attempt for this task in this period yet.';
+    if (isTaskSpeedBoard) {
+      return TASK_SPEED_EMPTY_MESSAGE;
+    }
+    return 'No completed daily to-do days in this period yet.';
   }
   if (board === 'points') {
     if (period === 'week') {

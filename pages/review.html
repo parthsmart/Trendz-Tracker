@@ -14,49 +14,50 @@
         <div class="container header-inner">
           <!-- Zone 1: Wordmark & Brand -->
           <a href="/pages/admin.html" class="brand-zone">
-            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span class="brand-icon" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="4" y="2" width="16" height="20" rx="2"></rect>
+                <line x1="8" y1="6" x2="16" y2="6"></line>
+                <line x1="16" y1="14" x2="16" y2="18"></line>
+                <path d="M16 10h.01"></path>
+                <path d="M12 10h.01"></path>
+                <path d="M8 10h.01"></path>
+                <path d="M12 14h.01"></path>
+                <path d="M8 14h.01"></path>
+                <path d="M12 18h.01"></path>
+                <path d="M8 18h.01"></path>
+              </svg>
+            </span>
             <span>Trendz Tracker</span>
           </a>
 
-          <!-- Zone 2: Navigation Links (Phase 4b Standard Order) -->
+          <!-- Zone 2: Navigation Links (Phase 14b Standard Order) -->
           <nav class="nav-zone" aria-label="Admin Navigation">
             <a href="/pages/admin.html" class="nav-link">Overview</a>
-            <a href="/pages/review.html" class="nav-link active">Review</a>
             <a href="/pages/students.html" class="nav-link">Students</a>
+            <a href="/pages/review.html" class="nav-link active" aria-current="page">Review</a>
             <a href="/pages/attendance.html" class="nav-link">Attendance</a>
             <a href="/pages/weekly-tests.html" class="nav-link">Weekly Tests</a>
             <a href="/pages/leaderboard.html" class="nav-link">Leaderboard</a>
-            <a href="/pages/monthly-report.html" class="nav-link">Monthly Report</a>
-            <div class="nav-dropdown" id="nav-setup-dropdown">
-              <button type="button" class="nav-dropdown-btn" id="btn-nav-setup" aria-haspopup="true">
-                <span>Setup</span>
-                <span aria-hidden="true">▾</span>
-              </button>
-              <div class="nav-dropdown-menu" role="menu">
-                <a href="/pages/todos.html" class="nav-dropdown-item" role="menuitem">Daily To-Do</a>
-                <a href="/pages/resources.html" class="nav-dropdown-item" role="menuitem">Resources</a>
-                <a href="/pages/categories.html" class="nav-dropdown-item" role="menuitem">Categories</a>
-                <a href="/pages/rounds.html" class="nav-dropdown-item" role="menuitem">Rounds</a>
-                <a href="/pages/targets.html" class="nav-dropdown-item" role="menuitem">Targets</a>
-                <a href="/pages/competition.html" class="nav-dropdown-item" role="menuitem">Competition</a>
-                <a href="/pages/import.html" class="nav-dropdown-item" role="menuitem">Import</a>
-                <a href="/pages/backup.html" class="nav-dropdown-item" role="menuitem">Backup</a>
-              </div>
-            </div>
+            <a href="/pages/settings.html" class="nav-link">Settings</a>
           </nav>
 
           <!-- Zone 3: User Details, Hamburger & Logout Action -->
           <div class="actions-zone">
             <button type="button" id="btn-nav-hamburger" class="nav-hamburger-btn" aria-label="Toggle navigation menu" aria-expanded="false">
-              ☰
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+              </svg>
             </button>
-            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+            <div class="meta-row" style="font-size: var(--text-sm); display: none;" id="user-pill-container">
               <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Admin</span>
               <span class="meta-separator" aria-hidden="true">·</span>
               <span id="header-user-role" style="color: var(--text-muted);">Teacher</span>
             </div>
             <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
-              Sign Out
+              Sign out
             </button>
           </div>
         </div>
@@ -78,7 +79,7 @@
             </div>
             <div style="display: flex; gap: var(--space-2); align-items: center;">
               <button type="button" id="btn-refresh-reviews" class="btn btn-outline btn-sm">
-                ↻ Refresh
+                Refresh
               </button>
             </div>
           </div>
@@ -88,43 +89,40 @@
             <div class="review-filter-grid">
               <!-- Student Search -->
               <div>
-                <label for="filter-student" class="form-label" style="margin-bottom: 4px;">Student</label>
+                <label for="filter-student" class="form-label">Student</label>
                 <input
                   type="text"
                   id="filter-student"
                   class="form-input"
                   placeholder="Search name or ID (e.g. STU101)..."
-                  style="font-size: var(--text-xs);"
                 />
               </div>
 
               <!-- Date From -->
               <div>
-                <label for="filter-date-from" class="form-label" style="margin-bottom: 4px;">Date From (IST)</label>
+                <label for="filter-date-from" class="form-label">Date from (IST)</label>
                 <input
                   type="date"
                   id="filter-date-from"
-                  class="form-input"
-                  style="font-size: var(--text-xs);"
+                  class="form-input num"
                 />
               </div>
 
               <!-- Date To -->
               <div>
-                <label for="filter-date-to" class="form-label" style="margin-bottom: 4px;">Date To (IST)</label>
+                <label for="filter-date-to" class="form-label">Date to (IST)</label>
                 <input
                   type="date"
                   id="filter-date-to"
-                  class="form-input"
-                  style="font-size: var(--text-xs);"
+                  class="form-input num"
                 />
               </div>
 
               <!-- Section & Category -->
               <div>
-                <label for="filter-section" class="form-label" style="margin-bottom: 4px;">Section</label>
-                <select id="filter-section" class="form-input" style="font-size: var(--text-xs);">
-                  <option value="all">All Sections</option>
+                <label for="filter-section" class="form-label">Type</label>
+                <select id="filter-section" class="form-select">
+                  <option value="all">All Types</option>
                   <option value="round">Competition Rounds</option>
                   <option value="basics">Mental Basics</option>
                   <option value="elements">Elements</option>
@@ -133,16 +131,16 @@
               </div>
 
               <div>
-                <label for="filter-category" class="form-label" style="margin-bottom: 4px;">Category</label>
-                <select id="filter-category" class="form-input" style="font-size: var(--text-xs);">
+                <label for="filter-category" class="form-label">Category</label>
+                <select id="filter-category" class="form-select">
                   <option value="all">All Categories</option>
                 </select>
               </div>
 
               <!-- Status Filter -->
               <div>
-                <label for="filter-status" class="form-label" style="margin-bottom: 4px;">Verification Status</label>
-                <select id="filter-status" class="form-input" style="font-size: var(--text-xs);">
+                <label for="filter-status" class="form-label">Verification status</label>
+                <select id="filter-status" class="form-select">
                   <option value="unverified" selected>Unverified (Pending Review)</option>
                   <option value="verified">Verified Only</option>
                   <option value="flagged">Flagged by Teacher</option>
@@ -165,17 +163,17 @@
 
           <!-- Active Filter Summary & Count Bar -->
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-3); flex-wrap: wrap; gap: var(--space-2);">
-            <div style="font-size: var(--text-xs); color: var(--text-muted);" id="review-count-indicator">
+            <div style="font-size: var(--text-sm); color: var(--text-muted);" id="review-count-indicator">
               Showing 0 entries
             </div>
             <div style="display: flex; gap: var(--space-2); align-items: center;">
-              <span id="selected-count-label" style="font-size: var(--text-xs); font-weight: 600; color: var(--color-primary); display: none;">
+              <span id="selected-count-label" style="font-size: var(--text-sm); font-weight: 600; color: var(--color-primary); display: none;">
                 0 selected
               </span>
-              <button type="button" id="btn-select-all-page" class="btn btn-outline btn-sm" style="font-size: 11px; padding: 2px 8px;">
+              <button type="button" id="btn-select-all-page" class="btn btn-outline btn-sm">
                 Select Page (50)
               </button>
-              <button type="button" id="btn-clear-selection" class="btn btn-outline btn-sm" style="font-size: 11px; padding: 2px 8px; display: none;">
+              <button type="button" id="btn-clear-selection" class="btn btn-outline btn-sm" style="display: none;">
                 Clear Selection
               </button>
             </div>
@@ -183,34 +181,36 @@
 
           <!-- Entries Table Card -->
           <section class="card" style="padding: 0; overflow-x: auto; margin-bottom: var(--space-6);" aria-label="Entries Table">
-            <table class="table" id="review-table" style="min-width: 960px;">
-              <thead>
-                <tr>
-                  <th style="width: 40px; text-align: center;">
-                    <input type="checkbox" id="th-select-all" aria-label="Select all rows" />
-                  </th>
-                  <th style="min-width: 140px;">Student</th>
-                  <th style="min-width: 130px;">Category & Section</th>
-                  <th style="min-width: 80px;">Round / Task</th>
-                  <th style="min-width: 110px;">Score & Wrong</th>
-                  <th style="min-width: 80px;">Time</th>
-                  <th style="min-width: 130px;">Entry Date (IST)</th>
-                  <th style="min-width: 110px;">Status</th>
-                  <th style="min-width: 180px; text-align: right;">Actions</th>
-                </tr>
-              </thead>
-              <tbody id="review-tbody">
-                <tr>
-                  <td colspan="9" class="loading-state" style="padding: var(--space-8); text-align: center;">
-                    Loading review entries...
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+            <div class="table-wrapper">
+              <table class="table" id="review-table" style="min-width: 960px;">
+                <thead>
+                  <tr>
+                    <th style="width: 40px; text-align: center;">
+                      <input type="checkbox" id="th-select-all" aria-label="Select all rows" />
+                    </th>
+                    <th style="min-width: 140px;">Student</th>
+                    <th style="min-width: 130px;">Category &amp; Section</th>
+                    <th style="min-width: 80px;">Round / Task</th>
+                    <th style="min-width: 110px;">Score &amp; Wrong</th>
+                    <th style="min-width: 80px;">Time</th>
+                    <th style="min-width: 130px;">Entry Date (IST)</th>
+                    <th style="min-width: 110px;">Status</th>
+                    <th style="min-width: 180px; text-align: right;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="review-tbody">
+                  <tr>
+                    <td colspan="9" class="loading-state" style="padding: var(--space-8); text-align: center;">
+                      Loading review entries...
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
 
             <!-- Pagination Bar -->
             <div style="padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border-hairline); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2);">
-              <div style="font-size: var(--text-xs); color: var(--text-muted);" id="pagination-info">
+              <div style="font-size: var(--text-sm); color: var(--text-muted);" id="pagination-info">
                 Page 1 of 1 (50 per page)
               </div>
               <div style="display: flex; gap: var(--space-2);">
@@ -228,14 +228,14 @@
           <div id="bulk-verify-bar" class="bulk-verify-bar" style="display: none;">
             <div>
               <strong id="bulk-bar-count" style="font-size: var(--text-sm); color: var(--text-main);">0 entries selected</strong>
-              <div style="font-size: 11px; color: var(--text-muted);">Confirm to mark entries as verified in bulk (up to 200).</div>
+              <div style="font-size: var(--text-sm); color: var(--text-muted);">Confirm to mark entries as verified in bulk (up to 200).</div>
             </div>
             <div style="display: flex; gap: var(--space-2); align-items: center;">
-              <button type="button" id="btn-bulk-cancel" class="btn btn-outline btn-sm">
+              <button type="button" id="btn-bulk-cancel" class="btn btn-ghost btn-sm">
                 Cancel
               </button>
-              <button type="button" id="btn-bulk-verify" class="btn btn-primary btn-sm">
-                ✓ Bulk Verify Selected
+              <button type="button" id="btn-bulk-verify" class="btn btn-secondary btn-sm">
+                Bulk Verify Selected
               </button>
             </div>
           </div>
@@ -248,17 +248,17 @@
     <div id="flag-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="flag-modal-title">
       <div class="modal-dialog">
         <header class="modal-header">
-          <h2 class="modal-title" id="flag-modal-title">Flag Entry for Student Review</h2>
+          <div>
+            <h2 class="modal-title" id="flag-modal-title">Flag Entry for Student Review</h2>
+            <p class="modal-subtitle">The student will see this note on their score screen and be asked to review it.</p>
+          </div>
           <button type="button" class="modal-close" data-close-modal="flag-modal" aria-label="Close modal">&times;</button>
         </header>
         <form id="flag-form">
           <input type="hidden" id="flag-entry-id" />
           <div class="modal-body">
-            <p style="font-size: var(--text-xs); color: var(--text-muted); margin-bottom: var(--space-3);">
-              This will mark the entry as flagged. The student will see this note on their score screen and be asked to review and fix it.
-            </p>
             <div class="form-group" style="margin-bottom: 0;">
-              <label for="flag-note-input" class="form-label">Teacher Note to Student *</label>
+              <label for="flag-note-input" class="form-label">Teacher note to student *</label>
               <textarea
                 id="flag-note-input"
                 class="form-input"
@@ -269,7 +269,7 @@
             </div>
           </div>
           <footer class="modal-footer">
-            <button type="button" class="btn btn-outline" data-close-modal="flag-modal">Cancel</button>
+            <button type="button" class="btn btn-ghost" data-close-modal="flag-modal">Cancel</button>
             <button type="submit" class="btn btn-primary" id="btn-submit-flag">Save Flag</button>
           </footer>
         </form>
@@ -280,41 +280,41 @@
     <div id="correct-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="correct-modal-title">
       <div class="modal-dialog">
         <header class="modal-header">
-          <h2 class="modal-title" id="correct-modal-title">Correct Student Score Entry</h2>
+          <div>
+            <h2 class="modal-title" id="correct-modal-title">Correct Student Score Entry</h2>
+            <p class="modal-subtitle">Admin correction stamps corrected_by and locks the row from student edits.</p>
+          </div>
           <button type="button" class="modal-close" data-close-modal="correct-modal" aria-label="Close modal">&times;</button>
         </header>
         <form id="correct-form">
           <input type="hidden" id="correct-entry-id" />
           <div class="modal-body">
-            <div style="background: var(--bg-surface-subtle); padding: var(--space-3); border-radius: var(--radius-sm); margin-bottom: var(--space-3); font-size: var(--text-xs);">
-              <div style="font-weight: 600; color: var(--text-main);" id="correct-entry-meta">Student & Task details</div>
-              <div style="color: var(--text-muted); margin-top: 2px;">
-                Admin correction permanently stamps <code style="font-size: 11px;">corrected_by</code> and locks the row from student edits.
-              </div>
+            <div style="background: var(--bg-surface-subtle); padding: var(--space-3); border-radius: var(--radius-sm); margin-bottom: var(--space-3); font-size: var(--text-sm);">
+              <div style="font-weight: 600; color: var(--text-main);" id="correct-entry-meta">Student &amp; Task details</div>
             </div>
 
             <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-2); margin-bottom: var(--space-3);">
               <div>
                 <label for="correct-input-correct" class="form-label">Correct *</label>
-                <input type="number" id="correct-input-correct" class="form-input" min="0" required />
+                <input type="number" id="correct-input-correct" class="form-input num" min="0" required />
               </div>
               <div>
                 <label for="correct-input-total" class="form-label">Total *</label>
-                <input type="number" id="correct-input-total" class="form-input" min="1" required />
+                <input type="number" id="correct-input-total" class="form-input num" min="1" required />
               </div>
               <div>
                 <label for="correct-input-time" class="form-label">Time (mm:ss) *</label>
-                <input type="text" id="correct-input-time" class="form-input" placeholder="1:30" required />
+                <input type="text" id="correct-input-time" class="form-input num" placeholder="1:30" required />
               </div>
             </div>
 
             <div class="form-group">
-              <label for="correct-input-note" class="form-label">Task Note (Optional)</label>
+              <label for="correct-input-note" class="form-label">Task note (optional)</label>
               <input type="text" id="correct-input-note" class="form-input" placeholder="Optional notes about this task..." />
             </div>
 
             <div class="form-group" style="margin-bottom: 0;">
-              <label for="correct-input-reason" class="form-label">Audit Reason * (Min 3 characters)</label>
+              <label for="correct-input-reason" class="form-label">Audit reason * (min 3 characters)</label>
               <textarea
                 id="correct-input-reason"
                 class="form-input"
@@ -323,12 +323,12 @@
                 minlength="3"
                 placeholder="e.g. Verified against teacher paper sheet; corrected miscounted 18 to 19."
               ></textarea>
-              <small style="color: var(--text-muted); font-size: 11px;">This reason is permanently logged in the audit trail.</small>
+              <span class="form-hint">This reason is permanently logged in the audit trail.</span>
             </div>
           </div>
 
           <footer class="modal-footer">
-            <button type="button" class="btn btn-outline" data-close-modal="correct-modal">Cancel</button>
+            <button type="button" class="btn btn-ghost" data-close-modal="correct-modal">Cancel</button>
             <button type="submit" class="btn btn-primary" id="btn-submit-correct">Apply Correction</button>
           </footer>
         </form>
@@ -343,16 +343,16 @@
           <button type="button" class="modal-close" data-close-modal="confirm-verify-modal" aria-label="Close modal">&times;</button>
         </header>
         <div class="modal-body">
-          <p id="confirm-modal-body" style="font-size: var(--text-sm); line-height: 1.5; color: var(--text-main); margin-bottom: var(--space-3);">
+          <p id="confirm-modal-body" style="font-size: var(--text-base); color: var(--text-main); margin-bottom: var(--space-3);">
             Are you sure?
           </p>
           <div class="form-group" style="margin-bottom: 0;">
-            <label for="confirm-reason-input" class="form-label">Audit Reason (Optional)</label>
+            <label for="confirm-reason-input" class="form-label">Audit reason (optional)</label>
             <input type="text" id="confirm-reason-input" class="form-input" value="Verified by teacher" />
           </div>
         </div>
         <footer class="modal-footer">
-          <button type="button" class="btn btn-outline" id="btn-cancel-confirm" data-close-modal="confirm-verify-modal">Cancel</button>
+          <button type="button" class="btn btn-ghost" id="btn-cancel-confirm" data-close-modal="confirm-verify-modal">Cancel</button>
           <button type="button" class="btn btn-primary" id="btn-proceed-confirm">Confirm</button>
         </footer>
       </div>
@@ -363,8 +363,8 @@
       <div class="audit-drawer">
         <div class="modal-header" style="border-bottom: 1px solid var(--border-hairline); padding: var(--space-4);">
           <div>
-            <h2 class="modal-title" style="font-size: 1.1rem;">Audit History</h2>
-            <div id="audit-drawer-subtitle" style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">
+            <h2 class="modal-title">Audit History</h2>
+            <div id="audit-drawer-subtitle" style="font-size: var(--text-sm); color: var(--text-muted); margin-top: var(--space-1);">
               Loading history...
             </div>
           </div>

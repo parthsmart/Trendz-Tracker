@@ -803,3 +803,38 @@ Every meaningful technical and architectural decision made for **Trendz Tracker*
   3. **Database Authority vs. Client-Side Live Indicator**:
      - The student dashboard never computes task matching or `done` in JavaScript; `done_count` and `done` come strictly from `todo_for(p_student)`. The pure helper `matchesTask(settings, task)` in `js/flashTaskMatch.js` is used solely on `/pages/flash.html` when `task=1` is present to warn the student before starting if they adjust a setup control away from the task's required settings (with a one-click **"Restore task settings"** button).
 
+---
+
+### Decision 37: Design Tokens, One Primary Button per Screen/Modal, Progressive-Disclosure Modal Pattern, and Admin Settings Hub (Phase 14b)
+- **Date**: 2026-10-31
+- **Context**:
+  - As Trendz Tracker grew across 14 phases of practice, competition, review, attendance, weekly tests, announcements, CSV import, and backup features, individual pages accumulated competing primary buttons, uppercase letter-spaced labels, decorative emojis in headings/tabs, zebra-striped tables, and a crowded `Setup ▾` dropdown menu. Phase 14b (Pass 1) introduces a calmer, high-contrast visual hierarchy without changing any database queries, RPCs, API routes, or application behaviour.
+- **Decisions & Rationale**:
+  1. **Strict Design Token Scale (`css/variables.css`)**:
+     - Centralizing the spacing scale (`4, 8, 12, 16, 24, 32` px), type scale (`14, 16, 18, 22, 28` px with `1.5` body line-height), radii (`8` and `12` px), single border colour (`#E3E8EF`), two shadows (`none` by default on cards; `var(--shadow-overlay)` only for modals and menus), and high-contrast slate text (`#17243D` primary and `#475569` secondary, both $\ge 4.5:1$ contrast on `#F6F8FB` and `#FFFFFF`) eliminates visual noise and ensures consistent rhythm across every page.
+     - Completed and informational status chips use a calm neutral slate (`#F1F5F9` background, `#334155` text), reserving semantic colours (`success`, `warning`, `danger`) strictly for states that require user attention.
+  2. **One Primary Button per Screen or Modal**:
+     - When multiple buttons on the same screen or modal share the solid primary accent (`#2563EB`), teachers and students must pause to figure out which action is the main path. Enforcing at most one `.btn-primary` per screen or active modal—paired with `.btn-secondary` (outline) for secondary actions like *"Save and add another"*, `.btn-ghost` for *"Cancel"*, and `.btn-danger` for destructive actions, all at least `44px` tall on touch screens—makes the primary action unmistakable at a glance.
+  3. **Standard 520px Modal Form Pattern (`js/formPattern.js`)**:
+     - All 8 admin modals (Add Daily Task, Create Weekly Test, Edit Profile / Add Student, Add Target, Add Resource, Post Announcement, Attendance Session, and Student Round) follow a single predictable structure: title + one short subtitle sentence, top error summary (`role="alert"`) + inline field errors, required fields first, optional fields grouped inside a collapsible `<details class="form-more-options">` (*"More options"*, closed on create flows and automatically opened via `shouldOpenMoreOptions(optionalValues, isEdit)` when editing a record that has an optional value set), side-by-side short related fields from `600px` width (`.form-row-2`), and a live summary sentence (`buildModalLiveSummary`) directly above the right-aligned footer buttons.
+  4. **Admin Settings Hub (`/pages/settings.html` & `js/settingsHub.js`) and Table Density (`js/tableDensity.js`)**:
+     - Replacing the 9-item `Setup ▾` dropdown with a top-level **Settings** link (`/pages/settings.html`) organized into four clear groups (**Practice**, **Competition**, **Communication**, **Data**) with a live search box, one-line descriptions, and `"Settings > <Page>"` breadcrumbs on sub-pages keeps top navigation calm (`Overview, Students, Review, Attendance, Weekly Tests, Leaderboard, Settings` + Account menu) while keeping every existing URL intact.
+     - Admin tables use sticky headers, `12px` comfortable row padding, hover highlights without zebra stripes, and a persistent **Compact** density toggle stored safely in `localStorage` inside `try/catch`.
+
+---
+
+### Decision 38: Daily To-Do Task Speed Leaderboard (`todo_task_leaderboard`), Why It Ranks by Correct Answers per Minute and Counts Only Website Rounds, and India-Time Leaderboard Date Options (Phase 14c)
+- **Date**: 2026-10-31
+- **Context**:
+  - Previously, filtering the Daily To-Do leaderboard by task attempted to pass `p_task_id` to `leaderboard('todo')`, fell back to the 5-argument `leaderboard('todo')` RPC (which returns **days completed** in the period, such as `3` or `1`), and formatted that integer in JavaScript as `"3s"` and `"1s"` under a `"Fastest time"` column header.
+  - Additionally, teachers and students needed to inspect leaderboard standings for specific dates and date windows (`Today`, `Yesterday`, `This week`, `This month`, `This year`, `All time`, and `Pick a date` via `'date:YYYY-MM-DD'`).
+- **Decisions & Rationale**:
+  1. **Why the Task Board Ranks by Correct Answers per Minute (`best_per_minute`) Rather Than Fastest Time**:
+     - Online Basics practice (`source = 'site'`) supports multiple timed durations (`30 s`, `1 min`, `2 min`, `5 min`) as well as open-ended stopwatch rounds. Ranking by raw `time_seconds` is meaningless across different round durations (a 30-second round would always beat a 2-minute round regardless of score) and rewards early aborts where a student stops after 1–3 seconds.
+     - Ranking each student's best qualifying round by **correct answers per minute** (`best_per_minute`, computed authoritatively in SQL by `todo_task_leaderboard`) normalizes speed across round durations while rewarding accuracy (wrong answers do not increase `correct/min`).
+  2. **Why the Task Board Counts Only Website Rounds (`source = 'site'`, `attempted >= 10`, `seconds >= 20`)**:
+     - Self-typed scores (`source = 'typed'`) are entered manually by students from paper worksheets and are unverified until reviewed by a teacher; allowing typed scores on the speed leaderboard would permit unverified self-reported times to displace server-timed rounds.
+     - Requiring at least **10 questions attempted** and at least **20 seconds elapsed** prevents 1-question / 2-second lucky bursts from producing artificially inflated per-minute rates.
+     - Only `basics` tasks with a specific `category_id` call `todo_task_leaderboard`. Selecting any other task type (`flash`, `elements`, `memoriad`, `round`, or `basics` without a category) never calls `todo_task_leaderboard` and never shows a time column; instead it displays *"Speed ranking is not available for this kind of task yet."* with the **All tasks** days-completed board below it.
+  3. **Authoritative India-Time Period Options & Shareable URL State (`js/periods.js`)**:
+     - `period_bounds` in PostgreSQL and `parsePeriod` / `periodValue` / `periodLabel` in `js/periods.js` support `'today'`, `'yesterday'`, `'week'`, `'month'`, `'year'`, `'all'`, and `'date:YYYY-MM-DD'` (`2020-01-01` through `today_ist()`). Persisting `?board=&period=&task=` in the page URL and `localStorage` (inside `try/catch`) lets teachers share direct links to any date or task leaderboard.

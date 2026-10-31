@@ -17,6 +17,9 @@ import { isDemoMode } from './demoDb.js';
 import { showToast } from './toast.js';
 import { formatSecondsToTime, parseTimeToSeconds } from './stats.js';
 import { openModal, closeModal, setupModalListeners, setupAdminNav } from './modal.js';
+import { shouldOpenMoreOptions, buildModalLiveSummary, setMoreOptionsOpen } from './formPattern.js';
+
+let submitAndAddAnotherTarget = false;
 
 let currentProfile = null;
 let basicsCategories = [];
@@ -202,11 +205,10 @@ function renderTargetsList() {
         <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
           <div>
             <h2 class="card-title" style="display: flex; align-items: center; gap: var(--space-2);">
-              <span>⚡</span>
               <span>${escapeHtml(cat.name)}</span>
-              <span class="status-chip chip-unverified" style="font-size: 10px; text-transform: uppercase;">Basics Track</span>
+              <span class="status-chip chip-unverified">Basics Track</span>
             </h2>
-            <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+            <div style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">
               ${catRules.length} ${catRules.length === 1 ? 'rule configured' : 'rules configured'}
             </div>
           </div>
@@ -243,8 +245,8 @@ function renderTargetsList() {
       catRules.forEach(rule => {
         const isDefault = !rule.level || !rule.level.trim();
         const scopeBadge = isDefault
-          ? `<span class="status-chip" style="background-color: var(--color-primary-subtle); color: var(--color-primary); font-weight: 700;">★ Default Rule</span>`
-          : `<span class="status-chip" style="background-color: var(--bg-surface-subtle); color: var(--text-main); font-weight: 600;">Level: ${escapeHtml(rule.level)}</span>`;
+          ? `<span class="status-chip" style="background-color: var(--color-primary-subtle); color: var(--color-primary-text); font-weight: 700;">Default rule</span>`
+          : `<span class="status-chip">Level: ${escapeHtml(rule.level)}</span>`;
 
         const ruleDesc = formatRuleDescription(rule);
         const isActive = rule.active !== false;
@@ -351,6 +353,37 @@ function attachListEventListeners() {
   });
 }
 
+function updateTargetLiveSummary() {
+  const summaryEl = document.getElementById('target-live-summary');
+  if (!summaryEl) return;
+  const catSelect = document.getElementById('target-category-select');
+  const catName =
+    basicsCategories.find((c) => c.id === catSelect?.value)?.name || 'Basics category';
+  const levelVal = document.getElementById('target-level-input')?.value || '';
+  const accVal = document.getElementById('target-accuracy-input')?.value ?? '';
+  const qpmVal = document.getElementById('target-qpm-input')?.value || '';
+  const timeVal = document.getElementById('target-time-input')?.value || '';
+  const activeVal = Boolean(document.getElementById('target-active-input')?.checked);
+
+  summaryEl.textContent = buildModalLiveSummary('target', {
+    categoryName: catName,
+    level: levelVal,
+    min_accuracy: accVal,
+    min_qpm: qpmVal,
+    max_time: timeVal,
+    active: activeVal,
+  });
+}
+
+function clearTargetErrors() {
+  const errBanner = document.getElementById('target-error-banner');
+  if (errBanner) errBanner.style.display = 'none';
+  ['error-target-category', 'error-target-accuracy', 'error-target-qpm', 'error-target-time'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+}
+
 /**
  * Sets up the Target Modal form submission and controls
  */
@@ -358,28 +391,44 @@ function setupTargetModalHandlers() {
   const form = document.getElementById('target-form');
   if (!form) return;
 
+  ['target-category-select', 'target-level-input', 'target-accuracy-input', 'target-qpm-input', 'target-time-input', 'target-active-input'].forEach((id) => {
+    const el = document.getElementById(id);
+    el?.addEventListener('input', updateTargetLiveSummary);
+    el?.addEventListener('change', updateTargetLiveSummary);
+  });
+
+  const btnSaveAnother = document.getElementById('btn-save-add-another-target');
+  if (btnSaveAnother) {
+    btnSaveAnother.addEventListener('click', () => {
+      submitAndAddAnotherTarget = true;
+      form.requestSubmit();
+    });
+  }
+
   form.onsubmit = async (e) => {
     e.preventDefault();
     const btnSave = document.getElementById('btn-save-target');
-    const errBanner = document.getElementById('target-error-banner');
-    if (errBanner) errBanner.style.display = 'none';
+    clearTargetErrors();
 
     const categoryId = document.getElementById('target-category-select').value;
     const levelRaw = document.getElementById('target-level-input').value.trim();
     const levelVal = levelRaw.length > 0 ? levelRaw : null;
-    const accuracyVal = Number(document.getElementById('target-accuracy-input').value);
+    const accuracyRaw = document.getElementById('target-accuracy-input').value.trim();
+    const accuracyVal = Number(accuracyRaw);
     const qpmRaw = (document.getElementById('target-qpm-input')?.value || '').trim();
     const timeRaw = document.getElementById('target-time-input').value.trim();
     const activeVal = document.getElementById('target-active-input').checked;
 
     // Browser validations
     if (!categoryId) {
-      showModalError('Please select a basics category.');
+      showModalError('Please select a basics category.', 'error-target-category');
+      submitAndAddAnotherTarget = false;
       return;
     }
 
-    if (isNaN(accuracyVal) || accuracyVal < 0 || accuracyVal > 100) {
-      showModalError('Minimum accuracy must be an integer between 0 and 100.');
+    if (accuracyRaw === '' || isNaN(accuracyVal) || accuracyVal < 0 || accuracyVal > 100) {
+      showModalError('Minimum accuracy must be an integer between 0 and 100.', 'error-target-accuracy');
+      submitAndAddAnotherTarget = false;
       return;
     }
 
@@ -387,7 +436,9 @@ function setupTargetModalHandlers() {
     if (qpmRaw.length > 0) {
       const parsedQpm = Number(qpmRaw);
       if (!Number.isFinite(parsedQpm) || parsedQpm <= 0 || parsedQpm > 500) {
-        showModalError('Minimum questions per minute must be a positive number up to 500.');
+        setMoreOptionsOpen(document.getElementById('target-more-options'), true);
+        showModalError('Minimum questions per minute must be a positive number up to 500.', 'error-target-qpm');
+        submitAndAddAnotherTarget = false;
         return;
       }
       qpmVal = Math.round(parsedQpm * 10) / 10;
@@ -397,7 +448,9 @@ function setupTargetModalHandlers() {
     if (timeRaw.length > 0) {
       timeSecondsVal = parseTimeToSeconds(timeRaw);
       if (timeSecondsVal === null || timeSecondsVal <= 0) {
-        showModalError('Maximum time must be formatted as mm:ss (e.g. 2:00 or 1:30).');
+        setMoreOptionsOpen(document.getElementById('target-more-options'), true);
+        showModalError('Maximum time must be formatted as mm:ss (e.g. 2:00 or 1:30).', 'error-target-time');
+        submitAndAddAnotherTarget = false;
         return;
       }
     }
@@ -462,12 +515,18 @@ function setupTargetModalHandlers() {
         showToast('success', 'New target rule created.');
       }
 
-      closeModal('target-modal');
+      const addAnother = submitAndAddAnotherTarget && !editingTargetId;
+      submitAndAddAnotherTarget = false;
       await loadTargetsData();
+      if (addAnother) {
+        openTargetModal(null, categoryId);
+      } else {
+        closeModal('target-modal');
+      }
     } catch (err) {
+      submitAndAddAnotherTarget = false;
       console.error('Failed to save target rule:', err);
       let friendlyMsg = err.message || 'Failed to save target rule.';
-      // Friendly message for duplicate rule
       if (friendlyMsg.includes('23505') || friendlyMsg.includes('already exists') || friendlyMsg.includes('unique constraint') || friendlyMsg.includes('idx_basics_thresholds')) {
         friendlyMsg = 'A target rule for this category and level already exists. Please edit the existing rule instead.';
       } else if (friendlyMsg.includes('check_basics_threshold_category')) {
@@ -481,9 +540,16 @@ function setupTargetModalHandlers() {
 }
 
 /**
- * Displays an error inside the target modal banner
+ * Displays an error inside the target modal banner and optional inline field
  */
-function showModalError(msg) {
+function showModalError(msg, fieldErrorId = null) {
+  if (fieldErrorId) {
+    const fieldErr = document.getElementById(fieldErrorId);
+    if (fieldErr) {
+      fieldErr.textContent = msg;
+      fieldErr.style.display = 'block';
+    }
+  }
   const errBanner = document.getElementById('target-error-banner');
   if (errBanner) {
     errBanner.textContent = msg;
@@ -505,9 +571,10 @@ function openTargetModal(rule = null, preselectedCatId = null) {
   const qpmInput = document.getElementById('target-qpm-input');
   const timeInput = document.getElementById('target-time-input');
   const activeInput = document.getElementById('target-active-input');
-  const errBanner = document.getElementById('target-error-banner');
+  const btnSaveAnother = document.getElementById('btn-save-add-another-target');
+  const moreDetails = document.getElementById('target-more-options');
 
-  if (errBanner) errBanner.style.display = 'none';
+  clearTargetErrors();
 
   if (rule) {
     editingTargetId = rule.id;
@@ -519,6 +586,19 @@ function openTargetModal(rule = null, preselectedCatId = null) {
     if (qpmInput) qpmInput.value = rule.min_questions_per_minute !== null && rule.min_questions_per_minute !== undefined ? String(rule.min_questions_per_minute) : '';
     if (timeInput) timeInput.value = rule.max_time_seconds ? formatSecondsToTime(rule.max_time_seconds) : '';
     if (activeInput) activeInput.checked = rule.active !== false;
+    if (btnSaveAnother) btnSaveAnother.style.display = 'none';
+    setMoreOptionsOpen(
+      moreDetails,
+      shouldOpenMoreOptions(
+        [
+          rule.level,
+          rule.min_questions_per_minute,
+          rule.max_time_seconds,
+          rule.active === false ? 'inactive' : '',
+        ],
+        true
+      )
+    );
   } else {
     editingTargetId = null;
     if (modalTitle) modalTitle.textContent = 'Add Target Rule';
@@ -529,8 +609,11 @@ function openTargetModal(rule = null, preselectedCatId = null) {
     if (qpmInput) qpmInput.value = '';
     if (timeInput) timeInput.value = '';
     if (activeInput) activeInput.checked = true;
+    if (btnSaveAnother) btnSaveAnother.style.display = 'inline-flex';
+    setMoreOptionsOpen(moreDetails, false);
   }
 
+  updateTargetLiveSummary();
   openModal('target-modal');
 }
 

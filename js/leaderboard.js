@@ -7,14 +7,17 @@
  *   top 10 + own row below top 10 if outside it, "You" highlight, level chip in global mode, no links.
  * - Admin view: level filter ('all' or specific level from profiles), up to 200 rows,
  *   names link to /pages/student-detail.html?id=<student_id>, no "You" highlight.
- * - Never calculates points, ranks, task days, or streaks in JavaScript; strictly uses RPCs
- *   `leaderboard(p_board, p_period, p_level, p_limit, p_scope)`, `global_leaderboard_enabled()`, and `competition_rules()`.
+ * - Never calculates points, ranks, task days, times, speeds, or streaks in JavaScript;
+ *   strictly uses RPCs `leaderboard(p_board, p_period, p_level, p_limit, p_scope)`,
+ *   `todo_task_leaderboard(p_task, p_period, p_level, p_limit, p_scope)`,
+ *   `global_leaderboard_enabled()`, and `competition_rules()`.
  */
 
 import { isSupabaseConfigured } from './config.js';
 import { requireAuth } from './guard.js';
 import {
   fetchLeaderboard,
+  fetchTodoTaskLeaderboard,
   fetchTodoLeaderboardTasks,
   fetchGlobalLeaderboardEnabled,
   fetchCompetitionRules,
@@ -23,26 +26,44 @@ import {
 } from './leaderboardData.js';
 import {
   BOARD_LABELS,
+  TASK_SPEED_EXPLANATION_TEXT,
+  TASK_SPEED_EMPTY_MESSAGE,
+  TASK_SPEED_UNAVAILABLE_MESSAGE,
   boardUsesPeriod,
+  isSpeedRankableTask,
   scopeLabel,
   boardTitle,
   formatTaskFilterOptions,
-  mapLeaderboardRows
+  mapLeaderboardRows,
+  mapTaskLeaderboardRows
 } from './leaderboardView.js';
 import { setupAdminNav } from './modal.js';
+import {
+  MIN_LEADERBOARD_DATE,
+  getISTDateYMD,
+  parsePeriod,
+  periodValue,
+  periodLabel,
+  validatePeriodDate
+} from './periods.js';
 import { getSupabase, DemoDB } from './supabaseClient.js';
 import { showToast } from './toast.js';
 
 const SCOPE_STORAGE_KEY = 'trendz_leaderboard_scope_v1';
+const STATE_STORAGE_KEY = 'trendz_leaderboard_state_v2';
+const VALID_BOARDS = ['points', 'streak', 'practice_days', 'todo', 'improved'];
 
 let currentProfile = null;
 let isAdmin = false;
+let todayIST = getISTDateYMD();
 let currentBoard = 'points'; // 'points' | 'streak' | 'practice_days' | 'todo' | 'improved'
-let currentPeriod = 'week'; // 'week' | 'month' | 'all'
+let currentPeriod = 'week'; // 'today' | 'yesterday' | 'week' | 'month' | 'year' | 'all' | 'date:YYYY-MM-DD'
+let currentPeriodChoice = 'week'; // 'today' | 'yesterday' | 'week' | 'month' | 'year' | 'all' | 'date'
+let currentCustomDate = '';
 let currentLevel = 'all'; // used by admin only
 let currentScope = 'level'; // 'level' | 'global' (used by students)
-let todoTaskOptions = []; // [{ id, taskNumber, shortLabel, optionLabel, title, section, level }]
-let currentTaskId = null;
+let todoTaskOptions = []; // [{ id, taskNumber, shortLabel, optionLabel, title, section, category_id, level, isSpeedRanked }]
+let currentTaskId = 'all'; // 'all' or a daily_tasks.id
 let globalEnabled = true;
 let competitionRules = {
   weekly_test_multiplier: 2,
@@ -82,6 +103,125 @@ function writeStoredScope(scope) {
   }
 }
 
+function readStoredLeaderboardState() {
+  try {
+    const raw = localStorage.getItem(STATE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistLeaderboardState() {
+  try {
+    localStorage.setItem(
+      STATE_STORAGE_KEY,
+      JSON.stringify({
+        board: currentBoard,
+        period: currentPeriod,
+        task: currentTaskId,
+        scope: currentScope,
+        level: currentLevel
+      })
+    );
+  } catch {
+    // Ignore storage errors
+  }
+
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.set('board', currentBoard);
+    if (boardUsesPeriod(currentBoard)) {
+      url.searchParams.set('period', currentPeriod);
+    } else {
+      url.searchParams.delete('period');
+    }
+    if (currentBoard === 'todo' && currentTaskId && currentTaskId !== 'all') {
+      url.searchParams.set('task', currentTaskId);
+    } else {
+      url.searchParams.delete('task');
+    }
+    if (!isAdmin) {
+      if (currentScope === 'global' && globalEnabled) {
+        url.searchParams.set('scope', 'global');
+      } else {
+        url.searchParams.delete('scope');
+      }
+    } else if (currentLevel && currentLevel !== 'all') {
+      url.searchParams.set('level', currentLevel);
+    } else {
+      url.searchParams.delete('level');
+    }
+    window.history.replaceState({}, '', `${url.pathname}${url.search}`);
+  } catch {
+    // Ignore history API errors
+  }
+}
+
+function restoreInitialSelections() {
+  const stored = readStoredLeaderboardState();
+
+  // 1. Restore from localStorage first
+  if (stored) {
+    if (typeof stored.board === 'string' && VALID_BOARDS.includes(stored.board)) {
+      currentBoard = stored.board;
+    }
+    const parsedStoredPeriod = parsePeriod(stored.period, todayIST);
+    if (parsedStoredPeriod) {
+      currentPeriod = parsedStoredPeriod.value;
+      currentPeriodChoice = parsedStoredPeriod.choice;
+      if (parsedStoredPeriod.dateText) {
+        currentCustomDate = parsedStoredPeriod.dateText;
+      }
+    }
+    if (typeof stored.task === 'string' && stored.task.trim()) {
+      currentTaskId = stored.task.trim();
+    }
+    if (isAdmin && typeof stored.level === 'string' && stored.level.trim()) {
+      currentLevel = stored.level.trim();
+    }
+  }
+
+  // 2. Override with valid URL query parameters (?board=todo&period=date:2026-10-30&task=<id>)
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const urlBoard = params.get('board');
+    if (urlBoard && VALID_BOARDS.includes(urlBoard.trim())) {
+      currentBoard = urlBoard.trim();
+    }
+
+    const urlPeriod = params.get('period');
+    if (urlPeriod) {
+      const parsedUrlPeriod = parsePeriod(urlPeriod, todayIST);
+      if (parsedUrlPeriod) {
+        currentPeriod = parsedUrlPeriod.value;
+        currentPeriodChoice = parsedUrlPeriod.choice;
+        if (parsedUrlPeriod.dateText) {
+          currentCustomDate = parsedUrlPeriod.dateText;
+        }
+      }
+    }
+
+    const urlTask = params.get('task');
+    if (urlTask && urlTask.trim()) {
+      currentTaskId = urlTask.trim();
+    }
+
+    const urlLevel = params.get('level');
+    if (isAdmin && urlLevel && urlLevel.trim()) {
+      currentLevel = urlLevel.trim();
+    }
+  } catch {
+    // Ignore URL parse errors
+  }
+
+  if (!currentCustomDate) {
+    currentCustomDate = todayIST;
+  }
+}
+
 function getBoardLabel(board) {
   return BOARD_LABELS[board] || 'Leaderboard';
 }
@@ -95,7 +235,7 @@ function getValueColumnHeader(board) {
     case 'practice_days':
       return 'Practice days';
     case 'todo':
-      return 'Fastest time';
+      return 'Days completed';
     case 'improved':
       return 'Accuracy Gain';
     default:
@@ -104,15 +244,13 @@ function getValueColumnHeader(board) {
 }
 
 function getSelectedTaskOption() {
+  if (!currentTaskId || currentTaskId === 'all') return null;
   if (!Array.isArray(todoTaskOptions) || todoTaskOptions.length === 0) return null;
-  return (
-    todoTaskOptions.find(opt => String(opt.id) === String(currentTaskId)) ||
-    todoTaskOptions[0]
-  );
+  return todoTaskOptions.find(opt => String(opt.id) === String(currentTaskId)) || null;
 }
 
 /**
- * Loads and renders the Task 1, Task 2, Task 3... filter controls for the Daily To-Do Leaderboard.
+ * Loads and renders the task filter controls for the Daily To-Do Leaderboard.
  */
 async function syncTodoTaskFilterOptions() {
   const effectiveLevel = isAdmin ? (currentLevel === 'all' ? 'all' : currentLevel) : null;
@@ -129,26 +267,23 @@ async function syncTodoTaskFilterOptions() {
 
   todoTaskOptions = formatTaskFilterOptions(rawTasks);
 
-  if (todoTaskOptions.length > 0) {
+  if (currentTaskId !== 'all') {
     const stillExists = todoTaskOptions.some(opt => String(opt.id) === String(currentTaskId));
     if (!stillExists) {
-      currentTaskId = todoTaskOptions[0].id;
+      currentTaskId = 'all';
     }
-  } else {
-    currentTaskId = null;
   }
 
   renderTodoTaskFilterUI();
 }
 
 /**
- * Renders the Task filter dropdown and quick Task 1 / Task 2 / Task 3 buttons.
+ * Renders the Task filter dropdown and quick chip buttons (with "All tasks" as default).
  */
 function renderTodoTaskFilterUI() {
   const wrapper = document.getElementById('todo-task-filter-wrapper');
   const selectEl = document.getElementById('select-todo-task');
   const pillsContainer = document.getElementById('todo-task-pills');
-  const metaEl = document.getElementById('todo-selected-task-meta');
 
   if (!wrapper) return;
 
@@ -159,39 +294,33 @@ function renderTodoTaskFilterUI() {
 
   wrapper.style.display = 'flex';
 
-  if (todoTaskOptions.length === 0) {
-    if (selectEl) {
-      selectEl.innerHTML = '<option value="">No active daily tasks found</option>';
-      selectEl.disabled = true;
-    }
-    if (pillsContainer) {
-      pillsContainer.innerHTML = '';
-      pillsContainer.style.display = 'none';
-    }
-    if (metaEl) {
-      metaEl.textContent = 'No active daily tasks configured';
-    }
-    return;
-  }
-
-  const selectedOpt = getSelectedTaskOption();
-  if (selectedOpt && currentTaskId !== selectedOpt.id) {
-    currentTaskId = selectedOpt.id;
-  }
+  const isAllActive = !currentTaskId || currentTaskId === 'all';
 
   if (selectEl) {
     selectEl.disabled = false;
-    selectEl.innerHTML = todoTaskOptions
+    const allOptionHtml = `<option value="all" ${isAllActive ? 'selected' : ''}>All tasks</option>`;
+    const taskOptionsHtml = todoTaskOptions
       .map(
         opt =>
-          `<option value="${escapeHtml(opt.id)}" ${String(opt.id) === String(currentTaskId) ? 'selected' : ''}>${escapeHtml(opt.optionLabel)}</option>`
+          `<option value="${escapeHtml(opt.id)}" ${String(opt.id) === String(currentTaskId) ? 'selected' : ''}>${escapeHtml(opt.title)}</option>`
       )
       .join('');
+    selectEl.innerHTML = allOptionHtml + taskOptionsHtml;
   }
 
   if (pillsContainer) {
     pillsContainer.style.display = 'flex';
-    pillsContainer.innerHTML = todoTaskOptions
+    const allChipHtml = `
+      <button
+        type="button"
+        class="segmented-btn ${isAllActive ? 'active' : ''}"
+        data-todo-task-id="all"
+        aria-pressed="${isAllActive ? 'true' : 'false'}"
+      >
+        All tasks
+      </button>
+    `;
+    const taskChipsHtml = todoTaskOptions
       .map(opt => {
         const isActive = String(opt.id) === String(currentTaskId);
         return `
@@ -202,15 +331,65 @@ function renderTodoTaskFilterUI() {
             aria-pressed="${isActive ? 'true' : 'false'}"
             title="${escapeHtml(opt.optionLabel)}"
           >
-            ${escapeHtml(opt.shortLabel)}: ${escapeHtml(opt.title)}
+            ${escapeHtml(opt.title)}
           </button>
         `;
       })
       .join('');
+    pillsContainer.innerHTML = allChipHtml + taskChipsHtml;
+  }
+}
+
+/**
+ * Syncs the Board Tabs, Period Selector buttons, and Date Picker UI with current state.
+ */
+function syncToolbarControlsUI() {
+  // Board tabs
+  const boardButtons = document.querySelectorAll('[data-board]');
+  boardButtons.forEach(b => {
+    const active = b.getAttribute('data-board') === currentBoard;
+    b.classList.toggle('active', active);
+    b.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+
+  // Period buttons
+  const periodButtons = document.querySelectorAll('[data-period-choice]');
+  periodButtons.forEach(b => {
+    const choice = b.getAttribute('data-period-choice');
+    const active = choice === currentPeriodChoice;
+    b.classList.toggle('active', active);
+    b.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+
+  // Date picker box
+  const dateBox = document.getElementById('period-date-picker-box');
+  const dateInput = document.getElementById('input-leaderboard-date');
+  const dateError = document.getElementById('leaderboard-date-error');
+  if (dateInput) {
+    dateInput.setAttribute('min', MIN_LEADERBOARD_DATE);
+    dateInput.setAttribute('max', todayIST);
+    if (currentCustomDate && dateInput.value !== currentCustomDate) {
+      dateInput.value = currentCustomDate;
+    }
+  }
+  if (dateBox) {
+    dateBox.style.display = currentPeriodChoice === 'date' ? 'inline-flex' : 'none';
+  }
+  if (dateError && currentPeriodChoice !== 'date') {
+    dateError.style.display = 'none';
+    dateError.textContent = '';
   }
 
-  if (metaEl && selectedOpt) {
-    metaEl.textContent = `${selectedOpt.shortLabel} of ${todoTaskOptions.length} · Ranked fastest to slowest attempt`;
+  // Admin level dropdown
+  const levelSelect = document.getElementById('select-leaderboard-level');
+  if (isAdmin && levelSelect && levelSelect.value !== currentLevel) {
+    const hasOpt = Array.from(levelSelect.options).some(o => o.value === currentLevel);
+    if (hasOpt) {
+      levelSelect.value = currentLevel;
+    } else {
+      currentLevel = 'all';
+      levelSelect.value = 'all';
+    }
   }
 }
 
@@ -248,26 +427,78 @@ function syncScopeControlsUI() {
 }
 
 /**
- * Updates the "How it works" explanation banner and card headings for the active board/period/scope.
+ * Renders the <thead> columns for either the 5-column task speed board or the 3-column standard board.
+ * @param {boolean} isTaskSpeedBoard
+ */
+function renderTableHeader(isTaskSpeedBoard) {
+  const thead = document.getElementById('leaderboard-table-head');
+  if (!thead) return;
+
+  if (isTaskSpeedBoard) {
+    thead.innerHTML = `
+      <tr>
+        <th style="width: 90px;">Rank</th>
+        <th>Student</th>
+        <th style="text-align: right;">Best</th>
+        <th style="text-align: right;">Best round</th>
+        <th style="text-align: right;">Rounds</th>
+      </tr>
+    `;
+  } else {
+    thead.innerHTML = `
+      <tr>
+        <th style="width: 90px;">Rank</th>
+        <th>Student</th>
+        <th id="th-board-value" style="text-align: right;">${escapeHtml(getValueColumnHeader(currentBoard))}</th>
+      </tr>
+    `;
+  }
+}
+
+/**
+ * Updates the "How it works" explanation banner, unavailable task banner, and card headings
+ * for the active board/period/scope/task.
  */
 function updateBoardChrome() {
-  // 1. Show or hide the period switch (visible for 'points', 'practice_days', and 'todo')
+  syncToolbarControlsUI();
+
+  // 1. Show or hide the period selector (visible for 'points', 'practice_days', and 'todo')
   const periodWrapper = document.getElementById('period-switch-wrapper');
   const usesPeriod = boardUsesPeriod(currentBoard);
   if (periodWrapper) {
-    periodWrapper.style.display = usesPeriod ? 'inline-flex' : 'none';
+    periodWrapper.style.display = usesPeriod ? 'flex' : 'none';
   }
 
   // 1b. Show or hide the Daily To-Do Task filter bar
   renderTodoTaskFilterUI();
 
-  // 2. Update "How it works" explanation
-  const howItWorksEl = document.getElementById('how-it-works-text');
-  if (howItWorksEl) {
-    howItWorksEl.textContent = buildHowItWorksText(currentBoard, competitionRules);
+  const selectedTaskOpt = currentBoard === 'todo' ? getSelectedTaskOption() : null;
+  const isTaskSpeedBoard = Boolean(selectedTaskOpt && isSpeedRankableTask(selectedTaskOpt));
+  const isNonSpeedTaskSelected = Boolean(selectedTaskOpt && !isTaskSpeedBoard);
+
+  // 2. Show or hide the "Speed ranking is not available for this kind of task yet." notice
+  const unavailableBanner = document.getElementById('todo-task-unavailable-banner');
+  const unavailableText = document.getElementById('todo-task-unavailable-text');
+  if (unavailableBanner) {
+    if (currentBoard === 'todo' && isNonSpeedTaskSelected) {
+      if (unavailableText) {
+        unavailableText.textContent = TASK_SPEED_UNAVAILABLE_MESSAGE;
+      }
+      unavailableBanner.style.display = 'flex';
+    } else {
+      unavailableBanner.style.display = 'none';
+    }
   }
 
-  // 3. Determine scope label for card header & badge
+  // 3. Update "How it works" explanation
+  const howItWorksEl = document.getElementById('how-it-works-text');
+  if (howItWorksEl) {
+    howItWorksEl.textContent = isTaskSpeedBoard
+      ? TASK_SPEED_EXPLANATION_TEXT
+      : buildHowItWorksText(currentBoard, competitionRules, { isTaskSpeedBoard });
+  }
+
+  // 4. Determine scope label for card header & badge
   let activeScopeLabel = '';
   if (isAdmin) {
     activeScopeLabel =
@@ -278,12 +509,8 @@ function updateBoardChrome() {
     activeScopeLabel = scopeLabel(currentProfile?.level, currentScope);
   }
 
-  // 4. Update card title & value column header
-  const selectedTaskOpt = currentBoard === 'todo' ? getSelectedTaskOption() : null;
-  const activeTaskLabel = selectedTaskOpt
-    ? `${selectedTaskOpt.shortLabel}: ${selectedTaskOpt.title}`
-    : null;
-
+  // 5. Update card title ("<task title> - <period label> - <scope or level>") & exact range next to title
+  const activeTaskTitle = selectedTaskOpt ? selectedTaskOpt.title : null;
   const cardTitleEl = document.getElementById('board-card-title');
   if (cardTitleEl) {
     cardTitleEl.textContent = boardTitle(
@@ -291,16 +518,26 @@ function updateBoardChrome() {
       currentPeriod,
       isAdmin ? activeScopeLabel : currentScope,
       currentProfile?.level,
-      activeTaskLabel
+      activeTaskTitle,
+      todayIST
     );
   }
 
-  const thValueEl = document.getElementById('th-board-value');
-  if (thValueEl) {
-    thValueEl.textContent = getValueColumnHeader(currentBoard);
+  const periodRangeEl = document.getElementById('board-period-range');
+  if (periodRangeEl) {
+    if (usesPeriod) {
+      periodRangeEl.textContent = periodLabel(currentPeriod, todayIST);
+      periodRangeEl.style.display = 'inline-flex';
+    } else {
+      periodRangeEl.textContent = '';
+      periodRangeEl.style.display = 'none';
+    }
   }
 
-  // 5. Update scope badge
+  // 6. Update table headers
+  renderTableHeader(isTaskSpeedBoard);
+
+  // 7. Update scope badge
   const scopeBadgeEl = document.getElementById('board-scope-badge');
   if (scopeBadgeEl) {
     scopeBadgeEl.textContent = activeScopeLabel;
@@ -353,8 +590,9 @@ async function populateAdminLevelsDropdown() {
 
 /**
  * Renders loading skeleton rows in the leaderboard table.
+ * @param {number} [colSpan=3]
  */
-function renderSkeleton() {
+function renderSkeleton(colSpan = 3) {
   const tbody = document.getElementById('leaderboard-table-body');
   const emptyState = document.getElementById('leaderboard-empty-state');
   const errorBanner = document.getElementById('leaderboard-error-banner');
@@ -369,7 +607,7 @@ function renderSkeleton() {
       .map(
         () => `
         <tr>
-          <td colspan="3"><div class="skeleton-row" style="margin-bottom: 0;"></div></td>
+          <td colspan="${colSpan}"><div class="skeleton-row" style="margin-bottom: 0;"></div></td>
         </tr>
       `
       )
@@ -378,14 +616,76 @@ function renderSkeleton() {
 }
 
 /**
- * Fetches and renders the active leaderboard from RPC `leaderboard()`.
+ * Builds the Rank cell HTML (`#1`, `#2`, `#3`... strictly from row.rank).
+ * @param {number} rankNum
+ * @returns {string}
+ */
+function buildRankCellHtml(rankNum) {
+  if (rankNum === 1) {
+    return `<span class="num" style="font-weight: 700; color: #b45309;">#1</span>`;
+  }
+  if (rankNum === 2) {
+    return `<span class="num" style="font-weight: 700; color: #475569;">#2</span>`;
+  }
+  if (rankNum === 3) {
+    return `<span class="num" style="font-weight: 700; color: #9a3412;">#3</span>`;
+  }
+  return `<span class="num" style="font-weight: 700; color: var(--text-main);">#${escapeHtml(rankNum)}</span>`;
+}
+
+/**
+ * Builds the Student cell HTML (with level chip in global scope and "You" badge for own row).
+ * @param {Object} row
+ * @returns {string}
+ */
+function buildStudentCellHtml(row) {
+  const isMe = row.is_me;
+  let nameCellHtml = `<span style="font-weight: ${isMe ? '700' : '600'}; color: var(--text-main);">${escapeHtml(row.display_name)}</span>`;
+  if (isAdmin && row.student_id) {
+    nameCellHtml = `
+      <a
+        href="/pages/student-detail.html?id=${encodeURIComponent(row.student_id)}"
+        style="font-weight: 600; color: var(--color-primary); text-decoration: none;"
+      >
+        ${escapeHtml(row.display_name)}
+      </a>
+    `;
+  }
+
+  const levelChipHtml =
+    row.show_level_chip && row.level
+      ? `<span class="badge badge-neutral" style="margin-left: 8px;">${escapeHtml(row.level)}</span>`
+      : '';
+
+  const youBadgeHtml = isMe
+    ? `<span class="badge badge-neutral" style="margin-left: 8px;">You</span>`
+    : '';
+
+  return `
+    <div style="display: inline-flex; align-items: center; flex-wrap: wrap;">
+      ${nameCellHtml}
+      ${levelChipHtml}
+      ${youBadgeHtml}
+    </div>
+  `;
+}
+
+/**
+ * Fetches and renders the active leaderboard from RPC `leaderboard()` or `todo_task_leaderboard()`.
  */
 async function loadActiveBoard() {
   if (currentBoard === 'todo' && todoTaskOptions.length === 0) {
     await syncTodoTaskFilterOptions();
   }
+
+  persistLeaderboardState();
   updateBoardChrome();
-  renderSkeleton();
+
+  const selectedTaskOpt = currentBoard === 'todo' ? getSelectedTaskOption() : null;
+  const isTaskSpeedBoard = Boolean(selectedTaskOpt && isSpeedRankableTask(selectedTaskOpt));
+  const colSpan = isTaskSpeedBoard ? 5 : 3;
+
+  renderSkeleton(colSpan);
 
   const tbody = document.getElementById('leaderboard-table-body');
   const emptyState = document.getElementById('leaderboard-empty-state');
@@ -405,14 +705,87 @@ async function loadActiveBoard() {
         : 'level'
       : currentScope;
 
+    if (isTaskSpeedBoard && selectedTaskOpt) {
+      const rawTaskRows = await fetchTodoTaskLeaderboard(
+        {
+          taskId: selectedTaskOpt.id,
+          period: effectivePeriod,
+          level: effectiveLevel,
+          limit: effectiveLimit,
+          scope: effectiveScope
+        },
+        currentProfile
+      );
+
+      const mappedTaskRows = mapTaskLeaderboardRows(rawTaskRows, {
+        scope: effectiveScope,
+        isAdmin
+      });
+
+      if (mappedTaskRows.length === 0) {
+        if (tbody) tbody.innerHTML = '';
+        if (tableEl) tableEl.style.display = 'none';
+        if (emptyTitle) {
+          emptyTitle.textContent = TASK_SPEED_EMPTY_MESSAGE;
+        }
+        if (emptyDesc) {
+          emptyDesc.textContent = TASK_SPEED_EXPLANATION_TEXT;
+        }
+        if (emptyState) emptyState.style.display = 'flex';
+        return;
+      }
+
+      if (emptyState) emptyState.style.display = 'none';
+      if (tableEl) tableEl.style.display = 'table';
+
+      const htmlRows = [];
+      mappedTaskRows.forEach(row => {
+        const isMe = row.is_me;
+        if (row.is_outside_top_10) {
+          htmlRows.push(`
+            <tr class="section-divider-row" aria-label="Your rank outside top 10">
+              <th colspan="5" style="text-align: center; font-size: var(--text-sm); color: var(--text-muted);">
+                &bull; &bull; &bull; Your Rank &bull; &bull; &bull;
+              </th>
+            </tr>
+          `);
+        }
+
+        const rowStyle = isMe
+          ? 'background-color: var(--color-primary-subtle); font-weight: 700;'
+          : '';
+
+        htmlRows.push(`
+          <tr style="${rowStyle}" data-is-me="${isMe ? 'true' : 'false'}">
+            <td>${buildRankCellHtml(row.rank)}</td>
+            <td>${buildStudentCellHtml(row)}</td>
+            <td class="num" style="text-align: right; font-weight: 700; color: ${isMe ? 'var(--color-primary)' : 'var(--text-main)'};">
+              ${escapeHtml(row.formatted_best)}
+            </td>
+            <td class="num" style="text-align: right; color: var(--text-main);">
+              ${escapeHtml(row.formatted_best_round)}
+            </td>
+            <td class="num" style="text-align: right; color: var(--text-muted);">
+              ${escapeHtml(row.formatted_rounds)}
+            </td>
+          </tr>
+        `);
+      });
+
+      if (tbody) {
+        tbody.innerHTML = htmlRows.join('');
+      }
+      return;
+    }
+
+    // Standard 3-column leaderboard (including "All tasks" and fallback for non-basics/no-category tasks)
     const rawRows = await fetchLeaderboard(
       {
         board: currentBoard,
         period: effectivePeriod,
         level: effectiveLevel,
         limit: effectiveLimit,
-        scope: effectiveScope,
-        taskId: currentBoard === 'todo' ? currentTaskId : null
+        scope: effectiveScope
       },
       currentProfile
     );
@@ -427,16 +800,12 @@ async function loadActiveBoard() {
       if (tbody) tbody.innerHTML = '';
       if (tableEl) tableEl.style.display = 'none';
       if (emptyTitle) {
-        const selectedTaskOpt = currentBoard === 'todo' ? getSelectedTaskOption() : null;
-        emptyTitle.textContent =
-          currentBoard === 'todo'
-            ? selectedTaskOpt
-              ? `No timed attempts yet for ${selectedTaskOpt.shortLabel}`
-              : 'No task attempts yet'
-            : `No ${getBoardLabel(currentBoard).toLowerCase()} rankings yet`;
+        emptyTitle.textContent = `No ${getBoardLabel(currentBoard).toLowerCase()} rankings yet`;
       }
       if (emptyDesc) {
-        emptyDesc.textContent = getLeaderboardEmptyMessage(currentBoard, effectivePeriod);
+        emptyDesc.textContent = getLeaderboardEmptyMessage(currentBoard, effectivePeriod, {
+          isTaskSpeedBoard: false
+        });
       }
       if (emptyState) emptyState.style.display = 'flex';
       return;
@@ -446,52 +815,18 @@ async function loadActiveBoard() {
     if (tableEl) tableEl.style.display = 'table';
 
     const htmlRows = [];
-
     mappedRows.forEach(row => {
-      const rankNum = row.rank;
       const isMe = row.is_me;
 
-      // If the student is outside the top 10, insert a clear visual separator row before their row
       if (row.is_outside_top_10) {
         htmlRows.push(`
           <tr class="section-divider-row" aria-label="Your rank outside top 10">
-            <th colspan="3" style="text-align: center; font-size: 11px; color: var(--text-muted); letter-spacing: 0.5px;">
+            <th colspan="3" style="text-align: center; font-size: var(--text-sm); color: var(--text-muted);">
               &bull; &bull; &bull; Your Rank &bull; &bull; &bull;
             </th>
           </tr>
         `);
       }
-
-      // Rank badge styling (1st, 2nd, 3rd medals + tabular number)
-      let rankBadge = `<span class="num" style="font-weight: 700; color: var(--text-main);">#${escapeHtml(rankNum)}</span>`;
-      if (rankNum === 1) {
-        rankBadge = `<span class="num" style="font-weight: 700; color: #b45309;">🥇 #1</span>`;
-      } else if (rankNum === 2) {
-        rankBadge = `<span class="num" style="font-weight: 700; color: #475569;">🥈 #2</span>`;
-      } else if (rankNum === 3) {
-        rankBadge = `<span class="num" style="font-weight: 700; color: #9a3412;">🥉 #3</span>`;
-      }
-
-      // Display name (links to student detail page for admins using student_id; plain text for students)
-      let nameCellHtml = `<span style="font-weight: ${isMe ? '700' : '600'}; color: var(--text-main);">${escapeHtml(row.display_name)}</span>`;
-      if (isAdmin && row.student_id) {
-        nameCellHtml = `
-          <a
-            href="/pages/student-detail.html?id=${encodeURIComponent(row.student_id)}"
-            style="font-weight: 600; color: var(--color-primary); text-decoration: none;"
-          >
-            ${escapeHtml(row.display_name)}
-          </a>
-        `;
-      }
-
-      const levelChipHtml = row.show_level_chip && row.level
-        ? `<span class="badge badge-inactive" style="margin-left: 8px; font-size: 11px;">${escapeHtml(row.level)}</span>`
-        : '';
-
-      const youBadgeHtml = isMe
-        ? `<span class="badge badge-active" style="margin-left: 8px;">You</span>`
-        : '';
 
       const rowStyle = isMe
         ? 'background-color: var(--color-primary-subtle); font-weight: 700;'
@@ -499,14 +834,8 @@ async function loadActiveBoard() {
 
       htmlRows.push(`
         <tr style="${rowStyle}" data-is-me="${isMe ? 'true' : 'false'}">
-          <td>${rankBadge}</td>
-          <td>
-            <div style="display: inline-flex; align-items: center; flex-wrap: wrap;">
-              ${nameCellHtml}
-              ${levelChipHtml}
-              ${youBadgeHtml}
-            </div>
-          </td>
+          <td>${buildRankCellHtml(row.rank)}</td>
+          <td>${buildStudentCellHtml(row)}</td>
           <td class="num" style="text-align: right; font-weight: 700; color: ${isMe ? 'var(--color-primary)' : 'var(--text-main)'};">
             ${escapeHtml(row.formatted_value)}
           </td>
@@ -521,7 +850,7 @@ async function loadActiveBoard() {
     const errMsg = err?.message || 'Unable to load leaderboard rankings right now.';
     // When a request fails with the "switched off" message, show that message and fall back to the level scope
     if (!isAdmin && currentScope === 'global' && errMsg.toLowerCase().includes('switched off')) {
-      showToast('info', errMsg);
+      showToast('info', 'The global leaderboard is switched off.');
       globalEnabled = false;
       currentScope = 'level';
       writeStoredScope('level');
@@ -532,6 +861,7 @@ async function loadActiveBoard() {
 
     console.error('Error loading leaderboard:', err);
     if (tbody) tbody.innerHTML = '';
+    if (tableEl) tableEl.style.display = 'none';
     if (errorMsgEl) {
       errorMsgEl.textContent = errMsg;
     }
@@ -540,7 +870,7 @@ async function loadActiveBoard() {
 }
 
 /**
- * Sets up board tabs, period switch, task filter, student scope switch, and admin level selector listeners.
+ * Sets up board tabs, period selector, date input, task filter, student scope switch, and admin level selector listeners.
  */
 function setupControls() {
   // Board Tabs
@@ -551,12 +881,6 @@ function setupControls() {
       if (!targetBoard || targetBoard === currentBoard) return;
 
       currentBoard = targetBoard;
-      boardButtons.forEach(b => {
-        const active = b.getAttribute('data-board') === currentBoard;
-        b.classList.toggle('active', active);
-        b.setAttribute('aria-selected', active ? 'true' : 'false');
-      });
-
       if (currentBoard === 'todo') {
         await syncTodoTaskFilterOptions();
       }
@@ -568,44 +892,93 @@ function setupControls() {
   const taskSelectEl = document.getElementById('select-todo-task');
   if (taskSelectEl) {
     taskSelectEl.addEventListener('change', () => {
-      const chosenId = taskSelectEl.value;
-      if (!chosenId || chosenId === currentTaskId) return;
+      const chosenId = taskSelectEl.value || 'all';
+      if (chosenId === currentTaskId) return;
       currentTaskId = chosenId;
       renderTodoTaskFilterUI();
       loadActiveBoard();
     });
   }
 
-  // Daily To-Do Task Quick Pill Buttons (Task 1, Task 2, Task 3...)
+  // Daily To-Do Task Quick Chip Buttons (All tasks + each task)
   const taskPillsEl = document.getElementById('todo-task-pills');
   if (taskPillsEl) {
     taskPillsEl.addEventListener('click', e => {
       const btn = e.target.closest('[data-todo-task-id]');
       if (!btn) return;
-      const chosenId = btn.getAttribute('data-todo-task-id');
-      if (!chosenId || chosenId === currentTaskId) return;
+      const chosenId = btn.getAttribute('data-todo-task-id') || 'all';
+      if (chosenId === currentTaskId) return;
       currentTaskId = chosenId;
       renderTodoTaskFilterUI();
       loadActiveBoard();
     });
   }
 
-  // Period Switch
-  const periodButtons = document.querySelectorAll('[data-period]');
+  // Period Selector Buttons (Today, Yesterday, This week, This month, This year, All time, Pick a date)
+  const periodButtons = document.querySelectorAll('[data-period-choice]');
+  const dateInput = document.getElementById('input-leaderboard-date');
+  const dateError = document.getElementById('leaderboard-date-error');
+
   periodButtons.forEach(btn => {
     btn.addEventListener('click', () => {
-      const targetPeriod = btn.getAttribute('data-period');
-      if (!targetPeriod || targetPeriod === currentPeriod) return;
+      const choice = btn.getAttribute('data-period-choice');
+      if (!choice) return;
 
-      currentPeriod = targetPeriod;
-      periodButtons.forEach(b => {
-        const active = b.getAttribute('data-period') === currentPeriod;
-        b.classList.toggle('active', active);
-      });
+      if (dateError) {
+        dateError.style.display = 'none';
+        dateError.textContent = '';
+      }
 
+      if (choice === 'date') {
+        currentPeriodChoice = 'date';
+        const candidateDate = dateInput?.value || currentCustomDate || todayIST;
+        const check = validatePeriodDate(candidateDate, todayIST);
+        const validDate = check.valid ? check.dateText : todayIST;
+        currentCustomDate = validDate;
+        if (dateInput) dateInput.value = validDate;
+        const resolved = periodValue('date', validDate, todayIST);
+        if (resolved) {
+          currentPeriod = resolved;
+        }
+        loadActiveBoard();
+        return;
+      }
+
+      const resolved = periodValue(choice, '', todayIST);
+      if (!resolved) return;
+      if (choice === currentPeriodChoice && resolved === currentPeriod) return;
+
+      currentPeriodChoice = choice;
+      currentPeriod = resolved;
       loadActiveBoard();
     });
   });
+
+  // Custom Date Input (India time, min 2020-01-01, max todayIST)
+  if (dateInput) {
+    dateInput.addEventListener('change', () => {
+      const rawDate = dateInput.value;
+      const check = validatePeriodDate(rawDate, todayIST);
+      if (!check.valid) {
+        if (dateError) {
+          dateError.textContent = check.error || 'Enter a valid date.';
+          dateError.style.display = 'inline-block';
+        }
+        return;
+      }
+      if (dateError) {
+        dateError.textContent = '';
+        dateError.style.display = 'none';
+      }
+      currentCustomDate = check.dateText;
+      currentPeriodChoice = 'date';
+      const resolved = periodValue('date', check.dateText, todayIST);
+      if (resolved) {
+        currentPeriod = resolved;
+        loadActiveBoard();
+      }
+    });
+  }
 
   // Student Scope Switch ('level' | 'global')
   const scopeButtons = document.querySelectorAll('[data-scope]');
@@ -650,6 +1023,7 @@ async function initLeaderboardPage() {
 
   currentProfile = profile;
   isAdmin = profile.role === 'admin';
+  todayIST = getISTDateYMD();
 
   const pillContainer = document.getElementById('user-pill-container');
   if (pillContainer) pillContainer.style.display = 'flex';
@@ -693,10 +1067,13 @@ async function initLeaderboardPage() {
     syncScopeControlsUI();
   }
 
-  // 3. Wire UI listeners
+  // 3. Restore board, period, task, and level from localStorage & URL query parameters
+  restoreInitialSelections();
+
+  // 4. Wire UI listeners
   setupControls();
 
-  // 4. Load competition_rules() and initial board in parallel
+  // 5. Load competition_rules() and initial board in parallel
   try {
     const [rules] = await Promise.all([
       fetchCompetitionRules().catch(() => competitionRules),

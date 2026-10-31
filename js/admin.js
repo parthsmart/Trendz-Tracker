@@ -11,6 +11,9 @@ import { initProfileEditor, openEditProfileModal, openProfileAuditDrawer } from 
 import { collectExistingLevels } from './profileForm.js';
 import { DemoDB, getSupabase, clearStaleSupabaseSession } from './supabaseClient.js';
 import { showToast } from './toast.js';
+import { buildModalLiveSummary, setMoreOptionsOpen } from './formPattern.js';
+
+let submitAndAddAnotherStudent = false;
 
 let allStudents = [];
 let currentFilter = {
@@ -364,13 +367,48 @@ async function initAdmin() {
     }
   });
 
+  function updateCreateStudentSummary() {
+    const summaryEl = document.getElementById('create-student-live-summary');
+    if (!summaryEl) return;
+    summaryEl.textContent = buildModalLiveSummary('studentCreate', {
+      student_code: document.getElementById('new-student-code')?.value || '',
+      full_name: document.getElementById('new-full-name')?.value || '',
+      level: document.getElementById('new-level')?.value || '',
+    });
+  }
+
+  function resetCreateStudentForm() {
+    document.getElementById('create-student-form')?.reset();
+    const pwdEl = document.getElementById('new-temp-password');
+    if (pwdEl) pwdEl.value = generateRandomPassword();
+    const errEl = document.getElementById('create-error');
+    if (errEl) errEl.style.display = 'none';
+    ['error-new-student-code', 'error-new-full-name', 'error-new-temp-password'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
+    setMoreOptionsOpen(document.getElementById('create-student-more-options'), false);
+    updateCreateStudentSummary();
+  }
+
   // "Add Student" modal trigger
   document.getElementById('btn-open-create-modal')?.addEventListener('click', () => {
-    document.getElementById('create-student-form').reset();
-    document.getElementById('new-temp-password').value = generateRandomPassword();
-    document.getElementById('create-error').style.display = 'none';
+    resetCreateStudentForm();
     openModal('create-student-modal');
   });
+
+  ['new-student-code', 'new-full-name', 'new-level'].forEach((id) => {
+    document.getElementById(id)?.addEventListener('input', updateCreateStudentSummary);
+  });
+
+  const btnSaveAddAnotherStudent = document.getElementById('btn-save-add-another-student');
+  const createStudentForm = document.getElementById('create-student-form');
+  if (btnSaveAddAnotherStudent && createStudentForm) {
+    btnSaveAddAnotherStudent.addEventListener('click', () => {
+      submitAndAddAnotherStudent = true;
+      createStudentForm.requestSubmit();
+    });
+  }
 
   // Password generator triggers
   document.getElementById('btn-generate-password')?.addEventListener('click', () => {
@@ -397,13 +435,17 @@ async function initAdmin() {
   });
 
   // Create Student Form submit
-  document.getElementById('create-student-form')?.addEventListener('submit', async (e) => {
+  createStudentForm?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const errorEl = document.getElementById('create-error');
     const submitBtn = document.getElementById('btn-submit-create');
     const btnText = document.getElementById('btn-create-text');
 
     errorEl.style.display = 'none';
+    ['error-new-student-code', 'error-new-full-name', 'error-new-temp-password'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
 
     const student_code = document.getElementById('new-student-code').value.trim();
     const full_name = document.getElementById('new-full-name').value.trim();
@@ -411,25 +453,45 @@ async function initAdmin() {
     const password = document.getElementById('new-temp-password').value.trim();
 
     if (!student_code || !full_name || !password) {
+      if (!student_code) {
+        const el = document.getElementById('error-new-student-code');
+        if (el) { el.textContent = 'Student ID is required.'; el.style.display = 'block'; }
+      }
+      if (!full_name) {
+        const el = document.getElementById('error-new-full-name');
+        if (el) { el.textContent = 'Full name is required.'; el.style.display = 'block'; }
+      }
+      if (!password) {
+        const el = document.getElementById('error-new-temp-password');
+        if (el) { el.textContent = 'Temporary password is required.'; el.style.display = 'block'; }
+      }
       errorEl.textContent = 'Please fill out all required fields.';
       errorEl.style.display = 'block';
+      submitAndAddAnotherStudent = false;
       return;
     }
 
     submitBtn.disabled = true;
-    btnText.innerHTML = '<span class="spinner" style="margin-right: 6px;"></span> Creating...';
+    btnText.innerHTML = '<span class="spinner" style="margin-right: 6px;"></span> Saving...';
 
     try {
       await createStudent({ student_code, full_name, level, password });
       showToast('success', `Student account ${student_code} created successfully.`);
-      closeModal('create-student-modal');
+      const addAnother = submitAndAddAnotherStudent;
+      submitAndAddAnotherStudent = false;
       await loadStudents();
+      if (addAnother) {
+        resetCreateStudentForm();
+      } else {
+        closeModal('create-student-modal');
+      }
     } catch (err) {
+      submitAndAddAnotherStudent = false;
       errorEl.textContent = err.message || 'Failed to create student account.';
       errorEl.style.display = 'block';
     } finally {
       submitBtn.disabled = false;
-      btnText.textContent = 'Create Student';
+      btnText.textContent = 'Save';
     }
   });
 

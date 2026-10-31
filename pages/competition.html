@@ -16,7 +16,20 @@
         <div class="container header-inner">
           <!-- Zone 1: Wordmark & Brand -->
           <a href="/pages/admin.html" class="brand-zone">
-            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span class="brand-icon" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="4" y="2" width="16" height="20" rx="2"></rect>
+                <line x1="8" y1="6" x2="16" y2="6"></line>
+                <line x1="16" y1="14" x2="16" y2="18"></line>
+                <path d="M16 10h.01"></path>
+                <path d="M12 10h.01"></path>
+                <path d="M8 10h.01"></path>
+                <path d="M12 14h.01"></path>
+                <path d="M8 14h.01"></path>
+                <path d="M12 18h.01"></path>
+                <path d="M8 18h.01"></path>
+              </svg>
+            </span>
             <span>Trendz Tracker</span>
           </a>
 
@@ -32,40 +45,23 @@
           <!-- Zone 2: Navigation Links -->
           <nav class="nav-zone" id="admin-nav-zone" aria-label="Admin Navigation">
             <a href="/pages/admin.html" class="nav-link">Overview</a>
-            <a href="/pages/review.html" class="nav-link">Review</a>
             <a href="/pages/students.html" class="nav-link">Students</a>
+            <a href="/pages/review.html" class="nav-link">Review</a>
             <a href="/pages/attendance.html" class="nav-link">Attendance</a>
             <a href="/pages/weekly-tests.html" class="nav-link">Weekly Tests</a>
             <a href="/pages/leaderboard.html" class="nav-link">Leaderboard</a>
-            <a href="/pages/monthly-report.html" class="nav-link">Monthly Report</a>
-            
-            <!-- Setup Dropdown -->
-            <div class="nav-dropdown active" id="nav-setup-dropdown">
-              <button type="button" class="nav-link nav-dropdown-toggle active" id="btn-setup-dropdown" aria-expanded="false" aria-haspopup="true">
-                Setup <span style="font-size: 10px; margin-left: 2px;">▾</span>
-              </button>
-              <div class="nav-dropdown-menu" id="setup-dropdown-menu" role="menu">
-                <a href="/pages/todos.html" class="dropdown-item" role="menuitem">Daily To-Do</a>
-                <a href="/pages/resources.html" class="dropdown-item" role="menuitem">Resources</a>
-                <a href="/pages/categories.html" class="dropdown-item" role="menuitem">Categories</a>
-                <a href="/pages/rounds.html" class="dropdown-item" role="menuitem">Rounds</a>
-                <a href="/pages/targets.html" class="dropdown-item" role="menuitem">Targets</a>
-                <a href="/pages/competition.html" class="dropdown-item active" role="menuitem" aria-current="page">Competition</a>
-                <a href="/pages/import.html" class="dropdown-item" role="menuitem">Import</a>
-                <a href="/pages/backup.html" class="dropdown-item" role="menuitem">Backup</a>
-              </div>
-            </div>
+            <a href="/pages/settings.html" class="nav-link active" aria-current="page">Settings</a>
           </nav>
 
           <!-- Zone 3: User Details & Logout Action -->
           <div class="actions-zone">
-            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+            <div class="meta-row" style="font-size: var(--text-sm); display: none;" id="user-pill-container">
               <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Admin</span>
               <span class="meta-separator" aria-hidden="true">·</span>
               <span id="header-user-role" style="color: var(--text-muted);">Teacher</span>
             </div>
             <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
-              Sign Out
+              Sign out
             </button>
           </div>
         </div>
@@ -74,6 +70,13 @@
       <!-- Main Page Content -->
       <main class="main-content">
         <div class="container">
+          <!-- Breadcrumb -->
+          <nav class="settings-breadcrumb" aria-label="Breadcrumb">
+            <a href="/pages/settings.html">Settings</a>
+            <span class="settings-breadcrumb-sep" aria-hidden="true">&gt;</span>
+            <span aria-current="page">Competition settings</span>
+          </nav>
+
           <!-- Demo Mode Banner Placeholder -->
           <div id="config-banner-placeholder"></div>
 
@@ -86,7 +89,7 @@
               </p>
             </div>
             <a href="/pages/leaderboard.html" class="btn btn-outline">
-              🏅 View Leaderboards &rarr;
+              View Leaderboards &rarr;
             </a>
           </div>
 
@@ -96,7 +99,7 @@
               <strong>Could not save or load setting:</strong>
               <span id="competition-error-text">Please check your input and try again.</span>
             </div>
-            <button type="button" id="btn-dismiss-competition-error" class="btn btn-outline btn-sm" style="background: #fff;">
+            <button type="button" id="btn-dismiss-competition-error" class="btn btn-outline btn-sm">
               Dismiss
             </button>
           </div>
@@ -122,14 +125,14 @@
                     <h2 id="lbl-weekly-multiplier" class="card-title" style="font-size: var(--text-base);">
                       1. Weekly Test Points Multiplier
                     </h2>
-                    <span style="font-size: var(--text-xs); color: var(--text-muted);">
+                    <span style="font-size: var(--text-sm); color: var(--text-muted);">
                       Key: <code class="num">weekly_test_multiplier</code>
                     </span>
                   </div>
-                  <span class="badge badge-inactive">Points Board</span>
+                  <span class="badge badge-neutral">Points Board</span>
                 </div>
                 <div class="card-body">
-                  <p style="font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-4); line-height: 1.5;">
+                  <p style="font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-4);">
                     For each weekly test category, a student earns <strong>(correct answers &minus; wrong answers)</strong> (never below 0) multiplied by this number.
                   </p>
                   <div class="form-group" style="margin-bottom: var(--space-3);">
@@ -147,7 +150,7 @@
                         required
                         style="max-width: 140px;"
                       />
-                      <span style="font-size: var(--text-xs); font-weight: 600; color: var(--text-muted);">
+                      <span style="font-size: var(--text-sm); font-weight: 600; color: var(--text-muted);">
                         &times; (correct &minus; wrong) points
                       </span>
                     </div>
@@ -155,8 +158,8 @@
                   </div>
                 </div>
                 <div class="card-footer" style="justify-content: space-between;">
-                  <span id="status-weekly-test-multiplier" style="font-size: var(--text-xs); color: var(--text-muted);"></span>
-                  <button type="button" class="btn btn-primary btn-sm btn-save-setting" data-key="weekly_test_multiplier">
+                  <span id="status-weekly-test-multiplier" style="font-size: var(--text-sm); color: var(--text-muted);"></span>
+                  <button type="button" class="btn btn-secondary btn-sm btn-save-setting" data-key="weekly_test_multiplier">
                     Save Multiplier
                   </button>
                 </div>
@@ -169,19 +172,19 @@
                     <h2 id="lbl-attendance-points" class="card-title" style="font-size: var(--text-base);">
                       2. Session Attendance Points
                     </h2>
-                    <span style="font-size: var(--text-xs); color: var(--text-muted);">
+                    <span style="font-size: var(--text-sm); color: var(--text-muted);">
                       Key: <code class="num">attendance_present_points</code>
                     </span>
                   </div>
-                  <span class="badge badge-inactive">Points Board</span>
+                  <span class="badge badge-neutral">Points Board</span>
                 </div>
                 <div class="card-body">
-                  <p style="font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-4); line-height: 1.5;">
+                  <p style="font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-4);">
                     Points awarded for each class or workshop session the student attended (marked <strong>Present</strong>). Excused sessions give nothing and cost nothing.
                   </p>
                   <div class="form-group" style="margin-bottom: var(--space-3);">
                     <label for="input-attendance-present-points" class="form-label">
-                      Attendance Points (points per present session)
+                      Attendance points (points per present session)
                     </label>
                     <div style="display: flex; align-items: center; gap: var(--space-2);">
                       <input
@@ -194,7 +197,7 @@
                         required
                         style="max-width: 140px;"
                       />
-                      <span style="font-size: var(--text-xs); font-weight: 600; color: var(--text-muted);">
+                      <span style="font-size: var(--text-sm); font-weight: 600; color: var(--text-muted);">
                         points per session attended
                       </span>
                     </div>
@@ -202,8 +205,8 @@
                   </div>
                 </div>
                 <div class="card-footer" style="justify-content: space-between;">
-                  <span id="status-attendance-present-points" style="font-size: var(--text-xs); color: var(--text-muted);"></span>
-                  <button type="button" class="btn btn-primary btn-sm btn-save-setting" data-key="attendance_present_points">
+                  <span id="status-attendance-present-points" style="font-size: var(--text-sm); color: var(--text-muted);"></span>
+                  <button type="button" class="btn btn-secondary btn-sm btn-save-setting" data-key="attendance_present_points">
                     Save Attendance Points
                   </button>
                 </div>
@@ -216,19 +219,19 @@
                     <h2 id="lbl-improved-min" class="card-title" style="font-size: var(--text-base);">
                       3. Most Improved Minimum Entries
                     </h2>
-                    <span style="font-size: var(--text-xs); color: var(--text-muted);">
+                    <span style="font-size: var(--text-sm); color: var(--text-muted);">
                       Key: <code class="num">improved_min_entries</code>
                     </span>
                   </div>
-                  <span class="badge badge-inactive">Most Improved Board</span>
+                  <span class="badge badge-neutral">Most Improved Board</span>
                 </div>
                 <div class="card-body">
-                  <p style="font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-4); line-height: 1.5;">
+                  <p style="font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-4);">
                     Minimum number of practice score entries required in <strong>both last week and this week</strong> for a student to qualify for the Most Improved accuracy board.
                   </p>
                   <div class="form-group" style="margin-bottom: var(--space-3);">
                     <label for="input-improved-min-entries" class="form-label">
-                      Minimum Entries Required (entries per week)
+                      Minimum entries required (entries per week)
                     </label>
                     <div style="display: flex; align-items: center; gap: var(--space-2);">
                       <input
@@ -241,7 +244,7 @@
                         required
                         style="max-width: 140px;"
                       />
-                      <span style="font-size: var(--text-xs); font-weight: 600; color: var(--text-muted);">
+                      <span style="font-size: var(--text-sm); font-weight: 600; color: var(--text-muted);">
                         entries in each week
                       </span>
                     </div>
@@ -249,8 +252,8 @@
                   </div>
                 </div>
                 <div class="card-footer" style="justify-content: space-between;">
-                  <span id="status-improved-min-entries" style="font-size: var(--text-xs); color: var(--text-muted);"></span>
-                  <button type="button" class="btn btn-primary btn-sm btn-save-setting" data-key="improved_min_entries">
+                  <span id="status-improved-min-entries" style="font-size: var(--text-sm); color: var(--text-muted);"></span>
+                  <button type="button" class="btn btn-secondary btn-sm btn-save-setting" data-key="improved_min_entries">
                     Save Minimum Entries
                   </button>
                 </div>
@@ -263,19 +266,19 @@
                     <h2 id="lbl-leaderboard-names" class="card-title" style="font-size: var(--text-base);">
                       4. Leaderboard Display Name Format
                     </h2>
-                    <span style="font-size: var(--text-xs); color: var(--text-muted);">
+                    <span style="font-size: var(--text-sm); color: var(--text-muted);">
                       Key: <code class="num">leaderboard_names</code>
                     </span>
                   </div>
-                  <span class="badge badge-inactive">Privacy</span>
+                  <span class="badge badge-neutral">Privacy</span>
                 </div>
                 <div class="card-body">
-                  <p style="font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-4); line-height: 1.5;">
+                  <p style="font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-4);">
                     Controls how student identities are displayed on all leaderboards. Full names are never exposed on the leaderboard.
                   </p>
                   <div class="form-group" style="margin-bottom: var(--space-4);">
                     <label for="select-leaderboard-names" class="form-label">
-                      Name Display Mode
+                      Name display mode
                     </label>
                     <select id="select-leaderboard-names" class="form-select">
                       <option value="first_name_initial">First name + last initial (first_name_initial)</option>
@@ -286,25 +289,25 @@
 
                   <!-- Sample Student Name Preview -->
                   <div style="padding: var(--space-3) var(--space-4); background-color: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md);">
-                    <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 6px;">
-                      Sample Student Preview (Aarav Sharma &middot; STU101)
+                    <div style="font-size: var(--text-sm); font-weight: 600; color: var(--text-muted); margin-bottom: var(--space-2);">
+                      Sample student preview (Aarav Sharma &middot; STU101)
                     </div>
-                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background-color: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding: var(--space-2) var(--space-3); background-color: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
                       <div style="display: flex; align-items: center; gap: var(--space-3);">
-                        <span class="num" style="font-weight: 700; color: #b45309;">🥇 #1</span>
+                        <span class="num" style="font-weight: 700; color: var(--text-main);">#1</span>
                         <strong id="sample-student-name-preview" style="font-size: var(--text-sm); color: var(--text-main);">
                           Aarav S.
                         </strong>
                       </div>
-                      <span class="num" style="font-size: var(--text-xs); font-weight: 700; color: var(--color-primary);">
+                      <span class="num" style="font-size: var(--text-sm); font-weight: 700; color: var(--color-primary);">
                         96 points
                       </span>
                     </div>
                   </div>
                 </div>
                 <div class="card-footer" style="justify-content: space-between;">
-                  <span id="status-leaderboard-names" style="font-size: var(--text-xs); color: var(--text-muted);"></span>
-                  <button type="button" class="btn btn-primary btn-sm btn-save-setting" data-key="leaderboard_names">
+                  <span id="status-leaderboard-names" style="font-size: var(--text-sm); color: var(--text-muted);"></span>
+                  <button type="button" class="btn btn-secondary btn-sm btn-save-setting" data-key="leaderboard_names">
                     Save Name Format
                   </button>
                 </div>
@@ -317,14 +320,14 @@
                     <h2 id="lbl-todo-streak-start" class="card-title" style="font-size: var(--text-base);">
                       5. To-do streak rule starts on
                     </h2>
-                    <span style="font-size: var(--text-xs); color: var(--text-muted);">
+                    <span style="font-size: var(--text-sm); color: var(--text-muted);">
                       Key: <code class="num">todo_streak_start</code>
                     </span>
                   </div>
-                  <span class="badge badge-inactive">Streaks</span>
+                  <span class="badge badge-neutral">Streaks</span>
                 </div>
                 <div class="card-body">
-                  <p style="font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-4); line-height: 1.5;">
+                  <p style="font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-4);">
                     From this date a day counts for the streak only when every task of that day is done. Earlier days still count any practice.
                   </p>
                   <div class="form-group" style="margin-bottom: var(--space-3);">
@@ -342,8 +345,8 @@
                   </div>
                 </div>
                 <div class="card-footer" style="justify-content: space-between;">
-                  <span id="status-todo-streak-start" style="font-size: var(--text-xs); color: var(--text-muted);"></span>
-                  <button type="button" class="btn btn-primary btn-sm btn-save-setting" data-key="todo_streak_start">
+                  <span id="status-todo-streak-start" style="font-size: var(--text-sm); color: var(--text-muted);"></span>
+                  <button type="button" class="btn btn-secondary btn-sm btn-save-setting" data-key="todo_streak_start">
                     Save Start Date
                   </button>
                 </div>
@@ -356,14 +359,14 @@
                     <h2 id="lbl-global-leaderboard" class="card-title" style="font-size: var(--text-base);">
                       6. Global leaderboard (all trainees)
                     </h2>
-                    <span style="font-size: var(--text-xs); color: var(--text-muted);">
+                    <span style="font-size: var(--text-sm); color: var(--text-muted);">
                       Key: <code class="num">global_leaderboard</code>
                     </span>
                   </div>
-                  <span class="badge badge-inactive">Scope &amp; Privacy</span>
+                  <span class="badge badge-neutral">Scope &amp; Privacy</span>
                 </div>
                 <div class="card-body">
-                  <p style="font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-4); line-height: 1.5;">
+                  <p style="font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-4);">
                     Students can see first name, last initial and level of every active trainee who is shown on leaderboards. No scores are shown. You can hide an individual student on the Students page.
                   </p>
                   <div class="form-group" style="margin-bottom: var(--space-3);">
@@ -378,8 +381,8 @@
                   </div>
                 </div>
                 <div class="card-footer" style="justify-content: space-between;">
-                  <span id="status-global-leaderboard" style="font-size: var(--text-xs); color: var(--text-muted);"></span>
-                  <button type="button" class="btn btn-primary btn-sm btn-save-setting" data-key="global_leaderboard">
+                  <span id="status-global-leaderboard" style="font-size: var(--text-sm); color: var(--text-muted);"></span>
+                  <button type="button" class="btn btn-secondary btn-sm btn-save-setting" data-key="global_leaderboard">
                     Save Global Switch
                   </button>
                 </div>
@@ -394,13 +397,13 @@
                   Student-Facing &ldquo;How it works&rdquo; Rule Preview
                 </h2>
               </div>
-              <div class="card-body" style="display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--text-xs); color: var(--text-muted);">
+              <div class="card-body" style="display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--text-sm); color: var(--text-muted);">
                 <div>
-                  <strong style="color: var(--text-main);">🏆 Points Board:</strong>
+                  <strong style="color: var(--text-main);">Points Board:</strong>
                   <span id="preview-rule-points"></span>
                 </div>
                 <div>
-                  <strong style="color: var(--text-main);">📈 Most Improved Board:</strong>
+                  <strong style="color: var(--text-main);">Most Improved Board:</strong>
                   <span id="preview-rule-improved"></span>
                 </div>
               </div>
