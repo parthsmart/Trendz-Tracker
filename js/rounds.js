@@ -1,7 +1,7 @@
 /**
  * Trendz Tracker - Admin Per-Student Rounds Management Module (js/rounds.js)
  *
- * Phase 4c-0 Architecture:
+ * Phase 4c-0 / Phase 14b Architecture:
  * - Rounds belong to each student (`student_rounds`) and a simulator series (`round_series`).
  * - Admin selects a student and optional series filter ("All Series", "New simulator", "Old simulator").
  * - Table displays: Series, Round Number, Round Date, Round Type, Time Taken, Scores Recorded, Actions.
@@ -17,6 +17,7 @@ import { formatDisplayDateIST, getISTDateString } from './stats.js';
 import { DemoDB, getSupabase } from './supabaseClient.js';
 import { formatSecondsToMMSS, parseTimeToSeconds } from './timeUtils.js';
 import { showToast } from './toast.js';
+import { shouldOpenMoreOptions, buildModalLiveSummary, setMoreOptionsOpen } from './formPattern.js';
 
 let allStudents = [];
 let allSeries = [];
@@ -24,6 +25,9 @@ let selectedStudentId = '';
 let selectedSeriesFilter = 'all';
 let todayIST = '';
 let studentRoundsList = []; // enriched with series and scores_count
+let saveAndAddAnotherRoundMode = false;
+let currentEditSeriesName = '';
+let currentEditRoundNumber = '';
 
 function escapeHtml(str) {
   if (str === null || str === undefined) return '';
@@ -34,6 +38,64 @@ function escapeHtml(str) {
     "'": '&#39;',
     '"': '&quot;'
   }[tag] || tag));
+}
+
+function clearCreateRoundErrors() {
+  ['create-round-error', 'error-new-round-number', 'error-new-round-date', 'error-new-round-time'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.textContent = '';
+      el.style.display = 'none';
+    }
+  });
+}
+
+function clearEditRoundErrors() {
+  ['edit-round-error', 'error-edit-round-date', 'error-edit-round-time'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.textContent = '';
+      el.style.display = 'none';
+    }
+  });
+}
+
+function updateCreateRoundLiveSummary() {
+  const summaryEl = document.getElementById('create-round-live-summary');
+  if (!summaryEl) return;
+
+  const seriesSelect = document.getElementById('new-round-series');
+  const seriesObj = allSeries.find(s => s.id === seriesSelect?.value);
+  const seriesName = seriesObj ? seriesObj.name : '';
+  const roundNum = document.getElementById('new-round-number')?.value || '';
+  const roundDate = document.getElementById('new-round-date')?.value || '';
+  const roundType = document.getElementById('new-round-type')?.value || 'Category wise';
+  const roundTime = document.getElementById('new-round-time')?.value || '';
+
+  summaryEl.textContent = buildModalLiveSummary('round', {
+    series_name: seriesName,
+    round_number: roundNum,
+    round_date: roundDate,
+    round_type: roundType,
+    time_taken: roundTime
+  });
+}
+
+function updateEditRoundLiveSummary() {
+  const summaryEl = document.getElementById('edit-round-live-summary');
+  if (!summaryEl) return;
+
+  const roundDate = document.getElementById('edit-round-date')?.value || '';
+  const roundType = document.getElementById('edit-round-type')?.value || 'Category wise';
+  const roundTime = document.getElementById('edit-round-time')?.value || '';
+
+  summaryEl.textContent = buildModalLiveSummary('round', {
+    series_name: currentEditSeriesName,
+    round_number: currentEditRoundNumber,
+    round_date: roundDate,
+    round_type: roundType,
+    time_taken: roundTime
+  });
 }
 
 /**
@@ -232,10 +294,10 @@ async function loadRounds() {
     if (tbody) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="7" style="text-align: center; color: var(--color-danger); padding: var(--space-6);">
+          <td colspan="7" style="text-align: center; color: var(--color-danger-text); padding: var(--space-6);">
             <div style="margin-bottom: var(--space-3); font-weight: 500;">Failed to load rounds: ${escapeHtml(err.message)}</div>
             <button type="button" id="btn-retry-load-rounds" class="btn btn-outline btn-sm">
-              ↻ Try Again
+              Try Again
             </button>
           </td>
         </tr>
@@ -264,7 +326,6 @@ function renderRoundsTable() {
     const count = r.scores_count || 0;
     const hasResults = count > 0;
     const seriesName = r.series ? r.series.name : 'Series';
-    const isCurrentSeries = r.series && r.series.is_current;
     const timeFormatted = r.time_taken_seconds !== null && r.time_taken_seconds !== undefined
       ? formatSecondsToMMSS(r.time_taken_seconds)
       : '—';
@@ -272,7 +333,7 @@ function renderRoundsTable() {
     return `
       <tr>
         <td>
-          <span class="badge ${isCurrentSeries ? 'badge-active' : 'badge-inactive'}" style="font-size: 11px;">
+          <span class="badge badge-neutral">
             ${escapeHtml(seriesName)}
           </span>
         </td>
@@ -283,7 +344,7 @@ function renderRoundsTable() {
           ${formatDisplayDateIST(r.round_date)}
         </td>
         <td>
-          <span style="font-size: var(--text-xs); color: var(--text-dim); background-color: var(--bg-surface-subtle); padding: 2px 6px; border-radius: var(--radius-sm);">
+          <span class="badge badge-neutral">
             ${escapeHtml(r.round_type || 'Category wise')}
           </span>
         </td>
@@ -292,7 +353,7 @@ function renderRoundsTable() {
         </td>
         <td class="num">
           ${hasResults ? `
-            <span style="font-weight: 600; color: var(--color-primary-text);">
+            <span style="font-weight: 600; color: var(--text-main);">
               ${count} ${count === 1 ? 'score' : 'scores'}
             </span>
           ` : `
@@ -348,12 +409,19 @@ function attachRoundActionListeners() {
       const roundType = btn.getAttribute('data-type');
       const roundTime = btn.getAttribute('data-time') || '';
 
+      currentEditSeriesName = seriesName || '';
+      currentEditRoundNumber = roundNumber || '';
+
       document.getElementById('edit-round-id-hidden').value = roundId;
       document.getElementById('edit-round-display-label').textContent = `${seriesName} · Round ${roundNumber}`;
       document.getElementById('edit-round-date').value = roundDate;
       document.getElementById('edit-round-type').value = roundType;
       document.getElementById('edit-round-time').value = roundTime;
-      document.getElementById('edit-round-error').style.display = 'none';
+      clearEditRoundErrors();
+
+      const editMoreOptions = document.getElementById('edit-round-more-options');
+      setMoreOptionsOpen(editMoreOptions, shouldOpenMoreOptions([roundTime], true));
+      updateEditRoundLiveSummary();
 
       openModal('edit-round-modal');
     });
@@ -404,12 +472,7 @@ function getNextRoundNumberForSeries(seriesId) {
   return highest + 1;
 }
 
-function openCreateModal(autoProposeNext = true) {
-  if (!selectedStudentId) {
-    showToast('info', 'Please select a student first.');
-    return;
-  }
-
+function prepareCreateModalFields(autoProposeNext = true) {
   const studentObj = allStudents.find(s => s.id === selectedStudentId);
   const studentLabel = document.getElementById('create-round-student-label');
   if (studentLabel && studentObj) {
@@ -437,8 +500,20 @@ function openCreateModal(autoProposeNext = true) {
   document.getElementById('new-round-date').value = todayIST || getISTDateString(new Date());
   document.getElementById('new-round-type').value = 'Category wise';
   document.getElementById('new-round-time').value = '';
-  document.getElementById('create-round-error').style.display = 'none';
+  clearCreateRoundErrors();
 
+  const createMoreOptions = document.getElementById('create-round-more-options');
+  setMoreOptionsOpen(createMoreOptions, false);
+  updateCreateRoundLiveSummary();
+}
+
+function openCreateModal(autoProposeNext = true) {
+  if (!selectedStudentId) {
+    showToast('info', 'Please select a student first.');
+    return;
+  }
+
+  prepareCreateModalFields(autoProposeNext);
   openModal('create-round-modal');
 }
 
@@ -447,7 +522,6 @@ function renderDemoBanner() {
   if (!placeholder || !isDemoMode()) return;
   placeholder.innerHTML = `
     <div class="banner banner-demo" style="margin-bottom: var(--space-4);">
-      <span class="banner-icon" aria-hidden="true">ℹ️</span>
       <div class="banner-body">
         <strong>DEMO MODE &mdash; data is fake:</strong>
         Managing per-student rounds in local demo storage.
@@ -505,6 +579,24 @@ async function initRounds() {
     if (numInput) {
       numInput.value = String(getNextRoundNumberForSeries(modalSeriesSelect.value));
     }
+    updateCreateRoundLiveSummary();
+  });
+
+  // Live summary listeners for Create & Edit modals
+  ['new-round-number', 'new-round-date', 'new-round-type', 'new-round-time'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('input', updateCreateRoundLiveSummary);
+      el.addEventListener('change', updateCreateRoundLiveSummary);
+    }
+  });
+
+  ['edit-round-date', 'edit-round-type', 'edit-round-time'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('input', updateEditRoundLiveSummary);
+      el.addEventListener('change', updateEditRoundLiveSummary);
+    }
   });
 
   // "Quick Next Round" button
@@ -517,14 +609,30 @@ async function initRounds() {
     openCreateModal(false);
   });
 
+  // "Save and add another" button
+  const btnSaveAnotherRound = document.getElementById('btn-save-add-another-round');
+  const createRoundForm = document.getElementById('create-round-form');
+  if (btnSaveAnotherRound && createRoundForm) {
+    btnSaveAnotherRound.addEventListener('click', () => {
+      saveAndAddAnotherRoundMode = true;
+      createRoundForm.requestSubmit();
+    });
+  }
+
   // Create Round submit
-  document.getElementById('create-round-form')?.addEventListener('submit', async (e) => {
+  createRoundForm?.addEventListener('submit', async (e) => {
     e.preventDefault();
+    const keepOpen = saveAndAddAnotherRoundMode;
+    saveAndAddAnotherRoundMode = false;
+
+    clearCreateRoundErrors();
+
     const errorEl = document.getElementById('create-round-error');
+    const errNum = document.getElementById('error-new-round-number');
+    const errDate = document.getElementById('error-new-round-date');
+    const errTime = document.getElementById('error-new-round-time');
     const submitBtn = document.getElementById('btn-submit-create-round');
     const btnText = document.getElementById('btn-create-round-text');
-
-    errorEl.style.display = 'none';
 
     const series_id = document.getElementById('new-round-series').value;
     const round_number = parseInt(document.getElementById('new-round-number').value, 10);
@@ -542,28 +650,44 @@ async function initRounds() {
       errorEl.style.display = 'block';
       return;
     }
+
+    let hasFieldError = false;
     if (isNaN(round_number) || round_number < 1) {
-      errorEl.textContent = 'Please enter a valid round number (>= 1).';
-      errorEl.style.display = 'block';
-      return;
+      if (errNum) {
+        errNum.textContent = 'Please enter a valid round number (>= 1).';
+        errNum.style.display = 'block';
+      }
+      hasFieldError = true;
     }
     if (!round_date) {
-      errorEl.textContent = 'Please select a round date.';
-      errorEl.style.display = 'block';
-      return;
+      if (errDate) {
+        errDate.textContent = 'Please select a round date.';
+        errDate.style.display = 'block';
+      }
+      hasFieldError = true;
     }
 
     let time_taken_seconds = null;
     if (timeRaw !== '') {
       time_taken_seconds = parseTimeToSeconds(timeRaw);
       if (time_taken_seconds === null) {
-        errorEl.textContent = 'Time Taken must be in h:mm:ss, mm:ss, or seconds format.';
-        errorEl.style.display = 'block';
-        return;
+        if (errTime) {
+          errTime.textContent = 'Time Taken must be in h:mm:ss, mm:ss, or seconds format.';
+          errTime.style.display = 'block';
+        }
+        setMoreOptionsOpen(document.getElementById('create-round-more-options'), true);
+        hasFieldError = true;
       }
     }
 
+    if (hasFieldError) {
+      errorEl.textContent = 'Please fix the highlighted errors before saving.';
+      errorEl.style.display = 'block';
+      return;
+    }
+
     submitBtn.disabled = true;
+    if (btnSaveAnotherRound) btnSaveAnotherRound.disabled = true;
     btnText.innerHTML = '<span class="spinner" style="margin-right: 6px;"></span> Creating...';
 
     try {
@@ -598,13 +722,20 @@ async function initRounds() {
       }
 
       showToast('success', `Round ${round_number} created successfully.`);
-      closeModal('create-round-modal');
       await loadRounds();
+
+      if (keepOpen) {
+        prepareCreateModalFields(true);
+        document.getElementById('new-round-number')?.focus();
+      } else {
+        closeModal('create-round-modal');
+      }
     } catch (err) {
       errorEl.textContent = err.message || 'Failed to create round.';
       errorEl.style.display = 'block';
     } finally {
       submitBtn.disabled = false;
+      if (btnSaveAnotherRound) btnSaveAnotherRound.disabled = false;
       btnText.textContent = 'Create Round';
     }
   });
@@ -612,31 +743,45 @@ async function initRounds() {
   // Edit Round submit
   document.getElementById('edit-round-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
+    clearEditRoundErrors();
+
     const errorEl = document.getElementById('edit-round-error');
+    const errDate = document.getElementById('error-edit-round-date');
+    const errTime = document.getElementById('error-edit-round-time');
     const submitBtn = document.getElementById('btn-submit-edit-round');
     const btnText = document.getElementById('btn-edit-round-text');
-
-    errorEl.style.display = 'none';
 
     const roundId = document.getElementById('edit-round-id-hidden').value;
     const round_date = document.getElementById('edit-round-date').value;
     const round_type = document.getElementById('edit-round-type').value.trim();
     const timeRaw = document.getElementById('edit-round-time').value.trim();
 
+    let hasFieldError = false;
     if (!round_date) {
-      errorEl.textContent = 'Please enter a round date.';
-      errorEl.style.display = 'block';
-      return;
+      if (errDate) {
+        errDate.textContent = 'Please enter a round date.';
+        errDate.style.display = 'block';
+      }
+      hasFieldError = true;
     }
 
     let time_taken_seconds = null;
     if (timeRaw !== '') {
       time_taken_seconds = parseTimeToSeconds(timeRaw);
       if (time_taken_seconds === null) {
-        errorEl.textContent = 'Time Taken must be in h:mm:ss, mm:ss, or seconds format.';
-        errorEl.style.display = 'block';
-        return;
+        if (errTime) {
+          errTime.textContent = 'Time Taken must be in h:mm:ss, mm:ss, or seconds format.';
+          errTime.style.display = 'block';
+        }
+        setMoreOptionsOpen(document.getElementById('edit-round-more-options'), true);
+        hasFieldError = true;
       }
+    }
+
+    if (hasFieldError) {
+      errorEl.textContent = 'Please fix the highlighted errors before saving.';
+      errorEl.style.display = 'block';
+      return;
     }
 
     submitBtn.disabled = true;

@@ -1,23 +1,32 @@
 /**
  * Trendz Tracker - Unit Tests for Pure Leaderboard View Helpers (tests/leaderboardView.test.js)
  *
- * Tests `scopeLabel(level)`, `boardTitle(board, period, scope)`, `boardUsesPeriod(board)`,
- * `formatBoardValue(board, value)`, and `mapLeaderboardRows(rows, options)`.
+ * Tests `scopeLabel(level)`, `boardTitle(...)`, `boardUsesPeriod(board)`,
+ * `isSpeedRankableTask(task)`, `formatBoardValue(board, value)`,
+ * `formatTaskBestPerMinute`, `formatTaskBestRound`, `mapLeaderboardRows`, and `mapTaskLeaderboardRows`.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  TASK_SPEED_EXPLANATION_TEXT,
+  TASK_SPEED_EMPTY_MESSAGE,
+  TASK_SPEED_UNAVAILABLE_MESSAGE,
   scopeLabel,
   boardTitle,
   boardUsesPeriod,
+  isSpeedRankableTask,
   formatBoardValue,
+  formatTaskBestPerMinute,
+  formatTaskBestRound,
   formatTaskFilterOptions,
-  mapLeaderboardRows
+  mapLeaderboardRows,
+  mapTaskLeaderboardRows
 } from '../js/leaderboardView.js';
 import {
   buildHowItWorksText,
-  getLeaderboardEmptyMessage
+  getLeaderboardEmptyMessage,
+  normalizeLeaderboardErrorMessage
 } from '../js/leaderboardData.js';
 
 describe('scopeLabel(level, scope)', () => {
@@ -48,8 +57,8 @@ describe('boardUsesPeriod(board)', () => {
   });
 });
 
-describe('boardTitle(board, period, scope, level, taskLabel)', () => {
-  it('formats board, optional task label, period (when applicable), and scope accurately', () => {
+describe('boardTitle(board, period, scope, level, taskTitle, todayIST)', () => {
+  it('formats board or "<task title> - <period label> - <scope or level>" accurately', () => {
     assert.equal(
       boardTitle('streak', 'week', 'global'),
       'Streak - Global (all trainees)'
@@ -59,12 +68,12 @@ describe('boardTitle(board, period, scope, level, taskLabel)', () => {
       'Daily To-Do - This week - Junior 2 (your level only)'
     );
     assert.equal(
-      boardTitle('todo', 'week', 'level', 'Junior 2', 'Task 1: Round Drill: Addition (ADD)'),
-      'Daily To-Do (Task 1: Round Drill: Addition (ADD)) - This week - Junior 2 (your level only)'
+      boardTitle('todo', 'week', 'level', 'Junior 2', 'Mental Basics: 1d4r'),
+      'Mental Basics: 1d4r - This week - Junior 2 (your level only)'
     );
     assert.equal(
-      boardTitle('todo', 'month', 'global', null, 'Task 2: Subtraction'),
-      'Daily To-Do (Task 2: Subtraction) - This month - Global (all trainees)'
+      boardTitle('todo', 'date:2026-10-29', 'global', null, 'Mental Basics: 1d4r', '2026-10-31'),
+      'Mental Basics: 1d4r - Thu 29 Oct 2026 - Global (all trainees)'
     );
     assert.equal(
       boardTitle('points', 'all', 'Junior 2 (your level only)'),
@@ -77,125 +86,143 @@ describe('boardTitle(board, period, scope, level, taskLabel)', () => {
   });
 });
 
-describe('formatTaskFilterOptions(tasks)', () => {
-  it('numbers active tasks sequentially as Task 1, Task 2, Task 3', () => {
+describe('isSpeedRankableTask(task) & formatTaskFilterOptions(tasks)', () => {
+  it('returns true only for basics tasks that have a category_id', () => {
+    assert.equal(
+      isSpeedRankableTask({ section: 'basics', category_id: 'cat-bas-1' }),
+      true
+    );
+    assert.equal(
+      isSpeedRankableTask({ section: 'basics', category_id: null }),
+      false
+    );
+    assert.equal(
+      isSpeedRankableTask({ section: 'round', category_id: 'cat-rnd-1' }),
+      false
+    );
+    assert.equal(
+      isSpeedRankableTask({ section: 'flash', category_id: null }),
+      false
+    );
+    assert.equal(
+      isSpeedRankableTask({ section: 'elements', category_id: null }),
+      false
+    );
+    assert.equal(
+      isSpeedRankableTask({ section: 'memoriad', category_id: null }),
+      false
+    );
+  });
+
+  it('numbers active tasks and marks isSpeedRanked accurately', () => {
     const tasks = [
-      { id: 'todo-1', title: 'Round Drill: Addition (ADD)', section: 'round', level: null },
-      { id: 'todo-2', title: 'Round Drill: Subtraction (SUB)', section: 'round', level: 'Level 3' },
-      { id: 'todo-3', title: 'Mental Basics: 1d4r', section: 'basics', level: null }
+      { id: 'todo-1', title: 'Round Drill: Addition (ADD)', section: 'round', category_id: 'cat-rnd-1', level: null },
+      { id: 'todo-2', title: 'Mental Basics: 1d4r', section: 'basics', category_id: 'cat-bas-1', level: 'Level 3' },
+      { id: 'todo-3', title: 'Any Basics Drill', section: 'basics', category_id: null, level: null }
     ];
     const options = formatTaskFilterOptions(tasks);
     assert.equal(options.length, 3);
-    assert.equal(options[0].shortLabel, 'Task 1');
-    assert.equal(options[0].optionLabel, 'Task 1: Round Drill: Addition (ADD)');
-    assert.equal(options[1].shortLabel, 'Task 2');
-    assert.equal(options[1].optionLabel, 'Task 2: Round Drill: Subtraction (SUB) [Level 3]');
-    assert.equal(options[2].shortLabel, 'Task 3');
-    assert.equal(options[2].optionLabel, 'Task 3: Mental Basics: 1d4r');
+    assert.equal(options[0].isSpeedRanked, false);
+    assert.equal(options[1].isSpeedRanked, true);
+    assert.equal(options[1].category_id, 'cat-bas-1');
+    assert.equal(options[2].isSpeedRanked, false);
   });
 });
 
-describe('formatBoardValue(board, value) & Daily To-Do texts', () => {
-  it('formats todo board value as fastest attempt time in seconds or minutes + seconds', () => {
-    assert.equal(formatBoardValue('todo', 28), '28s');
-    assert.equal(formatBoardValue('todo', 65), '1m 05s');
-    assert.equal(formatBoardValue('todo', 120), '2m 00s');
+describe('formatBoardValue(board, value) & Task Speed formatting', () => {
+  it('formats All tasks todo board value as completed days (never seconds)', () => {
+    assert.equal(formatBoardValue('todo', 1), '1 day');
+    assert.equal(formatBoardValue('todo', 3), '3 days');
+    assert.equal(formatBoardValue('todo', 6), '6 days');
   });
 
-  it('returns the exact explanation and empty state for Daily To-Do task rankings', () => {
+  it('formats authoritative best_per_minute and best round strings without calculating in JS', () => {
+    assert.equal(formatTaskBestPerMinute(42), '42 correct/min');
+    assert.equal(formatTaskBestPerMinute(42.5), '42.5 correct/min');
+    assert.equal(formatTaskBestRound(21, 22, 30), '21 of 22 in 30 s');
+  });
+
+  it('returns the exact explanation, unavailable notice, and empty state texts', () => {
     assert.equal(
-      buildHowItWorksText('todo', {}),
-      'Students who completed the selected Daily To-Do task in this period, ranked from fastest to slowest attempt time. Pick Task 1, Task 2, Task 3, etc. above to filter by task.'
+      buildHowItWorksText('todo', {}, { isTaskSpeedBoard: true }),
+      TASK_SPEED_EXPLANATION_TEXT
     );
     assert.equal(
-      getLeaderboardEmptyMessage('todo', 'week'),
-      'No student has recorded a timed attempt for this task in this period yet.'
+      getLeaderboardEmptyMessage('todo', 'week', { isTaskSpeedBoard: true }),
+      TASK_SPEED_EMPTY_MESSAGE
     );
     assert.equal(
-      getLeaderboardEmptyMessage('todo', 'month'),
-      'No student has recorded a timed attempt for this task in this period yet.'
+      TASK_SPEED_UNAVAILABLE_MESSAGE,
+      'Speed ranking is not available for this kind of task yet.'
+    );
+    assert.equal(
+      normalizeLeaderboardErrorMessage('The date cannot be in the future.'),
+      'The date cannot be in the future.'
+    );
+    assert.equal(
+      normalizeLeaderboardErrorMessage('The global leaderboard is switched off.'),
+      'The global leaderboard is switched off.'
     );
   });
 });
 
-describe('mapLeaderboardRows(rows, options)', () => {
-  const sampleRpcRows = [
-    {
-      rank: 1,
-      student_id: 'usr-301',
-      display_name: 'Ishaan K.',
-      value: 28,
-      is_me: false,
-      level: 'Level 3'
-    },
-    {
-      rank: 2,
-      student_id: 'usr-101',
-      display_name: 'Aarav S.',
-      value: 32,
-      is_me: true,
-      level: 'Level 3'
-    },
-    {
-      rank: 14,
-      student_id: 'usr-109',
-      display_name: 'Vihaan L.',
-      value: 75,
-      is_me: true,
-      level: 'Junior 2'
-    }
-  ];
+describe('mapLeaderboardRows & mapTaskLeaderboardRows', () => {
+  it('maps todo_task_leaderboard rows with Best, Best round, and Rounds columns', () => {
+    const rpcRows = [
+      {
+        rank: 1,
+        student_id: 'usr-301',
+        display_name: 'Ishaan K.',
+        level: 'Level 3',
+        best_per_minute: 42,
+        correct: 21,
+        attempted: 22,
+        seconds: 30,
+        attempts: 5,
+        is_me: false
+      },
+      {
+        rank: 2,
+        student_id: 'usr-101',
+        display_name: 'Aarav S.',
+        level: 'Level 3',
+        best_per_minute: 38,
+        correct: 19,
+        attempted: 20,
+        seconds: 30,
+        attempts: 4,
+        is_me: true
+      }
+    ];
 
-  it('maps student level-scope rows without level chips and hides student_id', () => {
-    const mapped = mapLeaderboardRows(sampleRpcRows.slice(0, 2), {
-      board: 'todo',
-      scope: 'level',
-      isAdmin: false
-    });
-
-    assert.equal(mapped.length, 2);
-    assert.equal(mapped[0].rank, 1);
-    assert.equal(mapped[0].student_id, null);
-    assert.equal(mapped[0].display_name, 'Ishaan K.');
-    assert.equal(mapped[0].formatted_value, '28s');
-    assert.equal(mapped[0].is_me, false);
-    assert.equal(mapped[0].show_level_chip, false);
-
-    assert.equal(mapped[1].rank, 2);
-    assert.equal(mapped[1].formatted_value, '32s');
-    assert.equal(mapped[1].is_me, true);
-    assert.equal(mapped[1].is_outside_top_10, false);
-    assert.equal(mapped[1].show_level_chip, false);
-  });
-
-  it('shows level chip in global scope and flags own row outside top 10', () => {
-    const mapped = mapLeaderboardRows(sampleRpcRows, {
-      board: 'todo',
+    const studentGlobal = mapTaskLeaderboardRows(rpcRows, {
       scope: 'global',
       isAdmin: false
     });
+    assert.equal(studentGlobal.length, 2);
+    assert.equal(studentGlobal[0].rank, 1);
+    assert.equal(studentGlobal[0].student_id, null);
+    assert.equal(studentGlobal[0].show_level_chip, true);
+    assert.equal(studentGlobal[0].formatted_best, '42 correct/min');
+    assert.equal(studentGlobal[0].formatted_best_round, '21 of 22 in 30 s');
+    assert.equal(studentGlobal[0].formatted_rounds, '5');
+    assert.equal(studentGlobal[1].is_me, true);
 
-    assert.equal(mapped[0].show_level_chip, true);
-    assert.equal(mapped[0].level, 'Level 3');
-    assert.equal(mapped[2].rank, 14);
-    assert.equal(mapped[2].formatted_value, '1m 15s');
-    assert.equal(mapped[2].is_me, true);
-    assert.equal(mapped[2].is_outside_top_10, true);
-    assert.equal(mapped[2].show_level_chip, true);
-    assert.equal(mapped[2].level, 'Junior 2');
-  });
-
-  it('preserves student_id and disables is_me highlight for admins', () => {
-    const mapped = mapLeaderboardRows(sampleRpcRows.slice(0, 2), {
-      board: 'todo',
+    const adminRows = mapTaskLeaderboardRows(rpcRows, {
       scope: 'global',
       isAdmin: true
     });
+    assert.equal(adminRows[0].student_id, 'usr-301');
+    assert.equal(adminRows[1].is_me, false);
+  });
 
-    assert.equal(mapped[0].student_id, 'usr-301');
-    assert.equal(mapped[1].student_id, 'usr-101');
-    assert.equal(mapped[1].is_me, false);
-    assert.equal(mapped[1].is_outside_top_10, false);
-    assert.equal(mapped[0].show_level_chip, true);
+  it('maps standard leaderboard rows for All tasks as completed days', () => {
+    const rows = [
+      { rank: 1, student_id: 'usr-301', display_name: 'Ishaan K.', value: 5, is_me: false, level: 'Level 3' },
+      { rank: 2, student_id: 'usr-101', display_name: 'Aarav S.', value: 1, is_me: true, level: 'Level 3' }
+    ];
+    const mapped = mapLeaderboardRows(rows, { board: 'todo', scope: 'level', isAdmin: false });
+    assert.equal(mapped[0].formatted_value, '5 days');
+    assert.equal(mapped[1].formatted_value, '1 day');
   });
 });

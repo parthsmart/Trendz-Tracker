@@ -1,5 +1,11 @@
 /**
  * Trendz Tracker - Admin Daily To-Do Tasks Management (js/todos.js)
+ *
+ * Phase 14a + Phase 14b Calmer UI:
+ * - Unified modal form pattern (required fields first, collapsible More options, live summary sentence,
+ *   Save and add another on create, inline field errors + top alert banner)
+ * - Wording: "Type", "Specific activity (optional)", "Level (optional)"
+ * - Emoji-free section headers and neutral status chips
  */
 
 import { requireAuth } from './guard.js';
@@ -16,6 +22,11 @@ import {
   requiredCountLabelForSection,
   flashSummary,
 } from './todoForm.js';
+import {
+  shouldOpenMoreOptions,
+  buildModalLiveSummary,
+  setMoreOptionsOpen,
+} from './formPattern.js';
 
 let allCategories = [];
 let allTodos = [];
@@ -46,10 +57,18 @@ async function loadCategories() {
   }
 }
 
+function getTodosTableBody() {
+  return document.getElementById('todos-table-body') || document.getElementById('todos-tbody');
+}
+
+function getTargetSelectEl() {
+  return document.getElementById('todo-target') || document.getElementById('todo-category');
+}
+
 async function loadTodos() {
-  const tbody = document.getElementById('todos-tbody');
+  const tbody = getTodosTableBody();
   if (tbody) {
-    tbody.innerHTML = '<tr><td colspan="7" class="loading-state">Loading daily tasks...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="loading-state">Loading daily tasks...</td></tr>';
   }
 
   try {
@@ -68,39 +87,111 @@ async function loadTodos() {
         } else {
           allTodos = data || [];
         }
+        updateSummaryStats();
         renderTodosTable();
         return;
       }
     }
 
     allTodos = DemoDB.getTodos();
+    updateSummaryStats();
     renderTodosTable();
   } catch (err) {
     console.error('Error loading daily_tasks:', err);
     showToast('error', `Failed to load daily tasks: ${err.message || 'Unknown error'}`);
     allTodos = isSupabaseConfigured() ? [] : DemoDB.getTodos();
+    updateSummaryStats();
     renderTodosTable();
   }
 }
 
+function updateSummaryStats() {
+  const totalEl = document.getElementById('stat-total-todos');
+  const activeEl = document.getElementById('stat-active-todos');
+  const breakdownEl = document.getElementById('stat-sections-breakdown');
+
+  const total = allTodos.length;
+  const active = allTodos.filter((t) => t.active !== false).length;
+  if (totalEl) totalEl.textContent = String(total);
+  if (activeEl) activeEl.textContent = String(active);
+
+  if (breakdownEl) {
+    const r = allTodos.filter((t) => t.section === 'round').length;
+    const b = allTodos.filter((t) => t.section === 'basics').length;
+    const e = allTodos.filter((t) => t.section === 'elements').length;
+    const f = allTodos.filter((t) => t.section === 'flash').length;
+    breakdownEl.textContent = `${r} R · ${b} B · ${e} E · ${f} F`;
+  }
+}
+
 function clearFormErrors() {
-  const errBox = document.getElementById('todo-form-errors');
+  const errBox =
+    document.getElementById('todo-error-banner') || document.getElementById('todo-form-errors');
   if (errBox) {
     errBox.style.display = 'none';
     errBox.textContent = '';
   }
+
+  const fieldErrorIds = [
+    'error-todo-title',
+    'error-todo-section',
+    'error-todo-required-count',
+    'error-todo-level',
+    'error-todo-flash-digits',
+    'error-todo-flash-count',
+    'error-todo-flash-speed',
+    'error-todo-flash-mode',
+  ];
+  fieldErrorIds.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.style.display = 'none';
+      el.textContent = '';
+    }
+  });
 }
 
 function showFormErrors(errors) {
-  const messages = Object.values(errors || {}).filter(Boolean);
+  const safeErrors = errors || {};
+  const messages = Object.values(safeErrors).filter(Boolean);
   if (messages.length === 0) return;
 
-  const errBox = document.getElementById('todo-form-errors');
+  const errBox =
+    document.getElementById('todo-error-banner') || document.getElementById('todo-form-errors');
   if (errBox) {
-    errBox.innerHTML = messages.map((m) => `<div>• ${escapeHtml(m)}</div>`).join('');
+    errBox.innerHTML = messages.map((m) => `<div>${escapeHtml(m)}</div>`).join('');
     errBox.style.display = 'block';
   }
-  showToast('error', messages[0]);
+
+  const fieldMap = {
+    title: 'error-todo-title',
+    section: 'error-todo-section',
+    required_count: 'error-todo-required-count',
+    level: 'error-todo-level',
+    flash_digits: 'error-todo-flash-digits',
+    flash_count: 'error-todo-flash-count',
+    flash_speed_ms: 'error-todo-flash-speed',
+    flash_mode: 'error-todo-flash-mode',
+  };
+
+  Object.entries(fieldMap).forEach(([key, domId]) => {
+    const msg = safeErrors[key];
+    const el = document.getElementById(domId);
+    if (el && msg) {
+      el.textContent = msg;
+      el.style.display = 'block';
+    }
+  });
+
+  if (
+    safeErrors.level ||
+    safeErrors.flash_digits ||
+    safeErrors.flash_count ||
+    safeErrors.flash_speed_ms ||
+    safeErrors.flash_mode
+  ) {
+    setMoreOptionsOpen(document.getElementById('todo-more-options'), true);
+  }
 }
 
 function resetFlashSettingsFields() {
@@ -200,17 +291,57 @@ function handleUseFlashSettingsAsTitle() {
   const summaryText = flashSummary(draft);
   titleEl.value = `Flash: ${summaryText}`;
   titleFilledByFlashButton = true;
+  updateTodoLiveSummary();
+}
+
+function updateTodoLiveSummary() {
+  const summaryEl = document.getElementById('todo-live-summary');
+  if (!summaryEl) return;
+
+  const section = document.getElementById('todo-section')?.value || 'basics';
+  const reqCount = document.getElementById('todo-required-count')?.value || '1';
+  const level = document.getElementById('todo-level')?.value || '';
+  const active = document.getElementById('todo-active')?.checked !== false;
+
+  let targetSummary = '';
+  if (section === 'flash') {
+    targetSummary = flashSummary(readDraftFlashSettingsFromForm());
+  } else {
+    const targetSel = getTargetSelectEl();
+    if (targetSel && targetSel.value) {
+      const selectedOpt = targetSel.options[targetSel.selectedIndex];
+      targetSummary = selectedOpt ? selectedOpt.textContent.trim() : '';
+    }
+  }
+
+  summaryEl.textContent = buildModalLiveSummary('todo', {
+    section,
+    required_count: reqCount,
+    level,
+    active,
+    targetSummary,
+  });
 }
 
 function updateTargetDropdown(selectedSection, currentTargetValue = '') {
-  const targetGroup = document.getElementById('todo-target-group');
-  const flashGroup = document.getElementById('todo-flash-settings-group');
-  const catSelect = document.getElementById('todo-category');
-  const catLabel = document.getElementById('todo-category-label');
-  const catHint = document.getElementById('todo-category-hint');
-  const reqCountLabel = document.getElementById('todo-required-count-label');
+  const targetGroup =
+    document.getElementById('group-specific-activity') ||
+    document.getElementById('todo-target-group');
+  const flashGroup =
+    document.getElementById('group-flash-settings') ||
+    document.getElementById('todo-flash-settings-group');
+  const catSelect = getTargetSelectEl();
+  const catLabel =
+    document.getElementById('label-todo-target') ||
+    document.getElementById('todo-category-label');
+  const catHint =
+    document.getElementById('todo-target-hint') ||
+    document.getElementById('todo-category-hint');
+  const reqCountLabel =
+    document.getElementById('label-todo-required-count') ||
+    document.getElementById('todo-required-count-label');
 
-  const sec = String(selectedSection || 'round').trim().toLowerCase();
+  const sec = String(selectedSection || 'basics').trim().toLowerCase();
   if (reqCountLabel) {
     reqCountLabel.textContent = requiredCountLabelForSection(sec);
   }
@@ -219,10 +350,12 @@ function updateTargetDropdown(selectedSection, currentTargetValue = '') {
     if (targetGroup) targetGroup.style.display = 'none';
     if (flashGroup) flashGroup.style.display = 'block';
     if (catSelect) {
-      catSelect.innerHTML = '<option value="">Any Flash Anzan round</option>';
+      catSelect.innerHTML = '<option value="">Any Flash Anzan try</option>';
       catSelect.value = '';
       catSelect.disabled = true;
     }
+    setMoreOptionsOpen(document.getElementById('todo-more-options'), true);
+    updateTodoLiveSummary();
     return;
   }
 
@@ -234,22 +367,10 @@ function updateTargetDropdown(selectedSection, currentTargetValue = '') {
   const options = optionsForSection(sec, allCategories, DRILL_CATALOG, MEMORIAD_MODULES);
 
   catSelect.disabled = false;
+  if (catLabel) catLabel.textContent = 'Specific activity (optional)';
+  if (catHint) catHint.textContent = 'Leave on Any to count all activities in this type.';
 
-  let placeholder = 'Any category in this section';
-  if (sec === 'elements') {
-    if (catLabel) catLabel.textContent = 'Specific Drill (Optional)';
-    if (catHint) catHint.textContent = 'Pick an enabled Elements worksheet drill or leave as any.';
-    placeholder = 'Any drill in Elements';
-  } else if (sec === 'memoriad') {
-    if (catLabel) catLabel.textContent = 'Specific Module (Optional)';
-    if (catHint) catHint.textContent = 'Pick one of the four Memoriad modules or leave as any.';
-    placeholder = 'Any module in Memoriad';
-  } else {
-    if (catLabel) catLabel.textContent = 'Category Filter (Optional)';
-    if (catHint) catHint.textContent = 'Dropdown shows active categories matching the chosen section.';
-    placeholder = 'Any category in this section';
-  }
-
+  const placeholder = 'Any activity in this type';
   const normalizedCurrent = String(currentTargetValue || '').trim();
   let html = `<option value="">${escapeHtml(placeholder)}</option>`;
   options.forEach((opt) => {
@@ -257,20 +378,20 @@ function updateTargetDropdown(selectedSection, currentTargetValue = '') {
     html += `<option value="${escapeHtml(opt.value)}" ${isSelected}>${escapeHtml(opt.label)}</option>`;
   });
   catSelect.innerHTML = html;
+  updateTodoLiveSummary();
 }
 
 function renderTodosTable() {
-  const tbody = document.getElementById('todos-tbody');
+  const tbody = getTodosTableBody();
   if (!tbody) return;
 
   if (allTodos.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="7" class="empty-state-cell">
+        <td colspan="8" class="empty-state-cell">
           <div class="empty-state">
-            <div class="empty-state-icon" aria-hidden="true">📋</div>
             <h3 class="empty-state-title">No daily tasks configured yet</h3>
-            <p class="empty-state-desc">Click <strong>+ Add Task</strong> above to set the first daily requirement.</p>
+            <p class="empty-state-desc">Click <strong>+ Add Daily Task</strong> above to set the first daily requirement.</p>
           </div>
         </td>
       </tr>
@@ -279,11 +400,11 @@ function renderTodosTable() {
   }
 
   const sectionDefs = [
-    { key: 'round', label: '🏆 Competition Rounds' },
-    { key: 'basics', label: '⚡ Basics Speed Drills' },
-    { key: 'elements', label: '🧩 Elements' },
-    { key: 'memoriad', label: '🧠 Memoriad' },
-    { key: 'flash', label: '⚡ Flash Anzan' },
+    { key: 'round', label: 'Competition Rounds' },
+    { key: 'basics', label: 'Basics Speed Drills' },
+    { key: 'elements', label: 'Elements' },
+    { key: 'memoriad', label: 'Memoriad' },
+    { key: 'flash', label: 'Flash Anzan' },
   ];
 
   let html = '';
@@ -297,52 +418,51 @@ function renderTodosTable() {
 
     html += `
       <tr class="section-divider-row">
-        <th colspan="7">${escapeHtml(sec.label)} (${tasks.length} task${tasks.length === 1 ? '' : 's'})</th>
+        <th colspan="8">${escapeHtml(sec.label)} (${tasks.length} task${tasks.length === 1 ? '' : 's'})</th>
       </tr>
     `;
 
     tasks.forEach((todo, idx) => {
       const targetInfo = formatTaskTarget(todo, allCategories, DRILL_CATALOG, MEMORIAD_MODULES);
-      const targetDisplay = targetInfo.isAny || targetInfo.unavailable
-        ? `<em style="color: var(--text-muted);">${escapeHtml(targetInfo.text)}</em>`
-        : escapeHtml(targetInfo.text);
+      const targetDisplay =
+        targetInfo.isAny || targetInfo.unavailable
+          ? `<span style="color: var(--text-muted);">${escapeHtml(targetInfo.text)}</span>`
+          : escapeHtml(targetInfo.text);
       const levelDisplay = todo.level
         ? escapeHtml(todo.level)
-        : '<span style="color: var(--text-dim);">All Levels</span>';
+        : '<span style="color: var(--text-dim);">All levels</span>';
       const reqCount = Number(todo.required_count) || 1;
-      const reqCountBadge = reqCount > 1
-        ? `<span class="num" style="margin-left: 6px; font-size: var(--text-xs); font-weight: 600; color: var(--color-primary);">x ${reqCount} per day</span>`
-        : '';
       const isFirst = idx === 0;
       const isLast = idx === tasks.length - 1;
 
       html += `
-        <tr data-todo-id="${escapeHtml(todo.id)}">
+        <tr data-todo-id="${escapeHtml(todo.id)}" class="${todo.active === false ? 'row-inactive' : ''}">
           <td>
-            <div style="display: flex; gap: 4px; align-items: center;">
-              <button type="button" class="btn btn-outline btn-xs btn-reorder" data-dir="up" data-id="${escapeHtml(todo.id)}" ${isFirst ? 'disabled' : ''} title="Move up within ${escapeHtml(sec.label)}" aria-label="Move task up">▲</button>
-              <button type="button" class="btn btn-outline btn-xs btn-reorder" data-dir="down" data-id="${escapeHtml(todo.id)}" ${isLast ? 'disabled' : ''} title="Move down within ${escapeHtml(sec.label)}" aria-label="Move task down">▼</button>
+            <div style="display: flex; gap: var(--space-1); align-items: center;">
+              <button type="button" class="btn btn-outline btn-xs btn-reorder" data-dir="up" data-id="${escapeHtml(todo.id)}" ${isFirst ? 'disabled' : ''} title="Move up within ${escapeHtml(sec.label)}" aria-label="Move task up">&uarr;</button>
+              <button type="button" class="btn btn-outline btn-xs btn-reorder" data-dir="down" data-id="${escapeHtml(todo.id)}" ${isLast ? 'disabled' : ''} title="Move down within ${escapeHtml(sec.label)}" aria-label="Move task down">&darr;</button>
             </div>
           </td>
           <td>
-            <strong style="color: var(--text-main);">${escapeHtml(todo.title)}</strong>${reqCountBadge}
+            <strong style="color: var(--text-main);">${escapeHtml(todo.title)}</strong>
           </td>
           <td>
-            <span style="font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; color: var(--color-primary);">${escapeHtml(sec.key)}</span>
+            <span class="badge badge-neutral">${escapeHtml(sec.label)}</span>
           </td>
           <td>${targetDisplay}</td>
+          <td class="num">${reqCount}</td>
           <td>${levelDisplay}</td>
           <td>
-            <span class="badge ${todo.active ? 'badge-success' : 'badge-neutral'}">
-              ${todo.active ? 'Active' : 'Inactive'}
+            <span class="badge badge-neutral">
+              ${todo.active !== false ? 'Active' : 'Inactive'}
             </span>
           </td>
           <td style="text-align: right;">
-            <div style="display: inline-flex; gap: 6px;">
+            <div style="display: inline-flex; gap: var(--space-2);">
               <button type="button" class="btn btn-outline btn-sm btn-edit-todo" data-id="${escapeHtml(todo.id)}">
                 Edit
               </button>
-              <button type="button" class="btn ${todo.active ? 'btn-outline' : 'btn-primary'} btn-sm btn-toggle-todo" data-id="${escapeHtml(todo.id)}" data-active="${Boolean(todo.active)}">
+              <button type="button" class="btn btn-outline btn-sm btn-toggle-todo" data-id="${escapeHtml(todo.id)}" data-active="${Boolean(todo.active)}">
                 ${todo.active ? 'Deactivate' : 'Activate'}
               </button>
             </div>
@@ -353,12 +473,10 @@ function renderTodosTable() {
   });
 
   tbody.innerHTML = html;
-
   attachTableEventListeners();
 }
 
 function attachTableEventListeners() {
-  // Reorder buttons
   document.querySelectorAll('.btn-reorder').forEach((btn) => {
     btn.addEventListener('click', async (e) => {
       const target = e.currentTarget;
@@ -368,7 +486,6 @@ function attachTableEventListeners() {
     });
   });
 
-  // Edit buttons
   document.querySelectorAll('.btn-edit-todo').forEach((btn) => {
     btn.addEventListener('click', (e) => {
       const id = e.currentTarget.getAttribute('data-id');
@@ -376,7 +493,6 @@ function attachTableEventListeners() {
     });
   });
 
-  // Toggle active buttons
   document.querySelectorAll('.btn-toggle-todo').forEach((btn) => {
     btn.addEventListener('click', async (e) => {
       const id = e.currentTarget.getAttribute('data-id');
@@ -395,7 +511,10 @@ function openEditModal(todoId) {
   document.getElementById('modal-todo-title').textContent = 'Edit Daily Task';
   document.getElementById('todo-id').value = todo.id;
   document.getElementById('todo-title').value = todo.title || '';
-  document.getElementById('todo-section').value = todo.section || 'round';
+  document.getElementById('todo-section').value = todo.section || 'basics';
+
+  const saveAddAnotherBtn = document.getElementById('btn-save-add-another-todo');
+  if (saveAddAnotherBtn) saveAddAnotherBtn.style.display = 'none';
 
   const currentTarget =
     todo.section === 'basics' || todo.section === 'round'
@@ -409,14 +528,34 @@ function openEditModal(todoId) {
     populateFlashSettingsFields(todo);
   }
   updateTargetDropdown(todo.section, currentTarget);
+
   const reqCountEl = document.getElementById('todo-required-count');
   if (reqCountEl) {
     const loadedCount = Number(todo.required_count);
-    reqCountEl.value = Number.isInteger(loadedCount) && loadedCount >= 1 ? String(loadedCount) : '1';
+    reqCountEl.value =
+      Number.isInteger(loadedCount) && loadedCount >= 1 ? String(loadedCount) : '1';
   }
   document.getElementById('todo-level').value = todo.level || '';
-  document.getElementById('todo-active').checked = Boolean(todo.active);
+  document.getElementById('todo-active').checked = todo.active !== false;
 
+  const hasOptionalValue = shouldOpenMoreOptions(
+    [
+      currentTarget,
+      todo.level,
+      todo.flash_digits,
+      todo.flash_count,
+      todo.flash_speed_ms,
+      todo.flash_mode,
+      todo.active === false ? 'inactive' : '',
+    ],
+    true
+  );
+  setMoreOptionsOpen(
+    document.getElementById('todo-more-options'),
+    hasOptionalValue || todo.section === 'flash'
+  );
+
+  updateTodoLiveSummary();
   openModal('modal-todo');
 }
 
@@ -427,24 +566,30 @@ function openAddModal() {
   document.getElementById('form-todo').reset();
   document.getElementById('todo-id').value = '';
   document.getElementById('todo-active').checked = true;
+
+  const saveAddAnotherBtn = document.getElementById('btn-save-add-another-todo');
+  if (saveAddAnotherBtn) saveAddAnotherBtn.style.display = 'inline-flex';
+
   resetFlashSettingsFields();
   const reqCountEl = document.getElementById('todo-required-count');
   if (reqCountEl) reqCountEl.value = '1';
   const sectionSelect = document.getElementById('todo-section');
-  sectionSelect.value = 'round';
-  updateTargetDropdown('round', '');
+  sectionSelect.value = 'basics';
+  updateTargetDropdown('basics', '');
+  setMoreOptionsOpen(document.getElementById('todo-more-options'), false);
 
+  updateTodoLiveSummary();
   openModal('modal-todo');
 }
 
-async function handleFormSubmit(e) {
-  e.preventDefault();
+async function submitTodoForm(keepOpenForAnother = false) {
   clearFormErrors();
 
   const id = document.getElementById('todo-id').value.trim();
   const rawTitle = document.getElementById('todo-title').value;
   const rawSection = document.getElementById('todo-section').value;
-  const rawTarget = document.getElementById('todo-category').value;
+  const targetSel = getTargetSelectEl();
+  const rawTarget = targetSel ? targetSel.value : '';
   const rawFlashDigits = document.getElementById('todo-flash-digits')?.value ?? '';
   const rawFlashCount = document.getElementById('todo-flash-count')?.value ?? '';
   const rawFlashSpeed = document.getElementById('todo-flash-speed')?.value ?? '';
@@ -504,8 +649,12 @@ async function handleFormSubmit(e) {
   };
 
   const saveBtn = document.getElementById('btn-save-todo');
-  saveBtn.disabled = true;
-  saveBtn.textContent = 'Saving...';
+  const addAnotherBtn = document.getElementById('btn-save-add-another-todo');
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving...';
+  }
+  if (addAnotherBtn) addAnotherBtn.disabled = true;
 
   try {
     if (isSupabaseConfigured()) {
@@ -531,8 +680,12 @@ async function handleFormSubmit(e) {
           if (error) throw error;
           showToast('success', 'Task added successfully');
         }
-        closeModal('modal-todo');
         await loadTodos();
+        if (keepOpenForAnother && !id) {
+          openAddModal();
+        } else {
+          closeModal('modal-todo');
+        }
         return;
       }
     }
@@ -545,15 +698,28 @@ async function handleFormSubmit(e) {
       DemoDB.addTodo(taskPayload);
       showToast('success', 'Task added (Demo Mode)');
     }
-    closeModal('modal-todo');
     await loadTodos();
+    if (keepOpenForAnother && !id) {
+      openAddModal();
+    } else {
+      closeModal('modal-todo');
+    }
   } catch (err) {
     console.error('Error saving task:', err);
+    showFormErrors({ form: err.message || 'Unknown error saving task.' });
     showToast('error', `Error saving task: ${err.message || 'Unknown error'}`);
   } finally {
-    saveBtn.disabled = false;
-    saveBtn.textContent = 'Save Task';
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save';
+    }
+    if (addAnotherBtn) addAnotherBtn.disabled = false;
   }
+}
+
+async function handleFormSubmit(e) {
+  e.preventDefault();
+  await submitTodoForm(false);
 }
 
 async function handleReorder(todoId, direction) {
@@ -654,23 +820,35 @@ async function initTodosPage() {
   document.getElementById('btn-open-add-todo')?.addEventListener('click', openAddModal);
   document.getElementById('form-todo')?.addEventListener('submit', handleFormSubmit);
   document
+    .getElementById('btn-save-add-another-todo')
+    ?.addEventListener('click', () => submitTodoForm(true));
+  document
     .getElementById('btn-flash-title-from-settings')
     ?.addEventListener('click', handleUseFlashSettingsAsTitle);
 
-  // If the admin manually edits the title, clear the auto-filled flag unless emptied
-  document.getElementById('todo-title')?.addEventListener('input', (e) => {
-    const val = e.target.value.trim();
-    if (val === '') {
-      titleFilledByFlashButton = false;
-    } else {
-      titleFilledByFlashButton = false;
-    }
+  document.getElementById('todo-title')?.addEventListener('input', () => {
+    titleFilledByFlashButton = false;
+    updateTodoLiveSummary();
   });
 
-  // Dynamic target selector reacting to section change
   document.getElementById('todo-section')?.addEventListener('change', (e) => {
     clearFormErrors();
     updateTargetDropdown(e.target.value, '');
+  });
+
+  [
+    'todo-target',
+    'todo-required-count',
+    'todo-level',
+    'todo-active',
+    'todo-flash-digits',
+    'todo-flash-count',
+    'todo-flash-speed',
+    'todo-flash-mode',
+  ].forEach((id) => {
+    const el = document.getElementById(id);
+    el?.addEventListener('input', updateTodoLiveSummary);
+    el?.addEventListener('change', updateTodoLiveSummary);
   });
 
   await loadCategories();

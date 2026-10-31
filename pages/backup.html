@@ -14,7 +14,20 @@
         <div class="container header-inner">
           <!-- Zone 1: Wordmark & Brand -->
           <a href="/pages/admin.html" class="brand-zone">
-            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span class="brand-icon" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="4" y="2" width="16" height="20" rx="2"></rect>
+                <line x1="8" y1="6" x2="16" y2="6"></line>
+                <line x1="16" y1="14" x2="16" y2="18"></line>
+                <path d="M16 10h.01"></path>
+                <path d="M12 10h.01"></path>
+                <path d="M8 10h.01"></path>
+                <path d="M12 14h.01"></path>
+                <path d="M8 14h.01"></path>
+                <path d="M12 18h.01"></path>
+                <path d="M8 18h.01"></path>
+              </svg>
+            </span>
             <span>Trendz Tracker</span>
           </a>
 
@@ -30,40 +43,23 @@
           <!-- Zone 2: Navigation Links -->
           <nav class="nav-zone" id="admin-nav-zone" aria-label="Admin Navigation">
             <a href="/pages/admin.html" class="nav-link">Overview</a>
-            <a href="/pages/review.html" class="nav-link">Review</a>
             <a href="/pages/students.html" class="nav-link">Students</a>
+            <a href="/pages/review.html" class="nav-link">Review</a>
             <a href="/pages/attendance.html" class="nav-link">Attendance</a>
             <a href="/pages/weekly-tests.html" class="nav-link">Weekly Tests</a>
             <a href="/pages/leaderboard.html" class="nav-link">Leaderboard</a>
-            <a href="/pages/monthly-report.html" class="nav-link">Monthly Report</a>
-
-            <!-- Setup Dropdown -->
-            <div class="nav-dropdown active">
-              <button type="button" class="nav-link nav-dropdown-toggle active" id="btn-setup-dropdown" aria-expanded="false" aria-haspopup="true">
-                Setup <span style="font-size: 10px; margin-left: 2px;">▾</span>
-              </button>
-              <div class="nav-dropdown-menu" id="setup-dropdown-menu" role="menu">
-                <a href="/pages/todos.html" class="dropdown-item" role="menuitem">Daily To-Do</a>
-                <a href="/pages/resources.html" class="dropdown-item" role="menuitem">Resources</a>
-                <a href="/pages/categories.html" class="dropdown-item" role="menuitem">Categories</a>
-                <a href="/pages/rounds.html" class="dropdown-item" role="menuitem">Rounds</a>
-                <a href="/pages/targets.html" class="dropdown-item" role="menuitem">Targets</a>
-                <a href="/pages/competition.html" class="dropdown-item" role="menuitem">Competition</a>
-                <a href="/pages/import.html" class="dropdown-item" role="menuitem">Import</a>
-                <a href="/pages/backup.html" class="dropdown-item active" role="menuitem" aria-current="page">Backup</a>
-              </div>
-            </div>
+            <a href="/pages/settings.html" class="nav-link active" aria-current="page">Settings</a>
           </nav>
 
           <!-- Zone 3: User Details & Logout Action -->
           <div class="actions-zone">
-            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+            <div class="meta-row" style="font-size: var(--text-sm); display: none;" id="user-pill-container">
               <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Admin</span>
               <span class="meta-separator" aria-hidden="true">·</span>
               <span id="header-user-role" style="color: var(--text-muted);">Teacher</span>
             </div>
             <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
-              Sign Out
+              Sign out
             </button>
           </div>
         </div>
@@ -72,17 +68,24 @@
       <!-- Main Page Content -->
       <main class="main-content">
         <div class="container">
+          <!-- Breadcrumb -->
+          <nav class="settings-breadcrumb" aria-label="Breadcrumb">
+            <a href="/pages/settings.html">Settings</a>
+            <span class="settings-breadcrumb-sep" aria-hidden="true">&gt;</span>
+            <span aria-current="page">Backup</span>
+          </nav>
+
           <!-- Demo Mode Banner Placeholder -->
           <div id="config-banner-placeholder"></div>
 
           <!-- Staleness Warning Banner (> 2 days old or never run) -->
           <div
             id="backup-staleness-banner"
-            style="display: none; background: var(--color-warning-subtle); border: 1px solid #fde68a; border-left: 4px solid var(--color-warning); border-radius: var(--radius-md); padding: var(--space-4); margin-bottom: var(--space-6);"
+            style="display: none; background: var(--color-warning-subtle); border: 1px solid var(--border-hairline); border-left: 4px solid var(--color-warning); border-radius: var(--radius-md); padding: var(--space-4); margin-bottom: var(--space-6);"
             role="status"
           >
-            <div style="font-weight: 700; color: var(--color-warning-text); margin-bottom: 4px;" id="backup-staleness-title">
-              ⚠️ Backup Attention Needed
+            <div style="font-weight: 700; color: var(--color-warning-text); margin-bottom: var(--space-1);" id="backup-staleness-title">
+              Backup Attention Needed
             </div>
             <div style="font-size: var(--text-sm); color: var(--text-main);" id="backup-staleness-message">
               No recent Google Sheet backup has been completed.
@@ -109,7 +112,7 @@
                 Open backup sheet ↗
               </a>
               <button type="button" id="btn-refresh-backup-status" class="btn btn-outline btn-sm">
-                ↻ Refresh Status
+                Refresh Status
               </button>
             </div>
           </div>
@@ -119,7 +122,7 @@
             <div class="stat-card">
               <span class="stat-label">Google Sheet Backup Configured</span>
               <span class="stat-value" id="stat-backup-configured">—</span>
-              <span style="font-size: var(--text-xs); color: var(--text-muted);" id="stat-backup-configured-sub">
+              <span style="font-size: var(--text-sm); color: var(--text-muted);" id="stat-backup-configured-sub">
                 Checks service account &amp; sheet ID
               </span>
             </div>
@@ -127,7 +130,7 @@
             <div class="stat-card">
               <span class="stat-label">Last Successful Google Backup (IST)</span>
               <span class="stat-value num" id="stat-last-google-backup" style="font-size: var(--text-lg);">—</span>
-              <span style="font-size: var(--text-xs); color: var(--text-muted);" id="stat-last-google-backup-sub">
+              <span style="font-size: var(--text-sm); color: var(--text-muted);" id="stat-last-google-backup-sub">
                 Scheduled nightly at ~2:00 AM IST
               </span>
             </div>
@@ -135,7 +138,7 @@
             <div class="stat-card">
               <span class="stat-label">Last Manual ZIP Export (IST)</span>
               <span class="stat-value num" id="stat-last-zip-export" style="font-size: var(--text-lg);">—</span>
-              <span style="font-size: var(--text-xs); color: var(--text-muted);">
+              <span style="font-size: var(--text-sm); color: var(--text-muted);">
                 18 CSV files + README.txt
               </span>
             </div>
@@ -143,13 +146,13 @@
             <div class="stat-card">
               <span class="stat-label">Spreadsheet Cell Capacity</span>
               <span class="stat-value num" id="stat-cells-written" style="font-size: var(--text-lg);">—</span>
-              <div style="width: 100%; height: 8px; background: var(--border-subtle); border-radius: 4px; overflow: hidden; margin-top: 6px;">
+              <div style="width: 100%; height: 8px; background: var(--border-subtle); border-radius: var(--radius-sm); overflow: hidden; margin-top: var(--space-1);">
                 <div
                   id="cells-capacity-bar"
                   style="width: 0%; height: 100%; background: var(--color-primary); transition: width 0.25s ease;"
                 ></div>
               </div>
-              <span style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 4px;" id="stat-cells-sub" class="num">
+              <span style="font-size: var(--text-sm); color: var(--text-muted); margin-top: var(--space-1);" id="stat-cells-sub" class="num">
                 0 of 10,000,000 cells (0.0%)
               </span>
             </div>
@@ -159,25 +162,25 @@
           <div class="card" style="padding: var(--space-5); margin-bottom: var(--space-6);">
             <div class="section-header-row" style="margin-bottom: var(--space-3); flex-wrap: wrap; gap: var(--space-3);">
               <div>
-                <h2 style="font-size: var(--text-lg); margin-bottom: 2px;">Backup &amp; Export Actions</h2>
-                <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 0;">
+                <h2 style="font-size: var(--text-lg); margin-bottom: var(--space-1);">Backup &amp; Export Actions</h2>
+                <p style="font-size: var(--text-sm); color: var(--text-muted); margin: 0;">
                   Run an on-demand Google Sheet backup pass (8-second passes with automatic continuation) or download all 18 tables as a local ZIP of CSV files.
                 </p>
               </div>
               <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
                 <button type="button" id="btn-run-google-backup" class="btn btn-primary btn-sm">
-                  ☁️ Back up to Google Sheet now
+                  Back up to Google Sheet now
                 </button>
                 <button
                   type="button"
                   id="btn-cancel-google-backup"
-                  class="btn btn-outline btn-sm"
-                  style="display: none; color: var(--color-danger); border-color: var(--color-danger);"
+                  class="btn btn-danger btn-sm"
+                  style="display: none;"
                 >
-                  ✕ Cancel
+                  Cancel
                 </button>
                 <button type="button" id="btn-download-zip" class="btn btn-outline btn-sm">
-                  📦 Download all data (ZIP)
+                  Download all data (ZIP)
                 </button>
               </div>
             </div>
@@ -191,11 +194,11 @@
                 <strong id="backup-progress-title" style="font-size: var(--text-sm); color: var(--text-main);">
                   Running backup...
                 </strong>
-                <span id="backup-progress-detail" class="num" style="font-size: var(--text-xs); color: var(--text-muted);">
+                <span id="backup-progress-detail" class="num" style="font-size: var(--text-sm); color: var(--text-muted);">
                   Pass 1
                 </span>
               </div>
-              <div style="width: 100%; height: 10px; background: var(--border-subtle); border-radius: 5px; overflow: hidden;">
+              <div style="width: 100%; height: 10px; background: var(--border-subtle); border-radius: var(--radius-sm); overflow: hidden;">
                 <div
                   id="backup-progress-bar"
                   style="width: 10%; height: 100%; background: var(--color-primary); transition: width 0.25s ease;"
@@ -215,8 +218,8 @@
           <div class="card" id="mirror-card" style="padding: var(--space-5); margin-bottom: var(--space-6);">
             <div class="section-header-row" style="margin-bottom: var(--space-3); flex-wrap: wrap; gap: var(--space-3);">
               <div>
-                <h2 style="font-size: var(--text-lg); margin-bottom: 2px;">Score sheet mirror</h2>
-                <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 0;">
+                <h2 style="font-size: var(--text-lg); margin-bottom: var(--space-1);">Score sheet mirror</h2>
+                <p style="font-size: var(--text-sm); color: var(--text-muted); margin: 0;">
                   Readable Google Sheets mirror (one tab per active student in classic Jr. MCWC score-sheet layout).
                 </p>
               </div>
@@ -231,18 +234,18 @@
                 >
                   Open score-sheet mirror ↗
                 </a>
-                <button type="button" id="btn-update-mirror-now" class="btn btn-primary btn-sm">
-                  📊 Update score sheets now
+                <button type="button" id="btn-update-mirror-now" class="btn btn-secondary btn-sm">
+                  Update score sheets now
                 </button>
                 <button type="button" id="btn-rebuild-mirror-all" class="btn btn-outline btn-sm">
-                  ↻ Rebuild all tabs
+                  Rebuild all tabs
                 </button>
               </div>
             </div>
 
             <!-- Read-only warning callout -->
             <div
-              style="background: var(--color-warning-subtle); border: 1px solid #fde68a; border-left: 4px solid var(--color-warning); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); margin-bottom: var(--space-4); font-size: var(--text-xs); color: var(--text-main);"
+              style="background: var(--color-warning-subtle); border: 1px solid var(--border-hairline); border-left: 4px solid var(--color-warning); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); margin-bottom: var(--space-4); font-size: var(--text-sm); color: var(--text-main);"
             >
               <strong>Read-only mirror:</strong> This sheet is read-only. Anything typed on the sheet will be overwritten the next time the backup runs. To work in the sheet during an outage, make a copy first (<strong>File &rarr; Make a copy</strong>).
             </div>
@@ -252,7 +255,7 @@
               <div class="stat-card" style="padding: var(--space-3) var(--space-4);">
                 <span class="stat-label">Mirror Configured</span>
                 <span class="stat-value" id="stat-mirror-configured" style="font-size: var(--text-lg);">—</span>
-                <span style="font-size: var(--text-xs); color: var(--text-muted);" id="stat-mirror-configured-sub">
+                <span style="font-size: var(--text-sm); color: var(--text-muted);" id="stat-mirror-configured-sub">
                   Optional MIRROR_SHEET_ID
                 </span>
               </div>
@@ -260,7 +263,7 @@
               <div class="stat-card" style="padding: var(--space-3) var(--space-4);">
                 <span class="stat-label">Students Up to Date</span>
                 <span class="stat-value num" id="stat-mirror-uptodate" style="font-size: var(--text-lg);">—</span>
-                <span style="font-size: var(--text-xs); color: var(--text-muted);" id="stat-mirror-uptodate-sub" class="num">
+                <span style="font-size: var(--text-sm); color: var(--text-muted);" id="stat-mirror-uptodate-sub" class="num">
                   0 remaining
                 </span>
               </div>
@@ -268,7 +271,7 @@
               <div class="stat-card" style="padding: var(--space-3) var(--space-4);">
                 <span class="stat-label">Last Built (IST)</span>
                 <span class="stat-value num" id="stat-mirror-last-built" style="font-size: var(--text-lg);">—</span>
-                <span style="font-size: var(--text-xs); color: var(--text-muted);">
+                <span style="font-size: var(--text-sm); color: var(--text-muted);">
                   Updated automatically after backup
                 </span>
               </div>
@@ -276,7 +279,7 @@
               <div class="stat-card" style="padding: var(--space-3) var(--space-4);">
                 <span class="stat-label">Last Mirror Error</span>
                 <span class="stat-value" id="stat-mirror-last-error" style="font-size: var(--text-sm);">None</span>
-                <span style="font-size: var(--text-xs); color: var(--text-muted);" id="stat-mirror-error-sub">
+                <span style="font-size: var(--text-sm); color: var(--text-muted);" id="stat-mirror-error-sub">
                   All student tabs healthy
                 </span>
               </div>
@@ -290,7 +293,7 @@
               <summary style="cursor: pointer; font-weight: 600; font-size: var(--text-sm); color: var(--text-main);">
                 If the website is down (4-step emergency workflow)
               </summary>
-              <ol style="margin: var(--space-3) 0 0 var(--space-5); padding: 0; font-size: var(--text-xs); color: var(--text-main); line-height: 1.65;">
+              <ol style="margin: var(--space-3) 0 0 var(--space-5); padding: 0; font-size: var(--text-sm); color: var(--text-main);">
                 <li>
                   <strong>Make a working copy first:</strong> Open the score-sheet mirror in Google Sheets and click <strong>File &rarr; Make a copy</strong>. Never type directly into the mirror sheet, because the website will overwrite it when it comes back online.
                 </li>
@@ -301,7 +304,7 @@
                   <strong>Export modified tabs as CSV when the website returns:</strong> In your working copy, open each tab where new rounds were recorded during the outage and click <strong>File &rarr; Download &rarr; Comma Separated Values (.csv)</strong>.
                 </li>
                 <li>
-                  <strong>Import back into Trendz Tracker:</strong> Go to <strong>Setup &rarr; Import</strong> (<code>/pages/import.html</code>), upload the CSV file for the student, preview the parsed rounds (existing rounds are skipped automatically), and click <strong>Import</strong>. Once imported, run <strong>Update score sheets now</strong> here so the read-only mirror is refreshed.
+                  <strong>Import back into Trendz Tracker:</strong> Go to <strong>Settings &rarr; Import</strong> (<code>/pages/import.html</code>), upload the CSV file for the student, preview the parsed rounds (existing rounds are skipped automatically), and click <strong>Import</strong>. Once imported, run <strong>Update score sheets now</strong> here so the read-only mirror is refreshed.
                 </li>
               </ol>
             </details>
@@ -311,8 +314,8 @@
           <div class="card" style="padding: var(--space-5); margin-bottom: var(--space-6);">
             <div class="section-header-row" style="margin-bottom: var(--space-3);">
               <div>
-                <h2 style="font-size: var(--text-lg); margin-bottom: 2px;">Table Backup Status (18 Tables)</h2>
-                <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 0;">
+                <h2 style="font-size: var(--text-lg); margin-bottom: var(--space-1);">Table Backup Status (18 Tables)</h2>
+                <p style="font-size: var(--text-sm); color: var(--text-muted); margin: 0;">
                   12 snapshot tables (rewritten each run) and 6 append tables (incremental keyset paging with a 1-minute safe horizon).
                 </p>
               </div>
@@ -348,8 +351,8 @@
           <div class="card" style="padding: var(--space-5);">
             <div class="section-header-row" style="margin-bottom: var(--space-3);">
               <div>
-                <h2 style="font-size: var(--text-lg); margin-bottom: 2px;">Recent Backup &amp; Export Runs (Last 10)</h2>
-                <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 0;">
+                <h2 style="font-size: var(--text-lg); margin-bottom: var(--space-1);">Recent Backup &amp; Export Runs (Last 10)</h2>
+                <p style="font-size: var(--text-sm); color: var(--text-muted); margin: 0;">
                   Audit history of scheduled cron backups, manual Google Sheet passes, and manual ZIP downloads.
                 </p>
               </div>
@@ -391,23 +394,23 @@
         aria-modal="true"
         aria-labelledby="modal-rebuild-mirror-title"
       >
-        <div class="modal-dialog" style="max-width: 460px;">
+        <div class="modal-dialog">
           <div class="modal-header">
-            <h3 id="modal-rebuild-mirror-title" class="modal-title">Rebuild all score-sheet tabs?</h3>
+            <div>
+              <h3 id="modal-rebuild-mirror-title" class="modal-title">Rebuild all score-sheet tabs?</h3>
+              <p class="modal-subtitle">Existing tabs are updated in place without deleting any tabs.</p>
+            </div>
             <button type="button" class="modal-close" data-close-modal="modal-rebuild-mirror" aria-label="Close">
               &times;
             </button>
           </div>
           <div class="modal-body">
-            <p style="font-size: var(--text-sm); color: var(--text-main); margin-bottom: var(--space-3);">
-              This will mark every student’s score-sheet tab as needing a full rebuild and rewrite all student tabs from the database in 8-second passes.
-            </p>
-            <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 0;">
-              Existing tabs are updated in place (no tabs are deleted). Continue?
+            <p style="font-size: var(--text-sm); color: var(--text-main); margin: 0;">
+              This will mark every student’s score-sheet tab as needing a full rebuild and rewrite all student tabs from the database in 8-second passes. Continue?
             </p>
           </div>
-          <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: var(--space-2);">
-            <button type="button" class="btn btn-outline btn-sm" data-close-modal="modal-rebuild-mirror">
+          <div class="modal-footer">
+            <button type="button" class="btn btn-ghost btn-sm" data-close-modal="modal-rebuild-mirror">
               Cancel
             </button>
             <button type="button" id="btn-confirm-rebuild-mirror" class="btn btn-primary btn-sm">

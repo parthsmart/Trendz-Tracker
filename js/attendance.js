@@ -19,6 +19,7 @@ import { isDemoMode } from './demoDb.js';
 import { showToast } from './toast.js';
 import { getISTDateString, formatDisplayDateIST } from './stats.js';
 import { openModal, closeModal, setupModalListeners, setupAdminNav } from './modal.js';
+import { shouldOpenMoreOptions, buildModalLiveSummary, setMoreOptionsOpen } from './formPattern.js';
 
 let currentProfile = null;
 let allSessions = [];
@@ -26,6 +27,7 @@ let selectedSessionId = null;
 let activeStudentsList = [];
 let sessionAttendanceMap = new Map(); // studentId -> { status: 'present'|'absent'|'excused'|null, note: string }
 let rosterSearchQuery = '';
+let saveAndAddAnotherSessionMode = false;
 
 async function initAttendancePage() {
   currentProfile = await requireAuth(['admin']);
@@ -164,7 +166,7 @@ async function loadSessions(selectIdAfterLoad = null) {
     console.error('Failed to load attendance sessions:', err);
     if (container) {
       container.innerHTML = `
-        <div style="color: #DC2626; font-size: var(--text-xs); padding: var(--space-4); text-align: center;">
+        <div style="color: var(--color-danger-text); font-size: var(--text-sm); padding: var(--space-4); text-align: center;">
           Failed to load sessions: ${escapeHtml(err.message)}
         </div>
       `;
@@ -182,9 +184,8 @@ function renderSessionsList() {
   if (allSessions.length === 0) {
     container.innerHTML = `
       <div class="empty-state" style="padding: var(--space-8); text-align: center;">
-        <div style="font-size: 1.5rem; margin-bottom: 4px;">📅</div>
-        <h4 style="font-size: var(--text-sm); font-weight: 600; margin-bottom: 2px;">No Sessions Created</h4>
-        <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 0;">
+        <h4 style="font-size: var(--text-sm); font-weight: 600; margin-bottom: var(--space-1);">No Sessions Created</h4>
+        <p style="font-size: var(--text-sm); color: var(--text-muted); margin: 0;">
           Click "+ New Session" to schedule a training class or workshop.
         </p>
       </div>
@@ -203,31 +204,31 @@ function renderSessionsList() {
         data-session-id="${ses.id}"
         style="padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-hairline); cursor: pointer; transition: background 0.15s ease; ${isSelected ? 'background: var(--bg-surface-subtle); border-left: 4px solid var(--color-primary);' : ''}"
       >
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px;">
-          <strong style="font-size: var(--text-xs); color: var(--text-main); font-weight: 600;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: var(--space-1);">
+          <strong style="font-size: var(--text-sm); color: var(--text-main); font-weight: 600;">
             ${escapeHtml(ses.title)}
           </strong>
-          <span class="status-chip chip-unverified" style="font-size: 10px; text-transform: uppercase;">
+          <span class="status-chip chip-neutral">
             ${escapeHtml(ses.session_type)}
           </span>
         </div>
 
-        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: var(--space-2);">
-          📅 ${dateDisplay}
+        <div style="font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-2);">
+          ${dateDisplay}
         </div>
 
-        <div style="display: flex; gap: var(--space-2); font-size: 11px; flex-wrap: wrap;">
-          <span style="color: #065F46; background: rgba(16, 185, 129, 0.1); padding: 1px 6px; border-radius: 3px;">
+        <div style="display: flex; gap: var(--space-2); font-size: var(--text-sm); flex-wrap: wrap;">
+          <span class="status-chip chip-neutral">
             ${ses.present_count} Present
           </span>
-          <span style="color: #991B1B; background: rgba(239, 68, 68, 0.1); padding: 1px 6px; border-radius: 3px;">
+          <span class="status-chip ${ses.absent_count > 0 ? 'chip-danger' : 'chip-neutral'}">
             ${ses.absent_count} Absent
           </span>
-          <span style="color: #4B5563; background: rgba(107, 114, 128, 0.1); padding: 1px 6px; border-radius: 3px;">
+          <span class="status-chip chip-neutral">
             ${ses.excused_count} Excused
           </span>
           ${ses.unmarked_count > 0 ? `
-            <span style="color: #DC2626; font-weight: 700;">
+            <span class="status-chip chip-warning">
               ${ses.unmarked_count} Unmarked
             </span>
           ` : ''}
@@ -378,8 +379,8 @@ function renderStudentRosterGrid() {
     tbody.innerHTML = `
       <tr>
         <td colspan="4" class="empty-state" style="padding: var(--space-8); text-align: center;">
-          <h4 style="font-size: var(--text-sm); font-weight: 600; margin-bottom: 2px;">No Students Found</h4>
-          <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 0;">
+          <h4 style="font-size: var(--text-sm); font-weight: 600; margin-bottom: var(--space-1);">No Students Found</h4>
+          <p style="font-size: var(--text-sm); color: var(--text-muted); margin: 0;">
             No active students match "${escapeHtml(rosterSearchQuery)}".
           </p>
         </td>
@@ -397,15 +398,15 @@ function renderStudentRosterGrid() {
       <tr data-student-id="${student.id}">
         <!-- Student -->
         <td>
-          <a href="/pages/student-detail.html?id=${encodeURIComponent(student.id)}" class="student-name-link" style="font-size: var(--text-xs);">
+          <a href="/pages/student-detail.html?id=${encodeURIComponent(student.id)}" class="student-name-link" style="font-size: var(--text-sm);">
             ${escapeHtml(student.full_name)}
           </a>
-          <div style="font-size: 11px; color: var(--text-dim);">${escapeHtml(student.student_code)}</div>
+          <div style="font-size: var(--text-sm); color: var(--text-dim);">${escapeHtml(student.student_code)}</div>
         </td>
 
         <!-- Level -->
         <td>
-          <span style="font-size: var(--text-xs); color: var(--text-muted);">${escapeHtml(student.level || '—')}</span>
+          <span style="font-size: var(--text-sm); color: var(--text-muted);">${escapeHtml(student.level || '—')}</span>
         </td>
 
         <!-- Status Toggle Buttons -->
@@ -417,7 +418,7 @@ function renderStudentRosterGrid() {
               data-status="present"
               data-student-id="${student.id}"
             >
-              ✓ Present
+              Present
             </button>
             <button
               type="button"
@@ -425,7 +426,7 @@ function renderStudentRosterGrid() {
               data-status="absent"
               data-student-id="${student.id}"
             >
-              ✗ Absent
+              Absent
             </button>
             <button
               type="button"
@@ -433,11 +434,11 @@ function renderStudentRosterGrid() {
               data-status="excused"
               data-student-id="${student.id}"
             >
-              Ex Excused
+              Excused
             </button>
           </div>
           ${!status ? `
-            <div style="margin-top: 2px;">
+            <div style="margin-top: var(--space-1);">
               <span class="status-unmarked-pill">Not marked</span>
             </div>
           ` : ''}
@@ -451,7 +452,6 @@ function renderStudentRosterGrid() {
             data-student-id="${student.id}"
             placeholder="Reason or note..."
             value="${escapeHtml(mark.note || '')}"
-            style="font-size: 11px; padding: 4px 8px; min-height: 28px;"
           />
         </td>
       </tr>
@@ -616,6 +616,58 @@ async function executeSaveAttendance() {
   }
 }
 
+function clearSessionModalErrors() {
+  const banner = document.getElementById('session-error-banner');
+  const errTitle = document.getElementById('error-session-title');
+  const errDate = document.getElementById('error-session-date');
+  if (banner) {
+    banner.textContent = '';
+    banner.style.display = 'none';
+  }
+  if (errTitle) {
+    errTitle.textContent = '';
+    errTitle.style.display = 'none';
+  }
+  if (errDate) {
+    errDate.textContent = '';
+    errDate.style.display = 'none';
+  }
+}
+
+function updateSessionLiveSummary() {
+  const summaryEl = document.getElementById('session-live-summary');
+  if (!summaryEl) return;
+
+  const titleVal = document.getElementById('session-title-input')?.value || '';
+  const dateVal = document.getElementById('session-date-input')?.value || '';
+  const typeVal = document.getElementById('session-type-input')?.value || 'class';
+
+  summaryEl.textContent = buildModalLiveSummary('attendance', {
+    title: titleVal,
+    session_date: dateVal,
+    session_type: typeVal
+  });
+}
+
+function prepareCreateSessionModal() {
+  const modalTitle = document.getElementById('session-modal-title');
+  const btnSaveAnother = document.getElementById('btn-save-add-another-session');
+  const moreOptions = document.getElementById('session-more-options');
+
+  if (modalTitle) modalTitle.textContent = 'Create Attendance Session';
+  if (btnSaveAnother) btnSaveAnother.style.display = 'inline-flex';
+  clearSessionModalErrors();
+
+  document.getElementById('session-id-input').value = '';
+  document.getElementById('session-date-input').value = getISTDateString(new Date());
+  document.getElementById('session-title-input').value = '';
+  document.getElementById('session-type-input').value = 'class';
+  document.getElementById('session-notes-input').value = '';
+
+  setMoreOptionsOpen(moreOptions, false);
+  updateSessionLiveSummary();
+}
+
 /**
  * Modal: Create / Edit Session
  */
@@ -623,18 +675,22 @@ function setupSessionModalHandlers() {
   const form = document.getElementById('session-form');
   const btnOpenCreate = document.getElementById('btn-create-session');
   const btnOpenEdit = document.getElementById('btn-edit-session');
+  const btnSaveAnother = document.getElementById('btn-save-add-another-session');
   const modalTitle = document.getElementById('session-modal-title');
+  const moreOptions = document.getElementById('session-more-options');
+
+  ['session-title-input', 'session-date-input', 'session-type-input', 'session-notes-input'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('input', updateSessionLiveSummary);
+      el.addEventListener('change', updateSessionLiveSummary);
+    }
+  });
 
   // Open Create
   if (btnOpenCreate) {
     btnOpenCreate.onclick = () => {
-      if (modalTitle) modalTitle.textContent = 'Create Attendance Session';
-      document.getElementById('session-id-input').value = '';
-      document.getElementById('session-date-input').value = getISTDateString(new Date());
-      document.getElementById('session-title-input').value = '';
-      document.getElementById('session-type-input').value = 'class';
-      document.getElementById('session-notes-input').value = '';
-
+      prepareCreateSessionModal();
       openModal('session-modal');
     };
   }
@@ -646,28 +702,73 @@ function setupSessionModalHandlers() {
       if (!session) return;
 
       if (modalTitle) modalTitle.textContent = 'Edit Attendance Session';
+      if (btnSaveAnother) btnSaveAnother.style.display = 'none';
+      clearSessionModalErrors();
+
       document.getElementById('session-id-input').value = session.id;
       document.getElementById('session-date-input').value = session.session_date;
       document.getElementById('session-title-input').value = session.title;
       document.getElementById('session-type-input').value = session.session_type || 'class';
       document.getElementById('session-notes-input').value = session.notes || '';
 
+      setMoreOptionsOpen(moreOptions, shouldOpenMoreOptions([session.notes], true));
+      updateSessionLiveSummary();
       openModal('session-modal');
     };
+  }
+
+  if (btnSaveAnother && form) {
+    btnSaveAnother.addEventListener('click', () => {
+      saveAndAddAnotherSessionMode = true;
+      form.requestSubmit();
+    });
   }
 
   // Submit form
   if (form) {
     form.onsubmit = async (e) => {
       e.preventDefault();
+      const keepOpen = saveAndAddAnotherSessionMode;
+      saveAndAddAnotherSessionMode = false;
+
+      clearSessionModalErrors();
+
       const sessionId = document.getElementById('session-id-input').value;
       const dateVal = document.getElementById('session-date-input').value;
       const titleVal = document.getElementById('session-title-input').value.trim();
       const typeVal = document.getElementById('session-type-input').value;
       const notesVal = document.getElementById('session-notes-input').value.trim();
 
+      const banner = document.getElementById('session-error-banner');
+      const errTitle = document.getElementById('error-session-title');
+      const errDate = document.getElementById('error-session-date');
+
+      let hasError = false;
+      if (!titleVal) {
+        if (errTitle) {
+          errTitle.textContent = 'Session title is required.';
+          errTitle.style.display = 'block';
+        }
+        hasError = true;
+      }
+      if (!dateVal) {
+        if (errDate) {
+          errDate.textContent = 'Session date is required.';
+          errDate.style.display = 'block';
+        }
+        hasError = true;
+      }
+      if (hasError) {
+        if (banner) {
+          banner.textContent = 'Please fix the highlighted errors before saving.';
+          banner.style.display = 'block';
+        }
+        return;
+      }
+
       const btnSubmit = document.getElementById('btn-submit-session');
       if (btnSubmit) btnSubmit.disabled = true;
+      if (btnSaveAnother) btnSaveAnother.disabled = true;
 
       try {
         if (sessionId) {
@@ -725,14 +826,25 @@ function setupSessionModalHandlers() {
             newId = created.id;
           }
           showToast('success', 'New attendance session created.');
-          closeModal('session-modal');
           await loadSessions(newId);
+
+          if (keepOpen) {
+            prepareCreateSessionModal();
+            document.getElementById('session-title-input')?.focus();
+          } else {
+            closeModal('session-modal');
+          }
         }
       } catch (err) {
         console.error('Failed to save session:', err);
+        if (banner) {
+          banner.textContent = err.message || 'Failed to save session.';
+          banner.style.display = 'block';
+        }
         showToast('error', 'Failed to save session: ' + err.message);
       } finally {
         if (btnSubmit) btnSubmit.disabled = false;
+        if (btnSaveAnother) btnSaveAnother.disabled = false;
       }
     };
   }
@@ -787,8 +899,8 @@ function renderDemoBanner() {
   const bannerPlaceholder = document.getElementById('demo-banner-placeholder');
   if (!bannerPlaceholder) return;
   bannerPlaceholder.innerHTML = `
-    <div style="background-color: #FEF3C7; border: 1px solid #F59E0B; color: #92400E; padding: var(--space-2) var(--space-4); border-radius: var(--radius-md); font-size: var(--text-xs); margin-bottom: var(--space-4); display: flex; align-items: center; justify-content: space-between;">
-      <div>
+    <div class="banner banner-demo" style="margin-bottom: var(--space-4);">
+      <div class="banner-body">
         <strong>Demo Mode (Local Preview):</strong> Tracking sample attendance sessions. Connect Supabase to persist live attendance records.
       </div>
     </div>

@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Settings — Trendz Tracker</title>
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="container header-inner">
+          <a href="/pages/admin.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">TT</span>
+            <span>Trendz Abacus</span>
+          </a>
+
+          <nav class="nav-zone" aria-label="Admin Navigation">
+            <a href="/pages/admin.html" class="nav-link">Overview</a>
+            <a href="/pages/students.html" class="nav-link">Students</a>
+            <a href="/pages/review.html" class="nav-link">Review</a>
+            <a href="/pages/attendance.html" class="nav-link">Attendance</a>
+            <a href="/pages/weekly-tests.html" class="nav-link">Weekly Tests</a>
+            <a href="/pages/leaderboard.html" class="nav-link">Leaderboard</a>
+            <a href="/pages/settings.html" class="nav-link active" aria-current="page">Settings</a>
+          </nav>
+
+          <div class="actions-zone">
+            <button
+              type="button"
+              id="btn-nav-hamburger"
+              class="nav-hamburger-btn"
+              aria-label="Toggle navigation menu"
+              aria-expanded="false"
+            >
+              &#9776;
+            </button>
+            <div id="user-pill-container" style="display: none; align-items: center; gap: var(--space-3);">
+              <span id="header-user-name" style="font-size: var(--text-sm); font-weight: 500;">Admin</span>
+              <span id="header-user-role" class="badge badge-neutral">Teacher</span>
+            </div>
+            <button id="btn-header-logout" class="btn btn-ghost btn-sm" type="button">
+              Sign out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main class="main-content">
+        <div class="container">
+          <div id="config-banner-placeholder"></div>
+
+          <div class="page-header">
+            <div>
+              <h1 class="page-title">Settings</h1>
+              <p class="page-subtitle">
+                Practice rules, competition settings, student communication, and data tools.
+              </p>
+            </div>
+            <div style="width: 100%; max-width: 320px;">
+              <label for="settings-search-input" class="sr-only">Search settings</label>
+              <input
+                type="search"
+                id="settings-search-input"
+                class="form-input"
+                placeholder="Search settings..."
+                autocomplete="off"
+              />
+            </div>
+          </div>
+
+          <div class="settings-hub-layout">
+            <aside aria-label="Settings categories">
+              <div class="settings-nav-select-wrap form-group">
+                <label for="settings-group-select" class="form-label">Category</label>
+                <select id="settings-group-select" class="form-select"></select>
+              </div>
+              <div id="settings-group-list" class="settings-nav-list"></div>
+            </aside>
+
+            <div id="settings-entries-container"></div>
+          </div>
+        </div>
+      </main>
+
+      <footer class="app-footer">
+        <div class="container footer-inner">
+          <span>&copy; 2026 Trendz Abacus. Internal Competition &amp; Practice Portal.</span>
+          <span class="num">Settings</span>
+        </div>
+      </footer>
+    </div>
+
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <script type="module" src="/js/settings.js"></script>
+    <script type="module">
+      import { logoutUser } from '/js/auth.js';
+      document.getElementById('btn-header-logout')?.addEventListener('click', async () => {
+        await logoutUser();
+      });
+    </script>
+  </body>
+</html>

@@ -1,9 +1,9 @@
 /**
- * Trendz Tracker - Pure India Standard Time (IST) Reporting Period Helpers
+ * Trendz Tracker - Pure India Standard Time (IST) Reporting Period Helpers (js/periods.js)
  *
  * Intent:
- * Every student and teacher statistic must clearly state its exact reporting
- * period in India time (UTC+05:30), never mixing "Last 7 days" (rolling 7-day
+ * Every student and teacher statistic and leaderboard must clearly state its exact
+ * reporting period in India time (UTC+05:30), never mixing "Last 7 days" (rolling 7-day
  * window ending today) with "Monday to Sunday" (calendar week).
  */
 
@@ -18,6 +18,17 @@ const SHORT_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const LONG_DAYS = [
   'Sunday', 'Monday', 'Tuesday', 'Wednesday',
   'Thursday', 'Friday', 'Saturday',
+];
+
+export const MIN_LEADERBOARD_DATE = '2020-01-01';
+
+export const VALID_SIMPLE_PERIODS = [
+  'today',
+  'yesterday',
+  'week',
+  'month',
+  'year',
+  'all',
 ];
 
 /**
@@ -62,6 +73,149 @@ function formatUtcDateToYmd(utcDate) {
   const m = String(utcDate.getUTCMonth() + 1).padStart(2, '0');
   const d = String(utcDate.getUTCDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
+}
+
+/**
+ * Checks whether a string is a real Gregorian 'YYYY-MM-DD' calendar date.
+ * Rejects impossible dates like '2026-02-29' or '2026-04-31', while accepting
+ * real leap days like '2028-02-29'.
+ * @param {string} dateText
+ * @returns {boolean}
+ */
+export function isValidCalendarYMD(dateText) {
+  if (typeof dateText !== 'string') return false;
+  const clean = dateText.trim();
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(clean);
+  if (!match) return false;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+
+  const dt = new Date(Date.UTC(year, month - 1, day));
+  return (
+    dt.getUTCFullYear() === year &&
+    dt.getUTCMonth() === month - 1 &&
+    dt.getUTCDate() === day
+  );
+}
+
+/**
+ * Validates a custom leaderboard date input against India time bounds:
+ * - Must be a valid 'YYYY-MM-DD' calendar date
+ * - Must not be before '2020-01-01'
+ * - Must not be in the future relative to `todayIST`
+ *
+ * @param {string} dateText
+ * @param {Date|string|number} [todayIST]
+ * @returns {{ valid: boolean, dateText: string|null, error: string|null }}
+ */
+export function validatePeriodDate(dateText, todayIST = new Date()) {
+  if (typeof dateText !== 'string' || !dateText.trim()) {
+    return {
+      valid: false,
+      dateText: null,
+      error: 'Please choose a date.',
+    };
+  }
+  const clean = dateText.trim();
+  if (!isValidCalendarYMD(clean)) {
+    return {
+      valid: false,
+      dateText: null,
+      error: 'Enter a valid calendar date (YYYY-MM-DD).',
+    };
+  }
+  if (clean < MIN_LEADERBOARD_DATE) {
+    return {
+      valid: false,
+      dateText: null,
+      error: 'The date cannot be before 2020-01-01.',
+    };
+  }
+  const todayYmd = getISTDateYMD(todayIST);
+  if (clean > todayYmd) {
+    return {
+      valid: false,
+      dateText: null,
+      error: 'The date cannot be in the future.',
+    };
+  }
+  return {
+    valid: true,
+    dateText: clean,
+    error: null,
+  };
+}
+
+/**
+ * Builds the canonical `p_period` RPC argument from a selector choice and optional date string.
+ * - For 'today' | 'yesterday' | 'week' | 'month' | 'year' | 'all', returns that choice.
+ * - For 'date', validates `dateText` and returns `'date:YYYY-MM-DD'` when valid, or `null` when invalid.
+ *
+ * @param {string} choice
+ * @param {string} [dateText='']
+ * @param {Date|string|number} [todayIST]
+ * @returns {string|null}
+ */
+export function periodValue(choice, dateText = '', todayIST = new Date()) {
+  if (typeof choice !== 'string') return null;
+  const cleanChoice = choice.trim().toLowerCase();
+
+  if (VALID_SIMPLE_PERIODS.includes(cleanChoice)) {
+    return cleanChoice;
+  }
+
+  if (cleanChoice === 'date') {
+    const check = validatePeriodDate(dateText, todayIST);
+    return check.valid ? `date:${check.dateText}` : null;
+  }
+
+  if (cleanChoice.startsWith('date:')) {
+    const rawDate = cleanChoice.slice(5);
+    const check = validatePeriodDate(rawDate, todayIST);
+    return check.valid ? `date:${check.dateText}` : null;
+  }
+
+  return null;
+}
+
+/**
+ * Parses and validates a period value from URL query parameters, localStorage, or state.
+ * Accepts: 'today', 'yesterday', 'week', 'month', 'year', 'all', and 'date:YYYY-MM-DD'.
+ * Returns `{ choice, dateText, value }` when valid, or `null` when invalid.
+ *
+ * @param {string|null|undefined} value
+ * @param {Date|string|number} [todayIST]
+ * @returns {{ choice: string, dateText: string, value: string } | null}
+ */
+export function parsePeriod(value, todayIST = new Date()) {
+  if (typeof value !== 'string') return null;
+  const clean = value.trim();
+  if (!clean) return null;
+
+  const lower = clean.toLowerCase();
+  if (VALID_SIMPLE_PERIODS.includes(lower)) {
+    return {
+      choice: lower,
+      dateText: '',
+      value: lower,
+    };
+  }
+
+  if (lower.startsWith('date:')) {
+    const datePart = clean.slice(5).trim();
+    const check = validatePeriodDate(datePart, todayIST);
+    if (!check.valid) return null;
+    return {
+      choice: 'date',
+      dateText: check.dateText,
+      value: `date:${check.dateText}`,
+    };
+  }
+
+  return null;
 }
 
 /**
@@ -172,6 +326,76 @@ export function getWeekBoundsIST(input = new Date()) {
  */
 export function formatWeekPeriodIST(input = new Date()) {
   return getWeekBoundsIST(input).rangeText;
+}
+
+/**
+ * Returns the exact human-readable range label for a leaderboard period in India time:
+ * - 'today' -> "Today, Sat 31 Oct"
+ * - 'yesterday' -> "Yesterday, Fri 30 Oct"
+ * - 'week' -> "26 Oct to 1 Nov" (or "19 to 25 Oct" when in same month)
+ * - 'month' -> "Oct 2026"
+ * - 'year' -> "2026"
+ * - 'all' -> "All time"
+ * - 'date:YYYY-MM-DD' -> "Thu 29 Oct 2026"
+ *
+ * @param {string} value
+ * @param {Date|string|number} [todayIST]
+ * @returns {string}
+ */
+export function periodLabel(value, todayIST = new Date()) {
+  const todayYmd = getISTDateYMD(todayIST);
+  const parsed = parsePeriod(value, todayYmd);
+  const choice = parsed ? parsed.choice : 'week';
+
+  if (choice === 'today') {
+    const dt = parseYmdToUtcDate(todayYmd);
+    const dow = SHORT_DAYS[dt.getUTCDay()];
+    const day = dt.getUTCDate();
+    const mon = SHORT_MONTHS[dt.getUTCMonth()];
+    return `Today, ${dow} ${day} ${mon}`;
+  }
+
+  if (choice === 'yesterday') {
+    const yestYmd = addDaysYMD(todayYmd, -1);
+    const dt = parseYmdToUtcDate(yestYmd);
+    const dow = SHORT_DAYS[dt.getUTCDay()];
+    const day = dt.getUTCDate();
+    const mon = SHORT_MONTHS[dt.getUTCMonth()];
+    return `Yesterday, ${dow} ${day} ${mon}`;
+  }
+
+  if (choice === 'week') {
+    const { startYmd, endYmd } = getWeekBoundsIST(todayYmd);
+    return formatShortRangeIST(startYmd, endYmd);
+  }
+
+  if (choice === 'month') {
+    const dt = parseYmdToUtcDate(todayYmd);
+    const mon = SHORT_MONTHS[dt.getUTCMonth()];
+    const yr = dt.getUTCFullYear();
+    return `${mon} ${yr}`;
+  }
+
+  if (choice === 'year') {
+    const dt = parseYmdToUtcDate(todayYmd);
+    return String(dt.getUTCFullYear());
+  }
+
+  if (choice === 'all') {
+    return 'All time';
+  }
+
+  if (choice === 'date' && parsed?.dateText) {
+    const dt = parseYmdToUtcDate(parsed.dateText);
+    const dow = SHORT_DAYS[dt.getUTCDay()];
+    const day = dt.getUTCDate();
+    const mon = SHORT_MONTHS[dt.getUTCMonth()];
+    const yr = dt.getUTCFullYear();
+    return `${dow} ${day} ${mon} ${yr}`;
+  }
+
+  const { startYmd, endYmd } = getWeekBoundsIST(todayYmd);
+  return formatShortRangeIST(startYmd, endYmd);
 }
 
 /**

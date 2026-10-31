@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Leaderboard - Trendz Tracker</title>
-    <meta name="description" content="Points, practice streak, practice days, and most improved leaderboards for Trendz Abacus students." />
+    <meta name="description" content="Points, practice streak, practice days, daily to-do, and most improved leaderboards for Trendz Abacus students." />
     
     <!-- Design tokens & unified styles -->
     <link rel="stylesheet" href="/css/style.css" />
@@ -16,7 +16,20 @@
         <div class="container header-inner">
           <!-- Zone 1: Wordmark & Brand -->
           <a href="/pages/student.html" class="brand-zone" id="header-brand-link">
-            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span class="brand-icon" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="4" y="2" width="16" height="20" rx="2"></rect>
+                <line x1="8" y1="6" x2="16" y2="6"></line>
+                <line x1="16" y1="14" x2="16" y2="18"></line>
+                <path d="M16 10h.01"></path>
+                <path d="M12 10h.01"></path>
+                <path d="M8 10h.01"></path>
+                <path d="M12 14h.01"></path>
+                <path d="M8 14h.01"></path>
+                <path d="M12 18h.01"></path>
+                <path d="M8 18h.01"></path>
+              </svg>
+            </span>
             <span>Trendz Tracker</span>
           </a>
 
@@ -35,7 +48,7 @@
             <a href="/pages/round-scores.html" class="nav-link">Round Scores</a>
             <div class="nav-dropdown" id="nav-practice-dropdown">
               <button type="button" class="nav-link nav-dropdown-toggle" id="btn-practice-dropdown" aria-expanded="false" aria-haspopup="true">
-                Practice <span style="font-size: 10px; margin-left: 2px;">▾</span>
+                Practice <span aria-hidden="true">▾</span>
               </button>
               <div class="nav-dropdown-menu" id="practice-dropdown-menu" role="menu">
                 <a href="/pages/basics.html" class="dropdown-item" role="menuitem">Basics</a>
@@ -53,47 +66,30 @@
                 <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
               </svg>
               <span class="nav-bell-text">Alerts</span>
-              <span id="nav-notifications-badge" class="nav-notifications-badge num" style="display: none; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: #DC2626; color: #FFFFFF; font-size: 11px; font-weight: 700; line-height: 1;" aria-hidden="true"></span>
+              <span id="nav-notifications-badge" class="nav-notifications-badge num" style="display: none; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--color-danger); color: var(--text-inverse); font-size: var(--text-xs); font-weight: 700; line-height: 1;" aria-hidden="true"></span>
             </a>
           </nav>
 
           <!-- Zone 2B: Admin Navigation Links (shown when logged-in user is admin) -->
           <nav class="nav-zone" id="admin-nav-zone" aria-label="Admin Navigation" style="display: none;">
             <a href="/pages/admin.html" class="nav-link">Overview</a>
-            <a href="/pages/review.html" class="nav-link">Review</a>
             <a href="/pages/students.html" class="nav-link">Students</a>
+            <a href="/pages/review.html" class="nav-link">Review</a>
             <a href="/pages/attendance.html" class="nav-link">Attendance</a>
             <a href="/pages/weekly-tests.html" class="nav-link">Weekly Tests</a>
             <a href="/pages/leaderboard.html" class="nav-link active" aria-current="page">Leaderboard</a>
-            <a href="/pages/monthly-report.html" class="nav-link">Monthly Report</a>
-            
-            <!-- Setup Dropdown -->
-            <div class="nav-dropdown" id="nav-setup-dropdown">
-              <button type="button" class="nav-link nav-dropdown-toggle" id="btn-setup-dropdown" aria-expanded="false" aria-haspopup="true">
-                Setup <span style="font-size: 10px; margin-left: 2px;">▾</span>
-              </button>
-              <div class="nav-dropdown-menu" id="setup-dropdown-menu" role="menu">
-                <a href="/pages/todos.html" class="dropdown-item" role="menuitem">Daily To-Do</a>
-                <a href="/pages/resources.html" class="dropdown-item" role="menuitem">Resources</a>
-                <a href="/pages/categories.html" class="dropdown-item" role="menuitem">Categories</a>
-                <a href="/pages/rounds.html" class="dropdown-item" role="menuitem">Rounds</a>
-                <a href="/pages/targets.html" class="dropdown-item" role="menuitem">Targets</a>
-                <a href="/pages/competition.html" class="dropdown-item" role="menuitem">Competition</a>
-                <a href="/pages/import.html" class="dropdown-item" role="menuitem">Import</a>
-                <a href="/pages/backup.html" class="dropdown-item" role="menuitem">Backup</a>
-              </div>
-            </div>
+            <a href="/pages/settings.html" class="nav-link">Settings</a>
           </nav>
 
           <!-- Zone 3: User Details & Logout Action -->
           <div class="actions-zone">
-            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+            <div class="meta-row" style="font-size: var(--text-sm); display: none;" id="user-pill-container">
               <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">User</span>
               <span class="meta-separator" aria-hidden="true">·</span>
               <span id="header-user-code" class="num" style="color: var(--text-muted);">ID</span>
             </div>
             <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
-              Sign Out
+              Sign out
             </button>
           </div>
         </div>
@@ -108,12 +104,9 @@
           <!-- Page Heading & Controls -->
           <div class="section-header-row" style="margin-bottom: var(--space-5); align-items: flex-end; flex-wrap: wrap; gap: var(--space-4);">
             <div>
-              <h1 style="display: flex; align-items: center; gap: var(--space-2);">
-                <span aria-hidden="true">🏅</span>
-                <span>Leaderboards</span>
-              </h1>
+              <h1>Leaderboards</h1>
               <p id="leaderboard-subtitle" style="font-size: var(--text-sm); color: var(--text-muted);">
-                Track weekly test &amp; session points, daily streaks, practice days, daily to-do completions, and accuracy improvements.
+                Track weekly test &amp; session points, daily streaks, practice days, daily to-do rankings, and accuracy improvements.
               </p>
             </div>
 
@@ -148,7 +141,7 @@
             <!-- Admin-Only Level Filter & Settings Shortcut -->
             <div id="admin-leaderboard-controls" style="display: none; align-items: center; gap: var(--space-3); flex-wrap: wrap;">
               <div style="display: flex; align-items: center; gap: var(--space-2);">
-                <label for="select-leaderboard-level" class="form-label" style="margin-bottom: 0; white-space: nowrap;">Level:</label>
+                <label for="select-leaderboard-level" class="form-label" style="margin-bottom: 0; white-space: nowrap;">Level</label>
                 <select id="select-leaderboard-level" class="form-select" style="width: auto; min-width: 160px;">
                   <option value="all">All levels</option>
                   <option value="Level 1">Level 1</option>
@@ -159,12 +152,12 @@
                 </select>
               </div>
               <a href="/pages/competition.html" class="btn btn-outline btn-sm">
-                ⚙️ Competition Settings
+                Competition settings
               </a>
             </div>
           </div>
 
-          <!-- Board Tabs & Period Switch Toolbar -->
+          <!-- Board Tabs & Period Selector Toolbar -->
           <div class="card" style="margin-bottom: var(--space-4);">
             <div class="card-body" style="padding: var(--space-4) var(--space-5); display: flex; flex-direction: column; gap: var(--space-4);">
               <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3);">
@@ -177,7 +170,7 @@
                     class="segmented-btn active"
                     data-board="points"
                   >
-                    🏆 Points
+                    Points
                   </button>
                   <button
                     type="button"
@@ -186,7 +179,7 @@
                     class="segmented-btn"
                     data-board="streak"
                   >
-                    🔥 Streak
+                    Streak
                   </button>
                   <button
                     type="button"
@@ -195,7 +188,7 @@
                     class="segmented-btn"
                     data-board="practice_days"
                   >
-                    📅 Practice days
+                    Practice days
                   </button>
                   <button
                     type="button"
@@ -204,7 +197,7 @@
                     class="segmented-btn"
                     data-board="todo"
                   >
-                    ☑️ Daily To-Do
+                    Daily To-Do
                   </button>
                   <button
                     type="button"
@@ -213,88 +206,148 @@
                     class="segmented-btn"
                     data-board="improved"
                   >
-                    📈 Most improved
+                    Most improved
                   </button>
                 </div>
 
-                <!-- Period Switch (shown for Points, Practice days, and Daily To-Do) -->
-                <div id="period-switch-wrapper" class="segmented-control" role="group" aria-label="Time period">
-                  <button
-                    type="button"
-                    class="segmented-btn active"
-                    data-period="week"
+                <!-- Period Selector (shown for Points, Practice days, Daily To-Do, and the task board; hidden for Streak and Most improved) -->
+                <div
+                  id="period-switch-wrapper"
+                  style="display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2);"
+                >
+                  <div class="segmented-control" role="group" aria-label="Time period" style="flex-wrap: wrap;">
+                    <button
+                      type="button"
+                      class="segmented-btn"
+                      data-period-choice="today"
+                    >
+                      Today
+                    </button>
+                    <button
+                      type="button"
+                      class="segmented-btn"
+                      data-period-choice="yesterday"
+                    >
+                      Yesterday
+                    </button>
+                    <button
+                      type="button"
+                      class="segmented-btn active"
+                      data-period-choice="week"
+                    >
+                      This week
+                    </button>
+                    <button
+                      type="button"
+                      class="segmented-btn"
+                      data-period-choice="month"
+                    >
+                      This month
+                    </button>
+                    <button
+                      type="button"
+                      class="segmented-btn"
+                      data-period-choice="year"
+                    >
+                      This year
+                    </button>
+                    <button
+                      type="button"
+                      class="segmented-btn"
+                      data-period-choice="all"
+                    >
+                      All time
+                    </button>
+                    <button
+                      type="button"
+                      class="segmented-btn"
+                      data-period-choice="date"
+                    >
+                      Pick a date
+                    </button>
+                  </div>
+
+                  <div
+                    id="period-date-picker-box"
+                    style="display: none; align-items: center; gap: var(--space-2); flex-wrap: wrap;"
                   >
-                    This week
-                  </button>
-                  <button
-                    type="button"
-                    class="segmented-btn"
-                    data-period="month"
-                  >
-                    This month
-                  </button>
-                  <button
-                    type="button"
-                    class="segmented-btn"
-                    data-period="all"
-                  >
-                    All time
-                  </button>
+                    <label for="input-leaderboard-date" class="sr-only">Pick a date (India time)</label>
+                    <input
+                      type="date"
+                      id="input-leaderboard-date"
+                      class="form-input"
+                      min="2020-01-01"
+                      aria-label="Pick a date in India time"
+                      style="width: auto; font-size: var(--text-sm); padding: 6px 10px;"
+                    />
+                    <span
+                      id="leaderboard-date-error"
+                      class="form-error"
+                      role="alert"
+                      style="display: none; margin: 0;"
+                    ></span>
+                  </div>
                 </div>
               </div>
 
-              <!-- Daily To-Do Task Filter (shown when Daily To-Do tab is active: Task 1, Task 2, Task 3...) -->
+              <!-- Daily To-Do Task Filter (shown when Daily To-Do tab is active: All tasks + individual tasks) -->
               <div
                 id="todo-task-filter-wrapper"
                 style="display: none; flex-direction: column; gap: var(--space-2); padding-top: var(--space-3); border-top: 1px solid var(--border-hairline);"
               >
                 <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3);">
                   <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
-                    <label for="select-todo-task" class="form-label" style="margin-bottom: 0; font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-muted);">
-                      Filter by Task:
+                    <label for="select-todo-task" class="form-label" style="margin-bottom: 0;">
+                      Filter by task
                     </label>
                     <select id="select-todo-task" class="form-select" style="width: auto; min-width: 240px; max-width: 100%; font-size: var(--text-sm);">
-                      <option value="">Loading tasks...</option>
+                      <option value="all">All tasks</option>
                     </select>
                   </div>
-                  <span id="todo-selected-task-meta" style="font-size: var(--text-xs); font-weight: 600; color: var(--color-primary);">
-                    Ranked fastest to slowest attempt
-                  </span>
                 </div>
                 <div
                   id="todo-task-pills"
                   class="segmented-control"
                   role="group"
-                  aria-label="Select Daily To-Do task"
-                  style="display: flex; flex-wrap: wrap; gap: 4px; width: fit-content; max-width: 100%;"
+                  aria-label="Filter by task"
+                  style="display: flex; flex-wrap: wrap; gap: var(--space-1); width: fit-content; max-width: 100%;"
                 ></div>
               </div>
 
-              <!-- "How it works" explanation built dynamically from competition_rules() -->
+              <!-- "How it works" explanation built dynamically from competition_rules() / task speed rules -->
               <div
                 id="how-it-works-box"
                 class="banner banner-info"
                 style="margin-bottom: 0; align-items: center; padding: var(--space-3) var(--space-4);"
               >
-                <div style="display: flex; align-items: flex-start; gap: var(--space-2);">
-                  <span aria-hidden="true" style="font-size: 1rem; line-height: 1.4;">ℹ️</span>
-                  <div>
-                    <strong style="font-weight: 700;">How it works:</strong>
-                    <span id="how-it-works-text">Loading rules...</span>
-                  </div>
+                <div>
+                  <strong style="font-weight: 700;">How it works:</strong>
+                  <span id="how-it-works-text">Loading rules...</span>
                 </div>
               </div>
             </div>
           </div>
 
-          <!--Friendly Error Banner (hidden unless RPC fails) -->
+          <!-- Notice when selected task does not support speed ranking (shows All tasks board below it) -->
+          <div
+            id="todo-task-unavailable-banner"
+            class="banner banner-info"
+            style="display: none; margin-bottom: var(--space-4);"
+            role="status"
+          >
+            <span id="todo-task-unavailable-text">
+              Speed ranking is not available for this kind of task yet.
+            </span>
+          </div>
+
+          <!-- Friendly Error Banner (hidden unless RPC fails) -->
           <div id="leaderboard-error-banner" class="banner banner-error" style="display: none;" role="alert">
             <div>
               <strong>Could not load leaderboard:</strong>
               <span id="leaderboard-error-message">Please try again.</span>
             </div>
-            <button type="button" id="btn-retry-leaderboard" class="btn btn-outline btn-sm" style="background: #fff;">
-              ↻ Try Again
+            <button type="button" id="btn-retry-leaderboard" class="btn btn-outline btn-sm">
+              Try Again
             </button>
           </div>
 
@@ -302,10 +355,17 @@
           <div class="card">
             <div class="card-header" style="padding: var(--space-4) var(--space-5);">
               <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: var(--space-2);">
-                <h2 id="board-card-title" class="card-title" style="font-size: var(--text-base);">
-                  Points - This week - Your group (your level only)
-                </h2>
-                <span id="board-scope-badge" class="badge badge-inactive">
+                <div style="display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-2);">
+                  <h2 id="board-card-title" class="card-title" style="font-size: var(--text-base);">
+                    Points - This week - Your group (your level only)
+                  </h2>
+                  <span
+                    id="board-period-range"
+                    class="badge badge-neutral"
+                    title="Reporting period in India time"
+                  ></span>
+                </div>
+                <span id="board-scope-badge" class="badge badge-neutral">
                   Your group (your level only)
                 </span>
               </div>
@@ -313,7 +373,7 @@
 
             <div class="table-wrapper">
               <table class="table" id="leaderboard-table" aria-label="Leaderboard rankings">
-                <thead>
+                <thead id="leaderboard-table-head">
                   <tr>
                     <th style="width: 90px;">Rank</th>
                     <th>Student</th>
@@ -336,7 +396,6 @@
 
             <!-- Encouraging Empty State -->
             <div id="leaderboard-empty-state" class="empty-state" style="display: none;">
-              <div class="empty-state-icon" aria-hidden="true">🌟</div>
               <h3 class="empty-state-title" id="leaderboard-empty-title">No entries yet</h3>
               <p class="empty-state-desc" id="leaderboard-empty-desc">
                 No points yet this week. Weekly tests and sessions earn points.
@@ -347,7 +406,7 @@
             <div
               id="leaderboard-privacy-footer"
               class="card-footer"
-              style="padding: var(--space-3) var(--space-5); font-size: var(--text-xs); color: var(--text-muted); justify-content: flex-start;"
+              style="padding: var(--space-3) var(--space-5); font-size: var(--text-sm); color: var(--text-muted); justify-content: flex-start;"
             >
               Everyone is shown by first name and last initial. Only totals are shown, never scores.
             </div>

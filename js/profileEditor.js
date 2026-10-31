@@ -33,6 +33,7 @@ import {
 } from './profileForm.js';
 import { DemoDB, getSupabase } from './supabaseClient.js';
 import { showToast } from './toast.js';
+import { shouldOpenMoreOptions, buildModalLiveSummary, setMoreOptionsOpen } from './formPattern.js';
 
 let currentEditingStudent = null;
 let editorCallbacks = {
@@ -96,116 +97,132 @@ function ensureProfileEditorDom() {
     modalWrapper.innerHTML = `
       <!-- Edit Student Profile Modal -->
       <div id="edit-profile-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="edit-profile-modal-title">
-        <div class="modal-dialog">
+        <div class="modal-dialog" style="max-width: 520px;">
           <header class="modal-header">
-            <h2 id="edit-profile-modal-title" class="modal-title">Edit Student Profile</h2>
+            <div>
+              <h2 id="edit-profile-modal-title" class="modal-title">Edit Student Profile</h2>
+              <p class="modal-subtitle">Update student name, curriculum level, and visibility.</p>
+            </div>
             <button type="button" class="modal-close" data-close-modal="edit-profile-modal" aria-label="Close modal">&times;</button>
           </header>
           <form id="edit-profile-form" novalidate>
             <div class="modal-body">
-              <!-- Student ID (Read-Only with required tooltip) -->
-              <div class="form-group">
-                <label for="edit-profile-student-code" class="form-label">
-                  Student ID
-                  <span
-                    style="color: var(--text-dim); font-weight: 400; cursor: help; margin-left: 4px;"
+              <!-- Top Error Summary Banner -->
+              <div id="edit-profile-error-banner" class="banner banner-error" style="display: none; margin-bottom: var(--space-4);" role="alert"></div>
+
+              <div class="form-row-2">
+                <!-- Student ID (Read-Only with required tooltip) -->
+                <div class="form-group">
+                  <label for="edit-profile-student-code" class="form-label">
+                    Student ID
+                    <span
+                      class="info-tooltip-btn"
+                      title="The student ID is the login name and cannot be changed here"
+                      aria-label="The student ID is the login name and cannot be changed here"
+                    >i</span>
+                  </label>
+                  <input
+                    type="text"
+                    id="edit-profile-student-code"
+                    class="form-input num"
+                    readonly
+                    disabled
                     title="The student ID is the login name and cannot be changed here"
-                    aria-label="The student ID is the login name and cannot be changed here"
-                  >ⓘ</span>
-                </label>
-                <input
-                  type="text"
-                  id="edit-profile-student-code"
-                  class="form-input num"
-                  readonly
-                  disabled
-                  title="The student ID is the login name and cannot be changed here"
-                  style="background-color: var(--bg-surface-subtle); color: var(--text-muted); cursor: not-allowed;"
-                />
-                <span class="form-hint">The student ID is the login name and cannot be changed here</span>
-              </div>
-
-              <!-- Full Name (2 to 60 characters) -->
-              <div class="form-group">
-                <label for="edit-profile-full-name" class="form-label">Full Name *</label>
-                <input
-                  type="text"
-                  id="edit-profile-full-name"
-                  class="form-input"
-                  placeholder="2 to 60 characters"
-                  maxlength="60"
-                  required
-                />
-                <div id="edit-profile-name-error" style="display: none; color: var(--color-danger); font-size: var(--text-xs); margin-top: 4px; font-weight: 600;"></div>
-              </div>
-
-              <!-- Level (Optional, 1 to 30 characters, with note above & case-insensitive suggestion) -->
-              <div class="form-group">
-                <label for="edit-profile-level" class="form-label">Level (Optional)</label>
-                <div
-                  id="edit-profile-level-note"
-                  style="font-size: var(--text-xs); color: var(--text-muted); background: var(--bg-surface-subtle); border-left: 3px solid var(--color-primary); padding: 6px 10px; border-radius: var(--radius-sm); margin-bottom: 8px; line-height: 1.4;"
-                >
-                  Changing the level moves this student to another leaderboard group and changes which targets and tasks apply.
-                </div>
-                <input
-                  type="text"
-                  id="edit-profile-level"
-                  class="form-input"
-                  list="edit-profile-levels-datalist"
-                  placeholder="Leave blank if unassigned (max 30 chars)"
-                  maxlength="30"
-                  autocomplete="off"
-                />
-                <datalist id="edit-profile-levels-datalist"></datalist>
-
-                <!-- Case-insensitive suggestion prompt -->
-                <div
-                  id="edit-profile-level-suggestion"
-                  style="display: none; margin-top: 6px; padding: 6px 10px; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: var(--radius-sm); font-size: var(--text-xs); color: #92400E; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;"
-                >
-                  <span id="edit-profile-suggestion-text"></span>
-                  <button
-                    type="button"
-                    id="btn-use-suggested-level"
-                    class="btn btn-outline btn-sm"
-                    style="height: 24px; min-height: 24px; padding: 0 8px; font-size: 11px; background: #fff;"
-                  >
-                    Use it
-                  </button>
+                    style="background-color: var(--bg-surface-subtle); color: var(--text-muted); cursor: not-allowed;"
+                  />
                 </div>
 
-                <div id="edit-profile-level-error" style="display: none; color: var(--color-danger); font-size: var(--text-xs); margin-top: 4px; font-weight: 600;"></div>
+                <!-- Full Name (2 to 60 characters) -->
+                <div class="form-group">
+                  <label for="edit-profile-full-name" class="form-label">Full name *</label>
+                  <input
+                    type="text"
+                    id="edit-profile-full-name"
+                    class="form-input"
+                    placeholder="2 to 60 characters"
+                    maxlength="60"
+                    required
+                  />
+                  <div id="edit-profile-name-error" class="form-error" style="display: none;"></div>
+                </div>
               </div>
 
-              <!-- Toggles: Show on leaderboards & Active -->
-              <div class="form-group" style="display: flex; flex-direction: column; gap: 10px; margin-top: var(--space-3); padding-top: var(--space-2); border-top: 1px solid var(--border-hairline);">
-                <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: var(--text-sm); font-weight: 600; color: var(--text-main);">
-                  <input
-                    type="checkbox"
-                    id="edit-profile-leaderboard-visible"
-                    style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;"
-                  />
-                  <span>Show on leaderboards</span>
-                </label>
+              <!-- Collapsible More Options -->
+              <details id="edit-profile-more-options" class="form-more-options">
+                <summary>More options</summary>
+                <div class="form-more-options-body">
+                  <!-- Level (Optional, 1 to 30 characters, with note above & case-insensitive suggestion) -->
+                  <div class="form-group">
+                    <label for="edit-profile-level" class="form-label">Level (optional)</label>
+                    <div
+                      id="edit-profile-level-note"
+                      class="form-hint"
+                      style="margin-top: 0; margin-bottom: var(--space-2);"
+                    >
+                      Changing the level moves this student to another leaderboard group and changes which targets and tasks apply.
+                    </div>
+                    <input
+                      type="text"
+                      id="edit-profile-level"
+                      class="form-input"
+                      list="edit-profile-levels-datalist"
+                      placeholder="Leave blank if unassigned (max 30 chars)"
+                      maxlength="30"
+                      autocomplete="off"
+                    />
+                    <datalist id="edit-profile-levels-datalist"></datalist>
 
-                <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: var(--text-sm); font-weight: 600; color: var(--text-main);">
-                  <input
-                    type="checkbox"
-                    id="edit-profile-active"
-                    style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;"
-                  />
-                  <span>Active</span>
-                </label>
+                    <!-- Case-insensitive suggestion prompt -->
+                    <div
+                      id="edit-profile-level-suggestion"
+                      class="banner banner-warning"
+                      style="display: none; margin-top: var(--space-2); padding: var(--space-2) var(--space-3); align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap;"
+                    >
+                      <span id="edit-profile-suggestion-text"></span>
+                      <button
+                        type="button"
+                        id="btn-use-suggested-level"
+                        class="btn btn-outline btn-sm"
+                      >
+                        Use it
+                      </button>
+                    </div>
+
+                    <div id="edit-profile-level-error" class="form-error" style="display: none;"></div>
+                  </div>
+
+                  <!-- Toggles: Show on leaderboards & Active -->
+                  <div class="form-group" style="display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: 0;">
+                    <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; font-size: var(--text-sm); font-weight: 500; color: var(--text-main);">
+                      <input
+                        type="checkbox"
+                        id="edit-profile-leaderboard-visible"
+                        style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;"
+                      />
+                      <span>Show on leaderboards</span>
+                    </label>
+
+                    <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; font-size: var(--text-sm); font-weight: 500; color: var(--text-main);">
+                      <input
+                        type="checkbox"
+                        id="edit-profile-active"
+                        style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;"
+                      />
+                      <span>Active</span>
+                    </label>
+                  </div>
+                </div>
+              </details>
+
+              <!-- Live Summary Sentence -->
+              <div id="edit-profile-live-summary" class="form-live-summary" aria-live="polite">
+                Student: Unnamed, all levels, active, shown on leaderboards
               </div>
-
-              <!-- Friendly Database Error Banner -->
-              <div id="edit-profile-error-banner" class="banner banner-error" style="display: none; margin-top: var(--space-3); margin-bottom: 0;" role="alert"></div>
             </div>
             <footer class="modal-footer">
-              <button type="button" class="btn btn-outline" id="btn-cancel-edit-profile" data-close-modal="edit-profile-modal">Cancel</button>
+              <button type="button" class="btn btn-ghost" id="btn-cancel-edit-profile" data-close-modal="edit-profile-modal">Cancel</button>
               <button type="submit" id="btn-submit-edit-profile" class="btn btn-primary">
-                <span id="btn-edit-profile-text">Save Changes</span>
+                <span id="btn-edit-profile-text">Save</span>
               </button>
             </footer>
           </form>
@@ -246,15 +263,20 @@ function ensureProfileEditorDom() {
     const levelInput = document.getElementById('edit-profile-level');
     levelInput?.addEventListener('input', () => {
       updateLevelSuggestionUI();
+      updateEditProfileLiveSummary();
       const levelErr = document.getElementById('edit-profile-level-error');
       if (levelErr) levelErr.style.display = 'none';
     });
 
     const nameInput = document.getElementById('edit-profile-full-name');
     nameInput?.addEventListener('input', () => {
+      updateEditProfileLiveSummary();
       const nameErr = document.getElementById('edit-profile-name-error');
       if (nameErr) nameErr.style.display = 'none';
     });
+
+    document.getElementById('edit-profile-leaderboard-visible')?.addEventListener('change', updateEditProfileLiveSummary);
+    document.getElementById('edit-profile-active')?.addEventListener('change', updateEditProfileLiveSummary);
 
     // Apply suggested level button
     document.getElementById('btn-use-suggested-level')?.addEventListener('click', () => {
@@ -263,6 +285,7 @@ function ensureProfileEditorDom() {
       if (suggested && levelInput) {
         levelInput.value = suggested;
         updateLevelSuggestionUI();
+        updateEditProfileLiveSummary();
         levelInput.focus();
       }
     });
@@ -373,10 +396,37 @@ export async function openEditProfileModal(student) {
   if (lbCheckbox) lbCheckbox.checked = student.leaderboard_visible !== false;
   if (activeCheckbox) activeCheckbox.checked = student.active !== false;
 
+  const moreDetails = document.getElementById('edit-profile-more-options');
+  const hasNonDefaultVisibility = student.leaderboard_visible === false ? 'hidden' : '';
+  const hasNonDefaultActive = student.active === false ? 'inactive' : '';
+  setMoreOptionsOpen(
+    moreDetails,
+    shouldOpenMoreOptions([student.level, hasNonDefaultVisibility, hasNonDefaultActive], true)
+  );
+
   await populateExistingLevelsDatalist();
   updateLevelSuggestionUI();
+  updateEditProfileLiveSummary();
 
   openModal('edit-profile-modal');
+}
+
+function updateEditProfileLiveSummary() {
+  const summaryEl = document.getElementById('edit-profile-live-summary');
+  if (!summaryEl) return;
+  const codeInput = document.getElementById('edit-profile-student-code');
+  const nameInput = document.getElementById('edit-profile-full-name');
+  const levelInput = document.getElementById('edit-profile-level');
+  const lbCheckbox = document.getElementById('edit-profile-leaderboard-visible');
+  const activeCheckbox = document.getElementById('edit-profile-active');
+
+  summaryEl.textContent = buildModalLiveSummary('profile', {
+    student_code: codeInput?.value || '',
+    full_name: nameInput?.value || '',
+    level: levelInput?.value || '',
+    leaderboard_visible: Boolean(lbCheckbox?.checked),
+    active: Boolean(activeCheckbox?.checked),
+  });
 }
 
 /**
@@ -417,6 +467,12 @@ async function handleSaveProfileSubmit(e) {
     if (normalized.errors.level && levelErr) {
       levelErr.textContent = normalized.errors.level;
       levelErr.style.display = 'block';
+      const moreDetails = document.getElementById('edit-profile-more-options');
+      setMoreOptionsOpen(moreDetails, true);
+    }
+    if (bannerErr) {
+      bannerErr.textContent = Object.values(normalized.errors).join(' ');
+      bannerErr.style.display = 'flex';
     }
     return;
   }
@@ -483,7 +539,7 @@ async function handleSaveProfileSubmit(e) {
     isSavingProfile = false;
     if (submitBtn) submitBtn.disabled = false;
     if (cancelBtn) cancelBtn.disabled = false;
-    if (btnText) btnText.textContent = 'Save Changes';
+    if (btnText) btnText.textContent = 'Save';
   }
 }
 

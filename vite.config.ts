@@ -74,6 +74,7 @@ export default defineConfig(({ command }) => {
           monthlyReport: path.resolve(__dirname, 'pages/monthly-report.html'),
           report: path.resolve(__dirname, 'pages/report.html'),
           backup: path.resolve(__dirname, 'pages/backup.html'),
+          settings: path.resolve(__dirname, 'pages/settings.html'),
         },
       },
     },
