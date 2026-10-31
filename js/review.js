@@ -1136,15 +1136,8 @@ function renderHeaderUser(profile) {
 
   if (btnLogout) {
     btnLogout.addEventListener('click', async () => {
-      try {
-        if (isSupabaseConfigured()) {
-          const supabase = await getSupabase();
-          await supabase.auth.signOut();
-        }
-      } catch (e) {
-        console.warn('Sign out error:', e);
-      }
-      window.location.href = '/index.html';
+      const { logoutUser } = await import('./auth.js');
+      await logoutUser();
     });
   }
 }

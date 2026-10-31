@@ -14,10 +14,12 @@ import {
   optionsForSection,
   formatTaskTarget,
   requiredCountLabelForSection,
+  flashSummary,
 } from './todoForm.js';
 
 let allCategories = [];
 let allTodos = [];
+let titleFilledByFlashButton = false;
 
 async function loadCategories() {
   try {
@@ -101,7 +103,108 @@ function showFormErrors(errors) {
   showToast('error', messages[0]);
 }
 
+function resetFlashSettingsFields() {
+  const digitsEl = document.getElementById('todo-flash-digits');
+  const countEl = document.getElementById('todo-flash-count');
+  const speedEl = document.getElementById('todo-flash-speed');
+  const modeEl = document.getElementById('todo-flash-mode');
+  if (digitsEl) digitsEl.value = '';
+  if (countEl) countEl.value = '';
+  if (speedEl) speedEl.value = '';
+  if (modeEl) modeEl.value = '';
+}
+
+function populateFlashSettingsFields(todo = {}) {
+  const digitsEl = document.getElementById('todo-flash-digits');
+  const countEl = document.getElementById('todo-flash-count');
+  const speedEl = document.getElementById('todo-flash-speed');
+  const modeEl = document.getElementById('todo-flash-mode');
+
+  if (digitsEl) {
+    digitsEl.value =
+      todo.flash_digits !== null && todo.flash_digits !== undefined
+        ? String(todo.flash_digits)
+        : '';
+  }
+  if (countEl) {
+    countEl.value =
+      todo.flash_count !== null && todo.flash_count !== undefined
+        ? String(todo.flash_count)
+        : '';
+  }
+  if (speedEl) {
+    if (todo.flash_speed_ms !== null && todo.flash_speed_ms !== undefined) {
+      const ms = Number(todo.flash_speed_ms);
+      speedEl.value = Number.isFinite(ms) ? (ms / 1000).toFixed(1) : '';
+    } else {
+      speedEl.value = '';
+    }
+  }
+  if (modeEl) {
+    modeEl.value =
+      todo.flash_mode === 'add' || todo.flash_mode === 'add_sub' ? todo.flash_mode : '';
+  }
+}
+
+function readDraftFlashSettingsFromForm() {
+  const rawDigits = document.getElementById('todo-flash-digits')?.value ?? '';
+  const rawCount = document.getElementById('todo-flash-count')?.value ?? '';
+  const rawSpeedSec = document.getElementById('todo-flash-speed')?.value ?? '';
+  const rawMode = document.getElementById('todo-flash-mode')?.value ?? '';
+
+  let flash_digits = null;
+  if (rawDigits.trim() !== '') {
+    const d = Number(rawDigits.trim());
+    if (Number.isInteger(d) && d >= 1 && d <= 5) flash_digits = d;
+  }
+
+  let flash_count = null;
+  if (rawCount.trim() !== '') {
+    const c = Number(rawCount.trim());
+    if (Number.isInteger(c) && c >= 2 && c <= 1000) flash_count = c;
+  }
+
+  let flash_speed_ms = null;
+  if (rawSpeedSec.trim() !== '') {
+    const sec = Number(rawSpeedSec.trim());
+    const tenths = Math.round(sec * 10);
+    if (
+      Number.isFinite(sec) &&
+      Math.abs(sec * 10 - tenths) <= 1e-6 &&
+      tenths >= 2 &&
+      tenths <= 50
+    ) {
+      flash_speed_ms = tenths * 100;
+    }
+  }
+
+  let flash_mode = null;
+  const m = rawMode.trim().toLowerCase();
+  if (m === 'add' || m === 'add_sub') {
+    flash_mode = m;
+  }
+
+  return { flash_digits, flash_count, flash_speed_ms, flash_mode };
+}
+
+function handleUseFlashSettingsAsTitle() {
+  const titleEl = document.getElementById('todo-title');
+  if (!titleEl) return;
+
+  const currentTitle = titleEl.value.trim();
+  if (currentTitle !== '' && !titleFilledByFlashButton) {
+    return;
+  }
+
+  const draft = readDraftFlashSettingsFromForm();
+  const summaryText = flashSummary(draft);
+  titleEl.value = `Flash: ${summaryText}`;
+  titleFilledByFlashButton = true;
+}
+
 function updateTargetDropdown(selectedSection, currentTargetValue = '') {
+  const targetGroup = document.getElementById('todo-target-group');
+  const flashGroup = document.getElementById('todo-flash-settings-group');
   const catSelect = document.getElementById('todo-category');
   const catLabel = document.getElementById('todo-category-label');
   const catHint = document.getElementById('todo-category-hint');
@@ -112,20 +215,23 @@ function updateTargetDropdown(selectedSection, currentTargetValue = '') {
     reqCountLabel.textContent = requiredCountLabelForSection(sec);
   }
 
+  if (sec === 'flash') {
+    if (targetGroup) targetGroup.style.display = 'none';
+    if (flashGroup) flashGroup.style.display = 'block';
+    if (catSelect) {
+      catSelect.innerHTML = '<option value="">Any Flash Anzan round</option>';
+      catSelect.value = '';
+      catSelect.disabled = true;
+    }
+    return;
+  }
+
+  if (targetGroup) targetGroup.style.display = '';
+  if (flashGroup) flashGroup.style.display = 'none';
+
   if (!catSelect) return;
 
   const options = optionsForSection(sec, allCategories, DRILL_CATALOG, MEMORIAD_MODULES);
-
-  if (sec === 'flash') {
-    if (catLabel) catLabel.textContent = 'Activity Filter';
-    if (catHint) {
-      catHint.textContent = 'Flash Anzan has no sub-categories; any completed round ticks this task.';
-    }
-    catSelect.innerHTML = '<option value="">Any Flash Anzan round</option>';
-    catSelect.value = '';
-    catSelect.disabled = true;
-    return;
-  }
 
   catSelect.disabled = false;
 
@@ -285,6 +391,7 @@ function openEditModal(todoId) {
   if (!todo) return;
 
   clearFormErrors();
+  titleFilledByFlashButton = false;
   document.getElementById('modal-todo-title').textContent = 'Edit Daily Task';
   document.getElementById('todo-id').value = todo.id;
   document.getElementById('todo-title').value = todo.title || '';
@@ -297,6 +404,10 @@ function openEditModal(todoId) {
         ? todo.activity_key || ''
         : '';
 
+  resetFlashSettingsFields();
+  if (todo.section === 'flash') {
+    populateFlashSettingsFields(todo);
+  }
   updateTargetDropdown(todo.section, currentTarget);
   const reqCountEl = document.getElementById('todo-required-count');
   if (reqCountEl) {
@@ -311,10 +422,12 @@ function openEditModal(todoId) {
 
 function openAddModal() {
   clearFormErrors();
+  titleFilledByFlashButton = false;
   document.getElementById('modal-todo-title').textContent = 'Add Daily Task';
   document.getElementById('form-todo').reset();
   document.getElementById('todo-id').value = '';
   document.getElementById('todo-active').checked = true;
+  resetFlashSettingsFields();
   const reqCountEl = document.getElementById('todo-required-count');
   if (reqCountEl) reqCountEl.value = '1';
   const sectionSelect = document.getElementById('todo-section');
@@ -332,6 +445,10 @@ async function handleFormSubmit(e) {
   const rawTitle = document.getElementById('todo-title').value;
   const rawSection = document.getElementById('todo-section').value;
   const rawTarget = document.getElementById('todo-category').value;
+  const rawFlashDigits = document.getElementById('todo-flash-digits')?.value ?? '';
+  const rawFlashCount = document.getElementById('todo-flash-count')?.value ?? '';
+  const rawFlashSpeed = document.getElementById('todo-flash-speed')?.value ?? '';
+  const rawFlashMode = document.getElementById('todo-flash-mode')?.value ?? '';
   const rawRequiredCount = document.getElementById('todo-required-count')?.value ?? '1';
   const rawLevel = document.getElementById('todo-level').value;
   const rawActive = document.getElementById('todo-active').checked;
@@ -342,6 +459,10 @@ async function handleFormSubmit(e) {
       section: rawSection,
       category_id: rawTarget,
       activity_key: rawTarget,
+      flash_digits: rawFlashDigits,
+      flash_count: rawFlashCount,
+      flash_speed_ms: rawFlashSpeed,
+      flash_mode: rawFlashMode,
       required_count: rawRequiredCount,
       level: rawLevel,
       active: rawActive,
@@ -354,7 +475,33 @@ async function handleFormSubmit(e) {
     return;
   }
 
-  const { title, section, category_id, activity_key, level, required_count, active } = normalized.value;
+  const {
+    title,
+    section,
+    category_id,
+    activity_key,
+    flash_digits,
+    flash_count,
+    flash_speed_ms,
+    flash_mode,
+    level,
+    required_count,
+    active,
+  } = normalized.value;
+
+  const taskPayload = {
+    title,
+    section,
+    category_id,
+    activity_key,
+    flash_digits,
+    flash_count,
+    flash_speed_ms,
+    flash_mode,
+    level,
+    required_count,
+    active,
+  };
 
   const saveBtn = document.getElementById('btn-save-todo');
   saveBtn.disabled = true;
@@ -367,7 +514,7 @@ async function handleFormSubmit(e) {
         if (id) {
           const { error } = await supabase
             .from('daily_tasks')
-            .update({ title, section, category_id, activity_key, level, required_count, active })
+            .update(taskPayload)
             .eq('id', id);
           if (error) throw error;
           showToast('success', 'Task updated successfully');
@@ -377,13 +524,7 @@ async function handleFormSubmit(e) {
             .from('daily_tasks')
             .insert([
               {
-                title,
-                section,
-                category_id,
-                activity_key,
-                level,
-                required_count,
-                active,
+                ...taskPayload,
                 sort_order: maxSort + 1,
               },
             ]);
@@ -398,10 +539,10 @@ async function handleFormSubmit(e) {
 
     // Demo Mode fallback
     if (id) {
-      DemoDB.updateTodo(id, { title, section, category_id, activity_key, level, required_count, active });
+      DemoDB.updateTodo(id, taskPayload);
       showToast('success', 'Task updated (Demo Mode)');
     } else {
-      DemoDB.addTodo({ title, section, category_id, activity_key, level, required_count, active });
+      DemoDB.addTodo(taskPayload);
       showToast('success', 'Task added (Demo Mode)');
     }
     closeModal('modal-todo');
@@ -512,6 +653,19 @@ async function initTodosPage() {
 
   document.getElementById('btn-open-add-todo')?.addEventListener('click', openAddModal);
   document.getElementById('form-todo')?.addEventListener('submit', handleFormSubmit);
+  document
+    .getElementById('btn-flash-title-from-settings')
+    ?.addEventListener('click', handleUseFlashSettingsAsTitle);
+
+  // If the admin manually edits the title, clear the auto-filled flag unless emptied
+  document.getElementById('todo-title')?.addEventListener('input', (e) => {
+    const val = e.target.value.trim();
+    if (val === '') {
+      titleFilledByFlashButton = false;
+    } else {
+      titleFilledByFlashButton = false;
+    }
+  });
 
   // Dynamic target selector reacting to section change
   document.getElementById('todo-section')?.addEventListener('change', (e) => {

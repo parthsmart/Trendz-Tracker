@@ -35,18 +35,23 @@ let useProxy = isRestrictedEnv;
  * to prevent repetitive AuthApiError / AuthRetryableFetchError loops.
  */
 export function clearStaleSupabaseSession() {
-  if (typeof localStorage === 'undefined') return;
-  try {
-    const keysToRemove = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k && (k.startsWith('sb-') || k.includes('auth-token') || k.includes('supabase.auth'))) {
-        keysToRemove.push(k);
+  const storages = [];
+  if (typeof localStorage !== 'undefined') storages.push(localStorage);
+  if (typeof sessionStorage !== 'undefined') storages.push(sessionStorage);
+
+  for (const storage of storages) {
+    try {
+      const keysToRemove = [];
+      for (let i = 0; i < storage.length; i++) {
+        const k = storage.key(i);
+        if (k && (k.startsWith('sb-') || k.includes('auth-token') || k.includes('supabase.auth'))) {
+          keysToRemove.push(k);
+        }
       }
+      keysToRemove.forEach((k) => storage.removeItem(k));
+    } catch (e) {
+      console.warn('Could not clear Supabase auth tokens:', e);
     }
-    keysToRemove.forEach((k) => localStorage.removeItem(k));
-  } catch (e) {
-    console.warn('Could not clear Supabase auth tokens:', e);
   }
 }
 

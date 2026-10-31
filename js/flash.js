@@ -31,17 +31,24 @@ import {
   validateFlashSettings,
 } from './flashStats.js';
 import { buildTimeline } from './flashTimeline.js';
+import {
+  applyTaskToSettings,
+  matchesTask,
+  parseFlashTaskQuery,
+} from './flashTaskMatch.js';
 import { requireAuth } from './guard.js';
 import { getScoreFeedback } from './scoreColors.js';
 import { formatSecondsToTime } from './stats.js';
 import { DemoDB, getSupabase } from './supabaseClient.js';
 import { showToast } from './toast.js';
+import { flashSummary } from './todoForm.js';
 
 const STORAGE_KEY_SETTINGS = 'trendz_flash_settings_v2';
 const STORAGE_KEY_SOUND = 'trendz_flash_sound_v1';
 
 let currentProfile = null;
 let currentSettings = { ...DEFAULT_FLASH_SETTINGS };
+let activeTaskSpec = null; // Phase 14a: non-null when ?task=1 is present in URL
 let soundEnabled = false;
 let audioCtx = null;
 let cachedHistoryRows = [];
@@ -278,8 +285,52 @@ function syncSetupControlsUI() {
   const longConfirmBox = document.getElementById('flash-long-confirm-box');
   if (longConfirmBox) longConfirmBox.style.display = 'none';
 
-  // 7. Refresh "Your results at these settings" table
+  // 7. Phase 14a: Live task banner comparison when ?task=1 is present
+  updateTaskBannerUI();
+
+  // 8. Refresh "Your results at these settings" table
   renderSetupStatsTables();
+}
+
+/**
+ * Phase 14a: Updates the task requirements banner above the setup controls when `task=1` is present.
+ */
+function updateTaskBannerUI() {
+  const banner = document.getElementById('flash-task-banner');
+  const reqEl = document.getElementById('flash-task-banner-req');
+  const statusEl = document.getElementById('flash-task-banner-status');
+  const restoreBtn = document.getElementById('btn-restore-task-settings');
+
+  if (!banner) return;
+
+  if (!activeTaskSpec) {
+    banner.style.display = 'none';
+    return;
+  }
+
+  const setupEl = document.getElementById('flash-setup-screen');
+  const isSetupVisible = !setupEl || setupEl.style.display !== 'none';
+  banner.style.display = isSetupVisible ? 'block' : 'none';
+
+  const summary = flashSummary(activeTaskSpec);
+  if (reqEl) {
+    reqEl.textContent = `Today's task needs: ${summary}. A try counts for the task only with these settings.`;
+  }
+
+  const isMatch = matchesTask(currentSettings, activeTaskSpec);
+  if (statusEl) {
+    if (isMatch) {
+      statusEl.textContent = "✓ This try counts for today's task";
+      statusEl.style.color = 'var(--color-score-perfect)';
+    } else {
+      statusEl.textContent = "⚠ These settings will not count for today's task";
+      statusEl.style.color = 'var(--color-score-close)';
+    }
+  }
+
+  if (restoreBtn) {
+    restoreBtn.style.display = isMatch ? 'none' : 'inline-flex';
+  }
 }
 
 /**
@@ -353,6 +404,7 @@ function showScreen(screenName) {
   const historyEl = document.getElementById('flash-history-section');
   const pageHeaderEl = document.getElementById('flash-page-header');
   const bannerEl = document.getElementById('config-banner-placeholder');
+  const taskBannerEl = document.getElementById('flash-task-banner');
   const appHeaderEl = document.querySelector('.app-header');
 
   const isPlaying = screenName === 'play';
@@ -360,6 +412,10 @@ function showScreen(screenName) {
   if (setupEl) setupEl.style.display = screenName === 'setup' ? 'block' : 'none';
   if (playEl) playEl.style.display = isPlaying ? 'block' : 'none';
   if (resultsEl) resultsEl.style.display = screenName === 'results' ? 'block' : 'none';
+  if (taskBannerEl) {
+    taskBannerEl.style.display =
+      screenName === 'setup' && activeTaskSpec ? 'block' : 'none';
+  }
 
   // Hide dashboard/history below, page heading, and top navigation bar during an active Flash Anzan round
   if (historyEl) historyEl.style.display = isPlaying ? 'none' : 'block';
@@ -1114,6 +1170,13 @@ function setupEventListeners() {
     syncSetupControlsUI();
     showScreen('setup');
   });
+
+  // Phase 14a: Restore task settings button
+  document.getElementById('btn-restore-task-settings')?.addEventListener('click', () => {
+    if (!activeTaskSpec) return;
+    currentSettings = clampFlashSettings(applyTaskToSettings(currentSettings, activeTaskSpec));
+    syncSetupControlsUI();
+  });
 }
 
 function renderHeaderUser(profile) {
@@ -1137,7 +1200,23 @@ async function initFlashTrainerPage() {
   currentProfile = profile;
   renderHeaderUser(profile);
 
+  // 1. Load last-used settings from localStorage
   loadSavedPreferences();
+
+  // 2. Phase 14a: Read URL query parameters (?task=1, digits, count, speed, mode).
+  // Valid task parameters win over last-used settings while task=1 is present.
+  const parsedQuery = parseFlashTaskQuery(window.location.search);
+  if (parsedQuery.isTask) {
+    activeTaskSpec = parsedQuery.task;
+  } else {
+    activeTaskSpec = null;
+  }
+  if (parsedQuery.hasAnyParam) {
+    currentSettings = clampFlashSettings(
+      applyTaskToSettings(currentSettings, parsedQuery.task)
+    );
+  }
+
   syncSetupControlsUI();
   setupEventListeners();
   await loadFlashHistory();

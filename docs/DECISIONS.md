@@ -787,3 +787,19 @@ Every meaningful technical and architectural decision made for **Trendz Tracker*
      - Browser Web Push requires Service Worker registration, VAPID key management, per-device subscription storage, and persistent OS notification permission prompts—which are frequently blocked on shared family tablets or school browsers and add operational complexity.
      - Automated WhatsApp delivery requires a paid WhatsApp Business API template approval workflow and storing parent/student phone numbers (increasing PII surface). Instead, trainers use the **Upcoming tests (next 14 days)** panel on `/pages/announcements.html` to click **Share on WhatsApp** (`https://wa.me/?text=<encoded>`) or **Copy text** (`buildWeeklyTestShareMessage` in `js/reportMessage.js`) and paste directly into their existing class WhatsApp groups—storing zero phone numbers while giving trainers full control.
 
+---
+
+### Decision 36: Flash Anzan Daily Tasks with Fixed Settings and Counting Completed Tries Rather Than Correct Answers (Phase 14a)
+- **Date**: 2026-10-31
+- **Context**:
+  - Phase 14a allows administrators to fix specific Flash Anzan parameters on a daily task (`flash_digits` `1..5`, `flash_count` `2..1000`, `flash_speed_ms` `200..5000`, `flash_mode` `'add'` | `'add_sub'`, where `null` means `"Any"`), prefills `/pages/flash.html?task=1&...` from the student's to-do card, and displays a live matching indicator (`matchesTask(settings, task)` in `js/flashTaskMatch.js`).
+- **Decisions & Rationale**:
+  1. **Why Flash Anzan Daily Tasks Can Fix Specific Settings (`flash_digits`, `flash_count`, `flash_speed_ms`, `flash_mode`)**:
+     - Without setting constraints on `daily_tasks`, a student could satisfy any Flash Anzan daily task by running a trivial `1 digit, 2 numbers, 5.0 s` try instead of the speed and endurance parameters assigned for their level (such as `1 digit, 50 numbers, 0.5 s, add only`).
+     - Allowing each of the four fields to be set independently or left on **Any** (`NULL`) lets teachers prescribe exact competition drills (or leave a field open so the student can choose) while the database `todo_for` RPC authoritatively counts only tries whose settings match every non-null field on the task.
+  2. **Why Flash Anzan Tasks Count Completed Tries (`required_count`) Rather Than Only Correct Answers**:
+     - At competition Flash Anzan speeds (for example `0.3 s`–`0.6 s` per number across `50`–`200` numbers), a single missed bead visualization changes the final sum even when the student tracked 98% of the stream. If daily tasks only ticked on `correct = 1`, students pushing into faster speeds would get stuck on their daily checklist, discouraging them from practising at challenging speeds or tempting them to abandon tries.
+     - Counting every completed try that matches the task's fixed settings (whether the final answer was right or wrong, while abandoned/tab-switched tries are cancelled and not saved) rewards honest daily repetitions at the teacher's target speed and length. Accuracy is still tracked and celebrated in the student's per-setting statistics and history tables.
+  3. **Database Authority vs. Client-Side Live Indicator**:
+     - The student dashboard never computes task matching or `done` in JavaScript; `done_count` and `done` come strictly from `todo_for(p_student)`. The pure helper `matchesTask(settings, task)` in `js/flashTaskMatch.js` is used solely on `/pages/flash.html` when `task=1` is present to warn the student before starting if they adjust a setup control away from the task's required settings (with a one-click **"Restore task settings"** button).
+
