@@ -26,17 +26,21 @@ export function openModal(modalId) {
     modalFocusHistory.set(modalId, document.activeElement);
   }
 
-  // Remove inline display none if present from legacy templates
+  // Remove inline display none or hidden attribute if present
   if (modal.style.display === 'none') {
     modal.style.display = '';
   }
+  if (modal.hasAttribute('hidden')) {
+    modal.hidden = false;
+    modal.removeAttribute('hidden');
+  }
 
-  modal.classList.add('open');
+  modal.classList.add('open', 'is-open');
   modal.setAttribute('aria-hidden', 'false');
 
   // Move focus into the modal (first interactive input or button)
-  const focusable = modal.querySelectorAll('input:not([type="hidden"]), select, textarea, button:not([data-close-modal]):not(.modal-close):not(.btn-modal-close)');
-  const closeBtn = modal.querySelector('[data-close-modal], .modal-close, .modal-close-btn, .btn-modal-close');
+  const focusable = modal.querySelectorAll('input:not([type="hidden"]), select, textarea, button:not([data-close-modal]):not([data-modal-close]):not(.modal-close):not(.btn-modal-close)');
+  const closeBtn = modal.querySelector('[data-close-modal], [data-modal-close], .modal-close, .modal-close-btn, .btn-modal-close');
   
   setTimeout(() => {
     if (focusable.length > 0) {
@@ -69,7 +73,7 @@ export function closeModal(modalId) {
   const modal = document.getElementById(modalId);
   if (!modal) return;
 
-  modal.classList.remove('open');
+  modal.classList.remove('open', 'is-open');
   modal.setAttribute('aria-hidden', 'true');
 
   // Clean up escape listener
@@ -90,12 +94,17 @@ export function closeModal(modalId) {
  * Global helper to attach click handlers for all modal close triggers and backdrops
  */
 export function setupModalListeners() {
-  // Explicit close buttons with data-close-modal="modal-id"
-  document.querySelectorAll('[data-close-modal]').forEach((btn) => {
+  // Explicit close buttons with data-close-modal="modal-id" or data-modal-close="modal-id"
+  document.querySelectorAll('[data-close-modal], [data-modal-close]').forEach((btn) => {
     btn.onclick = (e) => {
       e.preventDefault();
-      const modalId = btn.getAttribute('data-close-modal');
-      closeModal(modalId);
+      const modalId = btn.getAttribute('data-close-modal') || btn.getAttribute('data-modal-close');
+      if (modalId) {
+        closeModal(modalId);
+      } else {
+        const parentModal = btn.closest('.modal-backdrop, .modal-overlay');
+        if (parentModal && parentModal.id) closeModal(parentModal.id);
+      }
     };
   });
 
