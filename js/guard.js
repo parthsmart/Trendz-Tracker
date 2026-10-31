@@ -61,9 +61,7 @@ export async function requireAuth(allowedRoles = ['student', 'admin']) {
   // Populate header UI elements if present
   setupHeaderUserUI(profile);
   renderConfigBanner();
-  if (profile.role === 'student') {
-    initStudentNotificationBell(profile);
-  }
+  initStudentNotificationBell(profile);
 
   return profile;
 }
