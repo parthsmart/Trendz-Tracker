@@ -141,16 +141,15 @@ export function updateBellBadgeDOM(count) {
 
 /**
  * Organizes the student navigation bar so that:
- * - Basics, Flash Anzan, Elements, and Memoriad are grouped into a clean "Practice ▾" dropdown.
- * - Round Scores stays outside the dropdown as a top-level link.
- * - Weekly Test is ensured in the top bar.
+ * - Order is always: Home -> Round Scores -> Practice ▾ (Basics, Flash Anzan, Elements, Memoriad) -> Weekly Test -> Leaderboard -> Monthly Report -> Alerts
+ * - Round Scores stays outside the dropdown as a top-level link right after Home.
  */
-function setupStudentNavStructure(navZone) {
+export function setupStudentNavStructure(navZone) {
   if (!navZone || navZone.id === 'admin-nav-zone') return;
 
   const pathname = window.location.pathname || '';
 
-  // Ensure Weekly Test link exists after Round Scores (or Home) if a page had an older nav list
+  // Ensure Weekly Test link exists if a page had an older nav list
   if (!navZone.querySelector('a[href="/pages/weekly-test.html"]')) {
     const wtLink = document.createElement('a');
     wtLink.href = '/pages/weekly-test.html';
@@ -160,12 +159,7 @@ function setupStudentNavStructure(navZone) {
       wtLink.classList.add('active');
       wtLink.setAttribute('aria-current', 'page');
     }
-    const roundScoresLink = navZone.querySelector('a[href="/pages/round-scores.html"]');
-    if (roundScoresLink && roundScoresLink.nextSibling) {
-      navZone.insertBefore(wtLink, roundScoresLink.nextSibling);
-    } else {
-      navZone.appendChild(wtLink);
-    }
+    navZone.appendChild(wtLink);
   }
 
   // Build or wire the "Practice ▾" dropdown (strictly for Basics, Flash Anzan, Elements, Memoriad — NOT Round Scores)
@@ -181,12 +175,18 @@ function setupStudentNavStructure(navZone) {
     practiceDropdown.className = 'nav-dropdown';
     practiceDropdown.id = 'nav-practice-dropdown';
 
-    const isPracticePageActive = PRACTICE_DROPDOWN_PATHS.some(({ href }) =>
-      pathname.endsWith(href.replace('/pages', ''))
-    );
+    const isPracticePageActive =
+      PRACTICE_DROPDOWN_PATHS.some(({ href }) => pathname.endsWith(href.replace('/pages', ''))) ||
+      pathname.endsWith('/basics-practice.html') ||
+      pathname.endsWith('/element-drill.html') ||
+      pathname.endsWith('/memoriad-play.html');
 
     const itemsHtml = PRACTICE_DROPDOWN_PATHS.map(({ href, label }) => {
-      const isItemActive = pathname.endsWith(href.replace('/pages', ''));
+      const isItemActive =
+        pathname.endsWith(href.replace('/pages', '')) ||
+        (href === '/pages/basics.html' && pathname.endsWith('/basics-practice.html')) ||
+        (href === '/pages/elements.html' && pathname.endsWith('/element-drill.html')) ||
+        (href === '/pages/memoriad.html' && pathname.endsWith('/memoriad-play.html'));
       return `<a href="${href}" class="dropdown-item${isItemActive ? ' active' : ''}" role="menuitem"${isItemActive ? ' aria-current="page"' : ''}>${label}</a>`;
     }).join('');
 
@@ -198,35 +198,30 @@ function setupStudentNavStructure(navZone) {
         ${itemsHtml}
       </div>
     `;
-
-    const homeLink = navZone.querySelector('a[href="/pages/student.html"]');
-    const roundScoresLink = navZone.querySelector('a[href="/pages/round-scores.html"]');
-
-    // Ensure Round Scores sits right after Home
-    if (homeLink && roundScoresLink && homeLink.nextElementSibling !== roundScoresLink) {
-      if (homeLink.nextSibling) {
-        navZone.insertBefore(roundScoresLink, homeLink.nextSibling);
-      } else {
-        navZone.appendChild(roundScoresLink);
-      }
-    }
-
-    // Place Practice dropdown right after Round Scores (or after Home if Round Scores is not present)
-    const anchorAfter = roundScoresLink || homeLink;
-    if (anchorAfter && anchorAfter.nextSibling) {
-      navZone.insertBefore(practiceDropdown, anchorAfter.nextSibling);
-    } else if (anchorAfter) {
-      navZone.appendChild(practiceDropdown);
-    } else {
-      navZone.insertBefore(practiceDropdown, navZone.firstChild);
-    }
-  } else {
-    // Even if Practice dropdown already exists in static HTML, ensure Round Scores comes before it
-    const roundScoresLink = navZone.querySelector('a[href="/pages/round-scores.html"]');
-    if (roundScoresLink && practiceDropdown.nextElementSibling === roundScoresLink) {
-      navZone.insertBefore(roundScoresLink, practiceDropdown);
-    }
+    navZone.appendChild(practiceDropdown);
   }
+
+  // Enforce canonical order: Home -> Round Scores -> Practice ▾ -> Weekly Test -> Leaderboard -> Monthly Report -> Alerts
+  const homeLink = navZone.querySelector('a[href="/pages/student.html"]');
+  const roundScoresLink = navZone.querySelector('a[href="/pages/round-scores.html"]');
+  const weeklyTestLink = navZone.querySelector('a[href="/pages/weekly-test.html"]');
+  const leaderboardLink = navZone.querySelector('a[href="/pages/leaderboard.html"]');
+  const monthlyReportLink = navZone.querySelector('a[href="/pages/monthly-report.html"]');
+  const notifLink = navZone.querySelector('a[href="/pages/notifications.html"]');
+
+  const orderedNodes = [
+    homeLink,
+    roundScoresLink,
+    practiceDropdown,
+    weeklyTestLink,
+    leaderboardLink,
+    monthlyReportLink,
+    notifLink,
+  ].filter(Boolean);
+
+  orderedNodes.forEach((node) => {
+    navZone.appendChild(node);
+  });
 
   // Wire dropdown interactive toggle (idempotent)
   const toggleBtn = practiceDropdown.querySelector('#btn-practice-dropdown');
@@ -272,11 +267,14 @@ function setupStudentNavStructure(navZone) {
  * @param {{ id?: string, role?: string } | null} profile
  */
 export async function initStudentNotificationBell(profile) {
-  if (!profile || profile.role !== 'student') return;
-
   const navZone = document.querySelector('.nav-zone');
   if (navZone && navZone.id !== 'admin-nav-zone') {
     setupStudentNavStructure(navZone);
+  }
+
+  if (!profile || profile.role !== 'student') return;
+
+  if (navZone && navZone.id !== 'admin-nav-zone') {
 
     let notifLink = document.querySelector('a[href="/pages/notifications.html"]');
     if (!notifLink) {

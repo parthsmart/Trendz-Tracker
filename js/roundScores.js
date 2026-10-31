@@ -844,8 +844,16 @@ function updateUnsavedCountUI(count) {
   const label = `${count} unsaved ${count === 1 ? 'change' : 'changes'}`;
   const topBadge = document.getElementById('unsaved-changes-badge');
   const bottomBadge = document.getElementById('unsaved-changes-bottom');
-  if (topBadge) topBadge.textContent = label;
-  if (bottomBadge) bottomBadge.textContent = label;
+  if (topBadge) {
+    topBadge.textContent = label;
+    topBadge.className = count > 0 ? 'badge badge-warning num' : 'badge badge-inactive num';
+  }
+  if (bottomBadge) {
+    bottomBadge.textContent = label;
+    bottomBadge.style.color = count > 0 ? 'var(--color-warning)' : 'var(--text-muted)';
+    bottomBadge.style.borderColor = count > 0 ? '#fde68a' : 'var(--border-subtle)';
+    bottomBadge.style.background = count > 0 ? 'var(--color-warning-subtle)' : 'var(--bg-surface)';
+  }
 }
 
 /**
@@ -938,7 +946,7 @@ function updateProgressDisplay() {
 
 function showSaveErrorAlert(message) {
   const alertEl = document.getElementById('round-save-error-alert');
-  const msgEl = document.getElementById('round-save-error-msg');
+  const msgEl = document.getElementById('round-save-error-msg') || document.getElementById('round-save-error-text');
   if (!alertEl || !msgEl) return;
   msgEl.textContent = message;
   alertEl.style.display = 'flex';
@@ -946,7 +954,7 @@ function showSaveErrorAlert(message) {
 
 function hideSaveErrorAlert() {
   const alertEl = document.getElementById('round-save-error-alert');
-  const msgEl = document.getElementById('round-save-error-msg');
+  const msgEl = document.getElementById('round-save-error-msg') || document.getElementById('round-save-error-text');
   if (alertEl) alertEl.style.display = 'none';
   if (msgEl) msgEl.textContent = '';
 }

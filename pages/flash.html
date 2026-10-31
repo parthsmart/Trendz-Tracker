@@ -26,14 +26,29 @@
           <!-- Zone 2: Navigation Links -->
           <nav class="nav-zone" aria-label="Student Navigation">
             <a href="/pages/student.html" class="nav-link">Home</a>
-            <a href="/pages/weekly-test.html" class="nav-link">Weekly Test</a>
             <a href="/pages/round-scores.html" class="nav-link">Round Scores</a>
-            <a href="/pages/basics.html" class="nav-link">Basics</a>
-            <a href="/pages/flash.html" class="nav-link active" aria-current="page">Flash Anzan</a>
-            <a href="/pages/elements.html" class="nav-link">Elements</a>
-            <a href="/pages/memoriad.html" class="nav-link">Memoriad</a>
+            <div class="nav-dropdown" id="nav-practice-dropdown">
+              <button type="button" class="nav-link nav-dropdown-toggle active" id="btn-practice-dropdown" aria-expanded="false" aria-haspopup="true">
+                Practice <span style="font-size: 10px; margin-left: 2px;">▾</span>
+              </button>
+              <div class="nav-dropdown-menu" id="practice-dropdown-menu" role="menu">
+                <a href="/pages/basics.html" class="dropdown-item" role="menuitem">Basics</a>
+                <a href="/pages/flash.html" class="dropdown-item active" role="menuitem" aria-current="page">Flash Anzan</a>
+                <a href="/pages/elements.html" class="dropdown-item" role="menuitem">Elements</a>
+                <a href="/pages/memoriad.html" class="dropdown-item" role="menuitem">Memoriad</a>
+              </div>
+            </div>
+            <a href="/pages/weekly-test.html" class="nav-link">Weekly Test</a>
             <a href="/pages/leaderboard.html" class="nav-link">Leaderboard</a>
             <a href="/pages/monthly-report.html" class="nav-link">Monthly Report</a>
+            <a href="/pages/notifications.html" class="nav-link nav-bell-link" title="Notifications" aria-label="Notifications">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+              </svg>
+              <span class="nav-bell-text">Alerts</span>
+              <span id="nav-notifications-badge" class="nav-notifications-badge num" style="display: none; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: #DC2626; color: #FFFFFF; font-size: 11px; font-weight: 700; line-height: 1;" aria-hidden="true"></span>
+            </a>
           </nav>
 
           <!-- Zone 3: User Details & Logout Action -->
@@ -84,9 +99,9 @@
             aria-labelledby="setup-card-title"
           >
             <div class="card-header">
-              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2);">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2); width: 100%;">
                 <h2 class="card-title" id="setup-card-title">Configure Your Try</h2>
-                <span class="num" id="setup-duration-badge" style="font-size: var(--text-xs); font-weight: 700; color: var(--color-primary);">
+                <span class="badge badge-role num" id="setup-duration-badge" style="font-size: var(--text-xs); font-weight: 700;">
                   Expected duration: 10 seconds
                 </span>
               </div>
@@ -98,13 +113,13 @@
                 <div
                   class="flash-summary-bar"
                   id="flash-last-used-card"
-                  style="margin-bottom: var(--space-4); padding: var(--space-3) var(--space-4);"
+                  style="margin-bottom: var(--space-5);"
                 >
                   <div>
                     <div
                       class="flash-summary-text num"
                       id="flash-last-used-text"
-                      style="font-weight: 800; font-size: var(--text-base); color: var(--text-main);"
+                      style="font-weight: 700; font-size: var(--text-base); color: var(--text-main);"
                     >
                       Last used: 1 digit - 10 numbers - 1.0 s - add
                     </div>
@@ -121,7 +136,7 @@
                     type="submit"
                     id="btn-flash-start"
                     class="btn btn-primary"
-                    style="min-height: 44px; padding: 0 var(--space-6); font-size: var(--text-base); font-weight: 700;"
+                    style="min-height: 44px; min-width: 140px; padding: 0 var(--space-6); font-size: var(--text-base); font-weight: 700;"
                   >
                     Start
                   </button>
@@ -151,9 +166,9 @@
                 </div>
 
                 <!-- Custom Controls Grid (visible below, no presets) -->
-                <div class="flash-control-grid" style="gap: var(--space-3);">
+                <div class="flash-control-grid">
                   <!-- Control A: Digits (1 to 5) -->
-                  <div class="form-group" style="margin-bottom: var(--space-2);">
+                  <div class="form-group">
                     <div style="display: flex; justify-content: space-between; align-items: baseline;">
                       <label class="form-label" id="label-flash-digits">Digits (1 to 5)</label>
                       <span class="num" id="display-digits-val" style="font-size: var(--text-sm); font-weight: 700; color: var(--color-primary);">
@@ -172,7 +187,7 @@
                   </div>
 
                   <!-- Control B: Mode (Add only / Add and subtract) -->
-                  <div class="form-group" style="margin-bottom: var(--space-2);">
+                  <div class="form-group">
                     <label class="form-label" id="label-flash-mode">Mode</label>
                     <div class="flash-pill-group" role="radiogroup" aria-labelledby="label-flash-mode">
                       <button
@@ -199,7 +214,7 @@
                   </div>
 
                   <!-- Control C: Numbers in the Question (2 to 1000) -->
-                  <div class="form-group" style="margin-bottom: var(--space-2);">
+                  <div class="form-group">
                     <div style="display: flex; justify-content: space-between; align-items: baseline;">
                       <label for="flash-count" class="form-label">Numbers in the Question (2 to 1000)</label>
                       <span class="num" id="display-count-val" style="font-size: var(--text-sm); font-weight: 700; color: var(--color-primary);">
@@ -224,16 +239,16 @@
                     </div>
                     <!-- Quick step buttons (-100, -10, +10, +100) -->
                     <div style="display: flex; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-2);">
-                      <button type="button" class="btn btn-outline btn-sm num" data-count-step="-100" style="flex: 1; min-width: 60px;">&minus;100</button>
-                      <button type="button" class="btn btn-outline btn-sm num" data-count-step="-10" style="flex: 1; min-width: 60px;">&minus;10</button>
-                      <button type="button" class="btn btn-outline btn-sm num" data-count-step="10" style="flex: 1; min-width: 60px;">+10</button>
-                      <button type="button" class="btn btn-outline btn-sm num" data-count-step="100" style="flex: 1; min-width: 60px;">+100</button>
+                      <button type="button" class="btn btn-outline btn-sm num" data-count-step="-100" style="flex: 1; min-width: 56px;">&minus;100</button>
+                      <button type="button" class="btn btn-outline btn-sm num" data-count-step="-10" style="flex: 1; min-width: 56px;">&minus;10</button>
+                      <button type="button" class="btn btn-outline btn-sm num" data-count-step="10" style="flex: 1; min-width: 56px;">+10</button>
+                      <button type="button" class="btn btn-outline btn-sm num" data-count-step="100" style="flex: 1; min-width: 56px;">+100</button>
                     </div>
                     <span class="form-hint">Type any number from 2 to 1000 or use the step buttons.</span>
                   </div>
 
                   <!-- Control D: Speed per Number (0.2 to 5.0 seconds in steps of 0.1) -->
-                  <div class="form-group" style="margin-bottom: var(--space-2);">
+                  <div class="form-group">
                     <div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 4px;">
                       <label for="flash-speed-seconds" class="form-label">Speed per Number (0.2 to 5.0 s)</label>
                       <span class="num" id="display-speed-combined" style="font-size: var(--text-sm); font-weight: 700; color: var(--color-primary);">
@@ -272,8 +287,8 @@
                 </div>
 
                 <!-- Sound Toggle Row -->
-                <div style="margin-top: var(--space-3);">
-                  <label class="flash-sound-row" for="flash-sound-toggle" style="max-width: 480px;">
+                <div style="margin-top: var(--space-4);">
+                  <label class="flash-sound-row" for="flash-sound-toggle">
                     <div>
                       <div style="font-weight: 600; font-size: var(--text-sm); color: var(--text-main);">
                         Play a short tone for each number
@@ -285,7 +300,7 @@
                     <input
                       type="checkbox"
                       id="flash-sound-toggle"
-                      style="width: 22px; height: 22px; accent-color: var(--color-primary); cursor: pointer;"
+                      style="width: 20px; height: 20px; accent-color: var(--color-primary); cursor: pointer;"
                     />
                   </label>
                 </div>
@@ -297,7 +312,7 @@
                     <h3 style="font-size: var(--text-sm); font-weight: 700; margin-bottom: var(--space-2); color: var(--text-main);">
                       Your results at these settings
                     </h3>
-                    <div class="table-container" id="current-settings-stats-box">
+                    <div class="table-container" id="current-settings-stats-box" style="border: 1px solid var(--border-hairline); border-radius: var(--radius-md);">
                       <table class="data-table" aria-label="Your results at these settings">
                         <thead>
                           <tr>
@@ -321,7 +336,7 @@
                     <h3 style="font-size: var(--text-sm); font-weight: 700; margin-bottom: var(--space-2); color: var(--text-main);">
                       Most-practised settings
                     </h3>
-                    <div class="table-container" id="most-practised-stats-box">
+                    <div class="table-container" id="most-practised-stats-box" style="border: 1px solid var(--border-hairline); border-radius: var(--radius-md);">
                       <table class="data-table" aria-label="Most-practised settings">
                         <thead>
                           <tr>
@@ -353,10 +368,15 @@
             style="display: none; margin-bottom: var(--space-8);"
             aria-labelledby="play-settings-summary"
           >
+            <!-- Progress bar at top of play card -->
+            <div style="height: 4px; width: 100%; background: var(--bg-surface-subtle); overflow: hidden;">
+              <div id="play-progress-fill" style="height: 100%; width: 0%; background: var(--color-primary); transition: width 100ms linear;"></div>
+            </div>
+
             <div style="padding: var(--space-3) var(--space-5) 0;">
-              <div style="display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: var(--space-3);">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3);">
                 <span
-                  class="num sr-only"
+                  class="badge badge-inactive num"
                   id="play-settings-summary"
                 >
                   1 digit - 10 numbers - 1.0 s - add
