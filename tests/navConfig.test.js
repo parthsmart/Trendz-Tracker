@@ -82,6 +82,24 @@ test('every page in vite.config.ts input list appears in NAV_CONFIG for its role
   }
 });
 
+test('no HTML page in pages/ contains hard-coded link lists inside .nav-zone (rendered exclusively from js/navConfig.js)', () => {
+  const pagesDir = path.join(ROOT_DIR, 'pages');
+  const htmlFiles = fs.readdirSync(pagesDir).filter((f) => f.endsWith('.html'));
+  assert.ok(htmlFiles.length >= 29, 'Expected HTML files in pages/');
+
+  for (const file of htmlFiles) {
+    const content = fs.readFileSync(path.join(pagesDir, file), 'utf8');
+    const navMatches = content.match(/<nav\s+class="nav-zone"[^>]*>([\s\S]*?)<\/nav>/g) || [];
+    for (const navBlock of navMatches) {
+      assert.equal(
+        /<a\s+/i.test(navBlock),
+        false,
+        `Found hard-coded <a> link inside .nav-zone in pages/${file}; all header links must be rendered from js/navConfig.js`
+      );
+    }
+  }
+});
+
 test('no href is duplicated within student or admin navigation config', () => {
   for (const role of ['student', 'admin']) {
     const items = getRoleNavItems(role);

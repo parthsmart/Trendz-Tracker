@@ -44,7 +44,7 @@ const BRAND_LOGO_SVG = `
     <line x1="16" y1="14" x2="16" y2="18"></line>
     <path d="M16 10h.01"></path>
     <path d="M12 10h.01"></path>
-    <path d="M8" y1="10" x2="8.01" y2="10"></path>
+    <path d="M8 10h.01"></path>
     <path d="M12 14h.01"></path>
     <path d="M8 14h.01"></path>
     <path d="M12 18h.01"></path>
