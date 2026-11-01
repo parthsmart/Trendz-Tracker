@@ -1,5 +1,5 @@
 /**
- * Unit Tests for Single Navigation Config (tests/navConfig.test.js)
+ * Unit Tests for Single Navigation Config & Breakpoint Parity (tests/navConfig.test.js)
  *
  * Run with: node --test tests/navConfig.test.js
  */
@@ -11,10 +11,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  NAV_MOBILE_BREAKPOINT_PX,
   NAV_CONFIG,
   NAV_STAGE_AND_PUBLIC_ALLOWLIST,
   getRoleNavItems,
   getInlineNavItems,
+  getDesktopNavEntries,
   getGroupedNavItems,
   isNavItemCurrent,
   formatShortFirstName,
@@ -36,6 +38,22 @@ function extractViteInputPages() {
   }
   return pages;
 }
+
+test('mobile breakpoint constant in css/variables.css and js/navConfig.js match (1024px)', () => {
+  const cssVariablesPath = path.join(ROOT_DIR, 'css', 'variables.css');
+  const cssContent = fs.readFileSync(cssVariablesPath, 'utf8');
+  const match = cssContent.match(/--nav-mobile-breakpoint:\s*(\d+)px\s*;/);
+
+  assert.ok(match, 'Expected --nav-mobile-breakpoint custom property in css/variables.css');
+  const cssBreakpointPx = Number(match[1]);
+
+  assert.equal(cssBreakpointPx, 1024, 'Expected CSS --nav-mobile-breakpoint to be 1024px');
+  assert.equal(
+    NAV_MOBILE_BREAKPOINT_PX,
+    cssBreakpointPx,
+    'Expected NAV_MOBILE_BREAKPOINT_PX in js/navConfig.js to match --nav-mobile-breakpoint in css/variables.css'
+  );
+});
 
 test('every page in vite.config.ts input list appears in NAV_CONFIG for its role or in the explicit allowlist', () => {
   const vitePages = extractViteInputPages();
@@ -93,12 +111,65 @@ test('no href is duplicated within student or admin navigation config', () => {
   }
 });
 
-test('short inline link lists match Phase 14d specification for >= 1100px width', () => {
+test('desktop navigation structure matches Phase 14e pre-14d restoration for student and admin', () => {
   const studentInline = getInlineNavItems('student').map((item) => item.label);
-  assert.deepEqual(studentInline, ['Today', 'Weekly Test', 'Leaderboard']);
+  assert.deepEqual(studentInline, [
+    'Today',
+    'Round scores',
+    'Weekly Test',
+    'Leaderboard',
+    'Monthly Report',
+  ]);
+
+  const studentDesktopEntries = getDesktopNavEntries('student');
+  assert.deepEqual(
+    studentDesktopEntries.map((e) => (e.type === 'dropdown' ? `${e.label} ▾` : e.item.label)),
+    [
+      'Today',
+      'Round scores',
+      'Practice ▾',
+      'Weekly Test',
+      'Leaderboard',
+      'Monthly Report',
+      'Notifications',
+    ]
+  );
+
+  const practiceDropdown = studentDesktopEntries.find((e) => e.type === 'dropdown');
+  assert.deepEqual(
+    practiceDropdown.items.map((i) => i.label),
+    ['Basics', 'Flash Anzan', 'Elements', 'Memoriad']
+  );
 
   const adminInline = getInlineNavItems('admin').map((item) => item.label);
-  assert.deepEqual(adminInline, ['Overview', 'Students', 'Review', 'Weekly Tests']);
+  assert.deepEqual(adminInline, [
+    'Overview',
+    'Review',
+    'Students',
+    'Attendance',
+    'Weekly Tests',
+    'Leaderboard',
+    'Monthly Report',
+  ]);
+
+  const adminDesktopEntries = getDesktopNavEntries('admin');
+  assert.deepEqual(
+    adminDesktopEntries.map((e) => (e.type === 'dropdown' ? `${e.label} ▾` : e.item.label)),
+    [
+      'Overview',
+      'Review',
+      'Students',
+      'Attendance',
+      'Weekly Tests',
+      'Leaderboard',
+      'Monthly Report',
+      'Setup ▾',
+    ]
+  );
+
+  const setupDropdown = adminDesktopEntries.find((e) => e.type === 'dropdown');
+  assert.equal(setupDropdown.items.length, 11);
+  assert.equal(setupDropdown.items[0].href, '/pages/settings.html');
 });
 
 test('student config includes Practice group, Notifications badge key, Account, and Sign out', () => {

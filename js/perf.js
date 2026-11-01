@@ -156,7 +156,9 @@ export function attachLinkPrefetchListeners(rootEl) {
   rootEl.dataset.prefetchWired = 'true';
 
   const handleTrigger = (e) => {
-    const anchor = e.target?.closest?.('a[href]');
+    const target = e?.target;
+    if (!target || typeof target.closest !== 'function') return;
+    const anchor = target.closest('a[href]');
     if (!anchor) return;
     if (anchor.hasAttribute('data-nav-action')) return;
     const href = anchor.getAttribute('href');

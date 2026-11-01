@@ -1,11 +1,16 @@
 /**
  * Trendz Tracker - Single Source of Truth Navigation Configuration (js/navConfig.js)
  *
- * Phase 14d:
- * Defines every page once for 'student' and 'admin' roles:
- *   { id, label, href, group, inline, badge, action }
- * Both the >= 1100px short inline links and the three-dot menu read from this module.
+ * Phase 14d & 14e:
+ * - Defines every page once for 'student' and 'admin' roles:
+ *     { id, label, href, group, inline, desktopPlacement, badge, action, isHub }
+ * - Exports the single breakpoint constant `NAV_MOBILE_BREAKPOINT_PX = 1024`
+ *   matching `--nav-mobile-breakpoint: 1024px` in `css/variables.css`.
+ * - Both the desktop inline links/dropdowns (>= 1024px) and the mobile three-dot
+ *   menu (< 1024px) read from this module.
  */
+
+export const NAV_MOBILE_BREAKPOINT_PX = 1024;
 
 export const NAV_STAGE_AND_PUBLIC_ALLOWLIST = Object.freeze([
   '/index.html',
@@ -24,15 +29,17 @@ export const NAV_CONFIG = Object.freeze({
       href: '/pages/student.html',
       group: 'Today',
       inline: true,
+      desktopPlacement: 'inline',
     }),
 
-    // Practice
+    // Practice (Round scores top-level inline; Basics, Flash Anzan, Elements, Memoriad in Practice ▾ dropdown on desktop)
     Object.freeze({
       id: 'student-round-scores',
       label: 'Round scores',
       href: '/pages/round-scores.html',
       group: 'Practice',
-      inline: false,
+      inline: true,
+      desktopPlacement: 'inline',
     }),
     Object.freeze({
       id: 'student-basics',
@@ -40,6 +47,7 @@ export const NAV_CONFIG = Object.freeze({
       href: '/pages/basics.html',
       group: 'Practice',
       inline: false,
+      desktopPlacement: 'practice-dropdown',
     }),
     Object.freeze({
       id: 'student-flash',
@@ -47,6 +55,7 @@ export const NAV_CONFIG = Object.freeze({
       href: '/pages/flash.html',
       group: 'Practice',
       inline: false,
+      desktopPlacement: 'practice-dropdown',
     }),
     Object.freeze({
       id: 'student-elements',
@@ -54,6 +63,7 @@ export const NAV_CONFIG = Object.freeze({
       href: '/pages/elements.html',
       group: 'Practice',
       inline: false,
+      desktopPlacement: 'practice-dropdown',
     }),
     Object.freeze({
       id: 'student-memoriad',
@@ -61,6 +71,7 @@ export const NAV_CONFIG = Object.freeze({
       href: '/pages/memoriad.html',
       group: 'Practice',
       inline: false,
+      desktopPlacement: 'practice-dropdown',
     }),
 
     // Weekly Test, Leaderboard, Monthly Report, Notifications
@@ -70,6 +81,7 @@ export const NAV_CONFIG = Object.freeze({
       href: '/pages/weekly-test.html',
       group: 'Tests & Progress',
       inline: true,
+      desktopPlacement: 'inline',
     }),
     Object.freeze({
       id: 'student-leaderboard',
@@ -77,13 +89,15 @@ export const NAV_CONFIG = Object.freeze({
       href: '/pages/leaderboard.html',
       group: 'Tests & Progress',
       inline: true,
+      desktopPlacement: 'inline',
     }),
     Object.freeze({
       id: 'student-monthly-report',
       label: 'Monthly Report',
       href: '/pages/monthly-report.html',
       group: 'Tests & Progress',
-      inline: false,
+      inline: true,
+      desktopPlacement: 'inline',
     }),
     Object.freeze({
       id: 'student-notifications',
@@ -92,9 +106,10 @@ export const NAV_CONFIG = Object.freeze({
       group: 'Notifications',
       badge: 'notifications',
       inline: false,
+      desktopPlacement: 'bell',
     }),
 
-    // Account & Sign out
+    // Account & Sign out (in right-side actions on desktop, and in the mobile menu)
     Object.freeze({
       id: 'student-account',
       label: 'Account',
@@ -102,6 +117,7 @@ export const NAV_CONFIG = Object.freeze({
       group: 'Account',
       action: 'account',
       inline: false,
+      desktopPlacement: 'menu-only',
     }),
     Object.freeze({
       id: 'student-signout',
@@ -110,24 +126,20 @@ export const NAV_CONFIG = Object.freeze({
       group: 'Account',
       action: 'signout',
       inline: false,
+      desktopPlacement: 'menu-only',
     }),
   ]),
 
   admin: Object.freeze([
-    // Main Admin Pages (short inline list at >= 1100px: Overview, Students, Review, Weekly Tests)
+    // Main Admin Pages in pre-14d desktop order:
+    // Overview, Review, Students, Attendance, Weekly Tests, Leaderboard, Monthly Report
     Object.freeze({
       id: 'admin-overview',
       label: 'Overview',
       href: '/pages/admin.html',
       group: 'Overview',
       inline: true,
-    }),
-    Object.freeze({
-      id: 'admin-students',
-      label: 'Students',
-      href: '/pages/students.html',
-      group: 'Overview',
-      inline: true,
+      desktopPlacement: 'inline',
     }),
     Object.freeze({
       id: 'admin-review',
@@ -135,13 +147,23 @@ export const NAV_CONFIG = Object.freeze({
       href: '/pages/review.html',
       group: 'Overview',
       inline: true,
+      desktopPlacement: 'inline',
+    }),
+    Object.freeze({
+      id: 'admin-students',
+      label: 'Students',
+      href: '/pages/students.html',
+      group: 'Overview',
+      inline: true,
+      desktopPlacement: 'inline',
     }),
     Object.freeze({
       id: 'admin-attendance',
       label: 'Attendance',
       href: '/pages/attendance.html',
       group: 'Overview',
-      inline: false,
+      inline: true,
+      desktopPlacement: 'inline',
     }),
     Object.freeze({
       id: 'admin-weekly-tests',
@@ -149,29 +171,33 @@ export const NAV_CONFIG = Object.freeze({
       href: '/pages/weekly-tests.html',
       group: 'Overview',
       inline: true,
+      desktopPlacement: 'inline',
     }),
     Object.freeze({
       id: 'admin-leaderboard',
       label: 'Leaderboard',
       href: '/pages/leaderboard.html',
       group: 'Overview',
-      inline: false,
+      inline: true,
+      desktopPlacement: 'inline',
     }),
     Object.freeze({
       id: 'admin-monthly-report',
       label: 'Monthly Report',
       href: '/pages/monthly-report.html',
       group: 'Overview',
-      inline: false,
+      inline: true,
+      desktopPlacement: 'inline',
     }),
 
-    // Settings Hub + All Admin Settings Pages
+    // Settings Hub + All Admin Setup Pages (rendered under "Setup ▾" on desktop and "Settings" group on mobile)
     Object.freeze({
       id: 'admin-settings-hub',
       label: 'Settings hub',
       href: '/pages/settings.html',
       group: 'Settings',
       inline: false,
+      desktopPlacement: 'setup-dropdown',
       isHub: true,
     }),
     Object.freeze({
@@ -180,6 +206,7 @@ export const NAV_CONFIG = Object.freeze({
       href: '/pages/todos.html',
       group: 'Settings',
       inline: false,
+      desktopPlacement: 'setup-dropdown',
     }),
     Object.freeze({
       id: 'admin-resources',
@@ -187,6 +214,7 @@ export const NAV_CONFIG = Object.freeze({
       href: '/pages/resources.html',
       group: 'Settings',
       inline: false,
+      desktopPlacement: 'setup-dropdown',
     }),
     Object.freeze({
       id: 'admin-categories',
@@ -194,6 +222,7 @@ export const NAV_CONFIG = Object.freeze({
       href: '/pages/categories.html',
       group: 'Settings',
       inline: false,
+      desktopPlacement: 'setup-dropdown',
     }),
     Object.freeze({
       id: 'admin-rounds',
@@ -201,6 +230,7 @@ export const NAV_CONFIG = Object.freeze({
       href: '/pages/rounds.html',
       group: 'Settings',
       inline: false,
+      desktopPlacement: 'setup-dropdown',
     }),
     Object.freeze({
       id: 'admin-targets',
@@ -208,6 +238,7 @@ export const NAV_CONFIG = Object.freeze({
       href: '/pages/targets.html',
       group: 'Settings',
       inline: false,
+      desktopPlacement: 'setup-dropdown',
     }),
     Object.freeze({
       id: 'admin-competition',
@@ -215,6 +246,7 @@ export const NAV_CONFIG = Object.freeze({
       href: '/pages/competition.html',
       group: 'Settings',
       inline: false,
+      desktopPlacement: 'setup-dropdown',
     }),
     Object.freeze({
       id: 'admin-announcements',
@@ -222,6 +254,7 @@ export const NAV_CONFIG = Object.freeze({
       href: '/pages/announcements.html',
       group: 'Settings',
       inline: false,
+      desktopPlacement: 'setup-dropdown',
     }),
     Object.freeze({
       id: 'admin-reports',
@@ -229,6 +262,7 @@ export const NAV_CONFIG = Object.freeze({
       href: '/pages/report.html',
       group: 'Settings',
       inline: false,
+      desktopPlacement: 'setup-dropdown',
     }),
     Object.freeze({
       id: 'admin-import',
@@ -236,6 +270,7 @@ export const NAV_CONFIG = Object.freeze({
       href: '/pages/import.html',
       group: 'Settings',
       inline: false,
+      desktopPlacement: 'setup-dropdown',
     }),
     Object.freeze({
       id: 'admin-backup',
@@ -243,6 +278,7 @@ export const NAV_CONFIG = Object.freeze({
       href: '/pages/backup.html',
       group: 'Settings',
       inline: false,
+      desktopPlacement: 'setup-dropdown',
     }),
 
     // Account & Sign out
@@ -253,6 +289,7 @@ export const NAV_CONFIG = Object.freeze({
       group: 'Account',
       action: 'account',
       inline: false,
+      desktopPlacement: 'menu-only',
     }),
     Object.freeze({
       id: 'admin-signout',
@@ -261,6 +298,7 @@ export const NAV_CONFIG = Object.freeze({
       group: 'Account',
       action: 'signout',
       inline: false,
+      desktopPlacement: 'menu-only',
     }),
   ]),
 });
@@ -274,17 +312,81 @@ export function getRoleNavItems(role) {
 }
 
 /**
- * Returns only the short inline navigation links shown at >= 1100px width.
- * Student: Today, Weekly Test, Leaderboard
- * Admin: Overview, Students, Review, Weekly Tests
+ * Returns the top-level inline navigation links shown on desktop (>= 1024px).
+ * Student: Today, Round scores, Weekly Test, Leaderboard, Monthly Report
+ * Admin: Overview, Review, Students, Attendance, Weekly Tests, Leaderboard, Monthly Report
  * @param {'student' | 'admin'} role
  */
 export function getInlineNavItems(role) {
-  return getRoleNavItems(role).filter((item) => Boolean(item.inline));
+  return getRoleNavItems(role).filter((item) => item.desktopPlacement === 'inline');
 }
 
 /**
- * Groups a role's navigation items by their `group` property in declaration order.
+ * Returns the ordered desktop navigation entries (inline links, dropdowns, and notification bell)
+ * derived strictly from `NAV_CONFIG` so desktop and mobile share one source of truth.
+ *
+ * Student desktop layout:
+ *   Today, Round scores, Practice ▾ (Basics, Flash Anzan, Elements, Memoriad),
+ *   Weekly Test, Leaderboard, Monthly Report, Notifications bell
+ *
+ * Admin desktop layout:
+ *   Overview, Review, Students, Attendance, Weekly Tests, Leaderboard, Monthly Report,
+ *   Setup ▾ (Settings hub, Daily To-Do, Resources, Categories, Rounds, Targets,
+ *            Competition settings, Announcements, Reports, Import, Backup)
+ *
+ * @param {'student' | 'admin'} role
+ * @returns {Array<
+ *   | { type: 'link', item: Record<string, any> }
+ *   | { type: 'dropdown', id: string, toggleId: string, menuId: string, label: string, items: Array<Record<string, any>> }
+ *   | { type: 'bell', item: Record<string, any> }
+ * >}
+ */
+export function getDesktopNavEntries(role) {
+  const items = getRoleNavItems(role);
+  const entries = [];
+  let practiceDropdownAdded = false;
+  let setupDropdownAdded = false;
+
+  for (const item of items) {
+    if (item.desktopPlacement === 'inline') {
+      entries.push({ type: 'link', item });
+    } else if (item.desktopPlacement === 'practice-dropdown') {
+      if (!practiceDropdownAdded) {
+        practiceDropdownAdded = true;
+        const dropdownItems = items.filter((i) => i.desktopPlacement === 'practice-dropdown');
+        entries.push({
+          type: 'dropdown',
+          id: 'nav-practice-dropdown',
+          toggleId: 'btn-nav-practice-dropdown',
+          menuId: 'nav-practice-dropdown-menu',
+          label: 'Practice',
+          items: dropdownItems,
+        });
+      }
+    } else if (item.desktopPlacement === 'setup-dropdown') {
+      if (!setupDropdownAdded) {
+        setupDropdownAdded = true;
+        const dropdownItems = items.filter((i) => i.desktopPlacement === 'setup-dropdown');
+        entries.push({
+          type: 'dropdown',
+          id: 'nav-setup-dropdown',
+          toggleId: 'btn-nav-setup-dropdown',
+          menuId: 'nav-setup-dropdown-menu',
+          label: 'Setup',
+          items: dropdownItems,
+        });
+      }
+    } else if (item.desktopPlacement === 'bell') {
+      entries.push({ type: 'bell', item });
+    }
+  }
+
+  return entries;
+}
+
+/**
+ * Groups a role's navigation items by their `group` property in declaration order
+ * for the mobile (< 1024px) three-dot menu.
  * @param {'student' | 'admin'} role
  * @returns {Array<{ group: string, items: Array<Record<string, any>> }>}
  */
@@ -328,7 +430,7 @@ export function isNavItemCurrent(item, pathname) {
 }
 
 /**
- * Extracts the first name for compact mobile header display.
+ * Extracts the first name for compact header display.
  * @param {string} fullName
  * @param {string} [fallback='User']
  * @returns {string}

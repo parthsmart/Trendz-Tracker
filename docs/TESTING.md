@@ -1505,40 +1505,40 @@ This document contains step-by-step test scenarios to verify security boundaries
 
 ---
 
-## Phase 14d Verification — Header Three-Dot Navigation Menu & Single Navigation Config
+## Phase 14d & 14e Verification — Desktop Inline Header Restoration (`>= 1024 px`) & Mobile-Only Three-Dot Menu (`< 1024 px`)
 
-### Test Case 87: Automated Navigation Config & Menu State Unit Tests (`node --test`)
-1. Run the Phase 14d unit test suites:
+### Test Case 87: Automated Navigation Config, Breakpoint Parity & Menu State Unit Tests (`node --test`)
+1. Run the navigation unit test suites:
    ```bash
    node --test tests/navConfig.test.js tests/navMenuState.test.js
    ```
 2. **Expected**:
+   - `tests/navConfig.test.js` verifies that `--nav-mobile-breakpoint` in `css/variables.css` and `NAV_MOBILE_BREAKPOINT_PX` in `js/navConfig.js` both equal `1024`.
    - Every HTML entry point in `vite.config.ts` appears in `js/navConfig.js` (`student` or `admin`) or in `NAV_STAGE_AND_PUBLIC_ALLOWLIST` (`/index.html`, `/pages/basics-practice.html`, `/pages/element-drill.html`, `/pages/memoriad-play.html`, `/pages/student-detail.html`).
    - Zero duplicate `href`s or `id`s exist within a role.
-   - `js/navMenuState.js` passes all tests for `openMenuState`, `closeMenuState`, `ArrowDown`/`ArrowUp` wrap-around, `Home`/`End`, `Tab`/`Shift+Tab` focus trapping, and full-screen stage detection.
+   - Desktop entries match the restored pre-14d layout (`Today, Round scores, Practice ▾, Weekly Test, Leaderboard, Monthly Report` + notifications bell for Student; `Overview, Review, Students, Attendance, Weekly Tests, Leaderboard, Monthly Report, Setup ▾` for Admin).
 
-### Test Case 88: Responsive Header & Three-Dot Menu Verification at `1280px`, `1024px`, `768px`, and `390px`
-Open browser DevTools (`F12`), toggle the Device Toolbar (`Ctrl+Shift+M` / `Cmd+Shift+M`), and test both a **Student** session (`/pages/student.html`) and an **Admin** session (`/pages/admin.html`, `/pages/settings.html`):
+### Test Case 88: Responsive Header & Navigation Checklist at `390`, `768`, `1023`, `1024`, `1280`, and `1440 px` (Both Roles)
+Open browser DevTools (`F12`), toggle the Device Toolbar (`Ctrl+Shift+M` / `Cmd+Shift+M`), and check both a **Student** session (`/pages/student.html`) and an **Admin** session (`/pages/admin.html`):
 
-1. **At `1280 px` width (Desktop)**:
-   - **Header layout**: Confirm left-to-right order is `[Logo] [Trendz Tracker] [44x44 Three-Dot Menu Button]` followed by the **short inline link list** (`Today, Weekly Test, Leaderboard` for Student; `Overview, Students, Review, Weekly Tests` for Admin), and on the right `[Name · ID] [Sign out]`.
-   - **No wrapping**: Confirm `"Trendz Tracker"` and the user's name stay on one single line.
-   - **Menu panel (`> 700 px`)**: Click the three-dot button (`aria-label="Menu"`). Confirm a `~300 px` panel opens anchored directly under the button (`max-height: calc(100vh - 80px)`, scrolling internally) with small group headings, `>= 44 px` item height, and the current page marked with `aria-current="page"` plus a visible checkmark + `"Current"` indicator.
-   - **Student unread badge**: When the student has unread notifications in the cached badge state, confirm a small red dot appears on the three-dot menu button and the numeric badge appears beside **Notifications** inside the menu (with zero extra network requests).
+1. **At `1440 px` and `1280 px` width (Desktop Wide)**:
+   - **Three-dot menu hidden**: Confirm the three-dot menu button and drawer are `display: none` and `hidden` (they take zero space and cannot receive keyboard focus).
+   - **Admin inline header**: Confirm `[Logo] [Trendz Tracker]` followed by `Overview`, `Review`, `Students`, `Attendance`, `Weekly Tests`, `Leaderboard`, `Monthly Report`, and `Setup ▾` (opening the setup pages dropdown on hover/click), and on the right `[Name · Admin] [Sign out]`.
+   - **Student inline header**: Confirm `[Logo] [Trendz Tracker]` followed by `Today`, `Round scores`, `Practice ▾` (`Basics`, `Flash Anzan`, `Elements`, `Memoriad`), `Weekly Test`, `Leaderboard`, `Monthly Report`, the notifications bell with its count badge, and on the right `[Name · ID] [Sign out]`.
+   - **Active underline**: Confirm the current page (or parent dropdown when on a child page) has the primary active underline.
 
-2. **At `1024 px` width (Landscape Tablet / Compact Laptop)**:
-   - **Inline links hidden (`< 1100 px`)**: Confirm the inline link bar is completely hidden so the header remains calm and never wraps.
-   - **Menu panel (`> 700 px`)**: Click the three-dot button and confirm the anchored dropdown panel opens beneath the button with all grouped pages for the role (including the Admin **Settings** group linking `/pages/settings.html` and listing `Daily To-Do`, `Resources`, `Categories`, `Rounds`, `Targets`, `Competition settings`, `Announcements`, `Reports`, `Import`, and `Backup`).
+2. **At `1024 px` (and `1100 px`) width (Desktop Breakpoint & Compact Laptop)**:
+   - **Inline links active, three-dot menu hidden**: Confirm `1024 px` displays the desktop inline header (not the three-dot button).
+   - **Admin compact fit (`1024–1280 px`)**: Confirm spacing is tightened and the teacher's name shows the **first name only** (hovering over the name reveals the full name in a tooltip) so `"Trendz Tracker"`, all inline links, `Setup ▾`, the first name, and `Sign out` fit on a single line without wrapping or overflowing.
 
-3. **At `768 px` width (Portrait Tablet)**:
-   - **Single-line header**: Confirm `[Logo] [Trendz Tracker] [Three-Dot Menu Button]` on the left and `[Name · ID] [Sign out]` on the right fit on one line without wrapping.
-   - **Keyboard navigation**: Tab to the three-dot button and press `Enter` or `ArrowDown`. Confirm focus moves to the first menu item (`focusedIndex = 0`), `ArrowDown` wraps from the last item back to the first, `ArrowUp` wraps from the first item to the last, and pressing `Escape` closes the panel and returns focus to the three-dot button.
+3. **At `1023 px` and `768 px` width (Mobile/Tablet Just Below Breakpoint)**:
+   - **Live switch on resize**: Resize from `1024 px` down to `1023 px` without reloading. Confirm any open desktop dropdown closes automatically, the inline links/dropdowns become hidden (`display: none` and `hidden`), and the `44 x 44 px` three-dot menu button (`⋮`) appears beside `"Trendz Tracker"`.
+   - **Anchored menu panel (`701–1023 px`)**: Click the three-dot button at `1023 px` and `768 px`. Confirm the `300 px` anchored panel opens below the button with all grouped links for the role, `ArrowDown`/`ArrowUp` wrap-around, and `Escape` closing the panel and returning focus to the button.
 
 4. **At `390 px` width (Mobile Phone)**:
-   - **No wrapping & compact name**: Confirm `"Trendz Tracker"` never wraps (`white-space: nowrap; text-overflow: ellipsis`) and the account name shortens to the user's first name while **Sign out** remains reachable inside the menu.
-   - **Left slide-in drawer (`<= 700 px`)**: Tap the `44 x 44 px` three-dot button. Confirm a left slide-in drawer opens over a dimmed backdrop overlay and background page scrolling is locked (`overflow: hidden` on `<body>`).
-   - **Focus trap & close behaviours**: Press `Tab` through the drawer items and confirm focus wraps inside the drawer. Tap the dimmed backdrop (or press `Escape`) and confirm the drawer closes and focus returns to the three-dot menu button. Enable `prefers-reduced-motion: reduce` in DevTools Rendering and confirm the drawer opens/closes without slide animation.
+   - **Header layout**: Confirm `[Logo] [Trendz Tracker] [Three-Dot Menu Button]` on the left and `[First Name] [Sign out]` on the right stay on a single line (`white-space: nowrap`), with the user's name shortened to their first name (`< 480 px`).
+   - **Left slide-in drawer (`<= 700 px`)**: Tap the three-dot button. Confirm the left slide-in drawer opens over the dimmed backdrop, background scroll is locked, `Tab` traps focus inside the drawer, and tapping the backdrop or pressing `Escape` closes the drawer.
 
-5. **Full-Screen Stage Exclusion**:
-   - Start a Flash Anzan try (`/pages/flash.html`), a timed Basics round (`/pages/basics-practice.html`), an Elements worksheet drill (`/pages/element-drill.html`), a Memoriad stage (`/pages/memoriad-play.html`), or an active Weekly Test section (`/pages/weekly-test.html`).
-   - Confirm the global header and three-dot menu are hidden while the stage's own exit/stop button remains visible.
+5. **Full-Screen Stage Focus Mode**:
+   - Start a Flash Anzan try, Basics round, Elements worksheet, Memoriad stage, or online Weekly Test section and confirm `body.stage-focus-mode` hides the header as before.
+

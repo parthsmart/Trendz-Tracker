@@ -103,7 +103,7 @@ a:hover {
   min-height: 100vh;
 }
 
-/* Header (Phase 14d: [logo] [Trendz Tracker] [3-dot menu] [short inline >=1100px] [account]) */
+/* Header (Phase 14e: Desktop >= 1024px inline links & dropdowns; Mobile < 1024px three-dot menu) */
 body.stage-focus-mode .app-header,
 body.stage-focus-mode .header-nav-backdrop,
 body.stage-focus-mode .header-nav-menu {
@@ -119,6 +119,17 @@ body.stage-focus-mode .header-nav-menu {
   z-index: 40;
 }
 
+body.nav-menu-open .app-header {
+  z-index: 120;
+}
+
+.mobile-menu-btn,
+.nav-hamburger-btn,
+#btn-mobile-menu,
+#btn-nav-hamburger {
+  display: none !important;
+}
+
 .header-inner {
   min-height: var(--header-height);
   display: flex;
@@ -132,7 +143,13 @@ body.stage-focus-mode .header-nav-menu {
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
-  flex-shrink: 1;
+  flex-shrink: 0;
+}
+
+@media (max-width: 479.98px) {
+  .header-brand-cluster {
+    flex-shrink: 1;
+  }
 }
 
 .brand-zone {
@@ -170,12 +187,20 @@ body.stage-focus-mode .header-nav-menu {
   flex-shrink: 0;
 }
 
-/* Three-dot Menu Anchor & 44x44 Button */
+/* Three-dot Menu Anchor & 44x44 Button (Mobile < 1024px ONLY) */
 .header-menu-anchor {
   position: relative;
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
+}
+
+@media (min-width: 1024px) {
+  .header-menu-anchor,
+  #header-nav-menu,
+  #header-nav-backdrop {
+    display: none !important;
+  }
 }
 
 .header-menu-btn {
@@ -216,20 +241,20 @@ body.stage-focus-mode .header-nav-menu {
   background-color: var(--color-danger);
 }
 
-/* Short Inline Navigation: hidden below 1100px, shown from 1100px width */
+/* Desktop Inline Navigation & Dropdowns (Hidden < 1024px, Shown >= 1024px) */
 .nav-zone,
 .header-inline-nav {
   display: none !important;
 }
 
-@media (min-width: 1100px) {
+@media (min-width: 1024px) {
   .nav-zone,
   .header-inline-nav {
     display: flex !important;
     align-items: center;
-    gap: var(--space-4);
+    gap: var(--space-3);
     height: var(--header-height);
-    margin-left: var(--space-2);
+    margin-left: var(--space-3);
     margin-right: auto;
   }
 }
@@ -239,16 +264,25 @@ body.stage-focus-mode .header-nav-menu {
   display: inline-flex;
   align-items: center;
   padding: 0 var(--space-2);
+  font-family: inherit;
   font-size: var(--text-sm);
   font-weight: 500;
   color: var(--text-muted);
+  background: transparent;
+  border-top: none;
+  border-left: none;
+  border-right: none;
   border-bottom: 2px solid transparent;
+  cursor: pointer;
   transition: color var(--transition-fast), border-color var(--transition-fast);
   white-space: nowrap;
+  text-decoration: none;
 }
 
-.nav-link:hover {
+.nav-link:hover,
+.nav-link:focus-visible {
   color: var(--text-main);
+  outline: none;
 }
 
 .nav-link.active {
@@ -257,7 +291,102 @@ body.stage-focus-mode .header-nav-menu {
   font-weight: 600;
 }
 
-/* Three-dot Menu Panel (> 700px) & Left Slide-In Drawer (<= 700px) */
+/* Desktop Dropdowns ("Practice ▾" and "Setup ▾") */
+.nav-dropdown {
+  position: relative;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+}
+
+.nav-dropdown-toggle {
+  gap: var(--space-1);
+}
+
+.nav-dropdown-caret {
+  font-size: var(--text-sm);
+  line-height: 1;
+}
+
+.nav-dropdown-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% - var(--space-1));
+  left: 0;
+  min-width: 210px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
+  padding: var(--space-1);
+  z-index: 90;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-dropdown:hover .nav-dropdown-menu,
+.nav-dropdown:focus-within .nav-dropdown-menu,
+.nav-dropdown.is-open .nav-dropdown-menu {
+  display: flex;
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text-main);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.dropdown-item:hover,
+.dropdown-item:focus-visible {
+  background-color: var(--bg-surface-subtle);
+  color: var(--color-primary);
+  outline: none;
+}
+
+.dropdown-item.active {
+  background-color: var(--color-primary-subtle);
+  color: var(--color-primary-text);
+  font-weight: 600;
+}
+
+/* Student Desktop Notifications Bell & Count Badge */
+.nav-bell-link {
+  padding: 0 var(--space-2);
+}
+
+.nav-bell-icon-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#nav-notifications-badge {
+  position: absolute;
+  top: -6px;
+  right: -10px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-full);
+  background-color: var(--color-danger);
+  color: var(--text-inverse);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Mobile Three-dot Menu Panel (701px - 1023.98px) & Left Slide-In Drawer (<= 700px) */
 .header-nav-backdrop {
   display: none;
 }
@@ -270,7 +399,7 @@ body.stage-focus-mode .header-nav-menu {
   display: none;
 }
 
-@media (min-width: 701px) {
+@media (min-width: 701px) and (max-width: 1023.98px) {
   .header-nav-menu.is-open {
     display: flex;
     flex-direction: column;
@@ -497,21 +626,63 @@ body.stage-focus-mode .header-nav-menu {
   white-space: nowrap;
 }
 
-@media (max-width: 640px) {
-  .header-user-name[data-short-name] {
+/* Admin Desktop Header Tightening (1024px to 1280px):
+   Tightens spacing and shows first name only (full name in tooltip) so nothing wraps or overflows */
+@media (min-width: 1024px) and (max-width: 1280px) {
+  .app-header[data-nav-role="admin"] .header-inner {
+    gap: var(--space-2);
+  }
+
+  .app-header[data-nav-role="admin"] .nav-zone {
+    gap: var(--space-1);
+    margin-left: var(--space-2);
+  }
+
+  .app-header[data-nav-role="admin"] .nav-link {
+    padding: 0 6px;
+  }
+
+  .app-header[data-nav-role="admin"] .actions-zone {
+    gap: var(--space-2);
+  }
+
+  .app-header[data-nav-role="admin"] .header-user-name[data-short-name] {
     font-size: 0;
     max-width: 96px;
+  }
+
+  .app-header[data-nav-role="admin"] .header-user-name[data-short-name]::before {
+    content: attr(data-short-name);
+    font-size: var(--text-sm);
+  }
+}
+
+/* Mobile below 480px: show first name only while keeping Sign out visible */
+@media (max-width: 479.98px) {
+  .header-inner {
+    gap: var(--space-2);
+  }
+
+  .actions-zone {
+    gap: var(--space-2);
+  }
+
+  .header-user-name[data-short-name] {
+    font-size: 0;
+    max-width: 88px;
   }
 
   .header-user-name[data-short-name]::before {
     content: attr(data-short-name);
     font-size: var(--text-sm);
   }
-}
 
-@media (max-width: 480px) {
+  .header-user-id {
+    display: none;
+  }
+
   .header-signout-btn {
-    display: none !important;
+    padding: var(--space-1) var(--space-2);
   }
 }
 

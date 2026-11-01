@@ -133,18 +133,6 @@ export async function fetchMyNotificationsCached({ studentId = null, forceRefres
  */
 export function updateBellBadgeDOM(count) {
   const text = badgeText(count);
-  const badges = document.querySelectorAll('#nav-notifications-badge, .nav-notifications-badge');
-  badges.forEach((badge) => {
-    if (!text) {
-      badge.textContent = '';
-      badge.style.display = 'none';
-      badge.setAttribute('aria-hidden', 'true');
-    } else {
-      badge.textContent = text;
-      badge.style.display = 'inline-flex';
-      badge.removeAttribute('aria-hidden');
-    }
-  });
   syncHeaderMenuNotificationBadge(count, text);
 }
 

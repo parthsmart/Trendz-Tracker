@@ -1,20 +1,28 @@
 /**
- * Trendz Tracker - Unified Header & Three-Dot Navigation Menu Controller (js/headerNav.js)
+ * Trendz Tracker - Unified Header Navigation Controller (js/headerNav.js)
  *
- * Phase 14d:
- * - Renders the single-line header layout:
- *     [logo] [Trendz Tracker (nowrap + ellipsis)] [44x44 three-dot menu button]
- *     [short inline links >= 1100px] [right user name, ID & Sign out]
- * - Builds both the short inline links and the grouped menu from `js/navConfig.js`.
- * - Opens an anchored panel (> 700px) or a left slide-in drawer with dimmed backdrop (<= 700px).
- * - Implements keyboard navigation (ArrowUp/ArrowDown/Home/End wrap-around, Escape, Tab focus trap),
- *   focus transfer to first item on open and back to menu button on close, and body scroll lock.
- * - Excludes full-screen practice/test stages so those keep only their own exit button.
+ * Phase 14d & 14e:
+ * - Single breakpoint: `NAV_MOBILE_BREAKPOINT_PX = 1024` (matching `--nav-mobile-breakpoint: 1024px`).
+ * - Desktop (`width >= 1024px`):
+ *     Renders the full inline navigation bar and dropdowns (`Practice ▾` for students,
+ *     `Setup ▾` for admins, plus the notifications bell with count badge for students)
+ *     from `js/navConfig.js`. The three-dot menu button and drawer are hidden (`display: none`
+ *     and `hidden = true`) so they take no space and cannot receive keyboard focus.
+ * - Mobile (`width < 1024px`):
+ *     Hides the desktop inline links and dropdowns (`display: none` and `hidden = true`) and
+ *     displays `[logo] [Trendz Tracker] [44x44 three-dot menu button]` on the left and
+ *     `[name] [Sign out]` on the right. Opens an anchored panel (`701-1023px`) or a left
+ *     slide-in drawer with dimmed backdrop (`<= 700px`).
+ * - Uses `window.matchMedia('(min-width: 1024px)')` so rotating or resizing switches live
+ *   without reloading and closes any open menu or dropdown on layout switch.
+ * - Excludes full-screen practice/test stages (`body.stage-focus-mode`) so those keep only
+ *   their own exit button.
  */
 
 import {
+  NAV_MOBILE_BREAKPOINT_PX,
   getGroupedNavItems,
-  getInlineNavItems,
+  getDesktopNavEntries,
   isNavItemCurrent,
   formatShortFirstName,
 } from './navConfig.js';
@@ -36,7 +44,7 @@ const BRAND_LOGO_SVG = `
     <line x1="16" y1="14" x2="16" y2="18"></line>
     <path d="M16 10h.01"></path>
     <path d="M12 10h.01"></path>
-    <path d="M8 10h.01"></path>
+    <path d="M8" y1="10" x2="8.01" y2="10"></path>
     <path d="M12 14h.01"></path>
     <path d="M8 14h.01"></path>
     <path d="M12 18h.01"></path>
@@ -58,7 +66,16 @@ const CHECK_ICON_SVG = `
   </svg>
 `;
 
+const BELL_ICON_SVG = `
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+    <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+  </svg>
+`;
+
 let activeMenuController = null;
+let activeDesktopDropdownController = null;
+let lastUnreadBadgeState = { count: 0, text: '' };
 
 /**
  * Checks if any in-page full-screen practice/test stage is currently active.
@@ -104,16 +121,21 @@ export function isFullScreenStageActive() {
 }
 
 /**
- * Updates the unread notification dot on the three-dot menu button and the number badge
- * next to the Notifications item inside the menu.
+ * Updates the unread notification dot on the mobile three-dot menu button,
+ * the desktop bell badge (`#nav-notifications-badge`), and the mobile menu badge.
  *
  * @param {number} count
  * @param {string} formattedText
  */
 export function syncHeaderMenuNotificationBadge(count, formattedText) {
+  lastUnreadBadgeState = {
+    count: Number(count) || 0,
+    text: String(formattedText || ''),
+  };
+
   if (typeof document === 'undefined') return;
 
-  const hasUnread = Number(count) > 0 && Boolean(formattedText);
+  const hasUnread = lastUnreadBadgeState.count > 0 && Boolean(lastUnreadBadgeState.text);
   const dotEl = document.getElementById('header-menu-unread-dot');
   if (dotEl) {
     if (hasUnread) {
@@ -127,10 +149,10 @@ export function syncHeaderMenuNotificationBadge(count, formattedText) {
     }
   }
 
-  const menuBadges = document.querySelectorAll('.header-menu-notif-badge');
-  menuBadges.forEach((badge) => {
+  const allBadges = document.querySelectorAll('#nav-notifications-badge, .nav-notifications-badge, .header-menu-notif-badge');
+  allBadges.forEach((badge) => {
     if (hasUnread) {
-      badge.textContent = formattedText;
+      badge.textContent = lastUnreadBadgeState.text;
       badge.style.display = 'inline-flex';
       badge.removeAttribute('aria-hidden');
     } else {
@@ -235,7 +257,8 @@ function openHeaderAccountModal(profile) {
 }
 
 /**
- * Mounts and wires the Phase 14d header layout and three-dot menu for the given role/profile.
+ * Mounts and wires the Phase 14e desktop inline navigation (>= 1024px) and
+ * mobile three-dot menu (< 1024px) for the given role/profile.
  * Safe to call multiple times (idempotent).
  *
  * @param {{ id?: string, full_name?: string, role?: 'student' | 'admin', student_code?: string, level?: string } | null} [profile]
@@ -271,12 +294,21 @@ export function setupHeaderNavigation(profile = null) {
       ? 'admin'
       : 'student');
 
+  header.setAttribute('data-nav-role', inferredRole);
+
   // Set up stage visibility guard (hides header and closes menu on full-screen stages)
   const syncStageFocusMode = () => {
     const inStage = isFullScreenStageActive();
-    document.body.classList.toggle('stage-focus-mode', inStage);
-    if (inStage && activeMenuController?.isOpen()) {
-      activeMenuController.close({ returnFocus: false });
+    if (document.body.classList.contains('stage-focus-mode') !== inStage) {
+      document.body.classList.toggle('stage-focus-mode', inStage);
+    }
+    if (inStage) {
+      if (activeMenuController?.isOpen()) {
+        activeMenuController.close({ returnFocus: false });
+      }
+      if (activeDesktopDropdownController) {
+        activeDesktopDropdownController.closeAll({ returnFocus: false });
+      }
     }
   };
 
@@ -295,7 +327,7 @@ export function setupHeaderNavigation(profile = null) {
     .querySelectorAll('.mobile-menu-btn, .nav-hamburger-btn, #btn-mobile-menu, #btn-nav-hamburger, .account-dropdown')
     .forEach((el) => el.remove());
 
-  // 2. Ensure Brand + Three-Dot Menu cluster on the left: [logo] [Trendz Tracker] [menu button]
+  // 2. Ensure Brand + Three-Dot Menu cluster on the left: [logo] [Trendz Tracker] [mobile menu button]
   let brandCluster = headerInner.querySelector('.header-brand-cluster');
   const existingBrandZone = headerInner.querySelector('.brand-zone');
 
@@ -317,7 +349,7 @@ export function setupHeaderNavigation(profile = null) {
     `;
   }
 
-  // Create or update the three-dot menu anchor & button right beside Trendz Tracker
+  // Create or update the mobile three-dot menu anchor & button right beside Trendz Tracker
   let menuAnchor = brandCluster.querySelector('.header-menu-anchor');
   if (!menuAnchor) {
     menuAnchor = document.createElement('div');
@@ -325,18 +357,13 @@ export function setupHeaderNavigation(profile = null) {
     brandCluster.appendChild(menuAnchor);
   }
 
-  // Ensure backdrop exists for <= 700px left slide-in drawer
-  let backdropEl = document.getElementById('header-nav-backdrop');
-  if (!backdropEl) {
-    backdropEl = document.createElement('div');
-    backdropEl.id = 'header-nav-backdrop';
-    backdropEl.className = 'header-nav-backdrop';
-    backdropEl.hidden = true;
-    backdropEl.setAttribute('aria-hidden', 'true');
-    document.body.appendChild(backdropEl);
+  // Remove any legacy body-level backdrop so the backdrop and drawer share the same stacking context
+  const staleBodyBackdrop = document.body.querySelector(':scope > #header-nav-backdrop');
+  if (staleBodyBackdrop) {
+    staleBodyBackdrop.remove();
   }
 
-  // Render Menu Button + Menu Panel/Drawer from single NAV_CONFIG
+  // Render Mobile Menu Button + Menu Panel/Drawer from single NAV_CONFIG
   const groups = getGroupedNavItems(inferredRole);
   const groupsHtml = groups
     .map((groupEntry) => {
@@ -345,7 +372,7 @@ export function setupHeaderNavigation(profile = null) {
           const isCurrent = isNavItemCurrent(item, pathname);
           const badgeHtml =
             item.badge === 'notifications'
-              ? `<span id="nav-notifications-badge" class="nav-notifications-badge header-menu-notif-badge num" style="display: none;" aria-hidden="true"></span>`
+              ? `<span class="nav-notifications-badge header-menu-notif-badge num" style="display: none;" aria-hidden="true"></span>`
               : '';
           const currentIndicatorHtml = isCurrent
             ? `<span class="header-nav-current-indicator">${CHECK_ICON_SVG}<span class="header-nav-current-text">Current</span></span>`
@@ -393,6 +420,7 @@ export function setupHeaderNavigation(profile = null) {
       ${THREE_DOT_SVG}
       <span id="header-menu-unread-dot" class="header-menu-unread-dot" hidden aria-hidden="true"></span>
     </button>
+    <div id="header-nav-backdrop" class="header-nav-backdrop" hidden aria-hidden="true"></div>
     <nav
       id="header-nav-menu"
       class="header-nav-menu"
@@ -411,7 +439,7 @@ export function setupHeaderNavigation(profile = null) {
     </nav>
   `;
 
-  // 3. Render the SHORT inline link list (>= 1100px only) from NAV_CONFIG
+  // 3. Render the Desktop inline navigation bar & dropdowns (>= 1024px) from single NAV_CONFIG
   const allNavZones = Array.from(headerInner.querySelectorAll('.nav-zone'));
   let navZone = allNavZones[0] || null;
   for (let i = 1; i < allNavZones.length; i += 1) {
@@ -432,17 +460,77 @@ export function setupHeaderNavigation(profile = null) {
   navZone.removeAttribute('style');
   navZone.className = 'nav-zone header-inline-nav';
   navZone.id = inferredRole === 'admin' ? 'admin-nav-zone' : 'student-nav-zone';
-  navZone.setAttribute('aria-label', inferredRole === 'admin' ? 'Admin Primary Navigation' : 'Student Primary Navigation');
+  navZone.setAttribute(
+    'aria-label',
+    inferredRole === 'admin' ? 'Admin Primary Navigation' : 'Student Primary Navigation'
+  );
 
-  const inlineItems = getInlineNavItems(inferredRole);
-  navZone.innerHTML = inlineItems
-    .map((item) => {
-      const isCurrent = isNavItemCurrent(item, pathname);
-      return `<a href="${item.href}" class="nav-link${isCurrent ? ' active' : ''}"${
-        isCurrent ? ' aria-current="page"' : ''
-      }>${item.label}</a>`;
+  const desktopEntries = getDesktopNavEntries(inferredRole);
+  navZone.innerHTML = desktopEntries
+    .map((entry) => {
+      if (entry.type === 'link') {
+        const item = entry.item;
+        const isCurrent = isNavItemCurrent(item, pathname);
+        return `<a href="${item.href}" class="nav-link${isCurrent ? ' active' : ''}"${
+          isCurrent ? ' aria-current="page"' : ''
+        }>${item.label}</a>`;
+      }
+
+      if (entry.type === 'dropdown') {
+        const hasActiveChild = entry.items.some((child) => isNavItemCurrent(child, pathname));
+        const dropdownLinksHtml = entry.items
+          .map((child) => {
+            const isChildCurrent = isNavItemCurrent(child, pathname);
+            return `<a href="${child.href}" class="dropdown-item${isChildCurrent ? ' active' : ''}" role="menuitem"${
+              isChildCurrent ? ' aria-current="page"' : ''
+            }>${child.label}</a>`;
+          })
+          .join('');
+
+        return `
+          <div class="nav-dropdown" id="${entry.id}">
+            <button
+              type="button"
+              id="${entry.toggleId}"
+              class="nav-link nav-dropdown-toggle${hasActiveChild ? ' active' : ''}"
+              aria-expanded="false"
+              aria-haspopup="true"
+              aria-controls="${entry.menuId}"
+            >
+              ${entry.label} <span class="nav-dropdown-caret" aria-hidden="true">&#9662;</span>
+            </button>
+            <div id="${entry.menuId}" class="nav-dropdown-menu" role="menu" aria-label="${entry.label} pages">
+              ${dropdownLinksHtml}
+            </div>
+          </div>
+        `;
+      }
+
+      if (entry.type === 'bell') {
+        const item = entry.item;
+        const isCurrent = isNavItemCurrent(item, pathname);
+        return `
+          <a
+            href="${item.href}"
+            class="nav-link nav-bell-link${isCurrent ? ' active' : ''}"
+            title="${item.label}"
+            aria-label="${item.label}"
+            ${isCurrent ? 'aria-current="page"' : ''}
+          >
+            <span class="nav-bell-icon-wrap">
+              ${BELL_ICON_SVG}
+              <span id="nav-notifications-badge" class="nav-notifications-badge num" style="display: none;" aria-hidden="true"></span>
+            </span>
+          </a>
+        `;
+      }
+
+      return '';
     })
     .join('');
+
+  // Re-apply cached unread notification badge state to newly rendered DOM elements
+  syncHeaderMenuNotificationBadge(lastUnreadBadgeState.count, lastUnreadBadgeState.text);
 
   // 4. Right-hand user details (Name, ID, and Sign out)
   const actionsZone = headerInner.querySelector('.actions-zone');
@@ -467,7 +555,8 @@ export function setupHeaderNavigation(profile = null) {
     }
     nameEl.className = 'header-user-name';
 
-    const fullName = profile?.full_name || nameEl.textContent?.trim() || (inferredRole === 'admin' ? 'Admin' : 'Student');
+    const fullName =
+      profile?.full_name || nameEl.textContent?.trim() || (inferredRole === 'admin' ? 'Admin' : 'Student');
     const shortName = formatShortFirstName(fullName, inferredRole === 'admin' ? 'Admin' : 'Student');
     nameEl.textContent = fullName;
     nameEl.setAttribute('data-short-name', shortName);
@@ -496,9 +585,107 @@ export function setupHeaderNavigation(profile = null) {
     }
   }
 
-  // 5. Wire interactive menu state, focus management, keyboard navigation, and outside/backdrop close
+  // 5. Wire desktop dropdowns (Practice ▾ and Setup ▾)
+  const safeFocus = (el) => {
+    if (!el || typeof el.focus !== 'function') return;
+    try {
+      el.focus({ preventScroll: true });
+    } catch {
+      try {
+        el.focus();
+      } catch {
+        // Ignore focus errors on mobile browsers
+      }
+    }
+  };
+
+  const dropdownElements = Array.from(navZone.querySelectorAll('.nav-dropdown'));
+  const closeDesktopDropdown = (dropdownEl, { returnFocus = false } = {}) => {
+    if (!dropdownEl) return;
+    const toggleBtn = dropdownEl.querySelector('.nav-dropdown-toggle');
+    dropdownEl.classList.remove('is-open');
+    toggleBtn?.setAttribute('aria-expanded', 'false');
+    if (returnFocus && toggleBtn) {
+      safeFocus(toggleBtn);
+    }
+  };
+
+  const closeAllDesktopDropdowns = ({ except = null, returnFocus = false } = {}) => {
+    dropdownElements.forEach((dd) => {
+      if (dd !== except && dd.classList.contains('is-open')) {
+        closeDesktopDropdown(dd, { returnFocus });
+      }
+    });
+  };
+
+  activeDesktopDropdownController = {
+    closeAll: closeAllDesktopDropdowns,
+  };
+
+  dropdownElements.forEach((dropdownEl) => {
+    const toggleBtn = dropdownEl.querySelector('.nav-dropdown-toggle');
+    const items = Array.from(dropdownEl.querySelectorAll('.dropdown-item'));
+    if (!toggleBtn) return;
+
+    const openThisDropdown = ({ focusFirst = false } = {}) => {
+      closeAllDesktopDropdowns({ except: dropdownEl });
+      dropdownEl.classList.add('is-open');
+      toggleBtn.setAttribute('aria-expanded', 'true');
+      if (focusFirst && items.length > 0) {
+        safeFocus(items[0]);
+      }
+    };
+
+    toggleBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (dropdownEl.classList.contains('is-open')) {
+        closeDesktopDropdown(dropdownEl, { returnFocus: true });
+      } else {
+        openThisDropdown({ focusFirst: false });
+      }
+    });
+
+    toggleBtn.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        openThisDropdown({ focusFirst: true });
+      } else if (e.key === 'Escape' && dropdownEl.classList.contains('is-open')) {
+        e.preventDefault();
+        closeDesktopDropdown(dropdownEl, { returnFocus: true });
+      }
+    });
+
+    dropdownEl.addEventListener('keydown', (e) => {
+      if (!dropdownEl.classList.contains('is-open')) return;
+      const currentIdx = items.indexOf(document.activeElement);
+
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        closeDesktopDropdown(dropdownEl, { returnFocus: true });
+      } else if (e.key === 'ArrowDown' && items.length > 0) {
+        e.preventDefault();
+        const nextIdx = currentIdx < 0 ? 0 : (currentIdx + 1) % items.length;
+        safeFocus(items[nextIdx]);
+      } else if (e.key === 'ArrowUp' && items.length > 0) {
+        e.preventDefault();
+        const prevIdx = currentIdx <= 0 ? items.length - 1 : currentIdx - 1;
+        safeFocus(items[prevIdx]);
+      }
+    });
+
+    items.forEach((linkEl) => {
+      linkEl.addEventListener('click', () => {
+        closeDesktopDropdown(dropdownEl, { returnFocus: false });
+      });
+    });
+  });
+
+  // 6. Wire mobile three-dot menu state, focus management, keyboard navigation, and outside/backdrop close
   const menuBtn = document.getElementById('btn-header-nav-menu');
   const menuEl = document.getElementById('header-nav-menu');
+  const backdropEl = document.getElementById('header-nav-backdrop');
   const closeDrawerBtn = document.getElementById('btn-header-nav-close');
   const menuItems = Array.from(menuEl.querySelectorAll('.header-nav-item'));
 
@@ -506,7 +693,7 @@ export function setupHeaderNavigation(profile = null) {
 
   const focusItemAt = (index) => {
     if (index >= 0 && index < menuItems.length) {
-      menuItems[index].focus();
+      safeFocus(menuItems[index]);
     }
   };
 
@@ -521,12 +708,14 @@ export function setupHeaderNavigation(profile = null) {
       backdropEl.classList.toggle('is-open', isOpen);
     }
 
-    document.body.classList.toggle('nav-menu-open', isOpen);
+    if (document.body.classList.contains('nav-menu-open') !== isOpen) {
+      document.body.classList.toggle('nav-menu-open', isOpen);
+    }
 
     if (isOpen && state.focusedIndex >= 0) {
       focusItemAt(state.focusedIndex);
     } else if (!isOpen && state.returnFocusToButton) {
-      menuBtn.focus();
+      safeFocus(menuBtn);
     }
   };
 
@@ -563,9 +752,13 @@ export function setupHeaderNavigation(profile = null) {
     closeMenu({ returnFocus: true });
   });
 
-  backdropEl.onclick = () => {
-    closeMenu({ returnFocus: true });
-  };
+  if (backdropEl) {
+    backdropEl.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      closeMenu({ returnFocus: true });
+    };
+  }
 
   // Menu item click handling (links, Account, Sign out)
   menuItems.forEach((itemEl, idx) => {
@@ -602,11 +795,65 @@ export function setupHeaderNavigation(profile = null) {
     });
   });
 
+  // 7. Live responsive switch at NAV_MOBILE_BREAKPOINT_PX (1024px) via matchMedia
+  // Ensures only ONE navigation is active in the DOM/accessibility tree at a time
+  // and closes open menus/dropdowns on viewport switch.
+  const applyResponsiveNavMode = (isDesktop) => {
+    if (isDesktop) {
+      if (state.isOpen) {
+        closeMenu({ returnFocus: false });
+      }
+      menuAnchor.hidden = true;
+      menuAnchor.setAttribute('aria-hidden', 'true');
+      navZone.hidden = false;
+      navZone.removeAttribute('aria-hidden');
+    } else {
+      closeAllDesktopDropdowns({ returnFocus: false });
+      navZone.hidden = true;
+      navZone.setAttribute('aria-hidden', 'true');
+      menuAnchor.hidden = false;
+      menuAnchor.removeAttribute('aria-hidden');
+    }
+  };
+
+  if (typeof window.matchMedia === 'function') {
+    const mql = window.matchMedia(`(min-width: ${NAV_MOBILE_BREAKPOINT_PX}px)`);
+    applyResponsiveNavMode(mql.matches);
+
+    if (header._ttBreakpointMql && header._ttBreakpointHandler) {
+      if (typeof header._ttBreakpointMql.removeEventListener === 'function') {
+        header._ttBreakpointMql.removeEventListener('change', header._ttBreakpointHandler);
+      }
+    }
+
+    const onBreakpointChange = (e) => {
+      applyResponsiveNavMode(Boolean(e.matches));
+    };
+    header._ttBreakpointMql = mql;
+    header._ttBreakpointHandler = onBreakpointChange;
+
+    if (typeof mql.addEventListener === 'function') {
+      mql.addEventListener('change', onBreakpointChange);
+    } else if (typeof mql.addListener === 'function') {
+      mql.addListener(onBreakpointChange);
+    }
+  } else {
+    const isDesktop = (window.innerWidth || 1280) >= NAV_MOBILE_BREAKPOINT_PX;
+    applyResponsiveNavMode(isDesktop);
+  }
+
   // Document-level Escape, Arrow keys, Tab focus trap, and outside click/tap
   if (!window.__ttHeaderNavGlobalListenersAttached) {
     window.__ttHeaderNavGlobalListenersAttached = true;
 
     document.addEventListener('click', (e) => {
+      if (activeDesktopDropdownController) {
+        const clickedDropdown = e.target?.closest ? e.target.closest('.nav-dropdown') : null;
+        if (!clickedDropdown) {
+          activeDesktopDropdownController.closeAll({ returnFocus: false });
+        }
+      }
+
       if (!activeMenuController || !activeMenuController.isOpen()) return;
       const currentMenuEl = document.getElementById('header-nav-menu');
       const currentBtnEl = document.getElementById('btn-header-nav-menu');
@@ -624,22 +871,25 @@ export function setupHeaderNavigation(profile = null) {
       if (activeMenuController?.isOpen()) {
         activeMenuController.close({ returnFocus: false });
       }
+      activeDesktopDropdownController?.closeAll({ returnFocus: false });
     });
 
     window.addEventListener('popstate', () => {
       if (activeMenuController?.isOpen()) {
         activeMenuController.close({ returnFocus: false });
       }
+      activeDesktopDropdownController?.closeAll({ returnFocus: false });
     });
 
     window.addEventListener('hashchange', () => {
       if (activeMenuController?.isOpen()) {
         activeMenuController.close({ returnFocus: false });
       }
+      activeDesktopDropdownController?.closeAll({ returnFocus: false });
     });
   }
 
-  // Attach keyboard navigation handler to menuEl and document
+  // Attach keyboard navigation handler to menuEl and menuBtn
   menuEl.addEventListener('keydown', (e) => {
     if (!state.isOpen) return;
 
