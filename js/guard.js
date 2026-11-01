@@ -9,6 +9,9 @@ import { isDemoMode } from './demoDb.js';
 import { openModal } from './modal.js';
 import { showToast } from './toast.js';
 import { initStudentNotificationBell } from './notificationBadge.js';
+import { setupHeaderNavigation } from './headerNav.js';
+import { formatShortFirstName } from './navConfig.js';
+import { markPerf, reportPagePerf } from './perf.js';
 
 /**
  * Enforces production configuration lock:
@@ -36,11 +39,25 @@ export function checkProductionConfigLock() {
  * @param {Array<'student' | 'admin'>} allowedRoles
  */
 export async function requireAuth(allowedRoles = ['student', 'admin']) {
+  markPerf('tt:guard-start');
   if (checkProductionConfigLock()) {
     return null;
   }
 
-  const profile = await getCurrentProfile();
+  const profile = await getCurrentProfile({
+    allowCached: true,
+    onRevalidated: (freshProfile) => {
+      if (!freshProfile || !allowedRoles.includes(freshProfile.role)) {
+        if (freshProfile?.role === 'student') {
+          window.location.href = '/pages/student.html';
+        } else {
+          window.location.href = '/index.html';
+        }
+        return;
+      }
+      setupHeaderUserUI(freshProfile);
+    },
+  });
 
   if (!profile) {
     // Save attempted URL or redirect to login
@@ -58,10 +75,18 @@ export async function requireAuth(allowedRoles = ['student', 'admin']) {
     return null;
   }
 
-  // Populate header UI elements if present
+  // Mount Phase 14d header & three-dot menu and populate user details
+  setupHeaderNavigation(profile);
   setupHeaderUserUI(profile);
   renderConfigBanner();
   initStudentNotificationBell(profile);
+
+  markPerf('tt:guard-ready');
+  if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+    window.requestAnimationFrame(() => {
+      window.setTimeout(() => reportPagePerf(), 0);
+    });
+  }
 
   return profile;
 }
@@ -71,15 +96,18 @@ export async function requireAuth(allowedRoles = ['student', 'admin']) {
  * If user is already authenticated, redirects them straight to their dashboard.
  */
 export async function requireNoAuth() {
+  markPerf('tt:guard-start');
   if (checkProductionConfigLock()) {
     return;
   }
 
-  const profile = await getCurrentProfile();
+  const profile = await getCurrentProfile({ allowCached: true });
+  markPerf('tt:guard-ready');
   if (profile) {
     redirectByRole(profile);
   } else {
     renderConfigBanner();
+    reportPagePerf('/index.html');
   }
 }
 
@@ -92,11 +120,19 @@ function setupHeaderUserUI(profile) {
   const userCodeEl = document.getElementById('header-user-code');
   const logoutBtn = document.getElementById('btn-header-logout');
 
-  if (userNameEl) userNameEl.textContent = profile.full_name;
-  if (userRoleEl) userRoleEl.textContent = profile.role === 'admin' ? 'Teacher / Admin' : 'Student';
-  if (userCodeEl) userCodeEl.textContent = profile.student_code;
+  if (userNameEl) {
+    userNameEl.textContent = profile.full_name;
+    userNameEl.setAttribute(
+      'data-short-name',
+      formatShortFirstName(profile.full_name, profile.role === 'admin' ? 'Admin' : 'Student')
+    );
+    userNameEl.title = profile.full_name || '';
+  }
+  if (userRoleEl) userRoleEl.textContent = profile.role === 'admin' ? 'Admin' : 'Student';
+  if (userCodeEl) userCodeEl.textContent = profile.student_code || (profile.role === 'admin' ? 'Admin' : 'STU');
 
-  if (logoutBtn) {
+  if (logoutBtn && !logoutBtn.dataset.logoutWired) {
+    logoutBtn.dataset.logoutWired = 'true';
     logoutBtn.addEventListener('click', async (e) => {
       e.preventDefault();
       await logoutUser();

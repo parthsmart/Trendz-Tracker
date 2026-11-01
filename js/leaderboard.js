@@ -1028,57 +1028,57 @@ async function initLeaderboardPage() {
   const pillContainer = document.getElementById('user-pill-container');
   if (pillContainer) pillContainer.style.display = 'flex';
 
-  // 2. Configure Navigation Bar for Student vs Admin
-  if (isAdmin) {
-    const studentNav = document.getElementById('student-nav-zone');
-    const adminNav = document.getElementById('admin-nav-zone');
-    const mobileMenuBtn = document.getElementById('btn-mobile-menu');
-    const brandLink = document.getElementById('header-brand-link');
-    const adminControls = document.getElementById('admin-leaderboard-controls');
-
-    if (studentNav) studentNav.style.display = 'none';
-    if (adminNav) adminNav.style.display = '';
-    if (mobileMenuBtn) mobileMenuBtn.style.display = '';
-    if (brandLink) brandLink.setAttribute('href', '/pages/admin.html');
-    if (adminControls) adminControls.style.display = 'flex';
-
-    setupAdminNav();
-    await populateAdminLevelsDropdown();
-  } else {
-    // Student scope setup: check URL ?scope=global or localStorage, and check global_leaderboard_enabled()
-    let desiredScope = readStoredScope();
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const urlScope = params.get('scope');
-      if (urlScope === 'global' || urlScope === 'level') {
-        desiredScope = urlScope;
-      }
-    } catch {
-      // Ignore URL parse issues
+  // 2. Restore board, period, task, and level from localStorage & URL query parameters
+  let desiredScope = readStoredScope();
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const urlScope = params.get('scope');
+    if (urlScope === 'global' || urlScope === 'level') {
+      desiredScope = urlScope;
     }
-
-    globalEnabled = await fetchGlobalLeaderboardEnabled().catch(() => false);
-    if (!globalEnabled) {
-      currentScope = 'level';
-    } else {
-      currentScope = desiredScope === 'global' ? 'global' : 'level';
-      writeStoredScope(currentScope);
-    }
-    syncScopeControlsUI();
+  } catch {
+    // Ignore URL parse issues
   }
-
-  // 3. Restore board, period, task, and level from localStorage & URL query parameters
+  if (!isAdmin) {
+    currentScope = desiredScope === 'global' ? 'global' : 'level';
+  }
   restoreInitialSelections();
 
-  // 4. Wire UI listeners
+  // 3. Configure Admin vs Student controls & wire UI listeners
+  if (isAdmin) {
+    const adminControls = document.getElementById('admin-leaderboard-controls');
+    if (adminControls) adminControls.style.display = 'flex';
+    setupAdminNav();
+  } else {
+    syncScopeControlsUI();
+  }
   setupControls();
 
-  // 5. Load competition_rules() and initial board in parallel
+  // 4. Load role-specific scope/levels, competition_rules(), and initial board in parallel
   try {
-    const [rules] = await Promise.all([
+    const roleSetupPromise = isAdmin
+      ? populateAdminLevelsDropdown()
+      : fetchGlobalLeaderboardEnabled().catch(() => false);
+
+    const [roleResult, rules] = await Promise.all([
+      roleSetupPromise,
       fetchCompetitionRules().catch(() => competitionRules),
       loadActiveBoard()
     ]);
+
+    if (!isAdmin) {
+      globalEnabled = Boolean(roleResult);
+      if (!globalEnabled && currentScope === 'global') {
+        currentScope = 'level';
+        writeStoredScope('level');
+        syncScopeControlsUI();
+        await loadActiveBoard();
+      } else {
+        writeStoredScope(currentScope);
+        syncScopeControlsUI();
+      }
+    }
+
     if (rules) {
       competitionRules = rules;
       updateBoardChrome();

@@ -104,31 +104,18 @@ async function initMonthlyReportPage() {
 }
 
 function configureHeaderNavigation(profile) {
-  const studentNav = document.getElementById('student-nav-zone');
-  const adminNav = document.getElementById('admin-nav-zone');
-  const mobileMenuBtn = document.getElementById('btn-mobile-menu');
-  const brandLink = document.getElementById('header-brand-link');
   const userPill = document.getElementById('user-pill-container');
   const userNameEl = document.getElementById('header-user-name');
   const userCodeEl = document.getElementById('header-user-code');
 
-  if (userPill) userPill.style.display = 'flex';
+  if (userPill) userPill.style.display = 'inline-flex';
   if (userNameEl) userNameEl.textContent = profile.full_name || (isAdmin ? 'Admin' : 'Student');
   if (userCodeEl) {
-    userCodeEl.textContent = isAdmin ? 'Teacher / Admin' : (profile.student_code || 'STU');
+    userCodeEl.textContent = isAdmin ? (profile.student_code || 'Admin') : (profile.student_code || 'STU');
   }
 
   if (isAdmin) {
-    if (studentNav) studentNav.style.display = 'none';
-    if (adminNav) adminNav.style.display = 'flex';
-    if (mobileMenuBtn) mobileMenuBtn.style.display = '';
-    if (brandLink) brandLink.href = '/pages/admin.html';
     setupAdminNav();
-  } else {
-    if (studentNav) studentNav.style.display = 'flex';
-    if (adminNav) adminNav.style.display = 'none';
-    if (mobileMenuBtn) mobileMenuBtn.style.display = 'none';
-    if (brandLink) brandLink.href = '/pages/student.html';
   }
 }
 

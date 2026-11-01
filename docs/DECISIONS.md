@@ -838,3 +838,19 @@ Every meaningful technical and architectural decision made for **Trendz Tracker*
      - Only `basics` tasks with a specific `category_id` call `todo_task_leaderboard`. Selecting any other task type (`flash`, `elements`, `memoriad`, `round`, or `basics` without a category) never calls `todo_task_leaderboard` and never shows a time column; instead it displays *"Speed ranking is not available for this kind of task yet."* with the **All tasks** days-completed board below it.
   3. **Authoritative India-Time Period Options & Shareable URL State (`js/periods.js`)**:
      - `period_bounds` in PostgreSQL and `parsePeriod` / `periodValue` / `periodLabel` in `js/periods.js` support `'today'`, `'yesterday'`, `'week'`, `'month'`, `'year'`, `'all'`, and `'date:YYYY-MM-DD'` (`2020-01-01` through `today_ist()`). Persisting `?board=&period=&task=` in the page URL and `localStorage` (inside `try/catch`) lets teachers share direct links to any date or task leaderboard.
+
+---
+
+### Decision 39: Single Navigation Config (`js/navConfig.js`), Three-Dot Header Menu, and Why the Menu Is the Only Navigation on Phones (Phase 14d)
+- **Date**: 2026-10-31
+- **Context**:
+  - Previously, student pages had no mobile navigation menu in the header (showing only the student's name and Sign Out on phones), while admin pages rendered 7+ inline header links that forced `"Trendz Tracker"` and the teacher's name to wrap onto two lines on laptops and tablets. Furthermore, navigation links were duplicated across HTML files and helper scripts.
+- **Decisions & Rationale**:
+  1. **Why One Navigation Config (`js/navConfig.js`) Drives Both the Menu and Inline Links**:
+     - Maintaining separate link lists for desktop inline bars, dropdown menus, and individual HTML headers invites drift whenever a page is added or renamed.
+     - Defining every destination once per role (`'student'` and `'admin'`) in `js/navConfig.js` (`{ id, label, href, group, inline, badge, action }`) and validating it via `tests/navConfig.test.js` against `vite.config.ts` `rollupOptions.input` guarantees that every student and admin page is reachable from the three-dot menu, the `>= 1100 px` short inline list (`Today, Weekly Test, Leaderboard` for students; `Overview, Students, Review, Weekly Tests` for admins) never diverges from the menu, and no `href` is ever duplicated.
+  2. **Why the Three-Dot Menu Is the Only Navigation Below `1100 px` (Including Phones and Portrait/Landscape Tablets)**:
+     - On phones (`390 px`) and tablets (`768 px`–`1024 px`), displaying inline navigation links alongside the brand logo, `"Trendz Tracker"` title, `44 x 44 px` menu button, user name/ID, and Sign Out button causes line wrapping, cramped touch targets, or horizontal overflow.
+     - Hiding inline links below `1100 px` and placing the `44 x 44 px` three-dot (`⋮`) menu button immediately beside `"Trendz Tracker"` keeps the header on a single calm line at every viewport width while giving students and teachers two-tap access to every page (via an anchored panel on `> 700 px` and a focus-trapped left slide-in drawer on `<= 700 px`).
+  3. **Why Focused Full-Screen Practice and Test Stages Hide the Header and Menu**:
+     - During timed mental calculation stages (Flash Anzan play, Elements worksheet drill, Memoriad competition stages, active Weekly Test sections, and timed Basics rounds), accidental taps on header navigation would interrupt concentration or lose an active round. Those stages suppress the global header and menu (`body.stage-focus-mode`) and keep only their dedicated stage exit/stop control.

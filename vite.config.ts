@@ -37,7 +37,35 @@ export default defineConfig(({ command }) => {
     { find: '@', replacement: path.resolve(__dirname, '.') },
   ];
 
+  const rawSupabaseUrl = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '').trim();
+  let supabaseOrigin = '';
+  try {
+    if (
+      rawSupabaseUrl.startsWith('https://') &&
+      !rawSupabaseUrl.includes('YOUR_') &&
+      !rawSupabaseUrl.includes('your-project-ref')
+    ) {
+      supabaseOrigin = new URL(rawSupabaseUrl).origin;
+    }
+  } catch {
+    supabaseOrigin = '';
+  }
+
   return {
+    plugins: [
+      {
+        name: 'trendz-supabase-preconnect',
+        transformIndexHtml(html) {
+          if (!supabaseOrigin) return html;
+          if (html.includes(`rel="preconnect" href="${supabaseOrigin}"`)) return html;
+          const tag = `    <link rel="preconnect" href="${supabaseOrigin}" crossorigin />\n`;
+          if (html.includes('</head>')) {
+            return html.replace('</head>', `${tag}  </head>`);
+          }
+          return html;
+        },
+      },
+    ],
     resolve: {
       alias: aliases,
     },

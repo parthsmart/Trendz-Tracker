@@ -6,6 +6,7 @@
 
 import { isSupabaseConfigured, isDemoAllowedHost } from './config.js';
 import { getSupabase, DemoDB } from './supabaseClient.js';
+import { clearProfileCache } from './profileCache.js';
 
 /**
  * Creates a new student user in Supabase Auth & public.profiles
@@ -61,6 +62,7 @@ export async function resetStudentPassword(studentId, newPassword) {
     if (!isDemoAllowedHost()) {
       throw new Error('Configuration error - contact the administrator.');
     }
+    clearProfileCache();
     // Demo Mode simulation (only on localhost or run.app)
     return DemoDB.resetStudentPassword(studentId);
   }
@@ -96,6 +98,7 @@ export async function resetStudentPassword(studentId, newPassword) {
     throw new Error(result?.error || `Failed to reset password (Status ${response.status})`);
   }
 
+  clearProfileCache();
   return true;
 }
 
@@ -110,6 +113,7 @@ export async function toggleStudentActive(studentId, currentActive) {
     if (!isDemoAllowedHost()) {
       throw new Error('Configuration error - contact the administrator.');
     }
+    clearProfileCache();
     return DemoDB.toggleStudentActive(studentId);
   }
 
@@ -127,6 +131,7 @@ export async function toggleStudentActive(studentId, currentActive) {
     throw new Error(error.message);
   }
 
+  clearProfileCache();
   return data;
 }
 
@@ -142,6 +147,7 @@ export async function toggleStudentLeaderboardVisible(studentId, currentVisible)
     if (!isDemoAllowedHost()) {
       throw new Error('Configuration error - contact the administrator.');
     }
+    clearProfileCache();
     return DemoDB.toggleStudentLeaderboardVisible(studentId, nextVisible);
   }
 
@@ -158,6 +164,7 @@ export async function toggleStudentLeaderboardVisible(studentId, currentVisible)
     throw new Error(error.message);
   }
 
+  clearProfileCache();
   return data;
 }
 

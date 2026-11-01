@@ -15,7 +15,7 @@ import { getSupabase, DemoDB } from './supabaseClient.js';
 import { isSupabaseConfigured } from './config.js';
 import { isDemoMode } from './demoDb.js';
 import { formatTodayHeadingIST } from './periods.js';
-import { fetchStudentDashboardData } from './dashboardData.js';
+import { fetchStudentDashboardData, fetchStudentScoreSheetData } from './dashboardData.js';
 import { groupTests, isSectionStartable } from './weeklyTestView.js';
 import {
   renderStreakCard,
@@ -39,6 +39,109 @@ import {
   sanitizeNotificationLink,
 } from './notificationsView.js';
 
+let cachedDashboardData = null;
+let progressTabLoaded = false;
+let progressTabLoadingPromise = null;
+
+function observeOnceWhenVisible(element, callback) {
+  if (!element || typeof callback !== 'function') return;
+  if (typeof window === 'undefined' || typeof IntersectionObserver === 'undefined') {
+    callback();
+    return;
+  }
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          observer.disconnect();
+          callback();
+          break;
+        }
+      }
+    },
+    { rootMargin: '160px 0px' }
+  );
+  observer.observe(element);
+}
+
+async function ensureProgressTabLoaded(studentId) {
+  if (progressTabLoaded) return;
+  if (progressTabLoadingPromise) return progressTabLoadingPromise;
+
+  progressTabLoadingPromise = (async () => {
+    try {
+      const scoreSheetData = await fetchStudentScoreSheetData(studentId);
+      const data = cachedDashboardData;
+      if (!data) return;
+
+      const fullResults =
+        Array.isArray(scoreSheetData.allResults) && scoreSheetData.allResults.length > 0
+          ? scoreSheetData.allResults
+          : data.results;
+
+      data.roundSeries = scoreSheetData.roundSeries;
+      data.categorySeries = scoreSheetData.categorySeries;
+      data.studentRounds = scoreSheetData.studentRounds;
+      data.resources = scoreSheetData.resources;
+      data.results = fullResults;
+
+      // Score Sheet Table with Series Selector, 5-Round Pagination & Sticky Column
+      setupScoreSheetController({
+        results: fullResults,
+        categories: data.categories,
+        roundSeries: data.roundSeries,
+        categorySeries: data.categorySeries,
+        studentRounds: data.studentRounds
+      });
+
+      // Progress Charts (7-day vs 4-week toggle, week-over-week comparison, dual bar charts, text summaries)
+      setupProgressChartsController({
+        results: fullResults,
+        todayIST: data.todayIST,
+        containerId: 'charts-wrapper-container'
+      });
+
+      // Basics Card
+      renderBasicsThisWeek(fullResults, data.categories, data.todayIST);
+
+      // Flash Anzan Card (Phase 7)
+      renderFlashThisWeek(data.activityResults, data.todayIST);
+
+      // Elements Worksheet Drills Card (Phase 8)
+      await renderElementsCard({
+        studentId,
+        containerId: 'elements-week-container',
+        isReadOnly: false,
+        todayIST: data.todayIST,
+        preloadedResults: data.activityResults
+      });
+
+      // Memoriad Competition Practice Card (Phase 9b-1)
+      await renderMemoriadCard({
+        studentId,
+        containerId: 'memoriad-week-container',
+        isReadOnly: false,
+        todayIST: data.todayIST,
+        preloadedResults: data.activityResults
+      });
+
+      // Attendance Card (Phase 4a)
+      renderAttendanceCard(data.attendance, 'attendance-card-container');
+
+      // Learning Resources
+      renderResources(data.resources);
+
+      progressTabLoaded = true;
+    } catch (err) {
+      console.error('Failed to load Score Sheet & Progress tab:', err);
+    } finally {
+      progressTabLoadingPromise = null;
+    }
+  })();
+
+  return progressTabLoadingPromise;
+}
+
 async function initStudentDashboard() {
   // 1. Guard check: Strictly for logged-in students (or admin viewing their own student record).
   // /pages/student.html must NEVER read a student id from the URL or anywhere else.
@@ -51,16 +154,24 @@ async function initStudentDashboard() {
   // Render header details
   renderHeaderUser(loggedInProfile);
   renderStudentHero(loggedInProfile);
-  setupStudentHomeViewTabs();
+  setupStudentHomeViewTabs(() => {
+    ensureProgressTabLoaded(currentStudentId);
+  });
 
-  // Load Leaderboard summary card (Phase 5a), Available Weekly Test banner (Phase 13a), and compact reminders strip (Phase 13b)
-  loadAndRenderLeaderboardCard('leaderboard-card-container', loggedInProfile);
+  // Load Available Weekly Test banner (Phase 13a) and compact reminders strip (Phase 13b)
   loadAndRenderAvailableWeeklyTestCard(currentStudentId);
   loadAndRenderHomeRemindersStrip(currentStudentId);
 
-  // 2. Fetch and render all dashboard data using shared loader
+  // Lazy-load Leaderboard summary card when scrolled near viewport (Candidate D)
+  const lbContainer = document.getElementById('leaderboard-card-container');
+  observeOnceWhenVisible(lbContainer, () => {
+    loadAndRenderLeaderboardCard('leaderboard-card-container', loggedInProfile);
+  });
+
+  // 2. Fetch and render "Today's Focus" dashboard data first (Score Sheet deferred until tab open)
   try {
-    const data = await fetchStudentDashboardData(currentStudentId);
+    const data = await fetchStudentDashboardData(currentStudentId, { includeScoreSheet: false });
+    cachedDashboardData = data;
 
     // Date in "Today" Header (India time)
     const todayEl = document.getElementById('display-today-ist');
@@ -75,55 +186,14 @@ async function initStudentDashboard() {
     // Three Small 7-Day Summary Cards: Accuracy, Speed (q/min), Practice days
     renderTodaySummaryMetrics(data.results, data.activityResults, data.todayIST);
 
-    // Basics Card
-    renderBasicsThisWeek(data.results, data.categories, data.todayIST);
-
-    // Flash Anzan Card (Phase 7)
-    renderFlashThisWeek(data.activityResults, data.todayIST);
-
-    // Elements Worksheet Drills Card (Phase 8)
-    await renderElementsCard({
-      studentId: currentStudentId,
-      containerId: 'elements-week-container',
-      isReadOnly: false,
-      todayIST: data.todayIST,
-      preloadedResults: data.activityResults
-    });
-
-    // Memoriad Competition Practice Card (Phase 9b-1)
-    await renderMemoriadCard({
-      studentId: currentStudentId,
-      containerId: 'memoriad-week-container',
-      isReadOnly: false,
-      todayIST: data.todayIST,
-      preloadedResults: data.activityResults
-    });
-
-    // Attendance Card (Phase 4a)
-    renderAttendanceCard(data.attendance, 'attendance-card-container');
-
     // Weekly Tests Card (Phase 4b)
     renderWeeklyTestsCard(data.weeklyTests, data.categories, 'weekly-tests-card-container');
 
-    // Learning Resources
-    renderResources(data.resources);
-
-    // Score Sheet Table with Series Selector, 5-Round Pagination & Sticky Column
-    setupScoreSheetController({
-      results: data.results,
-      categories: data.categories,
-      roundSeries: data.roundSeries,
-      categorySeries: data.categorySeries,
-      studentRounds: data.studentRounds
-    });
-
-    // Progress Charts (7-day vs 4-week toggle, week-over-week comparison, dual bar charts, text summaries)
-    setupProgressChartsController({
-      results: data.results,
-      todayIST: data.todayIST,
-      containerId: 'charts-wrapper-container'
-    });
-
+    // If user already switched to Progress or Show All while initial data was loading, load Tab 2 now
+    const progressPane = document.getElementById('student-pane-progress');
+    if (progressPane && progressPane.style.display !== 'none') {
+      await ensureProgressTabLoaded(currentStudentId);
+    }
   } catch (err) {
     console.error('Failed to load student dashboard data:', err);
   }
@@ -305,7 +375,7 @@ async function loadAndRenderHomeRemindersStrip(studentId) {
  * Wires the calm view switcher on Student Home ("Today's Focus" | "Score Sheet & Progress" | "Show All")
  * so the page does not stack 16 cards on a single vertical scroll unless requested.
  */
-function setupStudentHomeViewTabs() {
+function setupStudentHomeViewTabs(onProgressVisible = null) {
   const focusPane = document.getElementById('student-pane-focus');
   const progressPane = document.getElementById('student-pane-progress');
   const tabBtns = document.querySelectorAll('[data-student-view]');
@@ -321,9 +391,11 @@ function setupStudentHomeViewTabs() {
     if (mode === 'progress') {
       focusPane.style.display = 'none';
       progressPane.style.display = '';
+      if (typeof onProgressVisible === 'function') onProgressVisible();
     } else if (mode === 'all') {
       focusPane.style.display = '';
       progressPane.style.display = '';
+      if (typeof onProgressVisible === 'function') onProgressVisible();
     } else {
       focusPane.style.display = '';
       progressPane.style.display = 'none';

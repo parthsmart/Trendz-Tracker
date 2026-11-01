@@ -61,7 +61,7 @@ async function loadBasicsCategories() {
       if (supabase) {
         const { data, error } = await supabase
           .from('categories')
-          .select('*')
+          .select('id, name, section, sort_order, active, digits, rows_count, operation')
           .eq('section', 'basics')
           .eq('active', true)
           .order('sort_order', { ascending: true });
@@ -159,7 +159,7 @@ async function loadActiveThresholds() {
       const supabase = await getSupabase();
       const { data, error } = await supabase
         .from('basics_thresholds')
-        .select('*')
+        .select('id, category_id, level, min_accuracy, max_time_seconds, min_questions_per_minute, active')
         .eq('active', true);
 
       if (!error && data) {
@@ -284,7 +284,8 @@ async function loadBasicsHistory() {
           .eq('student_id', currentProfile.id)
           .in('category_id', categoryIds)
           .order('entry_date', { ascending: false })
-          .order('created_at', { ascending: false });
+          .order('created_at', { ascending: false })
+          .limit(200);
 
         if (error) {
           console.warn('Could not fetch basics results_with_target from Supabase, checking local cache:', error.message);
@@ -775,9 +776,8 @@ async function initBasics() {
     }
   });
 
-  // Initial load
-  await loadBasicsCategories();
-  await loadActiveThresholds();
+  // Initial load: fetch categories and thresholds in parallel
+  await Promise.all([loadBasicsCategories(), loadActiveThresholds()]);
   updateCategoryTargetDisplay(document.getElementById('basics-category-select')?.value);
   await loadBasicsHistory();
 }

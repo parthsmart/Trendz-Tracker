@@ -2,6 +2,27 @@
   "buildCommand": "npm run build",
   "installCommand": "npm ci || npm install",
   "outputDirectory": "dist",
+  "regions": ["bom1"],
+  "headers": [
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/((?!assets/).*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    }
+  ],
   "crons": [
     {
       "path": "/api/weekly-report",

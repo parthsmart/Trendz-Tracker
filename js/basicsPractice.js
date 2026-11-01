@@ -123,23 +123,46 @@ async function loadSetupData(categoryIdParam) {
   let categories = [];
   let thresholds = [];
 
+  let preloadedResults = null;
+
   if (isSupabaseConfigured()) {
     const supabase = await getSupabase();
     if (supabase) {
-      const [catRes, threshRes] = await Promise.all([
+      const initialQueries = [
         supabase
           .from('categories')
-          .select('*')
+          .select('id, name, section, sort_order, active, digits, rows_count, operation')
           .eq('section', 'basics')
           .eq('active', true)
           .order('sort_order', { ascending: true }),
-        supabase.from('basics_thresholds').select('*').eq('active', true),
-      ]);
+        supabase
+          .from('basics_thresholds')
+          .select('id, category_id, level, min_accuracy, max_time_seconds, min_questions_per_minute, active')
+          .eq('active', true),
+      ];
+      if (categoryIdParam && currentProfile?.id) {
+        initialQueries.push(
+          supabase
+            .from('results_with_target')
+            .select(
+              'id, student_id, student_round_id, category_id, correct, total, time_seconds, entry_date, created_at, source, practice_mode, min_accuracy, min_questions_per_minute, meets_target'
+            )
+            .eq('student_id', currentProfile.id)
+            .eq('category_id', categoryIdParam)
+            .order('created_at', { ascending: false })
+            .limit(200)
+        );
+      }
+
+      const [catRes, threshRes, resultsRes] = await Promise.all(initialQueries);
       if (!catRes.error && Array.isArray(catRes.data)) {
         categories = catRes.data;
       }
       if (!threshRes.error && Array.isArray(threshRes.data)) {
         thresholds = threshRes.data;
+      }
+      if (resultsRes && !resultsRes.error && Array.isArray(resultsRes.data)) {
+        preloadedResults = resultsRes.data;
       }
     }
   }
@@ -223,7 +246,15 @@ async function loadSetupData(categoryIdParam) {
       }
     : null;
 
-  await refreshCategoryResults();
+  if (
+    preloadedResults !== null &&
+    categoryIdParam &&
+    String(selectedCategory.id) === String(categoryIdParam)
+  ) {
+    categoryResults = preloadedResults;
+  } else {
+    await refreshCategoryResults();
+  }
   renderSetupSummary();
 }
 
@@ -284,7 +315,8 @@ async function refreshCategoryResults() {
           )
           .eq('student_id', currentProfile.id)
           .eq('category_id', selectedCategory.id)
-          .order('created_at', { ascending: false });
+          .order('created_at', { ascending: false })
+          .limit(200);
 
         if (!error && Array.isArray(data)) {
           categoryResults = data;

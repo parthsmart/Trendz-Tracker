@@ -95,15 +95,13 @@ async function initWeeklyTestsPage() {
   setupFilterHandlers();
   setupUnsavedChangesGuard();
 
-  // Load active students and categories
+  // Load active students, categories, recently removed count, and tests list in parallel
   await Promise.all([
     loadActiveStudents(),
     loadCategories(),
     loadRecentlyRemovedCount(),
+    loadTests(),
   ]);
-
-  // Load tests list
-  await loadTests();
 }
 
 /**
@@ -289,7 +287,10 @@ async function loadTests(selectTestId = null) {
       const supabase = await getSupabase();
 
       const [testRes, countRes, sectionsRes] = await Promise.all([
-        supabase.from('weekly_tests').select('*').order('test_date', { ascending: false }),
+        supabase
+          .from('weekly_tests')
+          .select('id, title, test_date, audience_level, notes, test_type, opens_at, closes_at, created_at')
+          .order('test_date', { ascending: false }),
         supabase.from('weekly_test_scores').select('test_id'),
         supabase
           .from('weekly_test_sections')
@@ -616,12 +617,15 @@ async function loadOnlineResultsForActiveTest(test) {
 
     if (isSupabaseConfigured()) {
       const supabase = await getSupabase();
+      const hasCachedSections = testSectionsByTestId.has(test.id);
       const [secRes, attRes, scRes] = await Promise.all([
-        supabase
-          .from('weekly_test_sections')
-          .select('id, test_id, position, category_id, seconds')
-          .eq('test_id', test.id)
-          .order('position', { ascending: true }),
+        hasCachedSections
+          ? Promise.resolve({ data: testSectionsByTestId.get(test.id) || [], error: null })
+          : supabase
+              .from('weekly_test_sections')
+              .select('id, test_id, position, category_id, seconds')
+              .eq('test_id', test.id)
+              .order('position', { ascending: true }),
         supabase
           .from('weekly_test_attempts')
           .select('id, test_id, student_id, category_id, session_id, status, started_at, finished_at')

@@ -6,6 +6,38 @@
 import { AUTH_EMAIL_DOMAIN, isSupabaseConfigured, isDemoAllowedHost, ensurePreviewConfigLoaded } from './config.js';
 import { getSupabase, DemoDB, clearStaleSupabaseSession } from './supabaseClient.js';
 import { isDemoMode } from './demoDb.js';
+import { readProfileCache, writeProfileCache, clearProfileCache } from './profileCache.js';
+import { clearNotificationsCache } from './notificationBadge.js';
+
+let inFlightProfilePromise = null;
+let inFlightProfileUserId = null;
+
+async function fetchProfileFromSupabase(supabase, userId) {
+  if (inFlightProfilePromise && inFlightProfileUserId === userId) {
+    return inFlightProfilePromise;
+  }
+
+  inFlightProfileUserId = userId;
+  inFlightProfilePromise = (async () => {
+    try {
+      const { data: profile, error: profileErr } = await supabase
+        .from('profiles')
+        .select('id, student_code, full_name, role, level, active, leaderboard_visible, created_at')
+        .eq('id', userId)
+        .single();
+
+      if (profileErr || !profile) {
+        return { profile: null, error: profileErr || new Error('Profile not found') };
+      }
+      return { profile, error: null };
+    } finally {
+      inFlightProfilePromise = null;
+      inFlightProfileUserId = null;
+    }
+  })();
+
+  return inFlightProfilePromise;
+}
 
 /**
  * Normalizes a student or admin identifier into a Supabase auth email.
@@ -43,6 +75,7 @@ export async function loginWithStudentId(studentId, password) {
 
     // Clear any stale local storage tokens before attempting new authentication
     clearStaleSupabaseSession();
+    clearProfileCache();
 
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
       email,
@@ -57,22 +90,24 @@ export async function loginWithStudentId(studentId, password) {
     }
 
     // Fetch user profile from public.profiles
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', authData.user.id)
-      .single();
+    const { profile, error: profileError } = await fetchProfileFromSupabase(
+      supabase,
+      authData.user.id
+    );
 
     if (profileError || !profile) {
+      clearProfileCache();
       await supabase.auth.signOut();
       throw new Error('Profile record not found. Please contact your administrator.');
     }
 
     if (!profile.active) {
+      clearProfileCache();
       await supabase.auth.signOut();
       throw new Error('Your account is deactivated. Please contact your Trendz Abacus teacher.');
     }
 
+    writeProfileCache(profile);
     return { user: authData.user, profile };
   }
 
@@ -96,6 +131,7 @@ export async function loginWithStudentId(studentId, password) {
         created_at: new Date().toISOString()
       };
       DemoDB.setDemoAuth(adminProfile);
+      writeProfileCache(adminProfile);
       return { user: { id: adminProfile.id, email }, profile: adminProfile };
     } else {
       throw new Error('Invalid password for Admin. (Demo password: admin123)');
@@ -121,13 +157,18 @@ export async function loginWithStudentId(studentId, password) {
   }
 
   DemoDB.setDemoAuth(matchedStudent);
+  writeProfileCache(matchedStudent);
   return { user: { id: matchedStudent.id, email }, profile: matchedStudent };
 }
 
 /**
- * Get current authenticated user profile
+ * Get current authenticated user profile.
+ * Uses the 2-minute sessionStorage profile cache for fast initial rendering when available,
+ * and always revalidates in the background against Supabase.
+ *
+ * @param {{ allowCached?: boolean, onRevalidated?: ((profile: any) => void) | null }} [options]
  */
-export async function getCurrentProfile() {
+export async function getCurrentProfile({ allowCached = true, onRevalidated = null } = {}) {
   await ensurePreviewConfigLoaded();
   if (isSupabaseConfigured()) {
     try {
@@ -142,6 +183,7 @@ export async function getCurrentProfile() {
           error.message?.includes('refresh_token') ||
           error.status === 400
         ) {
+          clearProfileCache();
           clearStaleSupabaseSession();
           await supabase.auth.signOut().catch(() => {});
         }
@@ -149,25 +191,64 @@ export async function getCurrentProfile() {
       }
 
       const session = data?.session;
-      if (!session?.user) return null;
+      if (!session?.user) {
+        clearProfileCache();
+        return null;
+      }
 
-      const { data: profile, error: profileErr } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', session.user.id)
-        .single();
+      const userId = session.user.id;
 
-      if (profileErr) {
-        console.warn('Profile retrieval error:', profileErr.message);
+      // Fast path: return valid 2-minute cached profile immediately and revalidate in background
+      if (allowCached) {
+        const cached = readProfileCache(userId);
+        if (cached && cached.active !== false) {
+          fetchProfileFromSupabase(supabase, userId)
+            .then(async ({ profile: freshProfile, error: profileErr }) => {
+              if (profileErr || !freshProfile || freshProfile.active === false) {
+                clearProfileCache();
+                clearStaleSupabaseSession();
+                await supabase.auth.signOut().catch(() => {});
+                if (typeof window !== 'undefined') {
+                  window.location.replace('/index.html');
+                }
+                return;
+              }
+              writeProfileCache(freshProfile);
+              if (typeof onRevalidated === 'function') {
+                onRevalidated(freshProfile);
+              }
+            })
+            .catch(() => {
+              // Ignore transient network errors during background revalidation
+            });
+
+          return cached;
+        }
+      }
+
+      const { profile, error: profileErr } = await fetchProfileFromSupabase(supabase, userId);
+
+      if (profileErr || !profile) {
+        console.warn('Profile retrieval error:', profileErr?.message);
+        clearProfileCache();
         clearStaleSupabaseSession();
         await supabase.auth.signOut().catch(() => {});
         return null;
       }
 
-      return profile || null;
+      if (profile.active === false) {
+        clearProfileCache();
+        clearStaleSupabaseSession();
+        await supabase.auth.signOut().catch(() => {});
+        return null;
+      }
+
+      writeProfileCache(profile);
+      return profile;
     } catch (err) {
       console.warn('Error reading current profile:', err);
       if (err?.message?.includes('Refresh Token') || err?.name === 'AuthApiError') {
+        clearProfileCache();
         clearStaleSupabaseSession();
       }
       return null;
@@ -178,7 +259,11 @@ export async function getCurrentProfile() {
     return null;
   }
 
-  return DemoDB.getDemoAuth();
+  const demoProfile = DemoDB.getDemoAuth();
+  if (demoProfile) {
+    writeProfileCache(demoProfile);
+  }
+  return demoProfile;
 }
 
 let isLoggingOut = false;
@@ -189,6 +274,9 @@ let isLoggingOut = false;
 export async function logoutUser() {
   if (isLoggingOut) return;
   isLoggingOut = true;
+
+  clearProfileCache();
+  clearNotificationsCache();
 
   try {
     await ensurePreviewConfigLoaded();
@@ -208,6 +296,8 @@ export async function logoutUser() {
   } catch (err) {
     console.warn('Sign out error:', err);
   } finally {
+    clearProfileCache();
+    clearNotificationsCache();
     clearStaleSupabaseSession();
     try {
       if (DemoDB && typeof DemoDB.setDemoAuth === 'function') {

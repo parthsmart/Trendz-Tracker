@@ -49,7 +49,7 @@ async function loadStudents() {
       } else {
         const { data, error } = await supabase
           .from('profiles')
-          .select('*')
+          .select('id, student_code, full_name, level, role, active, leaderboard_visible, created_at')
           .eq('role', 'student')
           .order('created_at', { ascending: false });
 
