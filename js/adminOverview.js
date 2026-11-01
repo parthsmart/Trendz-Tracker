@@ -309,16 +309,17 @@ async function loadOverviewData() {
     if (isSupabaseConfigured()) {
       const supabase = await getSupabase();
       if (supabase) {
-        // Resolve authoritative Indian time for today
-        try {
-          const { data: istData } = await supabase.rpc('today_ist');
-          todayIST = istData ? getISTDateString(istData) : getISTDateString(new Date());
-        } catch {
-          todayIST = getISTDateString(new Date());
-        }
+        // Resolve authoritative Indian time and admin_overview RPC in parallel
+        const [istRes, overviewRes] = await Promise.all([
+          supabase.rpc('today_ist').catch(() => ({ data: null })),
+          supabase.rpc('admin_overview'),
+        ]);
 
-        // Call authoritative admin_overview RPC
-        const { data, error } = await supabase.rpc('admin_overview');
+        todayIST = istRes?.data
+          ? getISTDateString(istRes.data)
+          : getISTDateString(new Date());
+
+        const { data, error } = overviewRes || {};
         if (!error && Array.isArray(data)) {
           allOverviewData = data;
           updateDashboard();

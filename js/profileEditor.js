@@ -34,6 +34,7 @@ import {
 import { DemoDB, getSupabase } from './supabaseClient.js';
 import { showToast } from './toast.js';
 import { shouldOpenMoreOptions, buildModalLiveSummary, setMoreOptionsOpen } from './formPattern.js';
+import { clearProfileCache } from './profileCache.js';
 
 let currentEditingStudent = null;
 let editorCallbacks = {
@@ -518,6 +519,7 @@ async function handleSaveProfileSubmit(e) {
     }
 
     currentEditingStudent = updatedProfile;
+    clearProfileCache();
     isSavingProfile = false;
     closeModal('edit-profile-modal');
     showToast('success', `Saved profile changes for ${updatedProfile.full_name}.`);
