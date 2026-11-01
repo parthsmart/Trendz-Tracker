@@ -841,16 +841,18 @@ Every meaningful technical and architectural decision made for **Trendz Tracker*
 
 ---
 
-### Decision 39: Single Navigation Config (`js/navConfig.js`), Three-Dot Header Menu, and Why the Menu Is the Only Navigation on Phones (Phase 14d)
-- **Date**: 2026-10-31
+### Decision 39: Single Navigation Config (`js/navConfig.js`), Full Desktop Inline Bar & Dropdowns (`>= 1024 px`), and Mobile-Only Three-Dot Menu (`< 1024 px`) (Phase 14d & 14e)
+- **Date**: 2026-11-01
 - **Context**:
-  - Previously, student pages had no mobile navigation menu in the header (showing only the student's name and Sign Out on phones), while admin pages rendered 7+ inline header links that forced `"Trendz Tracker"` and the teacher's name to wrap onto two lines on laptops and tablets. Furthermore, navigation links were duplicated across HTML files and helper scripts.
+  - In Phase 14d, a three-dot (`⋮`) menu was introduced alongside a shortened inline link bar at `>= 1100 px`. In Phase 14e, we restored the complete pre-14d desktop header (`width >= 1024 px`) so computer screens show the full inline navigation and dropdowns with no three-dot button, while keeping the three-dot menu exclusively for mobile and tablet screens below `1024 px`.
 - **Decisions & Rationale**:
-  1. **Why One Navigation Config (`js/navConfig.js`) Drives Both the Menu and Inline Links**:
-     - Maintaining separate link lists for desktop inline bars, dropdown menus, and individual HTML headers invites drift whenever a page is added or renamed.
-     - Defining every destination once per role (`'student'` and `'admin'`) in `js/navConfig.js` (`{ id, label, href, group, inline, badge, action }`) and validating it via `tests/navConfig.test.js` against `vite.config.ts` `rollupOptions.input` guarantees that every student and admin page is reachable from the three-dot menu, the `>= 1100 px` short inline list (`Today, Weekly Test, Leaderboard` for students; `Overview, Students, Review, Weekly Tests` for admins) never diverges from the menu, and no `href` is ever duplicated.
-  2. **Why the Three-Dot Menu Is the Only Navigation Below `1100 px` (Including Phones and Portrait/Landscape Tablets)**:
-     - On phones (`390 px`) and tablets (`768 px`–`1024 px`), displaying inline navigation links alongside the brand logo, `"Trendz Tracker"` title, `44 x 44 px` menu button, user name/ID, and Sign Out button causes line wrapping, cramped touch targets, or horizontal overflow.
-     - Hiding inline links below `1100 px` and placing the `44 x 44 px` three-dot (`⋮`) menu button immediately beside `"Trendz Tracker"` keeps the header on a single calm line at every viewport width while giving students and teachers two-tap access to every page (via an anchored panel on `> 700 px` and a focus-trapped left slide-in drawer on `<= 700 px`).
+  1. **Why Desktop (`>= 1024 px`) Keeps Inline Links and Dropdowns While the Three-Dot Menu Is for Small Screens (`< 1024 px`) Only**:
+     - On computer screens (`>= 1024 px`), teachers and students benefit from immediate one-click access to top-level pages (`Overview, Review, Students, Attendance, Weekly Tests, Leaderboard, Monthly Report, Setup ▾` for admins; `Today, Round scores, Practice ▾, Weekly Test, Leaderboard, Monthly Report` + notifications bell for students) without opening a secondary menu drawer.
+     - On phones and tablets (`< 1024 px`), displaying all inline links and dropdowns would wrap or overflow. Hiding the inline bar below `1024 px` and showing the `44 x 44 px` three-dot menu button (opening an anchored panel on `701–1023 px` and a focus-trapped left slide-in drawer on `<= 700 px`) gives small screens clean access to every page while keeping the desktop header uncluttered by a duplicate menu button.
+     - Between `1024 px` and `1280 px` on the admin header, tighter link spacing and showing the teacher's first name only (with the full name in a `title` tooltip) prevents any line wrapping or overflow.
+  2. **Why One Navigation Config (`js/navConfig.js`) and One Breakpoint Constant (`1024 px`) Drive Both Layouts**:
+     - Defining every destination once per role in `js/navConfig.js` and rendering both the desktop inline bar/dropdowns (`getDesktopNavEntries`) and the mobile grouped menu (`getGroupedNavItems`) from that single config ensures zero hard-coded duplicate link lists across HTML files.
+     - Storing the `1024 px` breakpoint in `--nav-mobile-breakpoint: 1024px` (`css/variables.css`) and `NAV_MOBILE_BREAKPOINT_PX = 1024` (`js/navConfig.js`, verified by `tests/navConfig.test.js`) and switching `hidden` / `aria-hidden` states via `window.matchMedia('(min-width: 1024px)')` guarantees that only one navigation exists in the keyboard tab order and screen-reader accessibility tree at any viewport width, and that open menus/dropdowns close automatically when resizing across the breakpoint.
   3. **Why Focused Full-Screen Practice and Test Stages Hide the Header and Menu**:
-     - During timed mental calculation stages (Flash Anzan play, Elements worksheet drill, Memoriad competition stages, active Weekly Test sections, and timed Basics rounds), accidental taps on header navigation would interrupt concentration or lose an active round. Those stages suppress the global header and menu (`body.stage-focus-mode`) and keep only their dedicated stage exit/stop control.
+     - During timed mental calculation stages (`body.stage-focus-mode`), the global header and menu remain hidden so students see only the dedicated stage exit/stop control.
+
