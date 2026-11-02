@@ -3,12 +3,14 @@ import assert from 'node:assert/strict';
 import {
   sectionStatusLabel,
   isSectionStartable,
+  isSectionResumable,
+  isSectionComingSoon,
   nextSection,
   windowText,
   groupTests,
 } from '../js/weeklyTestView.js';
 
-describe('weeklyTestView pure helpers (Phase 13a)', () => {
+describe('weeklyTestView pure helpers (Phase 13a, 16a & 16b)', () => {
   describe('sectionStatusLabel', () => {
     it('returns "To do" when attempt is null and test is open or upcoming', () => {
       assert.equal(sectionStatusLabel({ attempt: null, correct: null, total: null }, 'open'), 'To do');
@@ -26,14 +28,45 @@ describe('weeklyTestView pure helpers (Phase 13a)', () => {
       );
     });
 
-    it('returns "Missed" when attempt is started without a score (abandoned or closed)', () => {
+    it('returns "In progress: n of m tries" when an open flash section is started with tries left', () => {
       assert.equal(
-        sectionStatusLabel({ attempt: 'started', correct: null, total: null }, 'open'),
+        sectionStatusLabel(
+          {
+            kind: 'flash',
+            attempt: 'started',
+            tries_started: 2,
+            question_count: 5,
+            correct: 1,
+            total: 5,
+          },
+          'open'
+        ),
+        'In progress: 2 of 5 tries'
+      );
+    });
+
+    it('returns "Missed" when attempt is started without a score, and "Done: <c> of <t>" when a partial Flash score is recorded and closed', () => {
+      assert.equal(
+        sectionStatusLabel({ kind: 'basics', attempt: 'started', correct: null, total: null }, 'open'),
         'Missed'
       );
       assert.equal(
-        sectionStatusLabel({ attempt: 'started', correct: null, total: null }, 'closed'),
+        sectionStatusLabel({ kind: 'basics', attempt: 'started', correct: null, total: null }, 'closed'),
         'Missed'
+      );
+      assert.equal(
+        sectionStatusLabel(
+          {
+            kind: 'flash',
+            attempt: 'started',
+            tries_started: 2,
+            question_count: 5,
+            correct: 1,
+            total: 5,
+          },
+          'closed'
+        ),
+        'Done: 1 of 5'
       );
     });
 
@@ -45,32 +78,76 @@ describe('weeklyTestView pure helpers (Phase 13a)', () => {
     });
   });
 
-  describe('isSectionStartable', () => {
-    it('returns true only when testState is open and attempt is null', () => {
+  describe('isSectionStartable, isSectionResumable and isSectionComingSoon', () => {
+    it('returns true when testState is open, attempt is null, and kind is basics, elements, flash, or memoriad', () => {
+      assert.equal(isSectionStartable({ kind: 'basics', attempt: null }, 'open'), true);
       assert.equal(isSectionStartable({ attempt: null }, 'open'), true);
+      assert.equal(isSectionStartable({ kind: 'flash', attempt: null }, 'open'), true);
+      assert.equal(isSectionStartable({ kind: 'elements', attempt: null }, 'open'), true);
+      assert.equal(isSectionStartable({ kind: 'memoriad', attempt: null }, 'open'), true);
+      assert.equal(isSectionStartable({ kind: 'round', attempt: null }, 'open'), false);
       assert.equal(isSectionStartable({ attempt: 'started' }, 'open'), false);
       assert.equal(isSectionStartable({ attempt: 'submitted' }, 'open'), false);
       assert.equal(isSectionStartable({ attempt: null }, 'upcoming'), false);
       assert.equal(isSectionStartable({ attempt: null }, 'closed'), false);
     });
+
+    it('marks started flash sections with tries remaining as resumable when test is open', () => {
+      assert.equal(
+        isSectionResumable(
+          { kind: 'flash', attempt: 'started', tries_started: 1, question_count: 3 },
+          'open'
+        ),
+        true
+      );
+      assert.equal(
+        isSectionResumable(
+          { kind: 'flash', attempt: 'started', tries_started: 3, question_count: 3 },
+          'open'
+        ),
+        false
+      );
+      assert.equal(
+        isSectionResumable(
+          { kind: 'basics', attempt: 'started', tries_started: 0, question_count: 3 },
+          'open'
+        ),
+        false
+      );
+      assert.equal(
+        isSectionResumable(
+          { kind: 'flash', attempt: 'started', tries_started: 1, question_count: 3 },
+          'closed'
+        ),
+        false
+      );
+    });
+
+    it('returns false for isSectionComingSoon now that all online section kinds are playable', () => {
+      assert.equal(isSectionComingSoon({ kind: 'flash', attempt: null }, 'open'), false);
+      assert.equal(isSectionComingSoon({ kind: 'elements', attempt: null }, 'open'), false);
+      assert.equal(isSectionComingSoon({ kind: 'memoriad', attempt: null }, 'open'), false);
+      assert.equal(isSectionComingSoon({ kind: 'basics', attempt: null }, 'open'), false);
+    });
   });
 
   describe('nextSection', () => {
-    it('returns the first section in position order with attempt === null', () => {
+    it('returns the first startable or resumable section in position order', () => {
       const sections = [
-        { category_id: 'cat-2', name: '2d2r', position: 2, attempt: null },
-        { category_id: 'cat-1', name: '1d4r', position: 1, attempt: 'submitted' },
-        { category_id: 'cat-3', name: '1dx1d', position: 3, attempt: null },
+        { section_id: 's-1', kind: 'basics', category_id: 'cat-1', name: '1d4r', position: 1, attempt: 'submitted' },
+        { section_id: 's-flash', kind: 'flash', position: 2, attempt: 'started', tries_started: 1, question_count: 3 },
+        { section_id: 's-2', kind: 'basics', category_id: 'cat-2', name: '2d2r', position: 3, attempt: null },
       ];
       const next = nextSection(sections);
       assert.ok(next);
-      assert.equal(next.category_id, 'cat-2');
+      assert.equal(next.section_id, 's-flash');
     });
 
-    it('skips both started and submitted sections and returns null when none remain', () => {
+    it('skips non-resumable started and submitted sections and returns null when none remain', () => {
       const sections = [
         { category_id: 'cat-1', name: '1d4r', position: 1, attempt: 'submitted' },
         { category_id: 'cat-2', name: '2d2r', position: 2, attempt: 'started' },
+        { kind: 'flash', position: 3, attempt: 'started', tries_started: 3, question_count: 3 },
       ];
       assert.equal(nextSection(sections), null);
       assert.equal(nextSection([]), null);

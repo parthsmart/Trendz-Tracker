@@ -91,8 +91,8 @@ export function buildModalLiveSummary(kind, values = {}) {
       const titleText = trimStr(v.title) || 'Untitled test';
       const dateText = trimStr(v.test_date) || 'no date set';
       const levelText = trimStr(v.audience_level) || 'all levels';
-      if (isOnline) {
-        const secCount = Math.max(0, Number(v.sections_count) || 0);
+      const secCount = Math.max(0, Number(v.sections_count) || 0);
+      if (isOnline || secCount > 0) {
         const secPart = `${secCount} ${secCount === 1 ? 'section' : 'sections'}`;
         return `${typeLabel}: ${titleText} on ${dateText}, ${secPart}, ${levelText}`;
       }

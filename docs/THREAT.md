@@ -261,3 +261,30 @@ The serverless functions in `/api/create-student.js` and `/api/reset-password.js
 2. **Zero Phone Number Storage for WhatsApp Test Sharing**:
    - The **Share on WhatsApp** button on `/pages/announcements.html` opens `https://wa.me/?text=<encodeURIComponent(message)>` in a new tab with `rel="noopener noreferrer"`. No student or parent phone numbers are requested, stored, or transmitted by the application.
 
+---
+
+## Phase 16a: Multi-Kind Weekly Test Sections & Weekly Test Leaderboard Threat Model
+
+1. **Authoritative Server-Side Points & Ranking (`weekly_test_leaderboard`)**:
+   - Weekly test points (`sum over sections of max(0, 2*correct - total) * weekly_test_multiplier`) and ranks are computed exclusively in PostgreSQL via `weekly_test_leaderboard(p_test, p_period, p_level, p_limit, p_scope)`. The browser never computes points or ranks in JavaScript.
+2. **Online Test Leaderboard Embargo Before Close**:
+   - Students cannot view the leaderboard of an online test before it closes (`closes_at`); PostgreSQL enforces `leaderboard_ready` and raises `"The leaderboard of an online test appears after the test closes."`, while admins can inspect live results at any time.
+3. **In-Place Section Foreign Key Integrity**:
+   - Editing a weekly test updates existing `weekly_test_sections` rows by `id` and locks sections that already have `weekly_test_scores` or `weekly_test_attempts` rows against deletion or kind changes.
+
+---
+
+## Phase 16b: Online Weekly Test Runners (Elements, Flash Anzan & Memoriad) Threat Controls
+
+1. **Authoritative Section Eligibility & Single-Attempt Lock (`weekly_test_check_section`)**:
+   - `POST /api/weekly-test` (`action: 'start'`) authenticates the student via `verifyStudentCaller(req, res)` and calls the service-role RPC `weekly_test_check_section(p_test, p_student, p_section)`.
+   - All section parameters (`kind`, `category_id`, `activity_key`, `seconds`, `flash_digits`, `flash_count`, `flash_speed_ms`, `flash_mode`, `question_count`) come exclusively from `weekly_test_sections` in Postgres; client-supplied settings in the request body are ignored.
+   - For `basics`, `elements`, and `memoriad`, the `weekly_test_attempts` row (`status = 'started'`) is inserted on `start`, locking the section against any second start. For `flash`, `tries_started` is incremented on each try and rejected once `tries_started >= question_count` or `status = 'submitted'`.
+2. **Server-Side Grading, Expected-Answer Stripping & Timing Bounds**:
+   - Expected answers (`expected` arrays for `basics` / `elements` / `memoriad`, and the signed sum `expected` for `flash`) are stored only in `drill_sessions.questions` (service-role only) and are stripped before returning the client payload.
+   - Each `drill_sessions` row has a strict `expires_at` (`seconds + 90s` for `basics`; `time_limit_seconds + 60s` for `elements`; `memorize_seconds + recall_seconds + 600s` for `memoriad`; `stream_seconds + 180s` for `flash`) and a minimum human speed gate (`0.25s` per attempted question for `basics`; `1s` for `elements`; `minSeconds` for `memoriad`; `max(1, floor(stream_seconds - 1))` for `flash`).
+   - Sessions are atomically claimed (`used = false -> true`) on `submit`; if the subsequent database write to `weekly_test_scores` fails, the server reopens `used = false` so the student can click **"Try sending again"** before `expires_at`.
+3. **Rate Limiting & Data Isolation**:
+   - `POST /api/weekly-test` (`action: 'start'`) enforces a rate limit of at most 60 session starts per hour per student across `drill_sessions`.
+   - Weekly test submissions write **only** to `weekly_test_scores` and `weekly_test_attempts` and never write to `results` or `activity_results`, preventing weekly test attempts from inflating daily task completion or practice streaks.
+   - Raw student answers, expected answers, and bearer tokens are never logged.

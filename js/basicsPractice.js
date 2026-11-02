@@ -40,8 +40,16 @@ import { getScoreFeedback } from './scoreColors.js';
 import { DemoDB, getSupabase } from './supabaseClient.js';
 import { formatSecondsToMMSS } from './timeUtils.js';
 import { showToast } from './toast.js';
+import {
+  RUNNER_EXIT_CONFIRM_TEXT,
+  parseTestRunnerQuery,
+} from './weeklyTestRunner.js';
 
 let currentProfile = null;
+let isTestMode = false;
+let activeTestId = '';
+let activeSectionId = '';
+let activeTestTitle = 'Weekly Test';
 let selectedCategory = null;
 let selectedMode = 'timed'; // 'timed' | 'unlimited'
 let selectedSeconds = 60; // 30 | 60 | 120 | 300 | null
@@ -475,7 +483,7 @@ function handleTimeUpAutoFinish() {
   const reachedAnswers = activePlayer.finish();
   if (reachedAnswers === null) return;
 
-  if (reachedAnswers.length === 0) {
+  if (reachedAnswers.length === 0 && !isTestMode) {
     showErrorBanner('Time is up and no questions were answered, so nothing was saved.');
     showToast('info', 'Time is up — no questions were answered.');
     showScreen('screen-setup');
@@ -493,6 +501,25 @@ function handleManualFinishClick() {
   if (roundEnded || !activePlayer || isSubmitting) return;
 
   const reachedCount = activePlayer.getAttemptedCount();
+  if (isTestMode) {
+    const confirmMsg =
+      reachedCount === 0
+        ? RUNNER_EXIT_CONFIRM_TEXT
+        : `${RUNNER_EXIT_CONFIRM_TEXT} Submit the ${reachedCount} ${reachedCount === 1 ? 'question' : 'questions'} you have answered?`;
+    if (!window.confirm(confirmMsg)) {
+      const inputEl = document.getElementById('player-answer-input');
+      if (inputEl) inputEl.focus();
+      return;
+    }
+    roundEnded = true;
+    stopRoundTimer();
+    const reachedAnswers = activePlayer.finish();
+    if (reachedAnswers !== null) {
+      submitCompletedPracticeSet(reachedAnswers);
+    }
+    return;
+  }
+
   if (reachedCount === 0) {
     const leave = window.confirm(
       'You have not answered any questions yet. End this round without saving?'
@@ -714,6 +741,42 @@ async function submitCompletedPracticeSet(answersArray) {
   try {
     let resultData = null;
 
+    if (isTestMode) {
+      if (isSupabaseConfigured()) {
+        const token = await getAccessToken();
+        const resp = await fetch('/api/weekly-test', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            action: 'submit',
+            session_id: activeSessionId,
+            answers: answersArray,
+          }),
+        });
+
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          throw new Error(data.error || 'Could not submit your weekly test section.');
+        }
+        resultData = data;
+      } else if (isDemoMode()) {
+        resultData = DemoDB.mockSubmitWeeklyTestSection(
+          currentProfile?.id || 'usr-101',
+          activeSessionId,
+          answersArray
+        );
+      } else {
+        throw new Error('Database connection is not configured.');
+      }
+
+      pendingSubmissionAnswers = null;
+      await renderResultsScreen(resultData);
+      return;
+    }
+
     if (isSupabaseConfigured()) {
       const token = await getAccessToken();
       const resp = await fetch('/api/drill', {
@@ -899,12 +962,30 @@ async function renderResultsScreen(resultData) {
     practice_mode: activeMode,
   };
   const isNewPersonalBest =
+    !isTestMode &&
     attempted > 0 &&
     (!previousBestBeforeSubmit ||
       compareModeResults(candidateRow, previousBestBeforeSubmit, activeMode) < 0);
 
   if (pbBannerEl) {
     pbBannerEl.style.display = isNewPersonalBest ? 'block' : 'none';
+  }
+
+  const savedConfirmEl = document.getElementById('results-saved-confirmation');
+  const backBtnEl = document.getElementById('btn-back-to-basics');
+  const changeModeBtnEl = document.getElementById('btn-change-mode');
+  const sameModeBtnEl = document.getElementById('btn-same-mode-again');
+  if (isTestMode) {
+    if (savedConfirmEl) {
+      savedConfirmEl.textContent = `Saved as part of ${resultData.title || activeTestTitle || 'Weekly Test'}`;
+    }
+    if (backBtnEl) {
+      backBtnEl.href = '/pages/weekly-test.html';
+      backBtnEl.textContent = 'Back to Weekly Test';
+      backBtnEl.className = 'btn btn-primary';
+    }
+    if (changeModeBtnEl) changeModeBtnEl.style.display = 'none';
+    if (sameModeBtnEl) sameModeBtnEl.style.display = 'none';
   }
 
   // Read meets_target strictly from results_with_target for the saved row (never calculate in JS)
@@ -1030,8 +1111,91 @@ async function initBasicsPracticePage() {
   });
 
   const urlParams = new URLSearchParams(window.location.search);
+  const testRunner = parseTestRunnerQuery(window.location.search);
+  if (testRunner.isTestMode) {
+    isTestMode = true;
+    activeTestId = testRunner.testId;
+    activeSectionId = testRunner.sectionId;
+    document.body.classList.add('stage-focus-mode');
+    const headerEl = document.querySelector('.app-header');
+    if (headerEl) headerEl.style.display = 'none';
+
+    window.addEventListener('beforeunload', (e) => {
+      if (isTestMode && activePlayer && !roundEnded) {
+        e.preventDefault();
+        e.returnValue = RUNNER_EXIT_CONFIRM_TEXT;
+      }
+    });
+
+    await startWeeklyTestBasicsSection();
+    return;
+  }
+
   const catParam = urlParams.get('cat') || urlParams.get('category_id') || '';
   await loadSetupData(catParam);
+}
+
+async function startWeeklyTestBasicsSection() {
+  showErrorBanner('');
+  const setupEl = document.getElementById('screen-setup');
+  if (setupEl) setupEl.style.display = 'none';
+
+  try {
+    let payload = null;
+    if (isSupabaseConfigured()) {
+      const token = await getAccessToken();
+      const resp = await fetch('/api/weekly-test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          action: 'start',
+          test_id: activeTestId,
+          section_id: activeSectionId,
+        }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        throw new Error(data.error || 'Could not start weekly test section.');
+      }
+      payload = data;
+    } else if (isDemoMode()) {
+      payload = DemoDB.mockStartWeeklyTestSection(
+        currentProfile?.id || 'usr-101',
+        activeTestId,
+        null,
+        activeSectionId
+      );
+    } else {
+      throw new Error('Database connection is not configured.');
+    }
+
+    activeSessionId = payload.session_id;
+    activeTestTitle = payload.title || 'Weekly Test';
+    activeMode = 'timed';
+    activeSeconds = Number(payload.seconds || 60);
+    selectedCategory = {
+      id: payload.category_id || activeSectionId,
+      name: `${activeTestTitle} — ${payload.category_name || 'Basics Section'}`,
+    };
+    roundEnded = false;
+    pendingSubmissionAnswers = null;
+
+    const finishBtn = document.getElementById('btn-finish-round');
+    if (finishBtn) finishBtn.textContent = 'Finish / Exit';
+
+    activePlayer = createDrillPlayer(payload.questions || [], {
+      mode: 'timed',
+      revisitSkipped: false,
+    });
+    showScreen('screen-player');
+    startRoundTimer();
+    renderCurrentPlayerQuestion();
+  } catch (err) {
+    showErrorBanner(err.message || 'Could not start weekly test section.');
+  }
 }
 
 document.addEventListener('DOMContentLoaded', initBasicsPracticePage);

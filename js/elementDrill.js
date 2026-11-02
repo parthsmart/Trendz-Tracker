@@ -36,9 +36,14 @@ import { getScoreFeedback } from './scoreColors.js';
 import { formatSecondsToMMSS } from './timeUtils.js';
 import { keyAction } from './competitionKeys.js';
 import { questionLayout, formatQuestionText } from './questionLayout.js';
+import {
+  parseTestRunnerQuery,
+  RUNNER_EXIT_CONFIRM_TEXT,
+} from './weeklyTestRunner.js';
 
 const TIMER_INTERVAL_MS = 250;
 const EXPIRY_GRACE_SECONDS = 30;
+const TEST_EXPIRY_GRACE_SECONDS = 60;
 const HIGHLIGHT_STORAGE_KEY = 'tt_element_highlight_active';
 
 function loadHighlightPreference() {
@@ -88,6 +93,12 @@ let currentDrillKey = '';
 let currentDrillMeta = null;
 let previousBestForDrill = null;
 
+// Weekly Test runner mode (?test=<id>&section=<id>)
+let isTestMode = false;
+let activeTestId = null;
+let activeSectionId = null;
+let activeTestTitle = 'Weekly Test';
+
 // Active session state
 let activeSessionId = null;
 let activeQuestions = [];
@@ -111,12 +122,18 @@ async function initElementDrillPage() {
   const pillContainer = document.getElementById('user-pill-container');
   if (pillContainer) pillContainer.style.display = 'flex';
 
+  const runnerQuery = parseTestRunnerQuery(window.location.search);
+  isTestMode = runnerQuery.isTestMode;
+  activeTestId = runnerQuery.testId;
+  activeSectionId = runnerQuery.sectionId;
+
   const params = new URLSearchParams(window.location.search);
   currentDrillKey = String(params.get('drill') || '').trim();
   currentDrillMeta = DRILL_CATALOG[currentDrillKey] || null;
 
   const startBtn = document.getElementById('btn-start-drill');
   const submitNowBtn = document.getElementById('btn-submit-now');
+  const exitTestBtn = document.getElementById('btn-exit-test-worksheet');
   const retrySubmitBtn = document.getElementById('btn-retry-submit');
   const expiredNewSetBtn = document.getElementById('btn-expired-new-set');
   const sameDrillAgainBtn = document.getElementById('btn-same-drill-again');
@@ -155,6 +172,63 @@ async function initElementDrillPage() {
     moveQuestionFocus(activeQuestionIndex + 1);
   });
 
+  submitNowBtn?.addEventListener('click', () => {
+    submitWorksheet(false);
+  });
+
+  worksheetForm?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    submitWorksheet(false);
+  });
+
+  retrySubmitBtn?.addEventListener('click', () => {
+    submitWorksheet(true);
+  });
+
+  expiredNewSetBtn?.addEventListener('click', () => {
+    if (isTestMode) {
+      window.location.href = '/pages/weekly-test.html';
+      return;
+    }
+    resetToIntroScreen();
+  });
+
+  sameDrillAgainBtn?.addEventListener('click', () => {
+    resetToIntroScreen();
+  });
+
+  exitTestBtn?.addEventListener('click', () => {
+    if (!hasSubmitted && activeSessionId) {
+      if (!window.confirm(RUNNER_EXIT_CONFIRM_TEXT)) return;
+    }
+    stopTimers();
+    activeSessionId = null;
+    window.location.href = '/pages/weekly-test.html';
+  });
+
+  if (isTestMode) {
+    const headerEl = document.querySelector('.app-header');
+    if (headerEl) headerEl.style.display = 'none';
+
+    const backLink = document.getElementById('link-intro-back');
+    if (backLink) {
+      backLink.href = '/pages/weekly-test.html';
+      backLink.textContent = '← Back to Weekly Test';
+    }
+    if (startBtn) startBtn.style.display = 'none';
+
+    window.addEventListener('beforeunload', (e) => {
+      if (isTestMode && activeSessionId && !hasSubmitted) {
+        e.preventDefault();
+        e.returnValue = RUNNER_EXIT_CONFIRM_TEXT;
+        return e.returnValue;
+      }
+    });
+
+    await handleStartTestSection();
+    return;
+  }
+
   if (!currentDrillMeta) {
     showIntroError('Activity no longer available. Please choose a drill from the Elements catalog.');
     if (startBtn) startBtn.disabled = true;
@@ -175,27 +249,6 @@ async function initElementDrillPage() {
   }
 
   startBtn?.addEventListener('click', () => handleStartDrill());
-
-  submitNowBtn?.addEventListener('click', () => {
-    submitWorksheet(false);
-  });
-
-  worksheetForm?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    submitWorksheet(false);
-  });
-
-  retrySubmitBtn?.addEventListener('click', () => {
-    submitWorksheet(true);
-  });
-
-  expiredNewSetBtn?.addEventListener('click', () => {
-    resetToIntroScreen();
-  });
-
-  sameDrillAgainBtn?.addEventListener('click', () => {
-    resetToIntroScreen();
-  });
 }
 
 async function populateIntroScreen() {
@@ -311,6 +364,85 @@ async function handleStartDrill() {
   }
 }
 
+async function handleStartTestSection() {
+  if (isStarting) return;
+  isStarting = true;
+  showIntroError('');
+
+  const titleEl = document.getElementById('intro-drill-title');
+  const groupEl = document.getElementById('intro-drill-group');
+  if (groupEl) groupEl.textContent = 'Weekly Test · Elements Section';
+  if (titleEl) titleEl.textContent = 'Starting section...';
+
+  try {
+    let payload = null;
+
+    if (isSupabaseConfigured()) {
+      const token = await getBearerToken();
+      if (!token) {
+        throw new Error('Your sign-in has expired. Please sign in again.');
+      }
+
+      const res = await fetch('/api/weekly-test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          action: 'start',
+          test_id: activeTestId,
+          section_id: activeSectionId,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || `Could not start test section (HTTP ${res.status}).`);
+      }
+      payload = data;
+    } else if (isDemoMode()) {
+      payload = DemoDB.mockStartWeeklyTestSection(
+        currentUser.id,
+        activeTestId,
+        null,
+        activeSectionId
+      );
+    } else {
+      throw new Error('Connection is not configured.');
+    }
+
+    currentDrillKey = String(payload.drill || currentDrillKey || '').trim();
+    currentDrillMeta = DRILL_CATALOG[currentDrillKey] || {
+      key: currentDrillKey,
+      title: payload.drill_title || payload.title || 'Elements Section',
+      questions: Array.isArray(payload.questions) ? payload.questions.length : 0,
+      time_limit_seconds: Number(payload.time_limit_seconds) || 60,
+      hint: payload.hint || '',
+      inputmode: 'numeric',
+      enabled: true,
+    };
+    activeTestTitle = payload.title || 'Weekly Test';
+    activeSessionId = payload.session_id;
+    activeQuestions = Array.isArray(payload.questions) ? payload.questions : [];
+    activeTimeLimitSec = Number(payload.time_limit_seconds) || currentDrillMeta.time_limit_seconds;
+    hasSubmitted = false;
+    isSubmitting = false;
+
+    document.title = `${activeTestTitle} — ${currentDrillMeta.title} - Trendz Tracker`;
+
+    renderWorksheet({
+      ...payload,
+      title: payload.drill_title || currentDrillMeta.title,
+    });
+  } catch (err) {
+    if (titleEl) titleEl.textContent = 'Cannot start section';
+    showIntroError(err.message || 'Could not start this weekly test section.');
+  } finally {
+    isStarting = false;
+  }
+}
+
 /**
  * Moves focus to the target question index without wrap-around (stops at 0 and inputs.length - 1).
  */
@@ -381,6 +513,15 @@ function renderWorksheet(payload) {
 
   const titleEl = document.getElementById('worksheet-drill-title');
   const hintEl = document.getElementById('worksheet-drill-hint');
+  const testBadgeEl = document.getElementById('worksheet-test-badge');
+  const exitTestBtn = document.getElementById('btn-exit-test-worksheet');
+  if (testBadgeEl) {
+    testBadgeEl.style.display = isTestMode ? 'inline-flex' : 'none';
+    testBadgeEl.textContent = activeTestTitle;
+  }
+  if (exitTestBtn) {
+    exitTestBtn.style.display = isTestMode ? 'inline-flex' : 'none';
+  }
   if (titleEl) titleEl.textContent = `${payload.title || currentDrillMeta.title} (${activeQuestions.length} questions)`;
   if (hintEl) hintEl.textContent = payload.hint || currentDrillMeta.hint;
 
@@ -476,8 +617,9 @@ function renderWorksheet(payload) {
   // Start timer when the worksheet is rendered
   worksheetStartPerfMs = performance.now();
   worksheetEndPerfMs = worksheetStartPerfMs + activeTimeLimitSec * 1000;
+  const graceSec = isTestMode ? TEST_EXPIRY_GRACE_SECONDS : EXPIRY_GRACE_SECONDS;
   worksheetExpiresPerfMs =
-    worksheetStartPerfMs + (activeTimeLimitSec + EXPIRY_GRACE_SECONDS) * 1000;
+    worksheetStartPerfMs + (activeTimeLimitSec + graceSec) * 1000;
 
   updateTimerDisplay();
   timerIntervalId = setInterval(updateTimerDisplay, TIMER_INTERVAL_MS);
@@ -592,9 +734,10 @@ async function submitWorksheet(isAutoOrRetry = false) {
         throw new Error('Your sign-in has expired. Please sign in again.');
       }
 
+      const endpoint = isTestMode ? '/api/weekly-test' : '/api/drill';
       let res;
       try {
-        res = await fetch('/api/drill', {
+        res = await fetch(endpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -669,12 +812,14 @@ async function submitWorksheet(isAutoOrRetry = false) {
         });
         return;
       }
-      resultData = DemoDB.mockElementDrillSubmit(
-        activeSessionId,
-        answers,
-        currentUser.id,
-        currentDrillMeta
-      );
+      resultData = isTestMode
+        ? DemoDB.mockSubmitWeeklyTestSection(currentUser.id, activeSessionId, answers)
+        : DemoDB.mockElementDrillSubmit(
+            activeSessionId,
+            answers,
+            currentUser.id,
+            currentDrillMeta
+          );
     }
 
     hasSubmitted = true;
@@ -689,12 +834,21 @@ async function submitWorksheet(isAutoOrRetry = false) {
     }
 
     if (err.isExpired) {
-      showExpiredBanner('Time is up — this worksheet has expired. Please start a new set.');
+      showExpiredBanner(
+        isTestMode
+          ? 'Time is up — this weekly test section has expired.'
+          : 'Time is up — this worksheet has expired. Please start a new set.'
+      );
       return;
     }
 
     // Other validation errors (e.g., finished faster than possible, or already submitted)
-    showExpiredBanner(err.message || 'Could not submit this set. Please start a new set.');
+    showExpiredBanner(
+      err.message ||
+        (isTestMode
+          ? 'Could not submit this weekly test section.'
+          : 'Could not submit this set. Please start a new set.')
+    );
   }
 }
 
@@ -759,7 +913,10 @@ function showExpiredBanner(message) {
     retrySubtitle.textContent = 'Click "Start a new set" to generate a fresh worksheet.';
   }
   if (retryBtn) retryBtn.style.display = 'none';
-  if (newSetBtn) newSetBtn.style.display = 'inline-flex';
+  if (newSetBtn) {
+    newSetBtn.style.display = 'inline-flex';
+    newSetBtn.textContent = isTestMode ? 'Back to Weekly Test' : 'Start a new set';
+  }
 }
 
 function renderResultScreen(result) {
@@ -802,7 +959,29 @@ function renderResultScreen(result) {
   const accTextEl = document.getElementById('result-accuracy-text');
   const timeTextEl = document.getElementById('result-time-text');
   const pbBannerEl = document.getElementById('result-personal-best-banner');
+  const testSavedBannerEl = document.getElementById('result-test-saved-banner');
   const noticeBannerEl = document.getElementById('result-notice-banner');
+  const sameDrillAgainBtn = document.getElementById('btn-same-drill-again');
+  const allDrillsLink = document.getElementById('btn-result-all-drills');
+
+  if (isTestMode) {
+    if (sameDrillAgainBtn) sameDrillAgainBtn.style.display = 'none';
+    if (allDrillsLink) {
+      allDrillsLink.href = '/pages/weekly-test.html';
+      allDrillsLink.className = 'btn btn-primary btn-sm';
+      allDrillsLink.textContent = 'Back to Weekly Test';
+    }
+    if (testSavedBannerEl) {
+      if (attempted > 0) {
+        testSavedBannerEl.textContent = `✓ Saved as part of ${result.title || activeTestTitle}`;
+        testSavedBannerEl.style.display = 'block';
+      } else {
+        testSavedBannerEl.style.display = 'none';
+      }
+    }
+  } else {
+    if (testSavedBannerEl) testSavedBannerEl.style.display = 'none';
+  }
 
   if (scoreTextEl) {
     scoreTextEl.textContent = `${correct} / ${attempted}`;
@@ -829,14 +1008,14 @@ function renderResultScreen(result) {
     }
   }
 
-  // Personal best check
+  // Personal best check (practice mode only)
   const candidateRow = {
     correct,
     total: attempted,
     time_seconds: seconds,
   };
   const earnedPb =
-    attempted > 0 && isNewPersonalBest(candidateRow, previousBestForDrill);
+    !isTestMode && attempted > 0 && isNewPersonalBest(candidateRow, previousBestForDrill);
 
   if (pbBannerEl) {
     pbBannerEl.style.display = earnedPb ? 'block' : 'none';

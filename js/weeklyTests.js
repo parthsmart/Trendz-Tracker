@@ -1,28 +1,25 @@
 /**
  * Trendz Tracker - Admin Weekly Tests Controller (js/weeklyTests.js)
  *
- * Phase 4b + Phase 13a:
+ * Phase 4b + Phase 13a + Phase 16a:
  * - Admin-only route guard
  * - Two test types: 'offline' (trainer enters scores) and 'online' (students take it on the website)
- * - Lists tests newest first with 'Offline' or 'Online' chip, date, and 'n sections' for online tests
+ * - Lists tests newest first with 'Offline' or 'Online' chip, date, and section summaries
  * - Create & edit test modal:
  *   - Type choice radio ('offline' default or 'online')
  *   - Date (IST), Title (1-80 chars), Notes, Level (optional, with suggestions from student levels),
  *     Remind students from N days before (0-30, default 7)
- *   - Online sections builder (1 to 6 sections; Basics categories available online per js/basicsSupport.js,
- *     unsupported ones disabled with "Not available online"; duration 30s / 1m / 2m / 5m; Up/Down reorder; Remove)
- *   - Optional Opens at / Closes at times (India time; empty = open all day on test_date in India time)
- *   - Saves test first, then replaces sections; if saving sections fails on create, deletes the newly created test
- *     and shows the real error message.
- *   - When editing an online test that already has attempts, locks test type and sections.
+ *   - Multi-kind sections builder (Offline: 0 to 12 sections; Online: 1 to 12 sections):
+ *     - Kinds: 'basics', 'flash', 'elements', 'memoriad', 'round' ('round' is offline-only)
+ *     - Up/Down reorder & Remove buttons
+ *     - Per-section lock for sections that already have scores or attempts; in-place save by section id
  * - Detail view:
- *   - Offline tests: teacher score entry grid (unchanged keyboard flow & validation)
- *   - Online tests: hides offline score grid, shows online results table (rows = active students filtered by
- *     test audience_level + search/level filter; columns = sections in position order; cells = Not started /
- *     Started, not finished / Done with score, accuracy, time, and Reset button)
- * - Remove this test button + confirmation modal calling `admin_remove_weekly_test(p_test, p_reason)`
- * - Recently removed modal listing `weekly_test_removals` (last 30 days, restored_at is null) with Restore button
- *   calling `admin_restore_weekly_test(p_removal)`
+ *   - Top tabs: "Scores / Results" and "Leaderboard" (live weekly_test_leaderboard RPC view)
+ *   - Tests with sections: one tab per section (labelled with sectionSummary) for trainer score entry
+ *     with "N of M students entered" per tab, saving section_id + category_id (when applicable) + entered_by
+ *   - Legacy offline tests with no sections: keeps category dropdown
+ *   - Online test results table: one column per section of ANY kind, status chips, score, accuracy, time,
+ *     shared score colour, "tries n of m" for Flash, and "Reset" by section_id
  */
 
 import { requireAuth } from './guard.js';
@@ -34,8 +31,22 @@ import { getScoreFeedback } from './scoreColors.js';
 import {
   isBasicsOnlineAvailable,
   WEEKLY_TEST_DURATION_OPTIONS,
-  formatSectionDuration,
 } from './basicsSupport.js';
+import {
+  SECTION_KINDS,
+  FLASH_MODES,
+  MEMORIAD_MODULES,
+  sectionSummary,
+  speedMsToSecondsText,
+  validateSections,
+  toRows,
+  getEnabledElementsDrills,
+} from './weeklySections.js';
+import {
+  boardTitle,
+  mapWeeklyTestLeaderboardRows,
+} from './weeklyTestBoard.js';
+import { fetchWeeklyTestLeaderboard } from './leaderboardData.js';
 import { windowText } from './weeklyTestView.js';
 import { formatReminderStartPreview } from './reportMessage.js';
 import {
@@ -51,25 +62,32 @@ let currentProfile = null;
 let allTests = [];
 let activeTestId = null;
 let allCategories = [];
+let categoriesById = new Map();
 let activeCategoryId = null;
+let activeSectionId = null;
+let activeDetailTab = 'scores'; // 'scores' | 'leaderboard'
+let onlineEntryMode = false; // false = Online Results table, true = Section Score Entry tabs
 let activeStudents = [];
 let studentLevels = new Set();
 let adminProfilesMap = new Map();
 
 // test_id -> array of section rows ordered by position
 let testSectionsByTestId = new Map();
-// For active online test: attempts and scores
+// For active test: all scores and attempts loaded
+let activeTestAllScores = [];
 let activeOnlineAttempts = [];
 let activeOnlineScores = [];
 
-// Modal sections builder state: [{ category_id: string, seconds: number }]
+// Modal sections builder state
+let modalExistingSections = [];
 let modalSectionsDraft = [];
-let modalSectionsLocked = false;
+let modalLockedSectionIds = new Set();
+let modalHasAnyScoresOrAttempts = false;
 
-// Pending reset attempt target: { testId, studentId, studentName, categoryId, categoryName }
+// Pending reset attempt target: { testId, studentId, studentName, sectionId, categoryId, sectionLabel }
 let pendingResetTarget = null;
 
-// student_id -> { id?: string, correct: number|string, total: number|string, time_seconds: number|null, formatted_time?: string, is_saved: boolean }
+// student_id -> { id?: string, correct: number|string, total: number|string, time_seconds: number|null, formatted_time?: string, source?: string, is_saved: boolean }
 let currentScoresMap = new Map();
 let hasUnsavedChanges = false;
 
@@ -88,6 +106,7 @@ async function initWeeklyTestsPage() {
     renderDemoBanner();
   }
 
+  setupDetailTabsHandlers();
   setupTestModalHandlers();
   setupRemoveTestHandlers();
   setupRecentlyRemovedHandlers();
@@ -95,13 +114,70 @@ async function initWeeklyTestsPage() {
   setupFilterHandlers();
   setupUnsavedChangesGuard();
 
-  // Load active students, categories, recently removed count, and tests list in parallel
   await Promise.all([
     loadActiveStudents(),
     loadCategories(),
     loadRecentlyRemovedCount(),
     loadTests(),
   ]);
+}
+
+/**
+ * Sets up the top detail view tabs ("Scores / Results" and "Leaderboard")
+ * and the online score entry toggle button.
+ */
+function setupDetailTabsHandlers() {
+  const tabBtns = document.querySelectorAll('[data-detail-tab]');
+  tabBtns.forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const targetTab = btn.getAttribute('data-detail-tab') || 'scores';
+      if (targetTab === activeDetailTab) return;
+
+      if (hasUnsavedChanges) {
+        const proceed = confirm(
+          'You have unsaved score changes. Discard changes and switch view?'
+        );
+        if (!proceed) return;
+        hasUnsavedChanges = false;
+        setUnsavedIndicator(false);
+      }
+
+      activeDetailTab = targetTab;
+      syncDetailTabsUI();
+      const activeTest = allTests.find((t) => t.id === activeTestId);
+      if (activeTest) {
+        await renderActiveTestDetailContent(activeTest);
+      }
+    });
+  });
+
+  const btnToggleOnlineEntry = document.getElementById('btn-toggle-online-score-entry');
+  if (btnToggleOnlineEntry) {
+    btnToggleOnlineEntry.addEventListener('click', async () => {
+      if (hasUnsavedChanges) {
+        const proceed = confirm(
+          'You have unsaved score changes. Discard changes and switch view?'
+        );
+        if (!proceed) return;
+        hasUnsavedChanges = false;
+        setUnsavedIndicator(false);
+      }
+      onlineEntryMode = !onlineEntryMode;
+      const activeTest = allTests.find((t) => t.id === activeTestId);
+      if (activeTest) {
+        await renderActiveTestDetailContent(activeTest);
+      }
+    });
+  }
+}
+
+function syncDetailTabsUI() {
+  const tabBtns = document.querySelectorAll('[data-detail-tab]');
+  tabBtns.forEach((btn) => {
+    const isMatch = btn.getAttribute('data-detail-tab') === activeDetailTab;
+    btn.classList.toggle('active', isMatch);
+    btn.setAttribute('aria-selected', isMatch ? 'true' : 'false');
+  });
 }
 
 /**
@@ -191,6 +267,7 @@ async function loadCategories() {
         .sort((a, b) => a.sort_order - b.sort_order);
     }
 
+    categoriesById = new Map(allCategories.map((c) => [c.id, c]));
     renderGroupedCategorySelect();
   } catch (err) {
     console.error('Failed to load categories:', err);
@@ -198,8 +275,7 @@ async function loadCategories() {
 }
 
 /**
- * Renders the category dropdown grouped by section:
- * Basics first; never mix sections in one list.
+ * Renders the category dropdown grouped by section (used only for legacy offline tests without sections).
  */
 function renderGroupedCategorySelect() {
   const select = document.getElementById('score-category-select');
@@ -274,7 +350,7 @@ function renderGroupedCategorySelect() {
 }
 
 /**
- * Loads weekly tests list (newest first) along with section counts and score counts
+ * Loads weekly tests list (newest first) along with section rows and score counts
  */
 async function loadTests(selectTestId = null) {
   const container = document.getElementById('tests-list-container');
@@ -289,12 +365,12 @@ async function loadTests(selectTestId = null) {
       const [testRes, countRes, sectionsRes] = await Promise.all([
         supabase
           .from('weekly_tests')
-          .select('id, title, test_date, audience_level, notes, test_type, opens_at, closes_at, created_at')
+          .select('id, title, test_date, audience_level, notes, test_type, opens_at, closes_at, remind_days_before, created_at')
           .order('test_date', { ascending: false }),
         supabase.from('weekly_test_scores').select('test_id'),
         supabase
           .from('weekly_test_sections')
-          .select('id, test_id, position, category_id, seconds')
+          .select('id, test_id, position, kind, category_id, activity_key, seconds, flash_digits, flash_count, flash_speed_ms, flash_mode, question_count')
           .order('position', { ascending: true }),
       ]);
 
@@ -353,7 +429,7 @@ async function loadTests(selectTestId = null) {
 
 /**
  * Renders the sidebar tests list:
- * Each row shows an "Offline" or "Online" chip, the date, and for online tests "n sections".
+ * Each row shows an "Offline" or "Online" chip, the date, and section summaries when sections exist.
  */
 function renderTestsList(requestedSelectId = null) {
   const container = document.getElementById('tests-list-container');
@@ -389,12 +465,18 @@ function renderTestsList(requestedSelectId = null) {
       ? 'background: var(--color-primary-subtle); color: var(--color-primary-text);'
       : 'background: var(--chip-neutral-bg); color: var(--chip-neutral-text); border: 1px solid var(--border-subtle);';
 
-    const sectionsCount = Number(test.sections_count) || 0;
-    const sectionsMeta = isOnline
-      ? `${sectionsCount} ${sectionsCount === 1 ? 'section' : 'sections'}`
-      : test.notes
-        ? escapeHtml(test.notes)
-        : 'Trainer score entry';
+    const secs = testSectionsByTestId.get(test.id) || [];
+    const sectionsCount = secs.length;
+    const summariesText =
+      sectionsCount > 0
+        ? secs.map((s) => sectionSummary(s, categoriesById)).join(' · ')
+        : '';
+    const sectionsMeta =
+      sectionsCount > 0
+        ? `${sectionsCount} ${sectionsCount === 1 ? 'section' : 'sections'}`
+        : test.notes
+          ? escapeHtml(test.notes)
+          : 'Category score entry';
 
     html += `
       <button type="button" class="test-item-btn ${isSelected ? 'active' : ''}" data-test-id="${test.id}" style="
@@ -430,13 +512,18 @@ function renderTestsList(requestedSelectId = null) {
                 : ''
             }
             <span style="font-size: var(--text-xs); color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-              ${sectionsMeta}
+              ${escapeHtml(sectionsMeta)}
             </span>
           </div>
           <span class="status-chip ${test.scores_count > 0 ? 'chip-verified' : 'chip-unverified'}" style="flex-shrink: 0;">
             ${test.scores_count} ${test.scores_count === 1 ? 'score' : 'scores'}
           </span>
         </div>
+        ${
+          summariesText
+            ? `<div style="font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px;" title="${escapeHtml(summariesText)}">${escapeHtml(summariesText)}</div>`
+            : ''
+        }
       </button>
     `;
   });
@@ -456,6 +543,7 @@ function renderTestsList(requestedSelectId = null) {
         if (!confirmLeave) return;
       }
 
+      onlineEntryMode = false;
       await selectTest(id);
     };
   });
@@ -464,9 +552,10 @@ function renderTestsList(requestedSelectId = null) {
 }
 
 /**
- * Activates a test and loads either its offline score grid or its online results table
+ * Activates a test and loads its detail view (Scores / Results or Leaderboard)
  */
 async function selectTest(testId) {
+  const isSameTest = activeTestId === testId;
   activeTestId = testId;
   hasUnsavedChanges = false;
   setUnsavedIndicator(false);
@@ -487,9 +576,13 @@ async function selectTest(testId) {
     return;
   }
 
+  const secs = testSectionsByTestId.get(activeTest.id) || [];
+  if (!isSameTest || !activeSectionId || !secs.some((s) => s.id === activeSectionId)) {
+    activeSectionId = secs[0]?.id || null;
+  }
+
   const isOnline = activeTest.test_type === 'online';
 
-  // Update header details
   const titleEl = document.getElementById('active-test-title');
   const typeChipEl = document.getElementById('active-test-type-chip');
   const metaEl = document.getElementById('active-test-meta');
@@ -513,9 +606,23 @@ async function selectTest(testId) {
       ? ` &middot; <strong>Window:</strong> ${escapeHtml(windowText(activeTest.opens_at, activeTest.closes_at))}`
       : '';
     const notesLabel = activeTest.notes ? ` &middot; <em>${escapeHtml(activeTest.notes)}</em>` : '';
+    const sectionChipsHtml =
+      secs.length > 0
+        ? `<div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;">
+            ${secs
+              .map(
+                (sec, idx) =>
+                  `<span class="status-chip chip-unverified" style="font-size: 11px;">${idx + 1}. ${escapeHtml(
+                    sectionSummary(sec, categoriesById)
+                  )}</span>`
+              )
+              .join('')}
+          </div>`
+        : '';
 
     metaEl.innerHTML = `
-      <strong>Date:</strong> <span class="num">${escapeHtml(formattedDate)}</span>${levelLabel}${windowLabel}${notesLabel}
+      <div><strong>Date:</strong> <span class="num">${escapeHtml(formattedDate)}</span>${levelLabel}${windowLabel}${notesLabel}</div>
+      ${sectionChipsHtml}
     `;
   }
 
@@ -528,22 +635,84 @@ async function selectTest(testId) {
     btnRemove.onclick = () => openRemoveTestModal(activeTest);
   }
 
-  // Toggle Online vs Offline view containers
+  syncDetailTabsUI();
+  await renderActiveTestDetailContent(activeTest);
+}
+
+/**
+ * Renders the appropriate detail sub-view (Scores / Results vs Leaderboard) for the active test.
+ */
+async function renderActiveTestDetailContent(activeTest) {
+  const isOnline = activeTest.test_type === 'online';
+  const secs = testSectionsByTestId.get(activeTest.id) || [];
+  const hasSections = secs.length > 0;
+
   const onlineBanner = document.getElementById('online-test-info-banner');
+  const onlineModeActions = document.getElementById('online-view-mode-actions');
+  const btnToggleOnlineEntry = document.getElementById('btn-toggle-online-score-entry');
+  const sectionTabsBar = document.getElementById('section-tabs-bar');
   const offlineCatWrapper = document.getElementById('offline-category-select-wrapper');
+  const studentSearchWrapper = document.getElementById('student-search-wrapper');
   const toolbar = document.getElementById('test-controls-toolbar');
   const offlineView = document.getElementById('offline-scores-view');
   const onlineView = document.getElementById('online-results-view');
+  const leaderboardView = document.getElementById('test-leaderboard-view');
 
-  if (isOnline) {
+  if (activeDetailTab === 'leaderboard') {
+    if (onlineBanner) onlineBanner.style.display = 'none';
+    if (onlineModeActions) onlineModeActions.style.display = 'none';
+    if (sectionTabsBar) sectionTabsBar.style.display = 'none';
+    if (offlineCatWrapper) offlineCatWrapper.style.display = 'none';
+    if (studentSearchWrapper) studentSearchWrapper.style.display = 'none';
+    if (toolbar) toolbar.style.gridTemplateColumns = '200px';
+    if (offlineView) offlineView.style.display = 'none';
+    if (onlineView) onlineView.style.display = 'none';
+    if (leaderboardView) leaderboardView.style.display = 'block';
+    await loadTestLeaderboardForActiveTest(activeTest);
+    return;
+  }
+
+  // Scores / Results tab
+  if (leaderboardView) leaderboardView.style.display = 'none';
+  if (studentSearchWrapper) studentSearchWrapper.style.display = 'block';
+
+  if (isOnline && hasSections) {
+    if (onlineModeActions) onlineModeActions.style.display = 'inline-flex';
+    if (btnToggleOnlineEntry) {
+      btnToggleOnlineEntry.textContent = onlineEntryMode
+        ? 'View Online Results Table'
+        : 'Enter / Edit Section Scores';
+    }
+  } else {
+    if (onlineModeActions) onlineModeActions.style.display = 'none';
+    onlineEntryMode = false;
+  }
+
+  if (isOnline && !onlineEntryMode) {
+    // Online Results Matrix view
     if (onlineBanner) onlineBanner.style.display = 'block';
+    if (sectionTabsBar) sectionTabsBar.style.display = 'none';
     if (offlineCatWrapper) offlineCatWrapper.style.display = 'none';
     if (toolbar) toolbar.style.gridTemplateColumns = '1fr 160px';
     if (offlineView) offlineView.style.display = 'none';
     if (onlineView) onlineView.style.display = 'block';
     await loadOnlineResultsForActiveTest(activeTest);
-  } else {
+  } else if (hasSections) {
+    // Section-based Score Entry view (for offline tests with sections, or online tests when trainer clicks Enter/Edit Section Scores)
     if (onlineBanner) onlineBanner.style.display = 'none';
+    if (sectionTabsBar) sectionTabsBar.style.display = 'flex';
+    if (offlineCatWrapper) offlineCatWrapper.style.display = 'none';
+    if (toolbar) toolbar.style.gridTemplateColumns = '1fr 160px';
+    if (offlineView) offlineView.style.display = 'block';
+    if (onlineView) onlineView.style.display = 'none';
+    if (!activeSectionId || !secs.some((s) => s.id === activeSectionId)) {
+      activeSectionId = secs[0].id;
+    }
+    await loadScoresForCurrentSelection();
+  } else {
+    // Legacy Offline Test with NO sections (Category dropdown)
+    if (onlineBanner) onlineBanner.style.display = 'none';
+    if (sectionTabsBar) sectionTabsBar.style.display = 'none';
     if (offlineCatWrapper) offlineCatWrapper.style.display = 'block';
     if (toolbar) toolbar.style.gridTemplateColumns = 'minmax(220px, 300px) 1fr 140px';
     if (offlineView) offlineView.style.display = 'block';
@@ -594,7 +763,95 @@ function getEligibleStudentsForTest(test) {
 }
 
 // ============================================================================
-// ONLINE TEST RESULTS & RESET VIEW
+// ADMIN TEST DETAIL LEADERBOARD TAB
+// ============================================================================
+
+async function loadTestLeaderboardForActiveTest(test) {
+  const headingEl = document.getElementById('test-leaderboard-heading');
+  const tbody = document.getElementById('test-leaderboard-tbody');
+  if (!tbody) return;
+
+  const effectiveLevel = selectedLevelFilter ? selectedLevelFilter : test.audience_level || 'all';
+  const effectiveScope = effectiveLevel && effectiveLevel !== 'all' ? 'level' : 'global';
+
+  if (headingEl) {
+    headingEl.textContent = boardTitle(
+      test.title,
+      'all',
+      effectiveScope,
+      effectiveLevel !== 'all' ? effectiveLevel : null
+    );
+  }
+
+  tbody.innerHTML = `
+    <tr>
+      <td colspan="5" class="loading-state" style="text-align: center; padding: var(--space-6);">
+        Loading test leaderboard...
+      </td>
+    </tr>
+  `;
+
+  try {
+    const rawRows = await fetchWeeklyTestLeaderboard(
+      {
+        testId: test.id,
+        period: 'all',
+        level: effectiveLevel,
+        limit: 200,
+        scope: effectiveScope,
+      },
+      currentProfile
+    );
+
+    const mapped = mapWeeklyTestLeaderboardRows(rawRows, {
+      scope: effectiveScope,
+      isAdmin: true,
+    });
+
+    if (mapped.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="5" style="text-align: center; padding: var(--space-8); color: var(--text-muted); font-size: var(--text-xs);">
+            No weekly test scores recorded for this test yet.
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    tbody.innerHTML = mapped
+      .map((row) => {
+        const nameHtml = row.student_id
+          ? `<a href="/pages/student-detail.html?id=${encodeURIComponent(row.student_id)}" style="font-weight: 600; color: var(--color-primary); text-decoration: none;">${escapeHtml(row.display_name)}</a>`
+          : `<span style="font-weight: 600; color: var(--text-main);">${escapeHtml(row.display_name)}</span>`;
+        const levelChip = row.level
+          ? `<span class="badge badge-neutral" style="margin-left: 8px;">${escapeHtml(row.level)}</span>`
+          : '';
+        return `
+          <tr>
+            <td><span class="num" style="font-weight: 700;">#${escapeHtml(row.rank)}</span></td>
+            <td>${nameHtml}${levelChip}</td>
+            <td class="num" style="text-align: right; font-weight: 700;">${escapeHtml(row.formatted_points)}</td>
+            <td class="num" style="text-align: right;">${escapeHtml(row.formatted_score)}</td>
+            <td class="num" style="text-align: right; color: var(--text-muted);">${escapeHtml(row.formatted_time)}</td>
+          </tr>
+        `;
+      })
+      .join('');
+  } catch (err) {
+    console.error('Failed to load weekly test leaderboard:', err);
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="5" style="color: var(--color-danger); text-align: center; padding: var(--space-4);">
+          Failed to load leaderboard: ${escapeHtml(err.message || 'Unknown error')}
+        </td>
+      </tr>
+    `;
+  }
+}
+
+// ============================================================================
+// ONLINE TEST RESULTS & RESET VIEW (ALL SECTION KINDS)
 // ============================================================================
 
 async function loadOnlineResultsForActiveTest(test) {
@@ -623,16 +880,16 @@ async function loadOnlineResultsForActiveTest(test) {
           ? Promise.resolve({ data: testSectionsByTestId.get(test.id) || [], error: null })
           : supabase
               .from('weekly_test_sections')
-              .select('id, test_id, position, category_id, seconds')
+              .select('id, test_id, position, kind, category_id, activity_key, seconds, flash_digits, flash_count, flash_speed_ms, flash_mode, question_count')
               .eq('test_id', test.id)
               .order('position', { ascending: true }),
         supabase
           .from('weekly_test_attempts')
-          .select('id, test_id, student_id, category_id, session_id, status, started_at, finished_at')
+          .select('id, test_id, student_id, section_id, category_id, session_id, status, tries_started, tries_correct, seconds_used, started_at, finished_at')
           .eq('test_id', test.id),
         supabase
           .from('weekly_test_scores')
-          .select('id, test_id, student_id, category_id, correct, total, time_seconds, source')
+          .select('id, test_id, student_id, section_id, category_id, correct, total, time_seconds, source')
           .eq('test_id', test.id),
       ]);
 
@@ -669,30 +926,51 @@ async function loadOnlineResultsForActiveTest(test) {
   }
 }
 
+/**
+ * Finds the attempt and score for a given student and section (matching by section_id first,
+ * falling back to category_id for legacy rows).
+ */
+function findStudentSectionAttemptAndScore(studentId, sec, attempts, scores) {
+  const att =
+    attempts.find(
+      (a) =>
+        a.student_id === studentId &&
+        ((a.section_id && sec.id && a.section_id === sec.id) ||
+          (!a.section_id && sec.category_id && a.category_id === sec.category_id))
+    ) || null;
+
+  const sc =
+    scores.find(
+      (s) =>
+        s.student_id === studentId &&
+        ((s.section_id && sec.id && s.section_id === sec.id) ||
+          (!s.section_id && sec.category_id && s.category_id === sec.category_id))
+    ) || null;
+
+  return { att, sc };
+}
+
 function renderOnlineResultsTable(test, sections, attempts, scores) {
   const thead = document.getElementById('online-results-thead');
   const tbody = document.getElementById('online-results-tbody');
   const badge = document.getElementById('completion-summary-badge');
   if (!thead || !tbody) return;
 
-  const catMap = new Map(allCategories.map((c) => [c.id, c]));
   const sortedSections = [...sections].sort(
     (a, b) => (Number(a.position) || 0) - (Number(b.position) || 0)
   );
 
-  // Build table header: Student | Level | Section 1 ... Section N
+  // Build table header: Student | Level | Section 1 ... Section N (of ANY kind)
   thead.innerHTML = `
     <tr>
       <th style="min-width: 170px;">Student</th>
       <th style="width: 90px;">Level</th>
       ${sortedSections
         .map((sec, idx) => {
-          const catName = catMap.get(sec.category_id)?.name || `Section ${idx + 1}`;
-          const durLabel = formatSectionDuration(sec.seconds);
+          const summaryLabel = sectionSummary(sec, categoriesById);
           return `
-            <th style="min-width: 185px;">
-              <div style="font-weight: 700; color: var(--text-main);">${idx + 1}. ${escapeHtml(catName)}</div>
-              <div style="font-size: 10px; font-weight: 500; color: var(--text-muted);">${escapeHtml(durLabel)}</div>
+            <th style="min-width: 195px;">
+              <div style="font-weight: 700; color: var(--text-main);">${idx + 1}. ${escapeHtml(summaryLabel)}</div>
             </th>
           `;
         })
@@ -702,13 +980,13 @@ function renderOnlineResultsTable(test, sections, attempts, scores) {
 
   const eligibleStudents = getEligibleStudentsForTest(test);
 
-  // Update completion badge: how many students have at least one submitted section
   if (badge) {
-    const studentsWithSubmitted = new Set(
-      attempts.filter((a) => a.status === 'submitted').map((a) => a.student_id)
-    );
+    const studentsWithSubmittedOrScore = new Set([
+      ...attempts.filter((a) => a.status === 'submitted').map((a) => a.student_id),
+      ...scores.map((s) => s.student_id),
+    ]);
     const doneStudentsCount = eligibleStudents.filter((s) =>
-      studentsWithSubmitted.has(s.id)
+      studentsWithSubmittedOrScore.has(s.id)
     ).length;
     badge.textContent = `${doneStudentsCount} of ${eligibleStudents.length} students participated`;
     badge.className = `status-chip ${
@@ -716,7 +994,6 @@ function renderOnlineResultsTable(test, sections, attempts, scores) {
     }`;
   }
 
-  // Apply search & level filter
   const query = searchQuery.trim().toLowerCase();
   const filteredStudents = eligibleStudents.filter((s) => {
     if (selectedLevelFilter && s.level !== selectedLevelFilter) return false;
@@ -739,17 +1016,6 @@ function renderOnlineResultsTable(test, sections, attempts, scores) {
     return;
   }
 
-  // Index attempts and scores by `${student_id}:${category_id}`
-  const attemptMap = new Map();
-  attempts.forEach((a) => {
-    attemptMap.set(`${a.student_id}:${a.category_id}`, a);
-  });
-
-  const scoreMap = new Map();
-  scores.forEach((sc) => {
-    scoreMap.set(`${sc.student_id}:${sc.category_id}`, sc);
-  });
-
   let rowsHtml = '';
   filteredStudents.forEach((student) => {
     rowsHtml += `
@@ -769,10 +1035,14 @@ function renderOnlineResultsTable(test, sections, attempts, scores) {
         </td>
         ${sortedSections
           .map((sec) => {
-            const key = `${student.id}:${sec.category_id}`;
-            const att = attemptMap.get(key);
-            const sc = scoreMap.get(key);
-            const catName = catMap.get(sec.category_id)?.name || 'Section';
+            const { att, sc } = findStudentSectionAttemptAndScore(
+              student.id,
+              sec,
+              attempts,
+              scores
+            );
+            const secLabel = sectionSummary(sec, categoriesById);
+            const kind = String(sec.kind || 'basics').toLowerCase();
 
             if (!att && !sc) {
               return `
@@ -782,18 +1052,24 @@ function renderOnlineResultsTable(test, sections, attempts, scores) {
               `;
             }
 
-            if (att && att.status === 'started' && !sc) {
+            if (att && att.status === 'started' && (kind === 'flash' || !sc)) {
+              const triesNote =
+                kind === 'flash'
+                  ? `<div class="num" style="font-size: 11px; color: var(--text-muted);">tries ${Number(att.tries_started) || 0} of ${Number(sec.question_count) || 5}</div>`
+                  : '';
               return `
                 <td style="vertical-align: middle;">
                   <div style="display: flex; flex-direction: column; gap: 4px; align-items: flex-start;">
                     <span class="status-chip chip-flagged" style="font-size: 11px;">Started, not finished</span>
+                    ${triesNote}
                     <button
                       type="button"
                       class="btn btn-outline btn-sm btn-reset-online-attempt"
                       data-student-id="${student.id}"
                       data-student-name="${escapeHtml(student.full_name)}"
-                      data-category-id="${sec.category_id}"
-                      data-category-name="${escapeHtml(catName)}"
+                      data-section-id="${escapeHtml(sec.id || '')}"
+                      data-category-id="${escapeHtml(sec.category_id || '')}"
+                      data-section-label="${escapeHtml(secLabel)}"
                       style="padding: 1px 8px; font-size: 11px; min-height: 24px;"
                     >
                       Reset
@@ -803,13 +1079,21 @@ function renderOnlineResultsTable(test, sections, attempts, scores) {
               `;
             }
 
-            // Done (either score exists or attempt === 'submitted' with 0 attempted)
-            const correct = sc ? Number(sc.correct) : 0;
-            const total = sc ? Number(sc.total) : 0;
+            const correct = sc ? Number(sc.correct) : Number(att?.tries_correct) || 0;
+            const total = sc ? Number(sc.total) : Number(att?.tries_started) || 0;
             const accuracy = total > 0 ? Math.round((correct / total) * 1000) / 10 : 0;
-            const timeSec = sc && sc.time_seconds != null ? Number(sc.time_seconds) : null;
+            const timeSec =
+              sc && sc.time_seconds != null
+                ? Number(sc.time_seconds)
+                : att && att.seconds_used != null
+                  ? Number(att.seconds_used)
+                  : null;
             const timeLabel = timeSec != null ? formatSecondsToTime(timeSec) : '—';
             const fb = total > 0 ? getScoreFeedback(correct, total) : null;
+            const flashTriesText =
+              kind === 'flash'
+                ? ` &middot; tries ${Number(att?.tries_started ?? total) || 0} of ${Number(sec.question_count) || total || 5}`
+                : '';
 
             return `
               <td style="vertical-align: middle;">
@@ -821,7 +1105,7 @@ function renderOnlineResultsTable(test, sections, attempts, scores) {
                     </span>
                   </div>
                   <div class="num" style="font-size: 11px; color: var(--text-muted);">
-                    ${accuracy}% &middot; ${escapeHtml(timeLabel)}
+                    ${accuracy}% &middot; ${escapeHtml(timeLabel)}${flashTriesText}
                     ${fb ? ` &middot; <span style="color: ${fb.colorVar}; font-weight: 600;">${escapeHtml(fb.wrongText)}</span>` : ''}
                   </div>
                   <button
@@ -829,8 +1113,9 @@ function renderOnlineResultsTable(test, sections, attempts, scores) {
                     class="btn btn-outline btn-sm btn-reset-online-attempt"
                     data-student-id="${student.id}"
                     data-student-name="${escapeHtml(student.full_name)}"
-                    data-category-id="${sec.category_id}"
-                    data-category-name="${escapeHtml(catName)}"
+                    data-section-id="${escapeHtml(sec.id || '')}"
+                    data-category-id="${escapeHtml(sec.category_id || '')}"
+                    data-section-label="${escapeHtml(secLabel)}"
                     style="padding: 1px 8px; font-size: 11px; min-height: 24px; margin-top: 2px;"
                   >
                     Reset
@@ -852,13 +1137,14 @@ function renderOnlineResultsTable(test, sections, attempts, scores) {
         testId: test.id,
         studentId: btn.getAttribute('data-student-id'),
         studentName: btn.getAttribute('data-student-name'),
-        categoryId: btn.getAttribute('data-category-id'),
-        categoryName: btn.getAttribute('data-category-name'),
+        sectionId: btn.getAttribute('data-section-id') || null,
+        categoryId: btn.getAttribute('data-category-id') || null,
+        sectionLabel: btn.getAttribute('data-section-label') || 'Section',
       };
       const summaryEl = document.getElementById('reset-attempt-student-summary');
       if (summaryEl) {
         summaryEl.innerHTML = `Reset section <strong>${escapeHtml(
-          pendingResetTarget.categoryName
+          pendingResetTarget.sectionLabel
         )}</strong> for <strong>${escapeHtml(pendingResetTarget.studentName)}</strong>?`;
       }
       openModal('reset-attempt-modal');
@@ -872,35 +1158,41 @@ function setupResetAttemptHandlers() {
 
   btnConfirm.onclick = async () => {
     if (!pendingResetTarget) return;
-    const { testId, studentId, studentName, categoryId, categoryName } = pendingResetTarget;
+    const { testId, studentId, studentName, sectionId, categoryId, sectionLabel } =
+      pendingResetTarget;
     btnConfirm.disabled = true;
 
     try {
       if (isSupabaseConfigured()) {
         const supabase = await getSupabase();
-        const [delAtt, delScore] = await Promise.all([
-          supabase
-            .from('weekly_test_attempts')
-            .delete()
-            .eq('test_id', testId)
-            .eq('student_id', studentId)
-            .eq('category_id', categoryId),
-          supabase
-            .from('weekly_test_scores')
-            .delete()
-            .eq('test_id', testId)
-            .eq('student_id', studentId)
-            .eq('category_id', categoryId),
-        ]);
+        let attQuery = supabase
+          .from('weekly_test_attempts')
+          .delete()
+          .eq('test_id', testId)
+          .eq('student_id', studentId);
+        let scQuery = supabase
+          .from('weekly_test_scores')
+          .delete()
+          .eq('test_id', testId)
+          .eq('student_id', studentId);
 
+        if (sectionId) {
+          attQuery = attQuery.eq('section_id', sectionId);
+          scQuery = scQuery.eq('section_id', sectionId);
+        } else if (categoryId) {
+          attQuery = attQuery.eq('category_id', categoryId);
+          scQuery = scQuery.eq('category_id', categoryId);
+        }
+
+        const [delAtt, delScore] = await Promise.all([attQuery, scQuery]);
         if (delAtt.error) throw delAtt.error;
         if (delScore.error) throw delScore.error;
       } else if (DemoDB && DemoDB.resetWeeklyTestSectionAttempt) {
-        DemoDB.resetWeeklyTestSectionAttempt(testId, studentId, categoryId);
+        DemoDB.resetWeeklyTestSectionAttempt(testId, studentId, categoryId, sectionId);
       }
 
       closeModal('reset-attempt-modal');
-      showToast('success', `Reset ${categoryName} for ${studentName}.`);
+      showToast('success', `Reset ${sectionLabel} for ${studentName}.`);
       pendingResetTarget = null;
 
       await loadTests(testId);
@@ -914,11 +1206,132 @@ function setupResetAttemptHandlers() {
 }
 
 // ============================================================================
-// OFFLINE TEST SCORE ENTRY
+// SECTION-BASED & LEGACY CATEGORY SCORE ENTRY
 // ============================================================================
 
+/**
+ * Renders the section tabs bar when a test has sections.
+ */
+function renderSectionTabsBar(test, sections, allScoresForTest) {
+  const listEl = document.getElementById('section-tabs-list');
+  const countEl = document.getElementById('section-tab-entered-count');
+  if (!listEl) return;
+
+  const eligible = getEligibleStudentsForTest(test);
+  const eligibleIds = new Set(eligible.map((s) => s.id));
+
+  const sortedSections = [...sections].sort(
+    (a, b) => (Number(a.position) || 0) - (Number(b.position) || 0)
+  );
+
+  listEl.innerHTML = sortedSections
+    .map((sec, idx) => {
+      const isActive = sec.id === activeSectionId;
+      const summary = sectionSummary(sec, categoriesById);
+      const enteredForSec = allScoresForTest.filter(
+        (sc) =>
+          eligibleIds.has(sc.student_id) &&
+          Number(sc.total) > 0 &&
+          ((sc.section_id && sc.section_id === sec.id) ||
+            (!sc.section_id && sec.category_id && sc.category_id === sec.category_id))
+      ).length;
+
+      return `
+        <button
+          type="button"
+          role="tab"
+          aria-selected="${isActive ? 'true' : 'false'}"
+          class="segmented-btn ${isActive ? 'active' : ''}"
+          data-section-tab-id="${escapeHtml(sec.id)}"
+        >
+          <span>${idx + 1}. ${escapeHtml(summary)}</span>
+          <span class="num" style="margin-left: 6px; font-size: 11px; opacity: 0.85;">(${enteredForSec}/${eligible.length})</span>
+        </button>
+      `;
+    })
+    .join('');
+
+  listEl.querySelectorAll('[data-section-tab-id]').forEach((btn) => {
+    btn.onclick = async () => {
+      const targetSecId = btn.getAttribute('data-section-tab-id');
+      if (!targetSecId || targetSecId === activeSectionId) return;
+
+      if (hasUnsavedChanges) {
+        const confirmSwitch = confirm(
+          'You have unsaved score changes in this section. Discard changes and switch section?'
+        );
+        if (!confirmSwitch) return;
+      }
+
+      activeSectionId = targetSecId;
+      populateCurrentScoresMapFromLoaded();
+      renderSectionTabsBar(test, sections, activeTestAllScores);
+      renderScoresTable();
+      updateCompletionBadge();
+    };
+  });
+
+  if (countEl) {
+    let activeEntered = 0;
+    eligible.forEach((st) => {
+      const s = currentScoresMap.get(st.id);
+      if (s && s.total !== '' && s.total !== null && s.total !== undefined && Number(s.total) > 0) {
+        activeEntered++;
+      }
+    });
+    countEl.textContent = `${activeEntered} of ${eligible.length} students entered`;
+    countEl.className = `status-chip ${
+      activeEntered === eligible.length && eligible.length > 0 ? 'chip-verified' : 'chip-unverified'
+    }`;
+  }
+}
+
+function populateCurrentScoresMapFromLoaded() {
+  currentScoresMap.clear();
+  const activeTest = allTests.find((t) => t.id === activeTestId);
+  const sections = activeTest ? testSectionsByTestId.get(activeTest.id) || [] : [];
+  const hasSections = sections.length > 0;
+  const activeSection = hasSections
+    ? sections.find((s) => s.id === activeSectionId) || sections[0]
+    : null;
+
+  activeTestAllScores.forEach((sc) => {
+    let match = false;
+    if (hasSections && activeSection) {
+      match =
+        (sc.section_id && sc.section_id === activeSection.id) ||
+        (!sc.section_id &&
+          activeSection.category_id &&
+          sc.category_id === activeSection.category_id);
+    } else if (!hasSections && activeCategoryId) {
+      match = sc.category_id === activeCategoryId;
+    }
+
+    if (match) {
+      currentScoresMap.set(sc.student_id, {
+        id: sc.id,
+        correct: sc.correct,
+        total: sc.total,
+        time_seconds: sc.time_seconds,
+        formatted_time: sc.time_seconds ? formatSecondsToTime(sc.time_seconds) : '',
+        source: sc.source || 'teacher',
+        is_saved: true,
+      });
+    }
+  });
+
+  hasUnsavedChanges = false;
+  setUnsavedIndicator(false);
+}
+
 async function loadScoresForCurrentSelection() {
-  if (!activeTestId || !activeCategoryId) return;
+  if (!activeTestId) return;
+  const activeTest = allTests.find((t) => t.id === activeTestId);
+  if (!activeTest) return;
+
+  const sections = testSectionsByTestId.get(activeTest.id) || [];
+  const hasSections = sections.length > 0;
+  if (!hasSections && !activeCategoryId) return;
 
   const tbody = document.getElementById('scores-roster-tbody');
   if (tbody) {
@@ -932,36 +1345,26 @@ async function loadScoresForCurrentSelection() {
   }
 
   try {
-    let savedScores = [];
     if (isSupabaseConfigured()) {
       const supabase = await getSupabase();
       const { data, error } = await supabase
         .from('weekly_test_scores')
         .select('*')
-        .eq('test_id', activeTestId)
-        .eq('category_id', activeCategoryId);
+        .eq('test_id', activeTestId);
 
       if (error) throw error;
-      savedScores = data || [];
+      activeTestAllScores = data || [];
     } else {
-      savedScores = DemoDB.getWeeklyTestScores(activeTestId, activeCategoryId);
+      activeTestAllScores = DemoDB.getAllWeeklyTestScoresForTest
+        ? DemoDB.getAllWeeklyTestScoresForTest(activeTestId)
+        : DemoDB.getWeeklyTestScores(activeTestId, activeCategoryId);
     }
 
-    currentScoresMap.clear();
+    populateCurrentScoresMapFromLoaded();
 
-    savedScores.forEach((sc) => {
-      currentScoresMap.set(sc.student_id, {
-        id: sc.id,
-        correct: sc.correct,
-        total: sc.total,
-        time_seconds: sc.time_seconds,
-        formatted_time: sc.time_seconds ? formatSecondsToTime(sc.time_seconds) : '',
-        is_saved: true,
-      });
-    });
-
-    hasUnsavedChanges = false;
-    setUnsavedIndicator(false);
+    if (hasSections) {
+      renderSectionTabsBar(activeTest, sections, activeTestAllScores);
+    }
 
     renderScoresTable();
     updateCompletionBadge();
@@ -981,7 +1384,7 @@ async function loadScoresForCurrentSelection() {
 
 function updateCompletionBadge() {
   const badge = document.getElementById('completion-summary-badge');
-  if (!badge) return;
+  const sectionCountEl = document.getElementById('section-tab-entered-count');
 
   const activeTest = allTests.find((t) => t.id === activeTestId);
   const eligible = getEligibleStudentsForTest(activeTest);
@@ -995,8 +1398,19 @@ function updateCompletionBadge() {
   });
 
   const totalActive = eligible.length;
-  badge.textContent = `${enteredCount} of ${totalActive} entered`;
-  badge.className = `status-chip ${enteredCount === totalActive && totalActive > 0 ? 'chip-verified' : 'chip-unverified'}`;
+  const text = `${enteredCount} of ${totalActive} students entered`;
+  const chipClass = `status-chip ${
+    enteredCount === totalActive && totalActive > 0 ? 'chip-verified' : 'chip-unverified'
+  }`;
+
+  if (badge) {
+    badge.textContent = text;
+    badge.className = chipClass;
+  }
+  if (sectionCountEl) {
+    sectionCountEl.textContent = text;
+    sectionCountEl.className = chipClass;
+  }
 }
 
 function renderScoresTable() {
@@ -1036,6 +1450,7 @@ function renderScoresTable() {
       total: '',
       time_seconds: null,
       formatted_time: '',
+      source: 'teacher',
       is_saved: false,
     };
 
@@ -1047,7 +1462,9 @@ function renderScoresTable() {
     const feedback = hasData ? getScoreFeedback(score.correct, score.total) : null;
 
     const statusBadge = hasData
-      ? `<span class="status-chip chip-corrected" title="Official score entered by teacher">✓ Entered by teacher</span>`
+      ? score.source === 'online'
+        ? `<span class="status-chip chip-verified" title="Submitted online by student">✓ Online</span>`
+        : `<span class="status-chip chip-corrected" title="Official score entered by teacher">✓ Entered by teacher</span>`
       : `<span class="status-chip chip-unverified">Not entered</span>`;
 
     const feedbackHtml = feedback
@@ -1155,6 +1572,7 @@ function attachScoreInputHandlers() {
         total: tVal !== '' ? Number(tVal) : '',
         time_seconds: secVal,
         formatted_time: timeVal,
+        source: 'teacher',
         is_saved: Boolean(prev?.is_saved),
       });
 
@@ -1223,8 +1641,24 @@ function attachScoreInputHandlers() {
 }
 
 async function saveScores() {
-  if (!activeTestId || !activeCategoryId) {
-    showToast('error', 'Please select a test and category first.');
+  if (!activeTestId) {
+    showToast('error', 'Please select a test first.');
+    return;
+  }
+
+  const activeTest = allTests.find((t) => t.id === activeTestId);
+  const sections = activeTest ? testSectionsByTestId.get(activeTest.id) || [] : [];
+  const hasSections = sections.length > 0;
+  const activeSection = hasSections
+    ? sections.find((s) => s.id === activeSectionId) || sections[0]
+    : null;
+
+  if (hasSections && !activeSection) {
+    showToast('error', 'Please select a test section first.');
+    return;
+  }
+  if (!hasSections && !activeCategoryId) {
+    showToast('error', 'Please select a category first.');
     return;
   }
 
@@ -1235,8 +1669,13 @@ async function saveScores() {
     const scoresToUpsert = [];
     let hasValidationError = false;
 
-    const activeTest = allTests.find((t) => t.id === activeTestId);
     const eligible = getEligibleStudentsForTest(activeTest);
+    const resolvedSectionId = hasSections ? activeSection.id : null;
+    const resolvedCategoryId = hasSections
+      ? activeSection.kind === 'basics' || activeSection.kind === 'round'
+        ? activeSection.category_id || null
+        : null
+      : activeCategoryId;
 
     for (const student of eligible) {
       const s = currentScoresMap.get(student.id);
@@ -1295,15 +1734,19 @@ async function saveScores() {
         }
       }
 
-      scoresToUpsert.push({
+      const rowPayload = {
         test_id: activeTestId,
         student_id: student.id,
-        category_id: activeCategoryId,
+        section_id: resolvedSectionId,
+        category_id: resolvedCategoryId,
         correct: numC,
         total: numT,
         time_seconds: timeSec,
         source: 'teacher',
-      });
+        entered_by: currentProfile.id,
+      };
+
+      scoresToUpsert.push(rowPayload);
     }
 
     if (hasValidationError) {
@@ -1315,12 +1758,14 @@ async function saveScores() {
       const supabase = await getSupabase();
 
       if (scoresToUpsert.length > 0) {
-        const { error: upsertErr } = await supabase.from('weekly_test_scores').upsert(
-          scoresToUpsert,
-          {
-            onConflict: 'test_id,student_id,category_id',
-          }
-        );
+        const conflictTarget = resolvedSectionId
+          ? 'test_id,student_id,section_id'
+          : 'test_id,student_id,category_id';
+        const { error: upsertErr } = await supabase
+          .from('weekly_test_scores')
+          .upsert(scoresToUpsert, {
+            onConflict: conflictTarget,
+          });
 
         if (upsertErr) throw upsertErr;
       }
@@ -1336,17 +1781,22 @@ async function saveScores() {
       });
 
       if (clearedStudentIds.length > 0) {
-        await supabase
+        let delQuery = supabase
           .from('weekly_test_scores')
           .delete()
           .eq('test_id', activeTestId)
-          .eq('category_id', activeCategoryId)
           .in('student_id', clearedStudentIds);
+        if (resolvedSectionId) {
+          delQuery = delQuery.eq('section_id', resolvedSectionId);
+        } else {
+          delQuery = delQuery.eq('category_id', resolvedCategoryId);
+        }
+        await delQuery;
       }
     } else {
       DemoDB.saveWeeklyTestScores(
         activeTestId,
-        activeCategoryId,
+        resolvedSectionId ? { section_id: resolvedSectionId, category_id: resolvedCategoryId } : resolvedCategoryId,
         eligible.map((st) => {
           const s = currentScoresMap.get(st.id);
           return {
@@ -1355,7 +1805,8 @@ async function saveScores() {
             total: s?.total ?? '',
             time_seconds: s?.time_seconds ?? null,
           };
-        })
+        }),
+        currentProfile.id
       );
     }
 
@@ -1367,20 +1818,24 @@ async function saveScores() {
     await loadScoresForCurrentSelection();
   } catch (err) {
     console.error('Failed to save scores:', err);
-    showToast('error', 'Failed to save weekly test scores: ' + err.message);
+    showToast('error', 'Failed to save weekly test scores: ' + friendlyDbErrorMessage(err));
   } finally {
     btnSave.disabled = false;
   }
 }
 
 /**
- * Sets up student search and level filtering for both Offline and Online tables
+ * Sets up student search and level filtering for Offline, Online, and Leaderboard views
  */
 function setupFilterHandlers() {
   const rerunActiveRender = () => {
     const activeTest = allTests.find((t) => t.id === activeTestId);
     if (!activeTest) return;
-    if (activeTest.test_type === 'online') {
+    if (activeDetailTab === 'leaderboard') {
+      loadTestLeaderboardForActiveTest(activeTest);
+      return;
+    }
+    if (activeTest.test_type === 'online' && !onlineEntryMode) {
       const secs = testSectionsByTestId.get(activeTest.id) || [];
       renderOnlineResultsTable(activeTest, secs, activeOnlineAttempts, activeOnlineScores);
     } else {
@@ -1406,26 +1861,17 @@ function setupFilterHandlers() {
 }
 
 // ============================================================================
-// CREATE / EDIT WEEKLY TEST MODAL & SECTIONS BUILDER
+// CREATE / EDIT WEEKLY TEST MODAL & MULTI-KIND SECTIONS BUILDER
 // ============================================================================
 
-/**
- * Converts an ISO timestamp to `YYYY-MM-DDTHH:mm` in India Standard Time (`Asia/Kolkata`)
- * for `<input type="datetime-local">`.
- */
 function isoToIstDatetimeLocal(isoStr) {
   if (!isoStr) return '';
   const dt = new Date(isoStr);
   if (Number.isNaN(dt.getTime())) return '';
-  // Shift by +5:30 (330 minutes) from UTC
   const istMs = dt.getTime() + 330 * 60 * 1000;
   return new Date(istMs).toISOString().slice(0, 16);
 }
 
-/**
- * Converts a `YYYY-MM-DDTHH:mm` string from `<input type="datetime-local">` (entered in IST)
- * into a canonical UTC ISO string.
- */
 function istDatetimeLocalToIso(localStr) {
   if (!localStr || !String(localStr).trim()) return null;
   const trimmed = String(localStr).trim();
@@ -1445,22 +1891,88 @@ function getDefaultOnlineBasicsCategoryId(excludeIds = new Set()) {
   return anySupported ? anySupported.id : basicsCats[0]?.id || '';
 }
 
+function getDefaultRoundCategoryId() {
+  const roundCats = allCategories.filter((c) => c.section === 'round');
+  return roundCats[0]?.id || '';
+}
+
+function createDefaultSectionDraft(kind = 'basics', isOnline = false) {
+  const usedBasics = new Set(
+    modalSectionsDraft.filter((s) => s.kind === 'basics').map((s) => s.category_id)
+  );
+  const drills = getEnabledElementsDrills();
+
+  switch (kind) {
+    case 'flash':
+      return {
+        kind: 'flash',
+        flash_digits: 1,
+        flash_count: 20,
+        flash_speed_seconds: '0.8',
+        flash_speed_ms: 800,
+        flash_mode: 'add',
+        question_count: 5,
+      };
+    case 'elements':
+      return {
+        kind: 'elements',
+        activity_key: drills[0]?.key || 'tables_2_digit',
+      };
+    case 'memoriad':
+      return {
+        kind: 'memoriad',
+        activity_key: MEMORIAD_MODULES[0]?.key || 'calendar',
+      };
+    case 'round':
+      return {
+        kind: 'round',
+        category_id: getDefaultRoundCategoryId(),
+      };
+    case 'basics':
+    default:
+      return {
+        kind: 'basics',
+        category_id: getDefaultOnlineBasicsCategoryId(usedBasics),
+        seconds: isOnline ? 60 : 60,
+      };
+  }
+}
+
 function renderSectionsBuilder() {
   const listEl = document.getElementById('sections-builder-list');
   const addBtn = document.getElementById('btn-add-section-row');
+  const titleEl = document.getElementById('sections-builder-title');
+  const hintEl = document.getElementById('sections-builder-hint');
   if (!listEl) return;
 
+  const isOnline = Boolean(document.getElementById('test-type-online')?.checked);
   const basicsCats = allCategories.filter((c) => c.section === 'basics');
+  const roundCats = allCategories.filter((c) => c.section === 'round');
+  const enabledDrills = getEnabledElementsDrills();
+
+  if (titleEl) {
+    titleEl.textContent = isOnline
+      ? 'Online test sections (1 to 12 required)'
+      : 'Test sections (0 to 12 optional)';
+  }
+  if (hintEl) {
+    hintEl.textContent = isOnline
+      ? 'Choose Basics, Flash Anzan, Elements, or Memoriad sections in order. Students can start Basics sections online now; Flash, Elements, and Memoriad show "Available soon".'
+      : 'Define ordered sections of any kind (Basics, Flash Anzan, Elements, Memoriad, or Round scores) for structured trainer score entry, or leave empty to enter scores by category.';
+  }
 
   if (addBtn) {
-    addBtn.disabled = modalSectionsLocked || modalSectionsDraft.length >= 6;
-    addBtn.style.display = modalSectionsLocked ? 'none' : 'inline-flex';
+    addBtn.disabled = modalSectionsDraft.length >= 12;
   }
 
   if (modalSectionsDraft.length === 0) {
     listEl.innerHTML = `
       <div style="padding: var(--space-3); text-align: center; font-size: var(--text-xs); color: var(--text-muted); border: 1px dashed var(--border-subtle); border-radius: var(--radius-sm);">
-        No sections added yet. Click <strong>+ Add Section</strong> above to add 1 to 6 Basics sections.
+        No sections added. ${
+          isOnline
+            ? 'Click <strong>+ Add section</strong> above to add 1 to 12 sections.'
+            : 'Click <strong>+ Add section</strong> above to add structured sections, or save without sections for category-dropdown entry.'
+        }
       </div>
     `;
     return;
@@ -1468,46 +1980,176 @@ function renderSectionsBuilder() {
 
   let html = '';
   modalSectionsDraft.forEach((sec, idx) => {
-    const catOptionsHtml = basicsCats
-      .map((c) => {
-        const supported = isBasicsOnlineAvailable(c.name);
-        const selected = c.id === sec.category_id ? 'selected' : '';
-        const disabledAttr = !supported ? 'disabled' : '';
-        const suffix = !supported ? ' (Not available online)' : '';
-        return `<option value="${escapeHtml(c.id)}" ${selected} ${disabledAttr}>${escapeHtml(c.name)}${suffix}</option>`;
-      })
-      .join('');
+    const isLocked = Boolean(sec.id && modalLockedSectionIds.has(sec.id));
+    const kind = String(sec.kind || 'basics').toLowerCase();
 
-    const durOptionsHtml = WEEKLY_TEST_DURATION_OPTIONS.map((opt) => {
-      const selected = Number(sec.seconds) === opt.seconds ? 'selected' : '';
-      return `<option value="${opt.seconds}" ${selected}>${escapeHtml(opt.label)}</option>`;
+    const kindOptionsHtml = SECTION_KINDS.map((k) => {
+      const isRoundOnline = isOnline && k.key === 'round';
+      const selected = k.key === kind ? 'selected' : '';
+      const disabledAttr = isRoundOnline ? 'disabled' : '';
+      const label = isRoundOnline
+        ? `${k.label} (Round scores are available for offline tests only for now)`
+        : k.label;
+      return `<option value="${escapeHtml(k.key)}" ${selected} ${disabledAttr}>${escapeHtml(label)}</option>`;
     }).join('');
 
+    let fieldsHtml = '';
+    if (kind === 'basics') {
+      const catOptionsHtml = basicsCats
+        .map((c) => {
+          const supported = isBasicsOnlineAvailable(c.name);
+          const selected = c.id === sec.category_id ? 'selected' : '';
+          const disabledAttr = isOnline && !supported ? 'disabled' : '';
+          const suffix = isOnline && !supported ? ' (Not available online)' : '';
+          return `<option value="${escapeHtml(c.id)}" ${selected} ${disabledAttr}>${escapeHtml(c.name)}${suffix}</option>`;
+        })
+        .join('');
+
+      const noTimeOpt = !isOnline
+        ? `<option value="" ${!sec.seconds ? 'selected' : ''}>No time limit</option>`
+        : '';
+      const durOptionsHtml =
+        noTimeOpt +
+        WEEKLY_TEST_DURATION_OPTIONS.map((opt) => {
+          const selected = Number(sec.seconds) === opt.seconds ? 'selected' : '';
+          return `<option value="${opt.seconds}" ${selected}>${escapeHtml(opt.label)}</option>`;
+        }).join('');
+
+      fieldsHtml = `
+        <div style="display: grid; grid-template-columns: 1fr 140px; gap: var(--space-2); flex: 1;">
+          <select class="form-select sec-basics-cat" data-index="${idx}" style="min-height: 34px; font-size: var(--text-xs);" ${isLocked ? 'disabled' : ''}>
+            <option value="">Select Basics category...</option>
+            ${catOptionsHtml}
+          </select>
+          <select class="form-select sec-basics-sec" data-index="${idx}" style="min-height: 34px; font-size: var(--text-xs);" ${isLocked ? 'disabled' : ''}>
+            ${durOptionsHtml}
+          </select>
+        </div>
+      `;
+    } else if (kind === 'round') {
+      const roundOptionsHtml = roundCats
+        .map((c) => {
+          const selected = c.id === sec.category_id ? 'selected' : '';
+          return `<option value="${escapeHtml(c.id)}" ${selected}>${escapeHtml(c.name)}</option>`;
+        })
+        .join('');
+
+      fieldsHtml = `
+        <div style="flex: 1;">
+          <select class="form-select sec-round-cat" data-index="${idx}" style="min-height: 34px; font-size: var(--text-xs);" ${isLocked ? 'disabled' : ''}>
+            <option value="">Select Round category...</option>
+            ${roundOptionsHtml}
+          </select>
+        </div>
+      `;
+    } else if (kind === 'elements') {
+      const drillOptsHtml = enabledDrills
+        .map((d) => {
+          const selected = d.key === sec.activity_key ? 'selected' : '';
+          return `<option value="${escapeHtml(d.key)}" ${selected}>${escapeHtml(d.code)} &mdash; ${escapeHtml(d.label)}</option>`;
+        })
+        .join('');
+
+      fieldsHtml = `
+        <div style="flex: 1;">
+          <select class="form-select sec-elements-key" data-index="${idx}" style="min-height: 34px; font-size: var(--text-xs);" ${isLocked ? 'disabled' : ''}>
+            <option value="">Select Elements drill...</option>
+            ${drillOptsHtml}
+          </select>
+        </div>
+      `;
+    } else if (kind === 'memoriad') {
+      const modOptsHtml = MEMORIAD_MODULES.map((m) => {
+        const selected = m.key === sec.activity_key ? 'selected' : '';
+        return `<option value="${escapeHtml(m.key)}" ${selected}>${escapeHtml(m.label)}</option>`;
+      }).join('');
+
+      fieldsHtml = `
+        <div style="flex: 1;">
+          <select class="form-select sec-memoriad-key" data-index="${idx}" style="min-height: 34px; font-size: var(--text-xs);" ${isLocked ? 'disabled' : ''}>
+            <option value="">Select Memoriad module...</option>
+            ${modOptsHtml}
+          </select>
+        </div>
+      `;
+    } else if (kind === 'flash') {
+      const digitsVal = Number(sec.flash_digits) || 1;
+      const countVal = Number(sec.flash_count) || 20;
+      const speedSecVal =
+        sec.flash_speed_seconds !== undefined && sec.flash_speed_seconds !== null
+          ? sec.flash_speed_seconds
+          : speedMsToSecondsText(sec.flash_speed_ms || 800);
+      const modeVal = sec.flash_mode === 'add_sub' ? 'add_sub' : 'add';
+      const triesVal = Number(sec.question_count) || 5;
+
+      const modeOptsHtml = FLASH_MODES.map((m) => {
+        const selected = m.key === modeVal ? 'selected' : '';
+        return `<option value="${escapeHtml(m.key)}" ${selected}>${escapeHtml(m.label)}</option>`;
+      }).join('');
+
+      fieldsHtml = `
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 6px; flex: 1;">
+          <div>
+            <label style="font-size: 10px; color: var(--text-muted); display: block;">Digits (1–5)</label>
+            <input type="number" class="form-input num sec-flash-digits" data-index="${idx}" min="1" max="5" step="1" value="${digitsVal}" style="min-height: 32px; font-size: var(--text-xs); padding: 2px 6px;" ${isLocked ? 'disabled' : ''} />
+          </div>
+          <div>
+            <label style="font-size: 10px; color: var(--text-muted); display: block;">Numbers (2–1000)</label>
+            <input type="number" class="form-input num sec-flash-count" data-index="${idx}" min="2" max="1000" step="1" value="${countVal}" style="min-height: 32px; font-size: var(--text-xs); padding: 2px 6px;" ${isLocked ? 'disabled' : ''} />
+          </div>
+          <div>
+            <label style="font-size: 10px; color: var(--text-muted); display: block;">Speed s (0.2–5.0)</label>
+            <input type="number" class="form-input num sec-flash-speed" data-index="${idx}" min="0.2" max="5.0" step="0.1" value="${escapeHtml(speedSecVal)}" style="min-height: 32px; font-size: var(--text-xs); padding: 2px 6px;" ${isLocked ? 'disabled' : ''} />
+          </div>
+          <div>
+            <label style="font-size: 10px; color: var(--text-muted); display: block;">Mode</label>
+            <select class="form-select sec-flash-mode" data-index="${idx}" style="min-height: 32px; font-size: var(--text-xs); padding: 2px 6px;" ${isLocked ? 'disabled' : ''}>
+              ${modeOptsHtml}
+            </select>
+          </div>
+          <div>
+            <label style="font-size: 10px; color: var(--text-muted); display: block;">Tries (1–10)</label>
+            <input type="number" class="form-input num sec-flash-tries" data-index="${idx}" min="1" max="10" step="1" value="${triesVal}" style="min-height: 32px; font-size: var(--text-xs); padding: 2px 6px;" ${isLocked ? 'disabled' : ''} />
+          </div>
+        </div>
+      `;
+    }
+
+    const minAllowed = isOnline ? 1 : 0;
+    const canRemove = !isLocked && modalSectionsDraft.length > minAllowed;
+
     html += `
-      <div class="section-builder-row" data-index="${idx}" style="display: grid; grid-template-columns: 28px 1fr 130px auto; gap: var(--space-2); align-items: center; background: var(--bg-surface); padding: var(--space-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
-        <span class="num" style="font-size: var(--text-xs); font-weight: 700; color: var(--text-muted); text-align: center;">
-          #${idx + 1}
-        </span>
+      <div class="section-builder-row" data-index="${idx}" style="display: flex; flex-direction: column; gap: 6px; background: var(--bg-surface); padding: var(--space-2) var(--space-3); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap;">
+          <div style="display: inline-flex; align-items: center; gap: 8px;">
+            <span class="num" style="font-size: var(--text-xs); font-weight: 700; color: var(--text-muted);">
+              #${idx + 1}
+            </span>
+            <select class="form-select sec-kind-select" data-index="${idx}" style="min-height: 32px; font-size: var(--text-xs); width: auto; min-width: 150px;" ${isLocked ? 'disabled' : ''}>
+              ${kindOptionsHtml}
+            </select>
+            ${
+              isLocked
+                ? `<span class="status-chip chip-flagged" style="font-size: 10px;">Locked (has scores/attempts)</span>`
+                : ''
+            }
+          </div>
 
-        <select class="form-select section-cat-select" data-index="${idx}" style="min-height: 34px; font-size: var(--text-xs);" ${modalSectionsLocked ? 'disabled' : ''}>
-          <option value="">Select Basics category...</option>
-          ${catOptionsHtml}
-        </select>
+          <div style="display: inline-flex; gap: 4px;">
+            <button type="button" class="btn btn-outline btn-sm btn-sec-up" data-index="${idx}" title="Move up" style="padding: 2px 6px; min-height: 28px; font-size: 11px;" ${idx === 0 ? 'disabled' : ''}>
+              &uarr;
+            </button>
+            <button type="button" class="btn btn-outline btn-sm btn-sec-down" data-index="${idx}" title="Move down" style="padding: 2px 6px; min-height: 28px; font-size: 11px;" ${idx === modalSectionsDraft.length - 1 ? 'disabled' : ''}>
+              &darr;
+            </button>
+            <button type="button" class="btn btn-outline btn-sm btn-sec-remove" data-index="${idx}" title="Remove section" style="padding: 2px 8px; min-height: 28px; font-size: 11px; color: #DC2626;" ${!canRemove ? 'disabled' : ''}>
+              Remove
+            </button>
+          </div>
+        </div>
 
-        <select class="form-select section-sec-select" data-index="${idx}" style="min-height: 34px; font-size: var(--text-xs);" ${modalSectionsLocked ? 'disabled' : ''}>
-          ${durOptionsHtml}
-        </select>
-
-        <div style="display: inline-flex; gap: 4px;">
-          <button type="button" class="btn btn-outline btn-sm btn-sec-up" data-index="${idx}" title="Move up" style="padding: 2px 6px; min-height: 30px; font-size: 11px;" ${modalSectionsLocked || idx === 0 ? 'disabled' : ''}>
-            &uarr;
-          </button>
-          <button type="button" class="btn btn-outline btn-sm btn-sec-down" data-index="${idx}" title="Move down" style="padding: 2px 6px; min-height: 30px; font-size: 11px;" ${modalSectionsLocked || idx === modalSectionsDraft.length - 1 ? 'disabled' : ''}>
-            &darr;
-          </button>
-          <button type="button" class="btn btn-outline btn-sm btn-sec-remove" data-index="${idx}" title="Remove section" style="padding: 2px 8px; min-height: 30px; font-size: 11px; color: #DC2626;" ${modalSectionsLocked || modalSectionsDraft.length <= 1 ? 'disabled' : ''}>
-            Remove
-          </button>
+        <div style="display: flex; align-items: center; gap: var(--space-2);">
+          ${fieldsHtml}
         </div>
       </div>
     `;
@@ -1515,26 +2157,127 @@ function renderSectionsBuilder() {
 
   listEl.innerHTML = html;
 
-  if (modalSectionsLocked) return;
+  // Bind kind switcher
+  listEl.querySelectorAll('.sec-kind-select').forEach((sel) => {
+    sel.onchange = () => {
+      const i = Number(sel.getAttribute('data-index'));
+      const existing = modalSectionsDraft[i];
+      if (!existing || (existing.id && modalLockedSectionIds.has(existing.id))) return;
+      const nextDraft = createDefaultSectionDraft(sel.value, isOnline);
+      if (existing.id) nextDraft.id = existing.id;
+      modalSectionsDraft[i] = nextDraft;
+      renderSectionsBuilder();
+      updateTestLiveSummary();
+    };
+  });
 
-  listEl.querySelectorAll('.section-cat-select').forEach((sel) => {
+  // Bind Basics inputs
+  listEl.querySelectorAll('.sec-basics-cat').forEach((sel) => {
     sel.onchange = () => {
       const i = Number(sel.getAttribute('data-index'));
       if (modalSectionsDraft[i]) {
         modalSectionsDraft[i].category_id = sel.value;
+        updateTestLiveSummary();
       }
     };
   });
 
-  listEl.querySelectorAll('.section-sec-select').forEach((sel) => {
+  listEl.querySelectorAll('.sec-basics-sec').forEach((sel) => {
     sel.onchange = () => {
       const i = Number(sel.getAttribute('data-index'));
       if (modalSectionsDraft[i]) {
-        modalSectionsDraft[i].seconds = Number(sel.value) || 60;
+        modalSectionsDraft[i].seconds = sel.value === '' ? null : Number(sel.value);
+        updateTestLiveSummary();
       }
     };
   });
 
+  // Bind Round inputs
+  listEl.querySelectorAll('.sec-round-cat').forEach((sel) => {
+    sel.onchange = () => {
+      const i = Number(sel.getAttribute('data-index'));
+      if (modalSectionsDraft[i]) {
+        modalSectionsDraft[i].category_id = sel.value;
+        updateTestLiveSummary();
+      }
+    };
+  });
+
+  // Bind Elements inputs
+  listEl.querySelectorAll('.sec-elements-key').forEach((sel) => {
+    sel.onchange = () => {
+      const i = Number(sel.getAttribute('data-index'));
+      if (modalSectionsDraft[i]) {
+        modalSectionsDraft[i].activity_key = sel.value;
+        updateTestLiveSummary();
+      }
+    };
+  });
+
+  // Bind Memoriad inputs
+  listEl.querySelectorAll('.sec-memoriad-key').forEach((sel) => {
+    sel.onchange = () => {
+      const i = Number(sel.getAttribute('data-index'));
+      if (modalSectionsDraft[i]) {
+        modalSectionsDraft[i].activity_key = sel.value;
+        updateTestLiveSummary();
+      }
+    };
+  });
+
+  // Bind Flash inputs
+  listEl.querySelectorAll('.sec-flash-digits').forEach((inp) => {
+    inp.oninput = () => {
+      const i = Number(inp.getAttribute('data-index'));
+      if (modalSectionsDraft[i]) {
+        modalSectionsDraft[i].flash_digits = inp.value;
+        updateTestLiveSummary();
+      }
+    };
+  });
+
+  listEl.querySelectorAll('.sec-flash-count').forEach((inp) => {
+    inp.oninput = () => {
+      const i = Number(inp.getAttribute('data-index'));
+      if (modalSectionsDraft[i]) {
+        modalSectionsDraft[i].flash_count = inp.value;
+        updateTestLiveSummary();
+      }
+    };
+  });
+
+  listEl.querySelectorAll('.sec-flash-speed').forEach((inp) => {
+    inp.oninput = () => {
+      const i = Number(inp.getAttribute('data-index'));
+      if (modalSectionsDraft[i]) {
+        modalSectionsDraft[i].flash_speed_seconds = inp.value;
+        modalSectionsDraft[i].flash_speed_ms = undefined;
+        updateTestLiveSummary();
+      }
+    };
+  });
+
+  listEl.querySelectorAll('.sec-flash-mode').forEach((sel) => {
+    sel.onchange = () => {
+      const i = Number(sel.getAttribute('data-index'));
+      if (modalSectionsDraft[i]) {
+        modalSectionsDraft[i].flash_mode = sel.value;
+        updateTestLiveSummary();
+      }
+    };
+  });
+
+  listEl.querySelectorAll('.sec-flash-tries').forEach((inp) => {
+    inp.oninput = () => {
+      const i = Number(inp.getAttribute('data-index'));
+      if (modalSectionsDraft[i]) {
+        modalSectionsDraft[i].question_count = inp.value;
+        updateTestLiveSummary();
+      }
+    };
+  });
+
+  // Reorder & remove buttons
   listEl.querySelectorAll('.btn-sec-up').forEach((btn) => {
     btn.onclick = () => {
       const i = Number(btn.getAttribute('data-index'));
@@ -1543,6 +2286,7 @@ function renderSectionsBuilder() {
         modalSectionsDraft[i - 1] = modalSectionsDraft[i];
         modalSectionsDraft[i] = tmp;
         renderSectionsBuilder();
+        updateTestLiveSummary();
       }
     };
   });
@@ -1555,6 +2299,7 @@ function renderSectionsBuilder() {
         modalSectionsDraft[i + 1] = modalSectionsDraft[i];
         modalSectionsDraft[i] = tmp;
         renderSectionsBuilder();
+        updateTestLiveSummary();
       }
     };
   });
@@ -1562,9 +2307,13 @@ function renderSectionsBuilder() {
   listEl.querySelectorAll('.btn-sec-remove').forEach((btn) => {
     btn.onclick = () => {
       const i = Number(btn.getAttribute('data-index'));
-      if (modalSectionsDraft.length > 1) {
+      const sec = modalSectionsDraft[i];
+      if (!sec || (sec.id && modalLockedSectionIds.has(sec.id))) return;
+      const minAllowed = isOnline ? 1 : 0;
+      if (modalSectionsDraft.length > minAllowed) {
         modalSectionsDraft.splice(i, 1);
         renderSectionsBuilder();
+        updateTestLiveSummary();
       }
     };
   });
@@ -1572,21 +2321,39 @@ function renderSectionsBuilder() {
 
 function updateOnlineFieldsVisibility() {
   const onlineRadio = document.getElementById('test-type-online');
-  const container = document.getElementById('online-test-fields-container');
   const windowContainer = document.getElementById('online-window-fields-container');
-  if (!container) return;
+  const noticeEl = document.getElementById('sections-builder-notice');
 
   const isOnline = Boolean(onlineRadio && onlineRadio.checked);
-  container.style.display = isOnline ? 'block' : 'none';
   if (windowContainer) windowContainer.style.display = isOnline ? 'block' : 'none';
 
-  if (isOnline && modalSectionsDraft.length === 0) {
-    modalSectionsDraft.push({
-      category_id: getDefaultOnlineBasicsCategoryId(),
-      seconds: 60,
+  if (isOnline) {
+    // Remove any unlocked 'round' sections when switching from Offline to Online
+    const hadRound = modalSectionsDraft.some((s) => String(s.kind).toLowerCase() === 'round');
+    if (hadRound) {
+      modalSectionsDraft = modalSectionsDraft.filter(
+        (s) => String(s.kind).toLowerCase() !== 'round' || (s.id && modalLockedSectionIds.has(s.id))
+      );
+      if (noticeEl) {
+        noticeEl.textContent =
+          'Round scores are available for offline tests only for now — Round sections were removed for this online test.';
+        noticeEl.style.display = 'block';
+      }
+    }
+    // Ensure Basics sections have a valid duration when switching to Online
+    modalSectionsDraft.forEach((s) => {
+      if (String(s.kind || 'basics').toLowerCase() === 'basics' && !s.seconds) {
+        s.seconds = 60;
+      }
     });
-    renderSectionsBuilder();
+    if (modalSectionsDraft.length === 0) {
+      modalSectionsDraft.push(createDefaultSectionDraft('basics', true));
+    }
+  } else if (noticeEl) {
+    noticeEl.style.display = 'none';
   }
+
+  renderSectionsBuilder();
   updateTestLiveSummary();
 }
 
@@ -1604,11 +2371,88 @@ function updateTestLiveSummary() {
     test_type: isOnline ? 'online' : 'offline',
     test_date: dateVal,
     audience_level: levelVal,
-    sections_count: isOnline ? modalSectionsDraft.length : 0,
+    sections_count: modalSectionsDraft.length,
   });
 }
 
 let submitAndAddAnotherTest = false;
+
+/**
+ * Saves sections in-place for an existing test without deleting all and re-inserting:
+ * - Deletes removed unlocked sections by id
+ * - Updates existing sections in place by id (handling position changes safely)
+ * - Inserts newly added sections
+ */
+async function saveTestSectionsInPlace(supabase, testId, normalizedRows) {
+  const draftIds = new Set(normalizedRows.filter((r) => r.id).map((r) => r.id));
+  const idsToDelete = modalExistingSections
+    .filter((oldSec) => oldSec.id && !draftIds.has(oldSec.id) && !modalLockedSectionIds.has(oldSec.id))
+    .map((oldSec) => oldSec.id);
+
+  if (idsToDelete.length > 0) {
+    const { error: delErr } = await supabase
+      .from('weekly_test_sections')
+      .delete()
+      .in('id', idsToDelete);
+    if (delErr) throw delErr;
+  }
+
+  const existingToUpdate = normalizedRows.filter((r) => r.id);
+  const newToInsert = normalizedRows.filter((r) => !r.id);
+
+  // Offset positions first if any existing row's position changed to avoid unique (test_id, position) collision
+  const oldPosMap = new Map(modalExistingSections.map((s) => [s.id, Number(s.position)]));
+  const needsPositionShift = existingToUpdate.some(
+    (r) => oldPosMap.get(r.id) !== Number(r.position)
+  );
+
+  if (needsPositionShift) {
+    for (let i = 0; i < existingToUpdate.length; i++) {
+      const row = existingToUpdate[i];
+      const { error: shiftErr } = await supabase
+        .from('weekly_test_sections')
+        .update({ position: 1000 + i + 1 })
+        .eq('id', row.id);
+      if (shiftErr) throw shiftErr;
+    }
+  }
+
+  for (const row of existingToUpdate) {
+    const isLocked = modalLockedSectionIds.has(row.id);
+    const updatePayload = isLocked
+      ? { position: row.position }
+      : {
+          position: row.position,
+          kind: row.kind,
+          category_id: row.category_id,
+          activity_key: row.activity_key,
+          seconds: row.seconds,
+          flash_digits: row.flash_digits,
+          flash_count: row.flash_count,
+          flash_speed_ms: row.flash_speed_ms,
+          flash_mode: row.flash_mode,
+          question_count: row.question_count,
+        };
+
+    const { error: updErr } = await supabase
+      .from('weekly_test_sections')
+      .update(updatePayload)
+      .eq('id', row.id);
+    if (updErr) throw updErr;
+  }
+
+  if (newToInsert.length > 0) {
+    const insertRows = newToInsert.map((r) => {
+      const copy = { ...r, test_id: testId };
+      delete copy.id;
+      return copy;
+    });
+    const { error: insErr } = await supabase
+      .from('weekly_test_sections')
+      .insert(insertRows);
+    if (insErr) throw insErr;
+  }
+}
 
 function setupTestModalHandlers() {
   const btnCreate = document.getElementById('btn-create-test');
@@ -1639,12 +2483,9 @@ function setupTestModalHandlers() {
   const btnAddSec = document.getElementById('btn-add-section-row');
   if (btnAddSec) {
     btnAddSec.onclick = () => {
-      if (modalSectionsLocked || modalSectionsDraft.length >= 6) return;
-      const used = new Set(modalSectionsDraft.map((s) => s.category_id));
-      modalSectionsDraft.push({
-        category_id: getDefaultOnlineBasicsCategoryId(used),
-        seconds: 60,
-      });
+      if (modalSectionsDraft.length >= 12) return;
+      const isOnline = Boolean(document.getElementById('test-type-online')?.checked);
+      modalSectionsDraft.push(createDefaultSectionDraft('basics', isOnline));
       renderSectionsBuilder();
       updateTestLiveSummary();
     };
@@ -1658,6 +2499,7 @@ function setupTestModalHandlers() {
       form.requestSubmit();
     });
   }
+
   if (form) {
     form.onsubmit = async (e) => {
       e.preventDefault();
@@ -1677,7 +2519,6 @@ function setupTestModalHandlers() {
       const opensLocal = document.getElementById('test-opens-at-input')?.value || '';
       const closesLocal = document.getElementById('test-closes-at-input')?.value || '';
 
-      // Browser validation
       if (!dateVal) {
         showModalError('Please enter a Test Date.');
         return;
@@ -1713,44 +2554,16 @@ function setupTestModalHandlers() {
           showModalError('"Closes at" must be after "Opens at".');
           return;
         }
-
-        if (modalSectionsDraft.length < 1 || modalSectionsDraft.length > 6) {
-          showModalError('Online tests must have between 1 and 6 sections.');
-          return;
-        }
-
-        const seenCategories = new Set();
-        const catMap = new Map(allCategories.map((c) => [c.id, c]));
-
-        for (let i = 0; i < modalSectionsDraft.length; i++) {
-          const sec = modalSectionsDraft[i];
-          if (!sec.category_id) {
-            showModalError(`Please choose a Basics category for Section #${i + 1}.`);
-            return;
-          }
-          const catObj = catMap.get(sec.category_id);
-          if (!catObj || catObj.section !== 'basics') {
-            showModalError(`Section #${i + 1} must use a Basics category.`);
-            return;
-          }
-          if (!isBasicsOnlineAvailable(catObj.name)) {
-            showModalError(`Category "${catObj.name}" is not available online.`);
-            return;
-          }
-          if (seenCategories.has(sec.category_id)) {
-            showModalError(
-              `Duplicate category "${catObj.name}": each Basics category can appear only once in a test.`
-            );
-            return;
-          }
-          seenCategories.add(sec.category_id);
-
-          if (![30, 60, 120, 300].includes(Number(sec.seconds))) {
-            showModalError(`Invalid duration selected for Section #${i + 1}.`);
-            return;
-          }
-        }
       }
+
+      // Validate sections via pure helper validateSections(sections, testType, categories)
+      const secValidation = validateSections(modalSectionsDraft, testType, allCategories);
+      if (!secValidation.ok) {
+        showModalError(secValidation.error);
+        return;
+      }
+
+      const normalizedSectionRows = toRows(modalSectionsDraft, allCategories);
 
       btnSubmit.disabled = true;
       let newlyCreatedTestId = null;
@@ -1769,7 +2582,6 @@ function setupTestModalHandlers() {
         };
 
         if (idVal) {
-          // UPDATE existing test
           if (isSupabaseConfigured()) {
             const supabase = await getSupabase();
             const { error } = await supabase
@@ -1779,46 +2591,16 @@ function setupTestModalHandlers() {
 
             if (error) throw error;
 
-            if (!modalSectionsLocked) {
-              // Replace sections
-              const { error: delErr } = await supabase
-                .from('weekly_test_sections')
-                .delete()
-                .eq('test_id', idVal);
-              if (delErr) throw delErr;
-
-              if (isOnline && modalSectionsDraft.length > 0) {
-                const sectionRows = modalSectionsDraft.map((s, idx) => ({
-                  test_id: idVal,
-                  position: idx + 1,
-                  category_id: s.category_id,
-                  seconds: Number(s.seconds),
-                }));
-                const { error: insErr } = await supabase
-                  .from('weekly_test_sections')
-                  .insert(sectionRows);
-                if (insErr) throw insErr;
-              }
-            }
+            await saveTestSectionsInPlace(supabase, idVal, normalizedSectionRows);
           } else {
             DemoDB.updateWeeklyTest(idVal, testPayload);
-            if (!modalSectionsLocked && DemoDB.saveWeeklyTestSections) {
-              DemoDB.saveWeeklyTestSections(
-                idVal,
-                isOnline
-                  ? modalSectionsDraft.map((s, idx) => ({
-                      position: idx + 1,
-                      category_id: s.category_id,
-                      seconds: Number(s.seconds),
-                    }))
-                  : []
-              );
+            if (DemoDB.saveWeeklyTestSections) {
+              DemoDB.saveWeeklyTestSections(idVal, normalizedSectionRows);
             }
           }
           savedTestId = idVal;
           showToast('success', 'Weekly test details updated.');
         } else {
-          // CREATE new test first, then insert sections
           if (isSupabaseConfigured()) {
             const supabase = await getSupabase();
             const { data, error } = await supabase
@@ -1831,19 +2613,17 @@ function setupTestModalHandlers() {
             newlyCreatedTestId = data.id;
             savedTestId = data.id;
 
-            if (isOnline && modalSectionsDraft.length > 0) {
-              const sectionRows = modalSectionsDraft.map((s, idx) => ({
-                test_id: savedTestId,
-                position: idx + 1,
-                category_id: s.category_id,
-                seconds: Number(s.seconds),
-              }));
+            if (normalizedSectionRows.length > 0) {
+              const sectionRows = normalizedSectionRows.map((r) => {
+                const copy = { ...r, test_id: savedTestId };
+                delete copy.id;
+                return copy;
+              });
               const { error: secErr } = await supabase
                 .from('weekly_test_sections')
                 .insert(sectionRows);
 
               if (secErr) {
-                // Roll back the test created in this action and show the real error message
                 await supabase.from('weekly_tests').delete().eq('id', newlyCreatedTestId);
                 newlyCreatedTestId = null;
                 throw secErr;
@@ -1853,15 +2633,8 @@ function setupTestModalHandlers() {
             const created = DemoDB.createWeeklyTest(testPayload);
             newlyCreatedTestId = created.id;
             savedTestId = created.id;
-            if (isOnline && DemoDB.saveWeeklyTestSections) {
-              DemoDB.saveWeeklyTestSections(
-                savedTestId,
-                modalSectionsDraft.map((s, idx) => ({
-                  position: idx + 1,
-                  category_id: s.category_id,
-                  seconds: Number(s.seconds),
-                }))
-              );
+            if (normalizedSectionRows.length > 0 && DemoDB.saveWeeklyTestSections) {
+              DemoDB.saveWeeklyTestSections(savedTestId, normalizedSectionRows);
             }
           }
           showToast('success', 'New weekly test created.');
@@ -1888,11 +2661,18 @@ function setupTestModalHandlers() {
 
 function friendlyDbErrorMessage(err) {
   const raw = String(err?.message || err || 'Failed to save test.');
-  if (raw.toLowerCase().includes('offline') && raw.toLowerCase().includes('section')) {
-    return 'Sections can only be added to Online weekly tests.';
+  const lower = raw.toLowerCase();
+  if (lower.includes('round') && lower.includes('online')) {
+    return 'Round scores are available for offline tests only for now.';
   }
-  if (raw.toLowerCase().includes('basics') && raw.toLowerCase().includes('category')) {
-    return 'Online weekly test sections only support Basics categories.';
+  if (lower.includes('basics') && lower.includes('category')) {
+    return 'Basics sections must use an active Basics category.';
+  }
+  if (lower.includes('round') && lower.includes('category')) {
+    return 'Round sections must use an active Round category.';
+  }
+  if (lower.includes('seconds') && lower.includes('basics')) {
+    return 'Online Basics sections require a duration of 30, 60, 120, or 300 seconds.';
   }
   return raw;
 }
@@ -1911,10 +2691,14 @@ async function openTestModal(test = null) {
   const closesInput = document.getElementById('test-closes-at-input');
   const lockedBanner = document.getElementById('test-attempts-locked-banner');
   const errBanner = document.getElementById('test-error-banner');
+  const noticeEl = document.getElementById('sections-builder-notice');
 
   if (errBanner) errBanner.style.display = 'none';
   if (lockedBanner) lockedBanner.style.display = 'none';
-  modalSectionsLocked = false;
+  if (noticeEl) noticeEl.style.display = 'none';
+  modalLockedSectionIds = new Set();
+  modalHasAnyScoresOrAttempts = false;
+  modalExistingSections = [];
 
   if (test) {
     if (modalTitle) modalTitle.textContent = 'Edit Weekly Test';
@@ -1937,35 +2721,72 @@ async function openTestModal(test = null) {
     if (closesInput) closesInput.value = isOnline ? isoToIstDatetimeLocal(test.closes_at) : '';
 
     const existingSections = testSectionsByTestId.get(test.id) || [];
+    modalExistingSections = existingSections.map((s) => ({ ...s }));
     modalSectionsDraft = existingSections.map((s) => ({
-      category_id: s.category_id,
-      seconds: Number(s.seconds) || 60,
+      id: s.id,
+      kind: s.kind || 'basics',
+      category_id: s.category_id || null,
+      activity_key: s.activity_key || null,
+      seconds: s.seconds ?? null,
+      flash_digits: s.flash_digits ?? 1,
+      flash_count: s.flash_count ?? 20,
+      flash_speed_ms: s.flash_speed_ms ?? 800,
+      flash_speed_seconds: speedMsToSecondsText(s.flash_speed_ms ?? 800),
+      flash_mode: s.flash_mode || 'add',
+      question_count: s.question_count ?? 5,
     }));
 
-    // Check if this test already has attempts
-    let attemptsCount = 0;
+    // Detect which sections already have scores or attempts
     try {
+      let attRows = [];
+      let scRows = [];
       if (isSupabaseConfigured()) {
         const supabase = await getSupabase();
-        const { count } = await supabase
-          .from('weekly_test_attempts')
-          .select('id', { count: 'exact', head: true })
-          .eq('test_id', test.id);
-        attemptsCount = Number(count) || 0;
-      } else if (DemoDB && DemoDB.getWeeklyTestAttempts) {
-        attemptsCount = DemoDB.getWeeklyTestAttempts(test.id).length;
+        const [attRes, scRes] = await Promise.all([
+          supabase
+            .from('weekly_test_attempts')
+            .select('section_id, category_id')
+            .eq('test_id', test.id),
+          supabase
+            .from('weekly_test_scores')
+            .select('section_id, category_id')
+            .eq('test_id', test.id),
+        ]);
+        attRows = attRes.data || [];
+        scRows = scRes.data || [];
+      } else if (DemoDB) {
+        attRows = DemoDB.getWeeklyTestAttempts ? DemoDB.getWeeklyTestAttempts(test.id) : [];
+        scRows = DemoDB.getAllWeeklyTestScoresForTest
+          ? DemoDB.getAllWeeklyTestScoresForTest(test.id)
+          : [];
       }
+
+      modalHasAnyScoresOrAttempts = attRows.length > 0 || scRows.length > 0;
+      existingSections.forEach((sec) => {
+        const hasAtt = attRows.some(
+          (a) =>
+            (a.section_id && a.section_id === sec.id) ||
+            (!a.section_id && sec.category_id && a.category_id === sec.category_id)
+        );
+        const hasSc = scRows.some(
+          (s) =>
+            (s.section_id && s.section_id === sec.id) ||
+            (!s.section_id && sec.category_id && s.category_id === sec.category_id)
+        );
+        if (hasAtt || hasSc) {
+          modalLockedSectionIds.add(sec.id);
+        }
+      });
     } catch {
-      attemptsCount = 0;
+      modalLockedSectionIds = new Set();
     }
 
-    if (isOnline && attemptsCount > 0) {
-      modalSectionsLocked = true;
-      if (lockedBanner) lockedBanner.style.display = 'block';
+    if (modalLockedSectionIds.size > 0 && lockedBanner) {
+      lockedBanner.style.display = 'block';
     }
 
-    if (offlineRadio) offlineRadio.disabled = modalSectionsLocked;
-    if (onlineRadio) onlineRadio.disabled = modalSectionsLocked;
+    if (offlineRadio) offlineRadio.disabled = modalHasAnyScoresOrAttempts;
+    if (onlineRadio) onlineRadio.disabled = modalHasAnyScoresOrAttempts;
 
     const btnSaveAnother = document.getElementById('btn-save-add-another-test');
     if (btnSaveAnother) btnSaveAnother.style.display = 'none';
@@ -2006,12 +2827,7 @@ async function openTestModal(test = null) {
     }
     if (opensInput) opensInput.value = '';
     if (closesInput) closesInput.value = '';
-    modalSectionsDraft = [
-      {
-        category_id: getDefaultOnlineBasicsCategoryId(),
-        seconds: 60,
-      },
-    ];
+    modalSectionsDraft = [createDefaultSectionDraft('basics', false)];
 
     const btnSaveAnother = document.getElementById('btn-save-add-another-test');
     if (btnSaveAnother) btnSaveAnother.style.display = 'inline-flex';

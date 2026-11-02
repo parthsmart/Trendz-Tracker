@@ -17,6 +17,7 @@ import { isSupabaseConfigured } from './config.js';
 import { requireAuth } from './guard.js';
 import {
   fetchLeaderboard,
+  fetchWeeklyTestLeaderboard,
   fetchTodoTaskLeaderboard,
   fetchTodoLeaderboardTasks,
   fetchGlobalLeaderboardEnabled,
@@ -24,6 +25,10 @@ import {
   buildHowItWorksText,
   getLeaderboardEmptyMessage
 } from './leaderboardData.js';
+import {
+  WEEKLY_TEST_BOARD_EXPLANATION,
+  mapWeeklyTestLeaderboardRows
+} from './weeklyTestBoard.js';
 import {
   BOARD_LABELS,
   TASK_SPEED_EXPLANATION_TEXT,
@@ -51,12 +56,12 @@ import { showToast } from './toast.js';
 
 const SCOPE_STORAGE_KEY = 'trendz_leaderboard_scope_v1';
 const STATE_STORAGE_KEY = 'trendz_leaderboard_state_v2';
-const VALID_BOARDS = ['points', 'streak', 'practice_days', 'todo', 'improved'];
+const VALID_BOARDS = ['points', 'weekly_tests', 'streak', 'practice_days', 'todo', 'improved'];
 
 let currentProfile = null;
 let isAdmin = false;
 let todayIST = getISTDateYMD();
-let currentBoard = 'points'; // 'points' | 'streak' | 'practice_days' | 'todo' | 'improved'
+let currentBoard = 'points'; // 'points' | 'weekly_tests' | 'streak' | 'practice_days' | 'todo' | 'improved'
 let currentPeriod = 'week'; // 'today' | 'yesterday' | 'week' | 'month' | 'year' | 'all' | 'date:YYYY-MM-DD'
 let currentPeriodChoice = 'week'; // 'today' | 'yesterday' | 'week' | 'month' | 'year' | 'all' | 'date'
 let currentCustomDate = '';
@@ -427,14 +432,25 @@ function syncScopeControlsUI() {
 }
 
 /**
- * Renders the <thead> columns for either the 5-column task speed board or the 3-column standard board.
+ * Renders the <thead> columns for the 5-column task speed board, 5-column weekly tests board, or 3-column standard board.
  * @param {boolean} isTaskSpeedBoard
+ * @param {boolean} [isWeeklyTestsBoard=false]
  */
-function renderTableHeader(isTaskSpeedBoard) {
+function renderTableHeader(isTaskSpeedBoard, isWeeklyTestsBoard = false) {
   const thead = document.getElementById('leaderboard-table-head');
   if (!thead) return;
 
-  if (isTaskSpeedBoard) {
+  if (isWeeklyTestsBoard) {
+    thead.innerHTML = `
+      <tr>
+        <th style="width: 90px;">Rank</th>
+        <th>Student</th>
+        <th style="text-align: right;">Points</th>
+        <th style="text-align: right;">Correct of attempted</th>
+        <th style="text-align: right;">Time</th>
+      </tr>
+    `;
+  } else if (isTaskSpeedBoard) {
     thead.innerHTML = `
       <tr>
         <th style="width: 90px;">Rank</th>
@@ -462,7 +478,7 @@ function renderTableHeader(isTaskSpeedBoard) {
 function updateBoardChrome() {
   syncToolbarControlsUI();
 
-  // 1. Show or hide the period selector (visible for 'points', 'practice_days', and 'todo')
+  // 1. Show or hide the period selector (visible for 'points', 'weekly_tests', 'practice_days', and 'todo')
   const periodWrapper = document.getElementById('period-switch-wrapper');
   const usesPeriod = boardUsesPeriod(currentBoard);
   if (periodWrapper) {
@@ -474,6 +490,7 @@ function updateBoardChrome() {
 
   const selectedTaskOpt = currentBoard === 'todo' ? getSelectedTaskOption() : null;
   const isTaskSpeedBoard = Boolean(selectedTaskOpt && isSpeedRankableTask(selectedTaskOpt));
+  const isWeeklyTestsBoard = currentBoard === 'weekly_tests';
   const isNonSpeedTaskSelected = Boolean(selectedTaskOpt && !isTaskSpeedBoard);
 
   // 2. Show or hide the "Speed ranking is not available for this kind of task yet." notice
@@ -493,9 +510,13 @@ function updateBoardChrome() {
   // 3. Update "How it works" explanation
   const howItWorksEl = document.getElementById('how-it-works-text');
   if (howItWorksEl) {
-    howItWorksEl.textContent = isTaskSpeedBoard
-      ? TASK_SPEED_EXPLANATION_TEXT
-      : buildHowItWorksText(currentBoard, competitionRules, { isTaskSpeedBoard });
+    if (isWeeklyTestsBoard) {
+      howItWorksEl.textContent = WEEKLY_TEST_BOARD_EXPLANATION;
+    } else if (isTaskSpeedBoard) {
+      howItWorksEl.textContent = TASK_SPEED_EXPLANATION_TEXT;
+    } else {
+      howItWorksEl.textContent = buildHowItWorksText(currentBoard, competitionRules, { isTaskSpeedBoard });
+    }
   }
 
   // 4. Determine scope label for card header & badge
@@ -535,7 +556,7 @@ function updateBoardChrome() {
   }
 
   // 6. Update table headers
-  renderTableHeader(isTaskSpeedBoard);
+  renderTableHeader(isTaskSpeedBoard, isWeeklyTestsBoard);
 
   // 7. Update scope badge
   const scopeBadgeEl = document.getElementById('board-scope-badge');
@@ -671,7 +692,7 @@ function buildStudentCellHtml(row) {
 }
 
 /**
- * Fetches and renders the active leaderboard from RPC `leaderboard()` or `todo_task_leaderboard()`.
+ * Fetches and renders the active leaderboard from RPC `leaderboard()`, `weekly_test_leaderboard()`, or `todo_task_leaderboard()`.
  */
 async function loadActiveBoard() {
   if (currentBoard === 'todo' && todoTaskOptions.length === 0) {
@@ -683,7 +704,8 @@ async function loadActiveBoard() {
 
   const selectedTaskOpt = currentBoard === 'todo' ? getSelectedTaskOption() : null;
   const isTaskSpeedBoard = Boolean(selectedTaskOpt && isSpeedRankableTask(selectedTaskOpt));
-  const colSpan = isTaskSpeedBoard ? 5 : 3;
+  const isWeeklyTestsBoard = currentBoard === 'weekly_tests';
+  const colSpan = isTaskSpeedBoard || isWeeklyTestsBoard ? 5 : 3;
 
   renderSkeleton(colSpan);
 
@@ -704,6 +726,79 @@ async function loadActiveBoard() {
         ? 'global'
         : 'level'
       : currentScope;
+
+    if (isWeeklyTestsBoard) {
+      const rawWtRows = await fetchWeeklyTestLeaderboard(
+        {
+          testId: null,
+          period: effectivePeriod,
+          level: effectiveLevel,
+          limit: effectiveLimit,
+          scope: effectiveScope
+        },
+        currentProfile
+      );
+
+      const mappedWtRows = mapWeeklyTestLeaderboardRows(rawWtRows, {
+        scope: effectiveScope,
+        isAdmin
+      });
+
+      if (mappedWtRows.length === 0) {
+        if (tbody) tbody.innerHTML = '';
+        if (tableEl) tableEl.style.display = 'none';
+        if (emptyTitle) {
+          emptyTitle.textContent = 'No weekly test rankings yet';
+        }
+        if (emptyDesc) {
+          emptyDesc.textContent = getLeaderboardEmptyMessage('weekly_tests', effectivePeriod);
+        }
+        if (emptyState) emptyState.style.display = 'flex';
+        return;
+      }
+
+      if (emptyState) emptyState.style.display = 'none';
+      if (tableEl) tableEl.style.display = 'table';
+
+      const htmlRows = [];
+      mappedWtRows.forEach(row => {
+        const isMe = row.is_me;
+        if (row.is_outside_top_10) {
+          htmlRows.push(`
+            <tr class="section-divider-row" aria-label="Your rank outside top 10">
+              <th colspan="5" style="text-align: center; font-size: var(--text-sm); color: var(--text-muted);">
+                &bull; &bull; &bull; Your Rank &bull; &bull; &bull;
+              </th>
+            </tr>
+          `);
+        }
+
+        const rowStyle = isMe
+          ? 'background-color: var(--color-primary-subtle); font-weight: 700;'
+          : '';
+
+        htmlRows.push(`
+          <tr style="${rowStyle}" data-is-me="${isMe ? 'true' : 'false'}">
+            <td>${buildRankCellHtml(row.rank)}</td>
+            <td>${buildStudentCellHtml(row)}</td>
+            <td class="num" style="text-align: right; font-weight: 700; color: ${isMe ? 'var(--color-primary)' : 'var(--text-main)'};">
+              ${escapeHtml(row.formatted_points)}
+            </td>
+            <td class="num" style="text-align: right; color: var(--text-main);">
+              ${escapeHtml(row.formatted_score)}
+            </td>
+            <td class="num" style="text-align: right; color: var(--text-muted);">
+              ${escapeHtml(row.formatted_time)}
+            </td>
+          </tr>
+        `);
+      });
+
+      if (tbody) {
+        tbody.innerHTML = htmlRows.join('');
+      }
+      return;
+    }
 
     if (isTaskSpeedBoard && selectedTaskOpt) {
       const rawTaskRows = await fetchTodoTaskLeaderboard(

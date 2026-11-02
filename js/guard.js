@@ -11,6 +11,7 @@ import { showToast } from './toast.js';
 import { initStudentNotificationBell } from './notificationBadge.js';
 import { setupHeaderNavigation } from './headerNav.js';
 import { formatShortFirstName } from './navConfig.js';
+import { readProfileCache } from './profileCache.js';
 import { markPerf, reportPagePerf } from './perf.js';
 
 /**
@@ -44,6 +45,17 @@ export async function requireAuth(allowedRoles = ['student', 'admin']) {
     return null;
   }
 
+  // Synchronously pre-render the header navigation from navConfig.js before awaiting network
+  const earlyCachedProfile = readProfileCache();
+  if (earlyCachedProfile && allowedRoles.includes(earlyCachedProfile.role)) {
+    setupHeaderNavigation(earlyCachedProfile);
+    setupHeaderUserUI(earlyCachedProfile);
+  } else if (Array.isArray(allowedRoles) && allowedRoles.length === 1) {
+    setupHeaderNavigation({ role: allowedRoles[0] });
+  } else {
+    setupHeaderNavigation(null);
+  }
+
   const profile = await getCurrentProfile({
     allowCached: true,
     onRevalidated: (freshProfile) => {
@@ -55,6 +67,7 @@ export async function requireAuth(allowedRoles = ['student', 'admin']) {
         }
         return;
       }
+      setupHeaderNavigation(freshProfile);
       setupHeaderUserUI(freshProfile);
     },
   });
@@ -75,7 +88,7 @@ export async function requireAuth(allowedRoles = ['student', 'admin']) {
     return null;
   }
 
-  // Mount Phase 14d header & three-dot menu and populate user details
+  // Mount Phase 14e header & mobile three-dot menu and populate user details
   setupHeaderNavigation(profile);
   setupHeaderUserUI(profile);
   renderConfigBanner();

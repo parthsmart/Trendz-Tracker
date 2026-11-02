@@ -42,6 +42,11 @@ import { formatSecondsToTime } from './stats.js';
 import { DemoDB, getSupabase } from './supabaseClient.js';
 import { showToast } from './toast.js';
 import { flashSummary } from './todoForm.js';
+import {
+  parseTestRunnerQuery,
+  flashProgressText,
+  RUNNER_EXIT_CONFIRM_TEXT,
+} from './weeklyTestRunner.js';
 
 const STORAGE_KEY_SETTINGS = 'trendz_flash_settings_v2';
 const STORAGE_KEY_SOUND = 'trendz_flash_sound_v1';
@@ -52,6 +57,14 @@ let activeTaskSpec = null; // Phase 14a: non-null when ?task=1 is present in URL
 let soundEnabled = false;
 let audioCtx = null;
 let cachedHistoryRows = [];
+
+// Weekly test runner state (?test=<id>&section=<id>)
+let isTestMode = false;
+let activeTestId = null;
+let activeSectionId = null;
+let activeTestTitle = 'Weekly Test';
+let activeTryNo = 1;
+let activeQuestionCount = 5;
 
 // Active try state
 let activeTry = null; // { session_id, numbers, settings, phase: 'countdown'|'flashing'|'answering', cancelled, pendingAnswer }
@@ -409,19 +422,19 @@ function showScreen(screenName) {
 
   const isPlaying = screenName === 'play';
 
-  if (setupEl) setupEl.style.display = screenName === 'setup' ? 'block' : 'none';
+  if (setupEl) setupEl.style.display = !isTestMode && screenName === 'setup' ? 'block' : 'none';
   if (playEl) playEl.style.display = isPlaying ? 'block' : 'none';
   if (resultsEl) resultsEl.style.display = screenName === 'results' ? 'block' : 'none';
   if (taskBannerEl) {
     taskBannerEl.style.display =
-      screenName === 'setup' && activeTaskSpec ? 'block' : 'none';
+      !isTestMode && screenName === 'setup' && activeTaskSpec ? 'block' : 'none';
   }
 
-  // Hide dashboard/history below, page heading, and top navigation bar during an active Flash Anzan round
-  if (historyEl) historyEl.style.display = isPlaying ? 'none' : 'block';
-  if (pageHeaderEl) pageHeaderEl.style.display = isPlaying ? 'none' : '';
+  // Hide dashboard/history below, page heading, and top navigation bar during an active Flash Anzan round or in test mode
+  if (historyEl) historyEl.style.display = isPlaying || isTestMode ? 'none' : 'block';
+  if (pageHeaderEl) pageHeaderEl.style.display = isPlaying || isTestMode ? 'none' : '';
   if (bannerEl) bannerEl.style.display = isPlaying ? 'none' : '';
-  if (appHeaderEl) appHeaderEl.style.display = isPlaying ? 'none' : '';
+  if (appHeaderEl) appHeaderEl.style.display = isPlaying || isTestMode ? 'none' : '';
 
   if (isPlaying) {
     try {
@@ -498,6 +511,10 @@ function handleVisibilityChange() {
     activeTry.cancelled = true;
     clearActiveTimers();
     activeTry = null;
+    if (isTestMode) {
+      window.location.href = '/pages/weekly-test.html';
+      return;
+    }
     showScreen('setup');
     showErrorBanner(
       'You left the page, so this try was cancelled. Start again when you are ready.'
@@ -523,9 +540,26 @@ async function runTrySequence() {
   const numberEl = document.getElementById('flash-number-display');
   const answerPanel = document.getElementById('flash-answer-panel');
   const stopConfirmBar = document.getElementById('flash-stop-confirm-bar');
+  const stopBtn = document.getElementById('btn-flash-stop');
+  const stopConfirmText = document.getElementById('flash-stop-confirm-text');
+  const stopConfirmBtn = document.getElementById('btn-stop-confirm');
 
   if (summaryEl) {
-    summaryEl.textContent = formatFlashSettingsSummary(activeTry.settings);
+    const baseSummary = formatFlashSettingsSummary(activeTry.settings);
+    summaryEl.textContent = isTestMode
+      ? `${activeTestTitle} · ${flashProgressText(activeTryNo, activeQuestionCount)} · ${baseSummary}`
+      : baseSummary;
+  }
+  if (stopBtn) {
+    stopBtn.textContent = isTestMode ? 'Exit' : 'Stop';
+  }
+  if (stopConfirmText) {
+    stopConfirmText.textContent = isTestMode
+      ? RUNNER_EXIT_CONFIRM_TEXT
+      : 'Abandon this try? Nothing will be saved.';
+  }
+  if (stopConfirmBtn) {
+    stopConfirmBtn.textContent = isTestMode ? 'Leave section' : 'Yes, abandon try';
   }
   if (progressFill) progressFill.style.width = '0%';
   if (stopConfirmBar) stopConfirmBar.style.display = 'none';
@@ -634,12 +668,125 @@ async function runTrySequence() {
   }
 }
 
+async function getBearerToken() {
+  if (!isSupabaseConfigured()) return null;
+  const supabase = await getSupabase();
+  if (!supabase) return null;
+  const { data } = await supabase.auth.getSession();
+  return data?.session?.access_token || null;
+}
+
+async function callTestFlashStartApi() {
+  if (isDemoMode() && !isSupabaseConfigured()) {
+    return DemoDB.mockStartWeeklyTestSection(
+      currentProfile?.id,
+      activeTestId,
+      null,
+      activeSectionId
+    );
+  }
+  const token = await getBearerToken();
+  const res = await fetch('/api/weekly-test', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({
+      action: 'start',
+      test_id: activeTestId,
+      section_id: activeSectionId,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || `Could not start test try (HTTP ${res.status}).`);
+  }
+  return data;
+}
+
+async function callTestFlashSubmitApi(sessionId, answerValue) {
+  if (isDemoMode() && !isSupabaseConfigured()) {
+    return DemoDB.mockSubmitWeeklyTestSection(
+      currentProfile?.id,
+      sessionId,
+      answerValue
+    );
+  }
+  const token = await getBearerToken();
+  const res = await fetch('/api/weekly-test', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({
+      action: 'submit',
+      session_id: sessionId,
+      answer: answerValue,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || `Could not submit test try (HTTP ${res.status}).`);
+  }
+  return data;
+}
+
 /**
  * Starts a Flash Anzan try (after any long-duration confirmation)
  */
 async function startTryExecution() {
   if (isStarting) return;
   showErrorBanner(null);
+
+  if (isTestMode) {
+    ensureAudioContext();
+    isStarting = true;
+    const nextTryBtn = document.getElementById('btn-test-next-try');
+    if (nextTryBtn) {
+      nextTryBtn.disabled = true;
+      nextTryBtn.textContent = 'Starting...';
+    }
+    try {
+      const response = await callTestFlashStartApi();
+      const numbers = Array.isArray(response?.numbers) ? response.numbers : null;
+      if (!response || !response.session_id || !Array.isArray(numbers) || numbers.length === 0) {
+        throw new Error('Could not start the test try.');
+      }
+
+      activeTestTitle = response.title || activeTestTitle;
+      activeTryNo = Number(response.try_no) || 1;
+      activeQuestionCount = Number(response.question_count) || 5;
+      currentSettings = response.settings
+        ? clampFlashSettings(response.settings)
+        : currentSettings;
+
+      clearActiveTimers();
+      activeTry = {
+        session_id: response.session_id,
+        numbers,
+        settings: currentSettings,
+        phase: 'countdown',
+        cancelled: false,
+        pendingAnswer: undefined,
+      };
+
+      showScreen('play');
+      await runTrySequence();
+    } catch (err) {
+      showErrorBanner(err?.message || 'Could not start this weekly test section.');
+      renderTestSectionErrorScreen(err?.message || 'Could not start this weekly test section.');
+      showScreen('results');
+    } finally {
+      isStarting = false;
+      if (nextTryBtn) {
+        nextTryBtn.disabled = false;
+        nextTryBtn.textContent = 'Next try →';
+      }
+    }
+    return;
+  }
 
   currentSettings = clampFlashSettings(currentSettings);
   const validation = validateFlashSettings(currentSettings);
@@ -722,6 +869,16 @@ async function submitTryAnswer(answerValue) {
   }
 
   try {
+    if (isTestMode) {
+      const result = await callTestFlashSubmitApi(activeTry.session_id, answerValue);
+      const finishedTry = activeTry;
+      activeTry = null;
+
+      renderTestTryResultScreen(result, finishedTry);
+      showScreen('results');
+      return;
+    }
+
     const result = await callFlashSubmitRpc(activeTry.session_id, answerValue);
     const finishedTry = activeTry;
     activeTry = null;
@@ -730,7 +887,9 @@ async function submitTryAnswer(answerValue) {
     showScreen('results');
     await loadFlashHistory();
   } catch (err) {
-    const exactMessage = friendlyFlashError(err, 'submit');
+    const exactMessage = isTestMode
+      ? err?.message || 'Could not send your answer. Please try sending again.'
+      : friendlyFlashError(err, 'submit');
     if (retryBox && retryMsg) {
       retryMsg.textContent = exactMessage;
       retryBox.style.display = 'block';
@@ -748,8 +907,155 @@ async function submitTryAnswer(answerValue) {
   }
 }
 
+function renderTestSectionErrorScreen(message) {
+  const titleEl = document.getElementById('results-card-title');
+  const summaryHeaderEl = document.getElementById('results-settings-summary');
+  const outcomeBanner = document.getElementById('result-outcome-banner');
+  const outcomeLabel = document.getElementById('result-outcome-label');
+  const outcomeSub = document.getElementById('result-outcome-sub');
+  const metricsGrid = document.getElementById('results-metrics-grid');
+  const detailsEl = document.getElementById('res-numbers-details');
+  const changeBtn = document.getElementById('btn-results-change-settings');
+  const tryAgainBtn = document.getElementById('btn-results-try-again');
+  const nextTryBtn = document.getElementById('btn-test-next-try');
+  const backWeeklyBtn = document.getElementById('btn-test-back-weekly');
+  const testSavedBanner = document.getElementById('result-test-saved-banner');
+
+  if (titleEl) titleEl.textContent = 'Weekly Test Section';
+  if (summaryHeaderEl) summaryHeaderEl.textContent = activeTestTitle;
+  if (changeBtn) changeBtn.style.display = 'none';
+  if (tryAgainBtn) tryAgainBtn.style.display = 'none';
+  if (nextTryBtn) nextTryBtn.style.display = 'none';
+  if (backWeeklyBtn) backWeeklyBtn.style.display = 'inline-flex';
+  if (testSavedBanner) testSavedBanner.style.display = 'none';
+  if (metricsGrid) metricsGrid.style.display = 'none';
+  if (detailsEl) detailsEl.style.display = 'none';
+
+  if (outcomeBanner && outcomeLabel) {
+    outcomeBanner.style.background = 'rgba(220, 38, 38, 0.08)';
+    outcomeBanner.style.borderColor = 'var(--color-score-danger)';
+    outcomeLabel.style.color = 'var(--color-score-danger)';
+    outcomeLabel.textContent = 'Section Unavailable';
+  }
+  if (outcomeSub) {
+    outcomeSub.style.display = 'block';
+    outcomeSub.textContent = message;
+  }
+}
+
 /**
- * Renders the Result Screen immediately after answering
+ * Renders the Weekly Test multi-try screen:
+ * - When `result.done === false`: shows "Answer recorded" and "Next try" (never reveals right or wrong).
+ * - When `result.done === true`: shows "<tries_correct> of <question_count> correct", total time,
+ *   shared score colour feedback, "Saved as part of <test title>", and "Back to Weekly Test".
+ */
+function renderTestTryResultScreen(result, finishedTry) {
+  const done = Boolean(result?.done);
+  const tryNo = Number(result?.try_no) || activeTryNo;
+  const qCount = Number(result?.question_count) || activeQuestionCount;
+  const settings = finishedTry?.settings || currentSettings;
+  const summaryStr = formatFlashSettingsSummary(settings);
+  const testTitle = result?.title || activeTestTitle;
+
+  const titleEl = document.getElementById('results-card-title');
+  const summaryHeaderEl = document.getElementById('results-settings-summary');
+  const outcomeBanner = document.getElementById('result-outcome-banner');
+  const outcomeLabel = document.getElementById('result-outcome-label');
+  const outcomeSub = document.getElementById('result-outcome-sub');
+  const metricsGrid = document.getElementById('results-metrics-grid');
+  const detailsEl = document.getElementById('res-numbers-details');
+  const changeBtn = document.getElementById('btn-results-change-settings');
+  const tryAgainBtn = document.getElementById('btn-results-try-again');
+  const nextTryBtn = document.getElementById('btn-test-next-try');
+  const backWeeklyBtn = document.getElementById('btn-test-back-weekly');
+  const testSavedBanner = document.getElementById('result-test-saved-banner');
+
+  if (changeBtn) changeBtn.style.display = 'none';
+  if (tryAgainBtn) tryAgainBtn.style.display = 'none';
+  if (detailsEl) detailsEl.style.display = 'none';
+
+  if (!done) {
+    if (titleEl) titleEl.textContent = flashProgressText(tryNo, qCount);
+    if (summaryHeaderEl) summaryHeaderEl.textContent = `${testTitle} · ${summaryStr}`;
+    if (testSavedBanner) testSavedBanner.style.display = 'none';
+    if (metricsGrid) metricsGrid.style.display = 'none';
+
+    if (outcomeBanner && outcomeLabel) {
+      outcomeBanner.style.background = 'var(--color-primary-subtle)';
+      outcomeBanner.style.borderColor = 'var(--color-primary)';
+      outcomeLabel.style.color = 'var(--color-primary)';
+      outcomeLabel.textContent = 'Answer recorded';
+    }
+    if (outcomeSub) {
+      outcomeSub.style.display = 'block';
+      outcomeSub.textContent = `${flashProgressText(tryNo, qCount)} complete. Click "Next try" when you are ready for try ${tryNo + 1} of ${qCount}.`;
+    }
+    if (nextTryBtn) {
+      nextTryBtn.style.display = 'inline-flex';
+      nextTryBtn.textContent = `Next try (${tryNo + 1} of ${qCount}) →`;
+    }
+    if (backWeeklyBtn) {
+      backWeeklyBtn.style.display = 'inline-flex';
+      backWeeklyBtn.className = 'btn btn-outline';
+    }
+    return;
+  }
+
+  // Final try complete (`done === true`)
+  const triesCorrect = Number(result?.tries_correct ?? result?.correct) || 0;
+  const secondsUsed = Number(result?.seconds_used) || 0;
+  const fb = getScoreFeedback(triesCorrect, qCount);
+
+  if (titleEl) titleEl.textContent = 'Flash Anzan Section Complete';
+  if (summaryHeaderEl) summaryHeaderEl.textContent = `${testTitle} · ${summaryStr}`;
+  if (nextTryBtn) nextTryBtn.style.display = 'none';
+  if (backWeeklyBtn) {
+    backWeeklyBtn.style.display = 'inline-flex';
+    backWeeklyBtn.className = 'btn btn-primary';
+  }
+  if (testSavedBanner) {
+    testSavedBanner.textContent = `✓ Saved as part of ${testTitle}`;
+    testSavedBanner.style.display = 'block';
+  }
+
+  if (outcomeBanner && outcomeLabel) {
+    outcomeBanner.style.background = fb.bgVar;
+    outcomeBanner.style.borderColor = fb.colorVar;
+    outcomeLabel.style.color = fb.colorVar;
+    outcomeLabel.textContent = `${triesCorrect} of ${qCount} correct`;
+  }
+  if (outcomeSub) {
+    outcomeSub.style.display = 'block';
+    outcomeSub.style.color = fb.colorVar;
+    outcomeSub.textContent = `${fb.wrongText} · Total time: ${formatSecondsToTime(secondsUsed)}`;
+  }
+
+  if (metricsGrid) {
+    metricsGrid.style.display = 'grid';
+    const givenEl = document.getElementById('res-stat-given');
+    const expectedEl = document.getElementById('res-stat-expected');
+    const timeEl = document.getElementById('res-stat-time');
+    const settingsEl = document.getElementById('res-stat-settings');
+
+    const givenLabel = givenEl?.previousElementSibling;
+    const expectedLabel = expectedEl?.previousElementSibling;
+    if (givenLabel) givenLabel.textContent = 'Section Score';
+    if (expectedLabel) expectedLabel.textContent = 'Mistakes';
+    if (givenEl) {
+      givenEl.textContent = `${triesCorrect} / ${qCount}`;
+      givenEl.style.color = fb.colorVar;
+    }
+    if (expectedEl) {
+      expectedEl.textContent = fb.wrongText;
+      expectedEl.style.color = fb.colorVar;
+    }
+    if (timeEl) timeEl.textContent = formatSecondsToTime(secondsUsed);
+    if (settingsEl) settingsEl.textContent = summaryStr;
+  }
+}
+
+/**
+ * Renders the Result Screen immediately after answering (normal practice mode)
  */
 function renderTryResultScreen(result, finishedTry) {
   const isCorrect = Boolean(result?.correct);
@@ -763,6 +1069,8 @@ function renderTryResultScreen(result, finishedTry) {
 
   const outcomeBanner = document.getElementById('result-outcome-banner');
   const outcomeLabel = document.getElementById('result-outcome-label');
+  const outcomeSub = document.getElementById('result-outcome-sub');
+  if (outcomeSub) outcomeSub.style.display = 'none';
   if (outcomeBanner && outcomeLabel) {
     if (isCorrect) {
       outcomeBanner.style.background = 'rgba(22, 163, 74, 0.08)';
@@ -1094,6 +1402,10 @@ function setupEventListeners() {
     clearActiveTimers();
     activeTry = null;
     if (stopConfirmBar) stopConfirmBar.style.display = 'none';
+    if (isTestMode) {
+      window.location.href = '/pages/weekly-test.html';
+      return;
+    }
     showScreen('setup');
     showToast('Try abandoned. Nothing was saved.', 'info');
   });
@@ -1138,6 +1450,12 @@ function setupEventListeners() {
     await submitTryAnswer(
       activeTry.pendingAnswer !== undefined ? activeTry.pendingAnswer : null
     );
+  });
+
+  // Weekly Test "Next try" button
+  document.getElementById('btn-test-next-try')?.addEventListener('click', async () => {
+    if (!isTestMode || isStarting) return;
+    await startTryExecution();
   });
 
   // 9. Result screen buttons: "Try again" (with short confirmation of settings) and "Change settings"
@@ -1202,6 +1520,25 @@ async function initFlashTrainerPage() {
 
   // 1. Load last-used settings from localStorage
   loadSavedPreferences();
+
+  const runnerQuery = parseTestRunnerQuery(window.location.search);
+  isTestMode = runnerQuery.isTestMode;
+  activeTestId = runnerQuery.testId;
+  activeSectionId = runnerQuery.sectionId;
+
+  if (isTestMode) {
+    setupEventListeners();
+    window.addEventListener('beforeunload', (e) => {
+      if (isTestMode && activeTry && !activeTry.cancelled) {
+        e.preventDefault();
+        e.returnValue = RUNNER_EXIT_CONFIRM_TEXT;
+        return e.returnValue;
+      }
+    });
+    showScreen('play');
+    await startTryExecution();
+    return;
+  }
 
   // 2. Phase 14a: Read URL query parameters (?task=1, digits, count, speed, mode).
   // Valid task parameters win over last-used settings while task=1 is present.

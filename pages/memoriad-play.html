@@ -566,17 +566,7 @@
             <span>Trendz Tracker</span>
           </a>
 
-          <nav class="nav-zone" aria-label="Student Navigation">
-            <a href="/pages/student.html" class="nav-link">Home</a>
-            <a href="/pages/weekly-test.html" class="nav-link">Weekly Test</a>
-            <a href="/pages/round-scores.html" class="nav-link">Round Scores</a>
-            <a href="/pages/basics.html" class="nav-link">Basics</a>
-            <a href="/pages/flash.html" class="nav-link">Flash Anzan</a>
-            <a href="/pages/elements.html" class="nav-link">Elements</a>
-            <a href="/pages/memoriad.html" class="nav-link active" aria-current="page">Memoriad</a>
-            <a href="/pages/leaderboard.html" class="nav-link">Leaderboard</a>
-            <a href="/pages/monthly-report.html" class="nav-link">Monthly Report</a>
-          </nav>
+          <nav class="nav-zone" id="student-nav-zone" aria-label="Student Primary Navigation"></nav>
 
           <div class="actions-zone">
             <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
@@ -595,13 +585,13 @@
         <!-- Narrow Viewport Friendly Message (< 1000 px) -->
         <div class="memoriad-narrow-guard" role="region" aria-label="Desktop keyboard required">
           <div style="font-size: 2.25rem; margin-bottom: var(--space-3);" aria-hidden="true">⌨️</div>
-          <h1 style="font-size: 1.35rem; margin-bottom: var(--space-2);">
+          <h1 id="memoriad-narrow-guard-title" style="font-size: 1.35rem; margin-bottom: var(--space-2);">
             Use a laptop or desktop with a keyboard for this practice
           </h1>
           <p style="font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-4);">
             The Memoriad competition stage requires at least a 1000&nbsp;px screen and a physical keyboard for high-speed numerical entry.
           </p>
-          <a href="/pages/memoriad.html" class="btn btn-primary" style="text-decoration: none;">
+          <a id="memoriad-narrow-guard-back" href="/pages/memoriad.html" class="btn btn-primary" style="text-decoration: none;">
             &larr; Back to Memoriad
           </a>
         </div>

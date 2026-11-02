@@ -856,3 +856,40 @@ Every meaningful technical and architectural decision made for **Trendz Tracker*
   3. **Why Focused Full-Screen Practice and Test Stages Hide the Header and Menu**:
      - During timed mental calculation stages (`body.stage-focus-mode`), the global header and menu remain hidden so students see only the dedicated stage exit/stop control.
 
+---
+
+### Decision 40: Multi-Kind Weekly Test Sections, Section-Based Trainer Score Entry & Weekly Test Leaderboards (Phase 16a)
+- **Date**: 2026-11-01
+- **Context**:
+  - Phase 16a extends weekly tests so both offline and online weekly tests can have sections of any kind (`'basics'`, `'round'`, `'flash'`, `'elements'`, `'memoriad'`), trainers can enter per-section scores for all kinds, and weekly test leaderboards (`weekly_test_leaderboard`) are available on the student Weekly Test page, the main Leaderboard page, and the admin Weekly Tests page.
+- **Decisions & Rationale**:
+  1. **Single Section Schema & Summary Helper (`js/weeklySections.js`)**:
+     - `sectionSummary`, `validateSections`, and `toRows` centralize all section formatting and validation across the admin builder, trainer score entry tabs, online results matrix, and student Weekly Test cards.
+     - Flash speed seconds (`0.2..5.0` s) are converted to integer milliseconds (`200..5000` ms) via `Math.round(seconds * 1000)` to prevent IEEE-754 floating-point drift (`0.3 * 1000 = 300`, `0.7 * 1000 = 700`).
+     - Round sections are permitted on offline tests only (`"Round scores are available for offline tests only for now"`).
+  2. **In-Place Section Saving (`js/weeklyTests.js`)**:
+     - Editing a test updates unlocked sections in place by `id` (shifting positions safely before final updates when positions change), inserts newly added sections, and deletes removed sections by `id` only when they have no scores or attempts. Sections that already have student scores or attempts are locked against destructive edits or deletion so foreign keys on `weekly_test_scores.section_id` and `weekly_test_attempts.section_id` are never orphaned.
+  3. **Authoritative Weekly Test Leaderboards (`js/weeklyTestBoard.js`, `js/leaderboardData.js`)**:
+     - Points (`sum over sections of max(0, 2*correct - total) * weekly_test_multiplier`) and ranks are never computed in JavaScript; all three views call `weekly_test_leaderboard(p_test, p_period, p_level, p_limit, p_scope)`.
+  4. **Backup Coverage (`api/_backupTables.js`)**:
+     - Confirmed `weekly_tests`, `weekly_test_sections`, `weekly_test_attempts`, and `weekly_test_removals` are in `SNAPSHOT_TABLES` and `weekly_test_scores` is in `APPEND_TABLES`, preserving all new `section_id` and section columns in JSON backups and restores.
+
+---
+
+### Decision 41: Online Weekly Test Runners for Elements, Flash Anzan & Memoriad (`?test=<id>&section=<id>`), Isolation from Daily Tasks/Streaks, and Multi-Try Flash Sections (Phase 16b)
+- **Date**: 2026-11-01
+- **Context**:
+  - Phase 16b enables students to take online Weekly Test sections of kind `elements`, `flash`, and `memoriad` (alongside `basics`) directly on the website.
+- **Decisions & Rationale**:
+  1. **Reusing the Existing Runner Pages in Test Mode (`?test=<id>&section=<id>`)**:
+     - Rather than duplicating complex stage timers, Flash stream renderers, Elements worksheet grids, and Memoriad RTL digit-by-digit inputs, `js/weeklyTestRunner.js` (`runnerLink`, `parseTestRunnerQuery`) directs each section kind to its existing runner page (`/pages/element-drill.html`, `/pages/flash.html`, `/pages/memoriad-play.html`, `/pages/basics-practice.html`) with `?test=<test_id>&section=<section_id>`.
+     - When `test` and `section` query parameters are present, the runner page hides the global site header and setup screen, uses the teacher's fixed section settings returned by `POST /api/weekly-test` (`action: 'start'`), displays the test title and Exit confirmation (`"This section can be taken only once. Leaving now ends it."`), attaches a `beforeunload` warning while in progress, and shows `"Saved as part of <test title>"` + **"Back to Weekly Test"** on the results screen.
+     - On `/pages/memoriad-play.html`, the `< 1000 px` viewport check runs **before** calling `start` so a student opening a Memoriad section on a phone sees the desktop-keyboard prompt and **"Back to Weekly Test"** without consuming their single attempt.
+  2. **Why Weekly Test Results Are Stored Exclusively in `weekly_test_scores` and Do Not Tick Daily Tasks or Streaks**:
+     - Weekly tests are formal scheduled assessments scored on their own weekly test leaderboard (`weekly_test_leaderboard`), whereas daily tasks (`todo_for`) and practice streaks (`streak_for`) measure self-directed daily practice in `results` and `activity_results`.
+     - Writing weekly test submissions **only** to `weekly_test_scores` and `weekly_test_attempts` (and tagging `drill_sessions.settings.kind = 'weekly_test'`) keeps assessment scores cleanly separated from daily practice logs, personal bests, and task completion counters.
+  3. **Multi-Try Flash Anzan Sections in Weekly Tests (`applyFlashTry`)**:
+     - A Flash Anzan weekly test section consists of `question_count` (`1..10`) independent streams at the section's fixed `flash_digits`, `flash_count`, `flash_speed_ms`, and `flash_mode`.
+     - On the first `start` call, `/api/weekly-test` creates the `weekly_test_attempts` row (`status = 'started'`, `tries_started = 0`, `tries_correct = 0`) and initializes the `weekly_test_scores` row (`correct = 0`, `total = question_count`, `time_seconds = 0`, `source = 'online'`).
+     - Each try increments `tries_started` (atomically, never exceeding `question_count`) and generates one stream via `flash_generate_question`. On `submit`, `applyFlashTry` increments `tries_correct` if the sum matches, accumulates `seconds_used`, and updates `weekly_test_scores` (`correct = tries_correct`, `total = question_count`, `time_seconds = seconds_used`).
+     - During intermediate tries (`try_no < question_count`), the UI shows only **"Answer recorded"** and **"Next try"** (never revealing whether individual tries were right or wrong mid-section). When `tries_started === question_count` is submitted, `status` becomes `'submitted'` and the final score (`"<tries_correct> of <question_count> correct"`) is displayed. If a student leaves partway through, `total` remains `question_count` (unanswered tries count as wrong) and the student can resume remaining tries via **"Continue"** while the test is open.

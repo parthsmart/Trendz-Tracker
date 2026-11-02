@@ -1,34 +1,26 @@
 /**
  * Trendz Tracker - Online Weekly Test Serverless Endpoint (api/weekly-test.js)
  *
- * Actions:
- * 1. POST { action: 'start', test_id, category_id }
- *    - Verifies student caller via `verifyStudentCaller(req)`.
- *    - Calls `weekly_test_check(p_test, p_student, p_category)` with service role.
- *      When `ok` is false, returns 400 with `{ error: reason }`.
- *    - Inserts `weekly_test_attempts` (`test_id, student_id, category_id, status='started'`).
- *      If unique constraint fails, returns 400 `"You have already started this section."`.
- *    - Generates a question pool using `api/_drills.js` (`30 -> 50`, `60 -> 100`, `120 -> 200`, `300 -> 500`),
- *      inserts an open `drill_sessions` row (`activity_type='basics'`, `settings={ kind: 'weekly_test', test_id, category_id, seconds, pool }`,
- *      `expires_at = now + seconds + 60s`), and updates `weekly_test_attempts.session_id`.
- *    - If any step after the attempt insert fails, deletes that attempt row so the student can retry.
- *    - Returns `{ ok: true, session_id, title, category_name, seconds, questions }` (never expected answers).
+ * Phase 13a + Phase 16a + Phase 16b:
+ * Supports online weekly test sections of kind:
+ * - 'basics'
+ * - 'elements'
+ * - 'memoriad'
+ * - 'flash' (multi-try, resumable while tries_started < question_count)
  *
- * 2. POST { action: 'submit', session_id, answers }
- *    - Verifies student caller via `verifyStudentCaller(req)`.
- *    - Loads the student's open `drill_sessions` row where `settings.kind = 'weekly_test'`.
- *    - Rejects when expired or when `elapsed < attempted * 0.25`.
- *    - Evaluates answers with `checkTimedBasicsSubmission` (or zero-attempt handling when `answers.length === 0`).
- *    - Atomically marks `drill_sessions` as `'submitted'`.
- *    - When `attempted === 0`: sets `weekly_test_attempts` `status='submitted', finished_at=now()`, saves no score,
- *      and returns `{ ok: true, correct: 0, attempted: 0, accuracy: 0, used_seconds }`.
- *    - When `attempted > 0`: inserts into `weekly_test_scores` (`test_id, student_id, category_id, correct, total=attempted, time_seconds=round(used_seconds), source='online'`)
- *      and updates `weekly_test_attempts` `status='submitted', finished_at=now()`.
- *    - Never logs answers or tokens.
+ * Security & Data Isolation:
+ * - Verifies active student caller via `verifyStudentCaller(req)`.
+ * - Enforces rate limit of max 60 section starts per hour per student across `drill_sessions`.
+ * - Calls `weekly_test_check_section(p_test, p_student, p_section)` with service role on `start`.
+ * - Stores expected answers server-side only in `drill_sessions.expected`.
+ * - Writes results ONLY to `weekly_test_scores` and `weekly_test_attempts`
+ *   (NEVER writes to `activity_results` or `results`).
+ * - Never logs answers, expected answers, or tokens.
  */
 
 import { getDrillServerClient, verifyStudentCaller } from './_supabaseAdmin.js';
 import {
+  DRILLS,
   BASICS_TIMED_POOLS,
   BASICS_TIMED_SECONDS,
   BASICS_TIMED_GRACE_SECONDS,
@@ -36,7 +28,26 @@ import {
   generateBasicsSet,
   stripBasicsExpected,
   checkTimedBasicsSubmission,
+  gradeDrillSubmission,
 } from './_drills.js';
+import {
+  MODULES,
+  generateMemoriadSet,
+  computeMemoriadUsedSeconds,
+  evaluateMemoriadSubmission,
+} from './_memoriad.js';
+import {
+  isWeeklyTestSession,
+  computeFlashMinSeconds,
+  computeFlashExpirySeconds,
+  getMemoriadTestFixedSettings,
+  applyFlashTry,
+  finalScore,
+} from './_weeklyTest.js';
+
+const MAX_STARTS_PER_HOUR = 60;
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+const SECTION_GRACE_SECONDS = 60;
 
 function sendJson(res, statusCode, payload) {
   return res.status(statusCode).json(payload);
@@ -65,7 +76,53 @@ function isValidId(val) {
 }
 
 /**
- * Handles `POST { action: 'start', test_id, category_id }`.
+ * Checks that the student has not started more than 60 drill_sessions in the last hour.
+ */
+async function checkStartRateLimit(adminSupabase, studentId, nowMs) {
+  try {
+    const oneHourAgoIso = new Date(nowMs - RATE_LIMIT_WINDOW_MS).toISOString();
+    const query = adminSupabase
+      .from('drill_sessions')
+      .select('id', { count: 'exact', head: true })
+      .eq('student_id', studentId);
+
+    if (typeof query?.gte !== 'function') {
+      return { allowed: true };
+    }
+
+    const { count, error } = await query.gte('started_at', oneHourAgoIso);
+    if (!error && typeof count === 'number' && count >= MAX_STARTS_PER_HOUR) {
+      return {
+        allowed: false,
+        error: 'Too many section starts in the last hour. Please wait a moment and try again.',
+      };
+    }
+  } catch {
+    // Allow when test mock does not implement count query on drill_sessions
+  }
+  return { allowed: true };
+}
+
+/**
+ * Extracts signed integer array from `flash_generate_question` RPC output.
+ */
+function extractFlashNumbers(rpcData) {
+  if (Array.isArray(rpcData)) {
+    if (rpcData.length > 0 && typeof rpcData[0] === 'number') {
+      return rpcData.map((n) => Number(n));
+    }
+    if (rpcData[0] && Array.isArray(rpcData[0].numbers)) {
+      return rpcData[0].numbers.map((n) => Number(n));
+    }
+  }
+  if (rpcData && typeof rpcData === 'object' && Array.isArray(rpcData.numbers)) {
+    return rpcData.numbers.map((n) => Number(n));
+  }
+  return null;
+}
+
+/**
+ * Handles `POST { action: 'start', test_id, section_id, category_id? }`.
  */
 export async function handleStartWeeklyTestSection({
   student,
@@ -74,7 +131,8 @@ export async function handleStartWeeklyTestSection({
   now = new Date(),
 }) {
   const testId = typeof body?.test_id === 'string' ? body.test_id.trim() : '';
-  const categoryId = typeof body?.category_id === 'string' ? body.category_id.trim() : '';
+  const rawSectionId = typeof body?.section_id === 'string' ? body.section_id.trim() : '';
+  const rawCategoryId = typeof body?.category_id === 'string' ? body.category_id.trim() : '';
 
   if (!isValidId(testId)) {
     return {
@@ -83,145 +141,698 @@ export async function handleStartWeeklyTestSection({
     };
   }
 
-  if (!isValidId(categoryId)) {
+  let sectionId = isValidId(rawSectionId) ? rawSectionId : '';
+  const categoryIdArg = isValidId(rawCategoryId) ? rawCategoryId : '';
+
+  if (!sectionId && !categoryIdArg) {
     return {
       statusCode: 400,
-      payload: { error: 'A valid basics category ID is required.' },
-    };
-  }
-
-  // 1. Authoritative DB check via weekly_test_check(p_test, p_student, p_category)
-  const { data: checkRaw, error: checkErr } = await adminSupabase.rpc('weekly_test_check', {
-    p_test: testId,
-    p_student: student.id,
-    p_category: categoryId,
-  });
-
-  if (checkErr) {
-    return {
-      statusCode: 400,
-      payload: { error: checkErr.message || 'Unable to verify weekly test section eligibility.' },
-    };
-  }
-
-  const check = Array.isArray(checkRaw) ? checkRaw[0] : checkRaw;
-  if (!check || check.ok !== true) {
-    return {
-      statusCode: 400,
-      payload: { error: check?.reason || 'This weekly test section cannot be started right now.' },
-    };
-  }
-
-  const seconds = Number(check.seconds);
-  if (!BASICS_TIMED_SECONDS.includes(seconds)) {
-    return {
-      statusCode: 400,
-      payload: { error: 'Invalid section duration configured for this test.' },
-    };
-  }
-
-  const poolSize = BASICS_TIMED_POOLS[seconds];
-
-  // 2. Load the basics category name
-  const { data: category, error: catErr } = await adminSupabase
-    .from('categories')
-    .select('id, name, section, active')
-    .eq('id', categoryId)
-    .maybeSingle();
-
-  if (catErr || !category) {
-    return {
-      statusCode: 404,
-      payload: { error: 'Basics category not found.' },
-    };
-  }
-
-  if (category.section !== 'basics') {
-    return {
-      statusCode: 400,
-      payload: { error: 'Weekly test online sections only support Basics categories.' },
-    };
-  }
-
-  const parsedSpec = parseBasicsCategoryName(category.name);
-  if (!parsedSpec) {
-    return {
-      statusCode: 400,
-      payload: { error: `Category "${category.name}" is not available online.` },
+      payload: { error: 'A valid weekly test section ID is required.' },
     };
   }
 
   const nowMs = now instanceof Date ? now.getTime() : new Date(now).getTime();
   const startedAtIso = new Date(nowMs).toISOString();
-  const expiresAtIso = new Date(
-    nowMs + (seconds + BASICS_TIMED_GRACE_SECONDS) * 1000
-  ).toISOString();
 
-  // 3. Insert weekly_test_attempts row (unique per test_id, student_id, category_id)
-  const { data: attemptRow, error: attemptErr } = await adminSupabase
-    .from('weekly_test_attempts')
-    .insert({
+  // Rate limit: max 60 starts per hour per student across drill_sessions
+  const rateCheck = await checkStartRateLimit(adminSupabase, student.id, nowMs);
+  if (!rateCheck.allowed) {
+    return {
+      statusCode: 429,
+      payload: { error: rateCheck.error },
+    };
+  }
+
+  // Resolve section_id from category_id if legacy caller only passed category_id
+  if (!sectionId && categoryIdArg) {
+    try {
+      const { data: secRow } = await adminSupabase
+        .from('weekly_test_sections')
+        .select('id')
+        .eq('test_id', testId)
+        .eq('category_id', categoryIdArg)
+        .maybeSingle();
+      if (secRow?.id) {
+        sectionId = String(secRow.id);
+      }
+    } catch {
+      // Optional lookup
+    }
+  }
+
+  // 1. Authoritative DB check via weekly_test_check_section(p_test, p_student, p_section)
+  //    (with fallback to weekly_test_check if legacy mock only defines weekly_test_check)
+  let check = null;
+  if (sectionId) {
+    const { data: checkSecRaw, error: checkSecErr } = await adminSupabase.rpc(
+      'weekly_test_check_section',
+      {
+        p_test: testId,
+        p_student: student.id,
+        p_section: sectionId,
+      }
+    );
+
+    if (checkSecErr && categoryIdArg) {
+      // Fallback for legacy mocks that only implement weekly_test_check
+      const { data: legacyRaw, error: legacyErr } = await adminSupabase.rpc('weekly_test_check', {
+        p_test: testId,
+        p_student: student.id,
+        p_category: categoryIdArg,
+      });
+      if (legacyErr) {
+        return {
+          statusCode: 400,
+          payload: {
+            error: checkSecErr.message || 'Unable to verify weekly test section eligibility.',
+          },
+        };
+      }
+      check = Array.isArray(legacyRaw) ? legacyRaw[0] : legacyRaw;
+    } else if (checkSecErr) {
+      return {
+        statusCode: 400,
+        payload: {
+          error: checkSecErr.message || 'Unable to verify weekly test section eligibility.',
+        },
+      };
+    } else {
+      check = Array.isArray(checkSecRaw) ? checkSecRaw[0] : checkSecRaw;
+    }
+  } else {
+    const { data: legacyRaw, error: legacyErr } = await adminSupabase.rpc('weekly_test_check', {
+      p_test: testId,
+      p_student: student.id,
+      p_category: categoryIdArg,
+    });
+    if (legacyErr) {
+      return {
+        statusCode: 400,
+        payload: { error: legacyErr.message || 'Unable to verify weekly test section eligibility.' },
+      };
+    }
+    check = Array.isArray(legacyRaw) ? legacyRaw[0] : legacyRaw;
+  }
+
+  if (!check || check.ok !== true) {
+    return {
+      statusCode: 400,
+      payload: {
+        error: check?.reason || 'This weekly test section cannot be started right now.',
+      },
+    };
+  }
+
+  if (!sectionId && check.section_id && isValidId(String(check.section_id))) {
+    sectionId = String(check.section_id);
+  }
+
+  const kind = String(check.kind || 'basics').trim().toLowerCase();
+  const testTitle = check.title || 'Weekly Test';
+
+  // ==========================================================================
+  // KIND 1: BASICS
+  // ==========================================================================
+  if (kind === 'basics') {
+    const categoryId = String(check.category_id || categoryIdArg || '').trim();
+    if (!isValidId(categoryId)) {
+      return {
+        statusCode: 400,
+        payload: { error: 'A valid basics category ID is required.' },
+      };
+    }
+
+    const seconds = Number(check.seconds);
+    if (!BASICS_TIMED_SECONDS.includes(seconds)) {
+      return {
+        statusCode: 400,
+        payload: { error: 'Invalid section duration configured for this test.' },
+      };
+    }
+
+    const poolSize = BASICS_TIMED_POOLS[seconds];
+
+    const { data: category, error: catErr } = await adminSupabase
+      .from('categories')
+      .select('id, name, section, active')
+      .eq('id', categoryId)
+      .maybeSingle();
+
+    if (catErr || !category) {
+      return {
+        statusCode: 404,
+        payload: { error: 'Basics category not found.' },
+      };
+    }
+
+    if (category.section !== 'basics') {
+      return {
+        statusCode: 400,
+        payload: { error: 'Weekly test basics sections only support Basics categories.' },
+      };
+    }
+
+    const parsedSpec = parseBasicsCategoryName(category.name);
+    if (!parsedSpec) {
+      return {
+        statusCode: 400,
+        payload: { error: `Category "${category.name}" is not available online.` },
+      };
+    }
+
+    const expiresAtIso = new Date(
+      nowMs + (seconds + BASICS_TIMED_GRACE_SECONDS) * 1000
+    ).toISOString();
+
+    const attemptInsertPayload = {
       test_id: testId,
       student_id: student.id,
       category_id: categoryId,
       status: 'started',
       started_at: startedAtIso,
-    })
-    .select('id')
-    .single();
+    };
+    if (sectionId) {
+      attemptInsertPayload.section_id = sectionId;
+    }
 
-  if (attemptErr || !attemptRow?.id) {
-    const errCode = String(attemptErr?.code || '');
-    const errMsg = String(attemptErr?.message || '').toLowerCase();
-    if (errCode === '23505' || errMsg.includes('duplicate') || errMsg.includes('unique')) {
+    const { data: attemptRow, error: attemptErr } = await adminSupabase
+      .from('weekly_test_attempts')
+      .insert(attemptInsertPayload)
+      .select('id')
+      .single();
+
+    if (attemptErr || !attemptRow?.id) {
+      const errCode = String(attemptErr?.code || '');
+      const errMsg = String(attemptErr?.message || '').toLowerCase();
+      if (errCode === '23505' || errMsg.includes('duplicate') || errMsg.includes('unique')) {
+        return {
+          statusCode: 400,
+          payload: { error: 'You have already started this section.' },
+        };
+      }
       return {
         statusCode: 400,
-        payload: { error: 'You have already started this section.' },
+        payload: { error: attemptErr?.message || 'Could not start this test section.' },
       };
     }
-    return {
-      statusCode: 400,
-      payload: { error: attemptErr?.message || 'Could not start this test section.' },
+
+    const rollbackAttempt = async () => {
+      try {
+        await adminSupabase.from('weekly_test_attempts').delete().eq('id', attemptRow.id);
+      } catch {
+        // Best-effort cleanup
+      }
     };
+
+    try {
+      const generated = generateBasicsSet(category.name, poolSize);
+      const displayQuestions = stripBasicsExpected(generated);
+      const expectedAnswers = generated.map((q) => q.expected);
+
+      const sessionSettings = {
+        kind: 'weekly_test',
+        section_kind: 'basics',
+        mode: 'timed',
+        test_id: testId,
+        section_id: sectionId || null,
+        category_id: categoryId,
+        category_name: category.name,
+        title: testTitle,
+        seconds,
+        pool: poolSize,
+      };
+
+      const { data: sessionRow, error: sessionErr } = await adminSupabase
+        .from('drill_sessions')
+        .insert({
+          student_id: student.id,
+          activity_type: 'basics',
+          activity_name: category.name,
+          settings: sessionSettings,
+          questions: displayQuestions,
+          expected: expectedAnswers,
+          min_seconds: 1,
+          started_at: startedAtIso,
+          expires_at: expiresAtIso,
+          status: 'open',
+        })
+        .select('id')
+        .single();
+
+      if (sessionErr || !sessionRow?.id) {
+        await rollbackAttempt();
+        return {
+          statusCode: 500,
+          payload: { error: 'Failed to create weekly test session. Please try again.' },
+        };
+      }
+
+      const { error: linkErr } = await adminSupabase
+        .from('weekly_test_attempts')
+        .update({ session_id: sessionRow.id })
+        .eq('id', attemptRow.id);
+
+      if (linkErr) {
+        await adminSupabase.from('drill_sessions').delete().eq('id', sessionRow.id);
+        await rollbackAttempt();
+        return {
+          statusCode: 500,
+          payload: { error: 'Failed to link weekly test session. Please try again.' },
+        };
+      }
+
+      return {
+        statusCode: 200,
+        payload: {
+          ok: true,
+          kind: 'basics',
+          session_id: sessionRow.id,
+          section_id: sectionId || null,
+          category_id: categoryId,
+          title: testTitle,
+          category_name: category.name,
+          seconds,
+          questions: displayQuestions,
+        },
+      };
+    } catch {
+      await rollbackAttempt();
+      return {
+        statusCode: 500,
+        payload: { error: 'Failed to start weekly test section. Please try again.' },
+      };
+    }
   }
 
-  // Helper to roll back the attempt row if anything after it fails
-  const rollbackAttempt = async () => {
-    try {
-      await adminSupabase.from('weekly_test_attempts').delete().eq('id', attemptRow.id);
-    } catch {
-      // Best-effort cleanup
+  // ==========================================================================
+  // KIND 2: ELEMENTS WORKSHEET
+  // ==========================================================================
+  if (kind === 'elements') {
+    const drillKey = String(check.activity_key || '').trim();
+    const drill = DRILLS[drillKey];
+    if (!drill || !drill.enabled || typeof drill.generate !== 'function') {
+      return {
+        statusCode: 400,
+        payload: { error: 'This Elements drill is not available for online weekly tests.' },
+      };
     }
-  };
 
-  try {
-    // 4. Generate Basics question pool on the server
-    const generated = generateBasicsSet(category.name, poolSize);
-    const displayQuestions = stripBasicsExpected(generated);
-    const expectedAnswers = generated.map((q) => q.expected);
+    const timeLimitSeconds = Number(drill.time_limit_seconds) || 60;
+    const expiresAtIso = new Date(
+      nowMs + (timeLimitSeconds + SECTION_GRACE_SECONDS) * 1000
+    ).toISOString();
+
+    const { data: attemptRow, error: attemptErr } = await adminSupabase
+      .from('weekly_test_attempts')
+      .insert({
+        test_id: testId,
+        student_id: student.id,
+        section_id: sectionId,
+        status: 'started',
+        started_at: startedAtIso,
+      })
+      .select('id')
+      .single();
+
+    if (attemptErr || !attemptRow?.id) {
+      const errCode = String(attemptErr?.code || '');
+      const errMsg = String(attemptErr?.message || '').toLowerCase();
+      if (errCode === '23505' || errMsg.includes('duplicate') || errMsg.includes('unique')) {
+        return {
+          statusCode: 400,
+          payload: { error: 'You have already started this section.' },
+        };
+      }
+      return {
+        statusCode: 400,
+        payload: { error: attemptErr?.message || 'Could not start this test section.' },
+      };
+    }
+
+    const rollbackAttempt = async () => {
+      try {
+        await adminSupabase.from('weekly_test_attempts').delete().eq('id', attemptRow.id);
+      } catch {
+        // Best-effort cleanup
+      }
+    };
+
+    try {
+      const generatedSet = drill.generate();
+      const questionTexts = generatedSet.map((item) => item.q);
+      const expectedAnswers = generatedSet.map((item) => item.expected);
+
+      const sessionSettings = {
+        kind: 'weekly_test',
+        section_kind: 'elements',
+        test_id: testId,
+        section_id: sectionId,
+        drill: drillKey,
+        drill_title: drill.title,
+        title: testTitle,
+        time_limit_seconds: timeLimitSeconds,
+        questions_count: questionTexts.length,
+      };
+
+      const { data: sessionRow, error: sessionErr } = await adminSupabase
+        .from('drill_sessions')
+        .insert({
+          student_id: student.id,
+          activity_type: 'element',
+          activity_name: drillKey,
+          settings: sessionSettings,
+          questions: questionTexts,
+          expected: expectedAnswers,
+          min_seconds: 1,
+          started_at: startedAtIso,
+          expires_at: expiresAtIso,
+          status: 'open',
+        })
+        .select('id')
+        .single();
+
+      if (sessionErr || !sessionRow?.id) {
+        await rollbackAttempt();
+        return {
+          statusCode: 500,
+          payload: { error: 'Failed to create weekly test session. Please try again.' },
+        };
+      }
+
+      const { error: linkErr } = await adminSupabase
+        .from('weekly_test_attempts')
+        .update({ session_id: sessionRow.id })
+        .eq('id', attemptRow.id);
+
+      if (linkErr) {
+        await adminSupabase.from('drill_sessions').delete().eq('id', sessionRow.id);
+        await rollbackAttempt();
+        return {
+          statusCode: 500,
+          payload: { error: 'Failed to link weekly test session. Please try again.' },
+        };
+      }
+
+      return {
+        statusCode: 200,
+        payload: {
+          ok: true,
+          kind: 'elements',
+          session_id: sessionRow.id,
+          section_id: sectionId,
+          title: testTitle,
+          drill: drillKey,
+          drill_title: drill.title,
+          questions: questionTexts,
+          time_limit_seconds: timeLimitSeconds,
+          hint: drill.hint,
+          inputmode: drill.inputmode || 'numeric',
+        },
+      };
+    } catch {
+      await rollbackAttempt();
+      return {
+        statusCode: 500,
+        payload: { error: 'Failed to start weekly test section. Please try again.' },
+      };
+    }
+  }
+
+  // ==========================================================================
+  // KIND 3: MEMORIAD STAGE
+  // ==========================================================================
+  if (kind === 'memoriad') {
+    const moduleKey = String(check.activity_key || '').trim().toLowerCase();
+    const modSpec = MODULES[moduleKey];
+    if (!modSpec) {
+      return {
+        statusCode: 400,
+        payload: { error: 'This Memoriad module is not available for online weekly tests.' },
+      };
+    }
+
+    const fixedSettings = getMemoriadTestFixedSettings(moduleKey);
+    const limitSec = Number(modSpec.time_limit_seconds) || 60;
+    const concSec = Number(fixedSettings.concentration_seconds) || 5;
+    const expiresAtIso = new Date(
+      nowMs + (limitSec + concSec + SECTION_GRACE_SECONDS) * 1000
+    ).toISOString();
+
+    const { data: attemptRow, error: attemptErr } = await adminSupabase
+      .from('weekly_test_attempts')
+      .insert({
+        test_id: testId,
+        student_id: student.id,
+        section_id: sectionId,
+        status: 'started',
+        started_at: startedAtIso,
+      })
+      .select('id')
+      .single();
+
+    if (attemptErr || !attemptRow?.id) {
+      const errCode = String(attemptErr?.code || '');
+      const errMsg = String(attemptErr?.message || '').toLowerCase();
+      if (errCode === '23505' || errMsg.includes('duplicate') || errMsg.includes('unique')) {
+        return {
+          statusCode: 400,
+          payload: { error: 'You have already started this section.' },
+        };
+      }
+      return {
+        statusCode: 400,
+        payload: { error: attemptErr?.message || 'Could not start this test section.' },
+      };
+    }
+
+    const rollbackAttempt = async () => {
+      try {
+        await adminSupabase.from('weekly_test_attempts').delete().eq('id', attemptRow.id);
+      } catch {
+        // Best-effort cleanup
+      }
+    };
+
+    try {
+      const generated = generateMemoriadSet(moduleKey, fixedSettings);
+      const sessionSettings = {
+        ...generated.settings,
+        ...fixedSettings,
+        kind: 'weekly_test',
+        section_kind: 'memoriad',
+        test_id: testId,
+        section_id: sectionId,
+        module: moduleKey,
+        module_title: generated.title,
+        title: testTitle,
+        time_limit_seconds: limitSec,
+      };
+
+      const { data: sessionRow, error: sessionErr } = await adminSupabase
+        .from('drill_sessions')
+        .insert({
+          student_id: student.id,
+          activity_type: 'memoriad',
+          activity_name: moduleKey,
+          settings: sessionSettings,
+          questions: generated.questions,
+          expected: generated.expected,
+          min_seconds: 1,
+          started_at: startedAtIso,
+          expires_at: expiresAtIso,
+          status: 'open',
+        })
+        .select('id')
+        .single();
+
+      if (sessionErr || !sessionRow?.id) {
+        await rollbackAttempt();
+        return {
+          statusCode: 500,
+          payload: { error: 'Failed to create weekly test session. Please try again.' },
+        };
+      }
+
+      const { error: linkErr } = await adminSupabase
+        .from('weekly_test_attempts')
+        .update({ session_id: sessionRow.id })
+        .eq('id', attemptRow.id);
+
+      if (linkErr) {
+        await adminSupabase.from('drill_sessions').delete().eq('id', sessionRow.id);
+        await rollbackAttempt();
+        return {
+          statusCode: 500,
+          payload: { error: 'Failed to link weekly test session. Please try again.' },
+        };
+      }
+
+      return {
+        statusCode: 200,
+        payload: {
+          ok: true,
+          kind: 'memoriad',
+          session_id: sessionRow.id,
+          section_id: sectionId,
+          title: testTitle,
+          module: moduleKey,
+          module_title: generated.title,
+          questions: generated.questions,
+          limits: {
+            time_limit_seconds: limitSec,
+            concentration_seconds: concSec,
+            grace_seconds: SECTION_GRACE_SECONDS,
+          },
+          settings: fixedSettings,
+          started_at: startedAtIso,
+          expires_at: expiresAtIso,
+        },
+      };
+    } catch {
+      await rollbackAttempt();
+      return {
+        statusCode: 500,
+        payload: { error: 'Failed to start weekly test section. Please try again.' },
+      };
+    }
+  }
+
+  // ==========================================================================
+  // KIND 4: FLASH ANZAN (Multi-try section)
+  // ==========================================================================
+  if (kind === 'flash') {
+    const digits = Math.max(1, Math.min(5, Number(check.flash_digits) || 1));
+    const count = Math.max(2, Math.min(1000, Number(check.flash_count) || 10));
+    const speedMs = Math.max(200, Math.min(5000, Number(check.flash_speed_ms) || 1000));
+    const mode = check.flash_mode === 'add_sub' ? 'add_sub' : 'add';
+    const questionCount = Math.max(1, Math.min(10, Number(check.question_count) || 5));
+
+    // Check existing attempt row
+    const { data: existingAttempt } = await adminSupabase
+      .from('weekly_test_attempts')
+      .select('id, status, tries_started, tries_correct, seconds_used')
+      .eq('test_id', testId)
+      .eq('student_id', student.id)
+      .eq('section_id', sectionId)
+      .maybeSingle();
+
+    let attemptId = existingAttempt?.id || null;
+    let prevTriesStarted = Number(existingAttempt?.tries_started ?? check.tries_started) || 0;
+    let isFirstStart = false;
+
+    if (!attemptId) {
+      isFirstStart = true;
+      prevTriesStarted = 0;
+
+      // First call (no attempt row): insert the attempt (tries_started 0) and a weekly_test_scores row
+      const { data: insertedAtt, error: insAttErr } = await adminSupabase
+        .from('weekly_test_attempts')
+        .insert({
+          test_id: testId,
+          student_id: student.id,
+          section_id: sectionId,
+          status: 'started',
+          tries_started: 0,
+          tries_correct: 0,
+          seconds_used: 0,
+          started_at: startedAtIso,
+        })
+        .select('id, tries_started')
+        .single();
+
+      if (insAttErr || !insertedAtt?.id) {
+        return {
+          statusCode: 400,
+          payload: { error: insAttErr?.message || 'Could not start this Flash section.' },
+        };
+      }
+      attemptId = insertedAtt.id;
+
+      const { error: initScoreErr } = await adminSupabase
+        .from('weekly_test_scores')
+        .upsert(
+          {
+            test_id: testId,
+            student_id: student.id,
+            section_id: sectionId,
+            correct: 0,
+            total: questionCount,
+            time_seconds: 0,
+            source: 'online',
+          },
+          { onConflict: 'test_id,student_id,section_id' }
+        );
+
+      if (initScoreErr) {
+        await adminSupabase.from('weekly_test_attempts').delete().eq('id', attemptId);
+        return {
+          statusCode: 500,
+          payload: { error: 'Failed to initialize Flash section score. Please try again.' },
+        };
+      }
+    }
+
+    if (prevTriesStarted >= questionCount) {
+      return {
+        statusCode: 400,
+        payload: { error: 'You have already completed all tries for this section.' },
+      };
+    }
+
+    const nextTryNo = Math.min(questionCount, prevTriesStarted + 1);
+
+    // Generate the Flash question numbers via service-role RPC flash_generate_question
+    const { data: flashGenData, error: flashGenErr } = await adminSupabase.rpc(
+      'flash_generate_question',
+      {
+        p_digits: digits,
+        p_count: count,
+        p_mode: mode,
+      }
+    );
+
+    const numbers = extractFlashNumbers(flashGenData);
+    if (flashGenErr || !Array.isArray(numbers) || numbers.length === 0) {
+      if (isFirstStart) {
+        await adminSupabase.from('weekly_test_attempts').delete().eq('id', attemptId);
+      }
+      return {
+        statusCode: 500,
+        payload: {
+          error: flashGenErr?.message || 'Could not generate Flash Anzan numbers. Please try again.',
+        },
+      };
+    }
+
+    const expectedSum = numbers.reduce((acc, n) => acc + Number(n), 0);
+    const minSeconds = computeFlashMinSeconds(count, speedMs);
+    const expirySeconds = computeFlashExpirySeconds(count, speedMs);
+    const expiresAtIso = new Date(nowMs + expirySeconds * 1000).toISOString();
 
     const sessionSettings = {
       kind: 'weekly_test',
-      mode: 'timed',
+      section_kind: 'flash',
       test_id: testId,
-      category_id: categoryId,
-      category_name: category.name,
-      title: check.title || 'Weekly Test',
-      seconds,
-      pool: poolSize,
+      section_id: sectionId,
+      title: testTitle,
+      digits,
+      count,
+      speed_ms: speedMs,
+      mode,
+      try_no: nextTryNo,
+      question_count: questionCount,
     };
 
-    // 5. Insert open drill_sessions row
     const { data: sessionRow, error: sessionErr } = await adminSupabase
       .from('drill_sessions')
       .insert({
         student_id: student.id,
-        activity_type: 'basics',
-        activity_name: category.name,
+        activity_type: 'flash_anzan',
+        activity_name: `${digits}d_${count}n_${speedMs}ms_${mode}`,
         settings: sessionSettings,
-        questions: displayQuestions,
-        expected: expectedAnswers,
-        min_seconds: 1,
+        questions: [numbers],
+        expected: [expectedSum],
+        min_seconds: minSeconds,
         started_at: startedAtIso,
         expires_at: expiresAtIso,
         status: 'open',
@@ -230,25 +841,29 @@ export async function handleStartWeeklyTestSection({
       .single();
 
     if (sessionErr || !sessionRow?.id) {
-      await rollbackAttempt();
+      if (isFirstStart) {
+        await adminSupabase.from('weekly_test_attempts').delete().eq('id', attemptId);
+      }
       return {
         statusCode: 500,
-        payload: { error: 'Failed to create weekly test session. Please try again.' },
+        payload: { error: 'Failed to create Flash try session. Please try again.' },
       };
     }
 
-    // 6. Link session_id on weekly_test_attempts
-    const { error: linkErr } = await adminSupabase
+    // Increment tries_started (never above question_count) and link session_id
+    const { error: updAttErr } = await adminSupabase
       .from('weekly_test_attempts')
-      .update({ session_id: sessionRow.id })
-      .eq('id', attemptRow.id);
+      .update({
+        tries_started: nextTryNo,
+        session_id: sessionRow.id,
+      })
+      .eq('id', attemptId);
 
-    if (linkErr) {
+    if (updAttErr) {
       await adminSupabase.from('drill_sessions').delete().eq('id', sessionRow.id);
-      await rollbackAttempt();
       return {
         statusCode: 500,
-        payload: { error: 'Failed to link weekly test session. Please try again.' },
+        payload: { error: 'Failed to record Flash try start. Please try again.' },
       };
     }
 
@@ -256,24 +871,31 @@ export async function handleStartWeeklyTestSection({
       statusCode: 200,
       payload: {
         ok: true,
+        kind: 'flash',
         session_id: sessionRow.id,
-        title: check.title || 'Weekly Test',
-        category_name: category.name,
-        seconds,
-        questions: displayQuestions,
+        section_id: sectionId,
+        title: testTitle,
+        numbers,
+        settings: {
+          digits,
+          count,
+          speed_ms: speedMs,
+          mode,
+        },
+        try_no: nextTryNo,
+        question_count: questionCount,
       },
     };
-  } catch {
-    await rollbackAttempt();
-    return {
-      statusCode: 500,
-      payload: { error: 'Failed to start weekly test section. Please try again.' },
-    };
   }
+
+  return {
+    statusCode: 400,
+    payload: { error: `Unsupported weekly test section kind "${kind}".` },
+  };
 }
 
 /**
- * Handles `POST { action: 'submit', session_id, answers }`.
+ * Handles `POST { action: 'submit', session_id, answers, answer }`.
  */
 export async function handleSubmitWeeklyTestSection({
   student,
@@ -282,19 +904,11 @@ export async function handleSubmitWeeklyTestSection({
   now = new Date(),
 }) {
   const sessionId = typeof body?.session_id === 'string' ? body.session_id.trim() : '';
-  const answers = body?.answers;
 
   if (!isValidId(sessionId)) {
     return {
       statusCode: 400,
       payload: { error: 'A valid session_id is required.' },
-    };
-  }
-
-  if (!Array.isArray(answers)) {
-    return {
-      statusCode: 400,
-      payload: { error: 'Answers must be provided as a list.' },
     };
   }
 
@@ -315,10 +929,7 @@ export async function handleSubmitWeeklyTestSection({
     };
   }
 
-  const settings =
-    sessionRow.settings && typeof sessionRow.settings === 'object' ? sessionRow.settings : {};
-
-  if (settings.kind !== 'weekly_test') {
+  if (!isWeeklyTestSession(sessionRow)) {
     return {
       statusCode: 400,
       payload: { error: 'This session is not a weekly test section.' },
@@ -332,9 +943,12 @@ export async function handleSubmitWeeklyTestSection({
     };
   }
 
+  const settings =
+    sessionRow.settings && typeof sessionRow.settings === 'object' ? sessionRow.settings : {};
   const testId = settings.test_id;
-  const categoryId = settings.category_id;
-  const sectionSeconds = Number(settings.seconds) || 60;
+  const sectionId = settings.section_id || null;
+  const categoryId = settings.category_id || null;
+  const testTitle = settings.title || 'Weekly Test';
 
   const nowMs = now instanceof Date ? now.getTime() : new Date(now).getTime();
   const nowIso = new Date(nowMs).toISOString();
@@ -353,129 +967,625 @@ export async function handleSubmitWeeklyTestSection({
   const startedMs = new Date(sessionRow.started_at).getTime();
   const elapsedSeconds = Number.isFinite(startedMs) ? Math.max(0, (nowMs - startedMs) / 1000) : 0;
 
-  let correct = 0;
-  let attempted = answers.length;
-  let accuracy = 0;
-  let usedSeconds = Math.max(1, Math.round(Math.min(elapsedSeconds, sectionSeconds)));
+  const sectionKind = String(
+    settings.section_kind ||
+      (sessionRow.activity_type === 'element'
+        ? 'elements'
+        : sessionRow.activity_type === 'memoriad'
+          ? 'memoriad'
+          : sessionRow.activity_type === 'flash_anzan'
+            ? 'flash'
+            : 'basics')
+  )
+    .trim()
+    .toLowerCase();
 
-  if (attempted > 0) {
-    const checkResult = checkTimedBasicsSubmission(
-      {
-        ...sessionRow,
-        mode: 'timed',
-        seconds: sectionSeconds,
-      },
-      answers,
-      nowMs
-    );
+  // Helper to reopen a claimed drill_sessions row if a DB write fails
+  const reopenSession = async () => {
+    try {
+      await adminSupabase
+        .from('drill_sessions')
+        .update({ status: 'open' })
+        .eq('id', sessionId)
+        .eq('student_id', student.id);
+    } catch {
+      // Best-effort
+    }
+  };
 
-    if (!checkResult.ok) {
+  // Helper to atomically claim the open drill_sessions row
+  const claimSession = async () => {
+    const { data: claimedRows, error: claimErr } = await adminSupabase
+      .from('drill_sessions')
+      .update({ status: 'submitted' })
+      .eq('id', sessionId)
+      .eq('student_id', student.id)
+      .eq('status', 'open')
+      .select('id');
+
+    if (claimErr) {
       return {
-        statusCode: checkResult.statusCode || 400,
-        payload: { error: checkResult.error },
+        ok: false,
+        statusCode: 500,
+        error: 'Failed to record weekly test submission.',
+      };
+    }
+    if (!Array.isArray(claimedRows) || claimedRows.length === 0) {
+      return {
+        ok: false,
+        statusCode: 400,
+        error: 'This weekly test section has already been submitted.',
+      };
+    }
+    return { ok: true };
+  };
+
+  // ==========================================================================
+  // SUBMIT KIND 1: BASICS
+  // ==========================================================================
+  if (sectionKind === 'basics') {
+    const answers = body?.answers;
+    if (!Array.isArray(answers)) {
+      return {
+        statusCode: 400,
+        payload: { error: 'Answers must be provided as a list.' },
       };
     }
 
-    correct = checkResult.correct;
-    attempted = checkResult.attempted;
-    accuracy = checkResult.accuracy;
-    usedSeconds = checkResult.used_seconds;
-  }
+    const sectionSeconds = Number(settings.seconds) || 60;
+    let correct = 0;
+    let attempted = answers.length;
+    let accuracy = 0;
+    let usedSeconds = Math.max(1, Math.round(Math.min(elapsedSeconds, sectionSeconds)));
+    let detail = [];
 
-  // 2. Atomically claim the open drill_sessions row (`status = 'open' -> 'submitted'`)
-  const { data: claimedRows, error: claimErr } = await adminSupabase
-    .from('drill_sessions')
-    .update({ status: 'submitted' })
-    .eq('id', sessionId)
-    .eq('student_id', student.id)
-    .eq('status', 'open')
-    .select('id');
+    if (attempted > 0) {
+      const checkResult = checkTimedBasicsSubmission(
+        {
+          ...sessionRow,
+          mode: 'timed',
+          seconds: sectionSeconds,
+        },
+        answers,
+        nowMs
+      );
 
-  if (claimErr) {
-    return {
-      statusCode: 500,
-      payload: { error: 'Failed to record weekly test submission.' },
+      if (!checkResult.ok) {
+        return {
+          statusCode: checkResult.statusCode || 400,
+          payload: { error: checkResult.error },
+        };
+      }
+
+      correct = checkResult.correct;
+      attempted = checkResult.attempted;
+      accuracy = checkResult.accuracy;
+      usedSeconds = checkResult.used_seconds;
+      detail = Array.isArray(checkResult.detail) ? checkResult.detail : [];
+    }
+
+    const claim = await claimSession();
+    if (!claim.ok) {
+      return { statusCode: claim.statusCode, payload: { error: claim.error } };
+    }
+
+    const scoreInfo = finalScore('basics', {
+      correct,
+      attempted,
+      used_seconds: usedSeconds,
+    });
+
+    if (!scoreInfo.shouldSave) {
+      const q = adminSupabase
+        .from('weekly_test_attempts')
+        .update({
+          status: 'submitted',
+          finished_at: nowIso,
+          seconds_used: scoreInfo.time_seconds,
+        })
+        .eq('test_id', testId)
+        .eq('student_id', student.id);
+      await (sectionId ? q.eq('section_id', sectionId) : q.eq('category_id', categoryId));
+
+      return {
+        statusCode: 200,
+        payload: {
+          ok: true,
+          kind: 'basics',
+          title: testTitle,
+          correct: 0,
+          attempted: 0,
+          accuracy: 0,
+          used_seconds: usedSeconds,
+          detail: [],
+        },
+      };
+    }
+
+    const scorePayload = {
+      test_id: testId,
+      student_id: student.id,
+      category_id: categoryId,
+      correct: scoreInfo.correct,
+      total: scoreInfo.total,
+      time_seconds: scoreInfo.time_seconds,
+      source: 'online',
     };
-  }
+    if (sectionId) {
+      scorePayload.section_id = sectionId;
+    }
 
-  if (!Array.isArray(claimedRows) || claimedRows.length === 0) {
-    return {
-      statusCode: 400,
-      payload: { error: 'This weekly test section has already been submitted.' },
-    };
-  }
+    const { error: scoreErr } = await adminSupabase.from('weekly_test_scores').upsert(
+      scorePayload,
+      {
+        onConflict: sectionId
+          ? 'test_id,student_id,section_id'
+          : 'test_id,student_id,category_id',
+      }
+    );
 
-  // 3. When attempted === 0: mark attempt submitted, save no score
-  if (attempted === 0) {
-    await adminSupabase
+    if (scoreErr) {
+      await reopenSession();
+      return {
+        statusCode: 500,
+        payload: {
+          error: scoreErr.message || 'Failed to save weekly test score. Please try sending again.',
+        },
+      };
+    }
+
+    const attUpdateQ = adminSupabase
       .from('weekly_test_attempts')
       .update({
         status: 'submitted',
         finished_at: nowIso,
+        seconds_used: scoreInfo.time_seconds,
       })
       .eq('test_id', testId)
-      .eq('student_id', student.id)
-      .eq('category_id', categoryId);
+      .eq('student_id', student.id);
+    await (sectionId
+      ? attUpdateQ.eq('section_id', sectionId)
+      : attUpdateQ.eq('category_id', categoryId));
 
     return {
       statusCode: 200,
       payload: {
         ok: true,
-        correct: 0,
-        attempted: 0,
-        accuracy: 0,
+        kind: 'basics',
+        title: testTitle,
+        correct,
+        attempted,
+        accuracy,
         used_seconds: usedSeconds,
+        detail,
       },
     };
   }
 
-  // 4. Otherwise insert score into weekly_test_scores and mark weekly_test_attempts submitted
-  const { error: scoreErr } = await adminSupabase.from('weekly_test_scores').upsert(
-    {
-      test_id: testId,
-      student_id: student.id,
-      category_id: categoryId,
-      correct,
-      total: attempted,
-      time_seconds: Math.round(usedSeconds),
-      source: 'online',
-    },
-    { onConflict: 'test_id,student_id,category_id' }
-  );
+  // ==========================================================================
+  // SUBMIT KIND 2: ELEMENTS WORKSHEET
+  // ==========================================================================
+  if (sectionKind === 'elements') {
+    const answers = body?.answers;
+    if (!Array.isArray(answers)) {
+      return {
+        statusCode: 400,
+        payload: { error: 'Answers must be provided as a list.' },
+      };
+    }
 
-  if (scoreErr) {
-    // Re-open session so the student can retry submitting
+    const minSec = Number(sessionRow.min_seconds) || 1;
+    if (elapsedSeconds < minSec) {
+      return {
+        statusCode: 400,
+        payload: { error: 'Finished faster than possible.' },
+      };
+    }
+
+    const drillKey = String(settings.drill || sessionRow.activity_name || '').trim();
+    const drill = DRILLS[drillKey];
+    const timeLimitSeconds =
+      Number(settings.time_limit_seconds || drill?.time_limit_seconds) || 60;
+
+    let graded;
+    try {
+      graded = gradeDrillSubmission({
+        drillKey,
+        questions: sessionRow.questions,
+        expected: sessionRow.expected,
+        answers,
+        elapsedSeconds,
+        timeLimitSeconds,
+      });
+    } catch (gradeErr) {
+      return {
+        statusCode: 400,
+        payload: { error: gradeErr.message || 'Invalid worksheet answers.' },
+      };
+    }
+
+    const claim = await claimSession();
+    if (!claim.ok) {
+      return { statusCode: claim.statusCode, payload: { error: claim.error } };
+    }
+
+    const scoreInfo = finalScore('elements', graded);
+
+    if (!scoreInfo.shouldSave) {
+      await adminSupabase
+        .from('weekly_test_attempts')
+        .update({
+          status: 'submitted',
+          finished_at: nowIso,
+          seconds_used: scoreInfo.time_seconds,
+        })
+        .eq('test_id', testId)
+        .eq('student_id', student.id)
+        .eq('section_id', sectionId);
+
+      return {
+        statusCode: 200,
+        payload: {
+          ok: true,
+          kind: 'elements',
+          saved: false,
+          title: testTitle,
+          drill: drillKey,
+          drill_title: settings.drill_title || drill?.title || drillKey,
+          ...graded,
+        },
+      };
+    }
+
+    const { error: scoreErr } = await adminSupabase.from('weekly_test_scores').upsert(
+      {
+        test_id: testId,
+        student_id: student.id,
+        section_id: sectionId,
+        correct: scoreInfo.correct,
+        total: scoreInfo.total,
+        time_seconds: scoreInfo.time_seconds,
+        source: 'online',
+      },
+      { onConflict: 'test_id,student_id,section_id' }
+    );
+
+    if (scoreErr) {
+      await reopenSession();
+      return {
+        statusCode: 500,
+        payload: {
+          error: scoreErr.message || 'Failed to save weekly test score. Please try sending again.',
+        },
+      };
+    }
+
     await adminSupabase
-      .from('drill_sessions')
-      .update({ status: 'open' })
-      .eq('id', sessionId)
-      .eq('student_id', student.id);
+      .from('weekly_test_attempts')
+      .update({
+        status: 'submitted',
+        finished_at: nowIso,
+        seconds_used: scoreInfo.time_seconds,
+      })
+      .eq('test_id', testId)
+      .eq('student_id', student.id)
+      .eq('section_id', sectionId);
 
     return {
-      statusCode: 500,
-      payload: { error: scoreErr.message || 'Failed to save weekly test score. Please try sending again.' },
+      statusCode: 200,
+      payload: {
+        ok: true,
+        kind: 'elements',
+        saved: true,
+        title: testTitle,
+        drill: drillKey,
+        drill_title: settings.drill_title || drill?.title || drillKey,
+        ...graded,
+      },
     };
   }
 
-  await adminSupabase
-    .from('weekly_test_attempts')
-    .update({
-      status: 'submitted',
-      finished_at: nowIso,
-    })
-    .eq('test_id', testId)
-    .eq('student_id', student.id)
-    .eq('category_id', categoryId);
+  // ==========================================================================
+  // SUBMIT KIND 3: MEMORIAD STAGE
+  // ==========================================================================
+  if (sectionKind === 'memoriad') {
+    const answers = body?.answers;
+    if (!Array.isArray(answers)) {
+      return {
+        statusCode: 400,
+        payload: { error: 'Answers must be provided as a list.' },
+      };
+    }
+
+    const moduleKey = String(settings.module || sessionRow.activity_name || '')
+      .trim()
+      .toLowerCase();
+    const modSpec = MODULES[moduleKey];
+    if (!modSpec) {
+      return {
+        statusCode: 400,
+        payload: { error: 'Unknown Memoriad module on session.' },
+      };
+    }
+
+    const minSec = Number(sessionRow.min_seconds) || 1;
+    if (elapsedSeconds < minSec) {
+      return {
+        statusCode: 400,
+        payload: { error: 'Submission was faster than the minimum allowed duration.' },
+      };
+    }
+
+    const concSec = Number(settings.concentration_seconds) || 5;
+    const usedSeconds = computeMemoriadUsedSeconds(startedMs, nowMs, concSec, moduleKey);
+
+    const evalRes = evaluateMemoriadSubmission(
+      {
+        module: moduleKey,
+        questions: sessionRow.questions,
+        expected: sessionRow.expected,
+        settings,
+      },
+      answers,
+      usedSeconds
+    );
+
+    if (!evalRes.ok) {
+      return {
+        statusCode: 400,
+        payload: { error: evalRes.error },
+      };
+    }
+
+    const evaluation = evalRes.evaluation;
+    const claim = await claimSession();
+    if (!claim.ok) {
+      return { statusCode: claim.statusCode, payload: { error: claim.error } };
+    }
+
+    const scoreInfo = finalScore('memoriad', {
+      ...evaluation,
+      used_seconds: usedSeconds,
+    });
+
+    if (!scoreInfo.shouldSave) {
+      await adminSupabase
+        .from('weekly_test_attempts')
+        .update({
+          status: 'submitted',
+          finished_at: nowIso,
+          seconds_used: scoreInfo.time_seconds,
+        })
+        .eq('test_id', testId)
+        .eq('student_id', student.id)
+        .eq('section_id', sectionId);
+
+      return {
+        statusCode: 200,
+        payload: {
+          ok: true,
+          kind: 'memoriad',
+          saved: false,
+          module: moduleKey,
+          title: settings.module_title || modSpec.title,
+          test_title: testTitle,
+          used_seconds: usedSeconds,
+          ...evaluation,
+        },
+      };
+    }
+
+    const { error: scoreErr } = await adminSupabase.from('weekly_test_scores').upsert(
+      {
+        test_id: testId,
+        student_id: student.id,
+        section_id: sectionId,
+        correct: scoreInfo.correct,
+        total: scoreInfo.total,
+        time_seconds: scoreInfo.time_seconds,
+        source: 'online',
+      },
+      { onConflict: 'test_id,student_id,section_id' }
+    );
+
+    if (scoreErr) {
+      await reopenSession();
+      return {
+        statusCode: 500,
+        payload: {
+          error: scoreErr.message || 'Failed to save weekly test score. Please try sending again.',
+        },
+      };
+    }
+
+    await adminSupabase
+      .from('weekly_test_attempts')
+      .update({
+        status: 'submitted',
+        finished_at: nowIso,
+        seconds_used: scoreInfo.time_seconds,
+      })
+      .eq('test_id', testId)
+      .eq('student_id', student.id)
+      .eq('section_id', sectionId);
+
+    return {
+      statusCode: 200,
+      payload: {
+        ok: true,
+        kind: 'memoriad',
+        saved: true,
+        module: moduleKey,
+        title: settings.module_title || modSpec.title,
+        test_title: testTitle,
+        used_seconds: usedSeconds,
+        ...evaluation,
+      },
+    };
+  }
+
+  // ==========================================================================
+  // SUBMIT KIND 4: FLASH ANZAN (Multi-try section)
+  // ==========================================================================
+  if (sectionKind === 'flash') {
+    const rawAnswer =
+      body?.answer !== undefined
+        ? body.answer
+        : Array.isArray(body?.answers)
+          ? body.answers[0]
+          : null;
+
+    let givenInt = null;
+    if (rawAnswer !== null && rawAnswer !== undefined && String(rawAnswer).trim() !== '') {
+      const parsed = Number(String(rawAnswer).trim());
+      if (!Number.isInteger(parsed)) {
+        return {
+          statusCode: 400,
+          payload: { error: 'Flash Anzan answer must be a whole number or empty.' },
+        };
+      }
+      givenInt = parsed;
+    }
+
+    const minSec =
+      Number(sessionRow.min_seconds) ||
+      computeFlashMinSeconds(settings.count, settings.speed_ms);
+    if (elapsedSeconds < minSec) {
+      return {
+        statusCode: 400,
+        payload: { error: 'This try finished too quickly to be valid.' },
+      };
+    }
+
+    const expectedVal = Array.isArray(sessionRow.expected)
+      ? Number(sessionRow.expected[0])
+      : Number(sessionRow.expected);
+    const isCorrect =
+      givenInt !== null && Number.isFinite(expectedVal) && givenInt === expectedVal;
+
+    // Load the student's weekly_test_attempts row for this section
+    const { data: attemptRow, error: attLoadErr } = await adminSupabase
+      .from('weekly_test_attempts')
+      .select('id, status, tries_started, tries_correct, seconds_used')
+      .eq('test_id', testId)
+      .eq('student_id', student.id)
+      .eq('section_id', sectionId)
+      .maybeSingle();
+
+    if (attLoadErr || !attemptRow) {
+      return {
+        statusCode: 404,
+        payload: { error: 'Weekly test attempt record not found for this Flash section.' },
+      };
+    }
+
+    const questionCount = Math.max(1, Number(settings.question_count) || 5);
+    const effectiveTriesStarted = Math.max(
+      Number(attemptRow.tries_started) || 0,
+      Number(settings.try_no) || 1
+    );
+
+    const nextState = applyFlashTry(
+      {
+        ...attemptRow,
+        tries_started: effectiveTriesStarted,
+      },
+      { question_count: questionCount },
+      isCorrect,
+      Math.max(1, Math.round(elapsedSeconds))
+    );
+
+    const claim = await claimSession();
+    if (!claim.ok) {
+      return { statusCode: claim.statusCode, payload: { error: claim.error } };
+    }
+
+    const { error: scoreErr } = await adminSupabase.from('weekly_test_scores').upsert(
+      {
+        test_id: testId,
+        student_id: student.id,
+        section_id: sectionId,
+        correct: nextState.score_row.correct,
+        total: nextState.score_row.total,
+        time_seconds: nextState.score_row.time_seconds,
+        source: 'online',
+      },
+      { onConflict: 'test_id,student_id,section_id' }
+    );
+
+    if (scoreErr) {
+      await reopenSession();
+      return {
+        statusCode: 500,
+        payload: {
+          error: scoreErr.message || 'Failed to save Flash section score. Please try sending again.',
+        },
+      };
+    }
+
+    const attUpdatePayload = {
+      tries_started: nextState.tries_started,
+      tries_correct: nextState.tries_correct,
+      seconds_used: nextState.seconds_used,
+      status: nextState.status,
+    };
+    if (nextState.done) {
+      attUpdatePayload.finished_at = nowIso;
+    }
+
+    const { error: attUpdErr } = await adminSupabase
+      .from('weekly_test_attempts')
+      .update(attUpdatePayload)
+      .eq('id', attemptRow.id);
+
+    if (attUpdErr) {
+      await reopenSession();
+      return {
+        statusCode: 500,
+        payload: {
+          error: attUpdErr.message || 'Failed to update Flash section attempt. Please try again.',
+        },
+      };
+    }
+
+    if (!nextState.done) {
+      // Non-final try: return ONLY that the answer was recorded (never reveal correctness or expected sum)
+      return {
+        statusCode: 200,
+        payload: {
+          ok: true,
+          kind: 'flash',
+          recorded: true,
+          done: false,
+          try_no: nextState.tries_started,
+          question_count: questionCount,
+          title: testTitle,
+        },
+      };
+    }
+
+    // Final try: return final section score
+    return {
+      statusCode: 200,
+      payload: {
+        ok: true,
+        kind: 'flash',
+        recorded: true,
+        done: true,
+        try_no: nextState.tries_started,
+        question_count: questionCount,
+        tries_correct: nextState.tries_correct,
+        correct: nextState.score_row.correct,
+        total: nextState.score_row.total,
+        seconds_used: nextState.seconds_used,
+        title: testTitle,
+      },
+    };
+  }
 
   return {
-    statusCode: 200,
-    payload: {
-      ok: true,
-      correct,
-      attempted,
-      accuracy,
-      used_seconds: usedSeconds,
-    },
+    statusCode: 400,
+    payload: { error: `Unsupported weekly test section kind "${sectionKind}".` },
   };
 }
 

@@ -140,8 +140,9 @@ export function setupAdminNav() {
   const pathname = window.location.pathname || '';
   const breadcrumbMeta = getSettingsBreadcrumb(pathname);
 
-  // 1. Mount Phase 14d unified header & three-dot menu if not already mounted by requireAuth
-  if (!document.getElementById('btn-header-nav-menu')) {
+  // 1. Mount Phase 14e unified header & mobile menu for admin role if not already set to admin
+  const header = document.querySelector('.app-header');
+  if (!document.getElementById('btn-header-nav-menu') || header?.getAttribute('data-nav-role') !== 'admin') {
     setupHeaderNavigation({ role: 'admin' });
   }
 
