@@ -570,9 +570,10 @@ test('Phase 17a — Deterministic seeded generation across all 23 categories & p
     const paper = JMCWC_DRAFT_PAPERS[groupKey];
     const validation = validatePaperBlueprint(paper);
     assert.equal(validation.valid, true, `Blueprint for ${groupKey} must be structurally valid`);
-    // Must NOT be publishable until the 4 source attachments are verified
-    assert.equal(validation.canPublish, false);
-    assert.equal(paper.published, false);
+    // Fully source-verified and publishable
+    assert.equal(validation.canPublish, true);
+    assert.equal(paper.published, true);
+    assert.equal(paper.spec.source_verified, true);
 
     // Deterministic seeded generation: same seed produces identical questions
     const run1 = generateQuestionsFromBlueprint(paper.spec, {
@@ -607,6 +608,8 @@ test('Phase 17a — Deterministic seeded generation across all 23 categories & p
         perfectAnswers[privQ.id] = ak.example_bases.join(', ');
       } else if (ak.kind === 'calendar' && ak.subtype === 'month') {
         perfectAnswers[privQ.id] = ak.expected_display.split(' / ')[0];
+      } else if (ak.kind === 'calendar' && ak.subtype === 'year') {
+        perfectAnswers[privQ.id] = String(ak.valid_years[0]);
       } else if (ak.missing_digit !== undefined) {
         perfectAnswers[privQ.id] = String(ak.missing_digit);
       } else {
@@ -621,3 +624,82 @@ test('Phase 17a — Deterministic seeded generation across all 23 categories & p
     assert.equal(summary.marks, summary.max_marks);
   }
 });
+
+test('Phase 17a — Source-verified paper topology, slot counts, cached totals & first/middle/final slot coverage', () => {
+  const expectedTotals = {
+    junior1: { questions: 440, cachedMarks: 2310, file: 'JMCWC-2026-Simulator-Juniors-1.xlsx' },
+    junior2: { questions: 445, cachedMarks: 2469, file: 'JMCWC-2026-Simulator-Juniors-2.xlsx' },
+    senior:  { questions: 446, cachedMarks: 2595, file: 'JMCWC-2026-Simulator-Seniors.xlsx' },
+  };
+
+  for (const [groupKey, meta] of Object.entries(expectedTotals)) {
+    const paper = JMCWC_DRAFT_PAPERS[groupKey];
+    assert.equal(paper.group_key, groupKey);
+    assert.equal(paper.version, '2026.1');
+    assert.equal(paper.spec.source_workbook, meta.file);
+    assert.equal(paper.spec.total_questions, meta.questions);
+    assert.equal(paper.spec.total_cached_marks, meta.cachedMarks);
+    assert.equal(paper.spec.sections.length, 23);
+
+    let actualTotalQuestions = 0;
+    let actualCachedMarks = 0;
+
+    for (const sec of paper.spec.sections) {
+      assert.ok(sec.questions.length > 0, `Section ${sec.key} in ${groupKey} must have questions`);
+      actualTotalQuestions += sec.questions.length;
+      actualCachedMarks += sec.expectedTotal;
+
+      // Sample first (slot 1), middle (slot Math.ceil(len/2)), and final (slot len)
+      const len = sec.questions.length;
+      const testIndices = [0, Math.floor(len / 2), len - 1];
+
+      for (const idx of testIndices) {
+        const slotObj = sec.questions[idx];
+        assert.equal(slotObj.slot, idx + 1);
+        assert.ok(slotObj.max_marks > 0);
+        assert.ok(slotObj.generator);
+        assert.ok(slotObj.source_ref);
+        assert.equal(slotObj.source_ref.workbook, meta.file);
+        assert.equal(slotObj.source_ref.sheet, sec.workbook_sheet);
+
+        // Generate sample question for this slot and verify mathematical validity
+        const rng = createSeededRng(`sample-${groupKey}-${sec.key}-${slotObj.slot}`);
+        const genQ = generateQuestionForSlot(sec.key, slotObj, rng);
+        assert.equal(genQ.category_key, sec.key);
+        assert.equal(genQ.slot, slotObj.slot);
+        assert.ok(genQ.prompt.length > 0);
+        assert.ok(genQ.answer_key);
+
+        // Verify public projection strips private keys
+        const pubQ = toPublicQuestion(genQ);
+        assert.equal(pubQ.id, genQ.id);
+        assert.equal(pubQ.slot, genQ.slot);
+        assert.equal(pubQ.max_marks, genQ.max_marks);
+        assert.equal(Object.prototype.hasOwnProperty.call(pubQ, 'answer_key'), false);
+      }
+    }
+
+    assert.equal(actualTotalQuestions, meta.questions, `Total question count for ${groupKey} must match`);
+    assert.equal(actualCachedMarks, meta.cachedMarks, `Total cached marks for ${groupKey} must match`);
+  }
+
+  // Verify the 4 forensic repair areas in all blueprints
+  for (const groupKey of ['junior1', 'junior2', 'senior']) {
+    const spec = JMCWC_DRAFT_PAPERS[groupKey].spec;
+    const multSec = spec.sections.find((s) => s.key === 'multiplication');
+    assert.equal(multSec.questions.length, 20, 'Multiplication must have exactly 20 active slots');
+
+    const bracketsSec = spec.sections.find((s) => s.key === 'brackets');
+    assert.equal(bracketsSec.questions.length, 20, 'Brackets must have exactly 20 active slots');
+    assert.ok(bracketsSec.questions[19].source_ref.repair_note, 'Brackets slot 20 must have repair note');
+
+    const fracMulSec = spec.sections.find((s) => s.key === 'fraction_mul');
+    assert.equal(fracMulSec.questions.length, 17, 'Fraction multiplication must have exactly 17 printed slots');
+    assert.ok(fracMulSec.questions[16].source_ref.repair_note, 'Fraction mul slot 17 must have repair note');
+
+    const cubeRootSec = spec.sections.find((s) => s.key === 'cube_root');
+    assert.equal(cubeRootSec.questions.length, 23, 'Cube roots must have exactly 23 slots');
+    assert.ok(cubeRootSec.questions[22].source_ref.repair_note, 'Cube roots slot 23 must have repair note');
+  }
+});
+

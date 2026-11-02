@@ -631,7 +631,41 @@ function genFractionDiv(rng, params = {}) {
 
 function genApproximation(rng, params = {}) {
   const subtype = params.subtype || 'sig_figs_product';
-  const sigFigs = Number(params.sig_figs ?? 2);
+  const sigFigs = Number(params.sig_figs ?? (subtype.includes('4') ? 4 : 2));
+
+  if (subtype === 'nearest_int_div' || subtype === 'sig_figs_4_div') {
+    const den = BigInt(rng.int(7, 97));
+    const num = BigInt(rng.int(200, 9500));
+    const highScaled = computeExactRationalScaled(num, den, 12);
+    if (subtype === 'nearest_int_div') {
+      const rounded = roundScaledAtDecimals(highScaled, 0);
+      const expectedStr = rounded.nearestUnits.toString();
+      return {
+        prompt: `Approximate ${num.toString()} ÷ ${den.toString()} to the nearest integer:`,
+        input: { type: 'integer', placeholder: 'Nearest integer', mode: 'numeric' },
+        answer_key: {
+          kind: 'exact_integer',
+          value: expectedStr,
+          expected_display: expectedStr,
+          explanation: `${num.toString()} ÷ ${den.toString()} ≈ ${expectedStr} (nearest integer).`,
+        },
+      };
+    } else {
+      const quotientFloat = Number(num) / Number(den);
+      const rounded = Number(quotientFloat.toPrecision(4));
+      const expectedStr = String(rounded);
+      return {
+        prompt: `Approximate ${num.toString()} ÷ ${den.toString()} to 4 significant figures:`,
+        input: { type: 'decimal', placeholder: 'To 4 sig figs' },
+        answer_key: {
+          kind: 'exact_decimal',
+          value: expectedStr,
+          expected_display: expectedStr,
+          explanation: `${num.toString()} ÷ ${den.toString()} ≈ ${expectedStr} (4 s.f.).`,
+        },
+      };
+    }
+  }
 
   if (subtype === 'decimal_quotient') {
     const targetDecimals = Number(params.target_decimals ?? 1);
@@ -656,10 +690,24 @@ function genApproximation(rng, params = {}) {
     };
   }
 
-  // Default: integer product rounded to `sigFigs` significant figures (or tolerance band if tolerance_pct given)
+  // Multiplication approximations
   const a = randomBigIntByDigits(rng, 3, 4, { nonZeroLast: true });
   const b = randomBigIntByDigits(rng, 3, 3, { nonZeroLast: true });
   const exactProd = a * b;
+
+  if (subtype === 'nearest_int_mul') {
+    return {
+      prompt: `Approximate ${a.toString()} × ${b.toString()} to the nearest integer:`,
+      input: { type: 'integer', placeholder: 'Nearest integer', mode: 'numeric' },
+      answer_key: {
+        kind: 'exact_integer',
+        value: exactProd.toString(),
+        expected_display: exactProd.toString(),
+        explanation: `Exact product is ${exactProd.toString()}.`,
+      },
+    };
+  }
+
   const rounded = roundBigIntToSigFigs(exactProd, sigFigs);
 
   if (params.tolerance_pct !== undefined) {
@@ -718,12 +766,12 @@ function genRemainder(rng, params = {}) {
 
 function genRatio(rng, params = {}) {
   const subtype = params.subtype || 'missing_term';
-  const baseA = BigInt(rng.int(2, 15));
+  const baseA = BigInt(rng.int(params.a_range?.[0] ?? 2, params.a_range?.[1] ?? 15));
   let baseB = BigInt(rng.int(2, 15));
   while (gcdBigInt(baseA, baseB) !== 1n) {
     baseB += 1n;
   }
-  const scale = BigInt(rng.int(3, 18));
+  const scale = BigInt(rng.int(params.r1_range?.[0] ?? 3, params.r1_range?.[1] ?? 18));
 
   if (subtype === 'simplify') {
     const rawA = baseA * scale;
@@ -736,6 +784,39 @@ function genRatio(rng, params = {}) {
         terms: [baseA.toString(), baseB.toString()],
         expected_display: `${baseA.toString()} : ${baseB.toString()}`,
         explanation: `Dividing both terms by ${scale.toString()} gives ${baseA.toString()} : ${baseB.toString()}.`,
+      },
+    };
+  }
+
+  if (subtype === 'proportion_missing_x') {
+    const a = baseA;
+    const b = baseB;
+    const c = a * scale;
+    const d = b * scale;
+    const pos = rng.int(1, 4);
+    let prompt = '';
+    let ans = 0n;
+    if (pos === 1) {
+      prompt = `Find x: x : ${b.toString()} = ${c.toString()} : ${d.toString()}`;
+      ans = a;
+    } else if (pos === 2) {
+      prompt = `Find x: ${a.toString()} : x = ${c.toString()} : ${d.toString()}`;
+      ans = b;
+    } else if (pos === 3) {
+      prompt = `Find x: ${a.toString()} : ${b.toString()} = x : ${d.toString()}`;
+      ans = c;
+    } else {
+      prompt = `Find x: ${a.toString()} : ${b.toString()} = ${c.toString()} : x`;
+      ans = d;
+    }
+    return {
+      prompt,
+      input: { type: 'integer', placeholder: 'Enter x', mode: 'numeric' },
+      answer_key: {
+        kind: 'exact_integer',
+        value: ans.toString(),
+        expected_display: ans.toString(),
+        explanation: `In the proportion ${a.toString()} : ${b.toString()} = ${c.toString()} : ${d.toString()}, x = ${ans.toString()}.`,
       },
     };
   }
@@ -900,6 +981,40 @@ function genCalendar(rng, params = {}) {
   const subtype = params.subtype || 'weekday';
   const year = rng.int(params.year_min ?? 1600, params.year_max ?? 2099);
 
+  if (subtype === 'year') {
+    const startYear = rng.int(params.year_min ?? 1700, params.year_max ?? 2060);
+    const windowYears = Number(params.window_years ?? 20);
+    const endYear = startYear + windowYears;
+    const targetMonth = rng.int(1, 12);
+    const maxDay = Math.min(28, daysInMonth(startYear, targetMonth));
+    const day = rng.int(1, maxDay);
+    const targetDow = rng.int(0, 6);
+    const validYears = [];
+    for (let y = startYear; y <= endYear; y++) {
+      if (dayOfWeekGregorian(y, targetMonth, day) === targetDow) {
+        validYears.push(y);
+      }
+    }
+    const expectedDisplay = validYears.join(', ');
+    const dateLabel = `${day} ${MONTH_NAMES_EN[targetMonth - 1]}`;
+    return {
+      prompt: `Between ${startYear} and ${endYear}, in which year(s) does ${dateLabel} fall on a ${WEEKDAY_NAMES_EN[targetDow]}?`,
+      input: { type: 'text', placeholder: 'e.g. ' + (validYears[0] ?? startYear) },
+      answer_key: {
+        kind: 'calendar',
+        subtype: 'year',
+        start_year: startYear,
+        end_year: endYear,
+        month: targetMonth,
+        day,
+        weekday_index: targetDow,
+        valid_years: validYears,
+        expected_display: expectedDisplay,
+        explanation: `Between ${startYear} and ${endYear}, ${dateLabel} falls on a ${WEEKDAY_NAMES_EN[targetDow]} in: ${expectedDisplay}.`,
+      },
+    };
+  }
+
   if (subtype === 'month') {
     const targetMonth = rng.int(1, 12);
     const targetDow = dayOfWeekGregorian(year, targetMonth, 1);
@@ -950,6 +1065,41 @@ function genCalendar(rng, params = {}) {
 
 function genElapsedTime(rng, params = {}) {
   const format = params.format || 'hours_minutes';
+
+  if (format === 'seconds') {
+    const startSec = rng.int(0, 86400 - 1);
+    const minSec = params.min_seconds ?? 600;
+    const maxSec = params.max_seconds ?? 43200;
+    const durationSeconds = rng.int(minSec, maxSec);
+    const endSec = (startSec + durationSeconds) % 86400;
+
+    const fmtClockSec = (sec) => {
+      const h = String(Math.floor(sec / 3600)).padStart(2, '0');
+      const m = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
+      const s = String(sec % 60).padStart(2, '0');
+      return `${h}:${m}:${s}`;
+    };
+
+    const startStr = fmtClockSec(startSec);
+    const endStr = fmtClockSec(endSec);
+
+    return {
+      prompt: `Time elapsed from ${startStr} to ${endStr} (in seconds):`,
+      input: {
+        type: 'integer',
+        placeholder: 'Total seconds',
+        mode: 'numeric',
+      },
+      answer_key: {
+        kind: 'elapsed_time',
+        format: 'seconds',
+        total_seconds: durationSeconds,
+        expected_display: String(durationSeconds),
+        explanation: `From ${startStr} to ${endStr} is ${durationSeconds} seconds.`,
+      },
+    };
+  }
+
   const startMinutes = rng.int(0, 20 * 60 + 59);
   const durationMinutes = rng.int(params.min_minutes ?? 35, params.max_minutes ?? 680);
   const endMinutes = (startMinutes + durationMinutes) % (24 * 60);

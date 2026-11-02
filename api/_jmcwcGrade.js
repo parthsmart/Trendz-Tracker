@@ -515,6 +515,17 @@ function gradeCalendar(answerKey, rawAnswer) {
     return { verdict: 'wrong', expected: fallbackExpected, explanation };
   }
 
+  if (subtype === 'year') {
+    const validYears = Array.isArray(answerKey.valid_years)
+      ? answerKey.valid_years.map(Number)
+      : [Number(answerKey.year)];
+    const rawTokens = String(rawAnswer).split(/[\s,]+/).filter(Boolean).map(Number);
+    if (rawTokens.length > 0 && rawTokens.every((y) => validYears.includes(y))) {
+      return { verdict: 'correct', expected: expectedStr, explanation };
+    }
+    return { verdict: 'wrong', expected: expectedStr, explanation };
+  }
+
   // Numeric calendar question (e.g. date number, count of occurrences, or year)
   return gradeExactInteger(answerKey, rawAnswer);
 }
@@ -565,7 +576,13 @@ function gradeElapsedTime(answerKey, rawAnswer) {
   const expectedStr = String(answerKey.expected_display ?? '');
   const explanation = String(answerKey.explanation ?? `Correct elapsed time is ${expectedStr}.`);
   const format = answerKey.format || 'hours_minutes';
-  const totalMinutes = BigInt(answerKey.total_minutes);
+
+  if (format === 'seconds') {
+    const totalSecs = BigInt(answerKey.total_seconds ?? answerKey.value ?? 0);
+    return gradeExactInteger({ ...answerKey, value: totalSecs.toString(), expected_display: expectedStr }, rawAnswer);
+  }
+
+  const totalMinutes = BigInt(answerKey.total_minutes ?? 0);
 
   if (format === 'minutes') {
     return gradeExactInteger({ ...answerKey, value: totalMinutes.toString(), expected_display: expectedStr }, rawAnswer);
