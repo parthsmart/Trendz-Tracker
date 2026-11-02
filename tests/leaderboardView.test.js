@@ -88,7 +88,7 @@ describe('boardTitle(board, period, scope, level, taskTitle, todayIST)', () => {
 });
 
 describe('isSpeedRankableTask(task) & formatTaskFilterOptions(tasks)', () => {
-  it('returns true only for basics tasks that have a category_id', () => {
+  it('returns true for basics tasks with category_id, elements tasks with activity_key, and flash tasks', () => {
     assert.equal(
       isSpeedRankableTask({ section: 'basics', category_id: 'cat-bas-1' }),
       true
@@ -103,10 +103,14 @@ describe('isSpeedRankableTask(task) & formatTaskFilterOptions(tasks)', () => {
     );
     assert.equal(
       isSpeedRankableTask({ section: 'flash', category_id: null }),
-      false
+      true
     );
     assert.equal(
-      isSpeedRankableTask({ section: 'elements', category_id: null }),
+      isSpeedRankableTask({ section: 'elements', activity_key: 'squares_stage_1' }),
+      true
+    );
+    assert.equal(
+      isSpeedRankableTask({ section: 'elements', activity_key: null }),
       false
     );
     assert.equal(
@@ -119,14 +123,19 @@ describe('isSpeedRankableTask(task) & formatTaskFilterOptions(tasks)', () => {
     const tasks = [
       { id: 'todo-1', title: 'Round Drill: Addition (ADD)', section: 'round', category_id: 'cat-rnd-1', level: null },
       { id: 'todo-2', title: 'Mental Basics: 1d4r', section: 'basics', category_id: 'cat-bas-1', level: 'Level 3' },
-      { id: 'todo-3', title: 'Any Basics Drill', section: 'basics', category_id: null, level: null }
+      { id: 'todo-3', title: 'Any Basics Drill', section: 'basics', category_id: null, level: null },
+      { id: 'todo-4', title: 'Square 1to25 Drill', section: 'elements', activity_key: 'squares_stage_1', level: null },
+      { id: 'todo-5', title: 'Flash: 2 digits, 10 numbers', section: 'flash', level: null }
     ];
     const options = formatTaskFilterOptions(tasks);
-    assert.equal(options.length, 3);
+    assert.equal(options.length, 5);
     assert.equal(options[0].isSpeedRanked, false);
     assert.equal(options[1].isSpeedRanked, true);
     assert.equal(options[1].category_id, 'cat-bas-1');
     assert.equal(options[2].isSpeedRanked, false);
+    assert.equal(options[3].isSpeedRanked, true);
+    assert.equal(options[3].activity_key, 'squares_stage_1');
+    assert.equal(options[4].isSpeedRanked, true);
   });
 });
 

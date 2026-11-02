@@ -114,9 +114,25 @@ export default async function handler(req, res) {
       }
     }
 
-    // Set apikey if missing
-    if (!forwardHeaders['apikey']) {
-      forwardHeaders['apikey'] = configuredConfig.anonKey;
+    // Always enforce the server's configured anonKey for apikey
+    forwardHeaders['apikey'] = configuredConfig.anonKey;
+
+    // If authorization header is an anon key from an older/mismatched project, replace with configured anonKey
+    if (typeof forwardHeaders['authorization'] === 'string' && forwardHeaders['authorization'].startsWith('Bearer ')) {
+      const bearerToken = forwardHeaders['authorization'].slice(7).trim();
+      if (bearerToken.startsWith('eyJ')) {
+        try {
+          const payloadPart = bearerToken.split('.')[1];
+          if (payloadPart) {
+            const payload = JSON.parse(Buffer.from(payloadPart, 'base64url').toString('utf8'));
+            if (payload?.role === 'anon' && payload?.ref !== 'kgzivhavpsvitwrscrrj') {
+              forwardHeaders['authorization'] = `Bearer ${configuredConfig.anonKey}`;
+            }
+          }
+        } catch {
+          // leave user JWT untouched
+        }
+      }
     }
 
     const fetchOptions = {

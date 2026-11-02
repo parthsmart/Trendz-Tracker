@@ -124,6 +124,10 @@ export default async function handler(req, res) {
     return handleSubmitDrill({ body, student, adminSupabase, res });
   }
 
+  if (action === 'task_leaderboard') {
+    return handleTaskLeaderboard({ body, student, adminSupabase, res });
+  }
+
   return res.status(400).json({ error: 'Invalid action. Use "start" or "submit".' });
 }
 
@@ -619,5 +623,360 @@ async function handleSubmitBasicsSession({
     detail: check.detail,
     result_id: insertedResult.id,
   });
+}
+
+function toIstDateStr(isoString) {
+  if (!isoString) return '';
+  const d = new Date(isoString);
+  if (Number.isNaN(d.getTime())) return '';
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d);
+}
+
+function addDaysYmd(ymd, deltaDays) {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + deltaDays));
+  return dt.toISOString().slice(0, 10);
+}
+
+function resolveIstPeriodBounds(periodRaw, todayIst) {
+  const clean = String(periodRaw || 'week').trim().toLowerCase();
+  if (clean === 'all') {
+    return { startDate: '2020-01-01', endDate: todayIst };
+  }
+  if (clean === 'today') {
+    return { startDate: todayIst, endDate: todayIst };
+  }
+  if (clean === 'yesterday') {
+    const yest = addDaysYmd(todayIst, -1);
+    return { startDate: yest, endDate: yest };
+  }
+  if (clean === 'week') {
+    const [y, m, d] = todayIst.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    const dow = dt.getUTCDay(); // 0 = Sun, 1 = Mon ...
+    const diffToMonday = dow === 0 ? -6 : 1 - dow;
+    const mon = addDaysYmd(todayIst, diffToMonday);
+    return { startDate: mon, endDate: todayIst };
+  }
+  if (clean === 'month') {
+    return { startDate: `${todayIst.slice(0, 7)}-01`, endDate: todayIst };
+  }
+  if (clean === 'year') {
+    return { startDate: `${todayIst.slice(0, 4)}-01-01`, endDate: todayIst };
+  }
+  if (clean.startsWith('date:')) {
+    const datePart = clean.slice(5).trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+      throw new Error('Invalid date format.');
+    }
+    if (datePart < '2020-01-01') {
+      throw new Error('The date cannot be before 2020-01-01.');
+    }
+    if (datePart > todayIst) {
+      throw new Error('The date cannot be in the future.');
+    }
+    return { startDate: datePart, endDate: datePart };
+  }
+  return { startDate: '2020-01-01', endDate: todayIst };
+}
+
+function formatLeaderboardDisplayName(profile, nameMode) {
+  const code = String(profile?.student_code || 'TRAINEE').trim();
+  if (nameMode === 'student_code') {
+    return code;
+  }
+  const fullName = String(profile?.full_name || '').trim();
+  if (!fullName) return code;
+  if (nameMode === 'full_name') {
+    return fullName;
+  }
+  const parts = fullName.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) return parts[0];
+  const first = parts[0];
+  const lastInitial = parts[parts.length - 1].charAt(0).toUpperCase();
+  return `${first} ${lastInitial}.`;
+}
+
+async function handleTaskLeaderboard({ body, student, adminSupabase, res }) {
+  const taskId = String(body.task_id || '').trim();
+  if (!taskId) {
+    return res.status(400).json({ error: 'Task ID is required.' });
+  }
+
+  const period = String(body.period || 'week').trim();
+  const scope = String(body.scope || 'level').trim().toLowerCase() === 'global' ? 'global' : 'level';
+  const requestedLevel = body.level ? String(body.level).trim() : null;
+  const rawLimit = Number(body.limit) || 10;
+  const isAdmin = student.role === 'admin';
+
+  // Check global leaderboard switch when a student requests global scope
+  if (!isAdmin && scope === 'global') {
+    try {
+      const { data: globalEnabled } = await adminSupabase.rpc('global_leaderboard_enabled');
+      const enabled = Array.isArray(globalEnabled) ? Boolean(globalEnabled[0]) : Boolean(globalEnabled);
+      if (!enabled) {
+        return res.status(400).json({ error: 'The global leaderboard is switched off.' });
+      }
+    } catch {
+      // Allow if RPC check fails
+    }
+  }
+
+  let todayIst = fallbackTodayIst();
+  try {
+    const { data: istDate, error: rpcErr } = await adminSupabase.rpc('today_ist');
+    if (!rpcErr && istDate) {
+      todayIst = String(istDate).trim();
+    }
+  } catch {
+    // Keep fallbackTodayIst()
+  }
+
+  let bounds;
+  try {
+    bounds = resolveIstPeriodBounds(period, todayIst);
+  } catch (boundErr) {
+    return res.status(400).json({ error: boundErr.message || 'Invalid period.' });
+  }
+
+  const { data: task, error: taskErr } = await adminSupabase
+    .from('daily_tasks')
+    .select('id, title, section, category_id, activity_key, flash_digits, flash_count, flash_speed_ms, flash_mode, level, active')
+    .eq('id', taskId)
+    .single();
+
+  if (taskErr || !task) {
+    return res.status(404).json({ error: 'Daily task not found.' });
+  }
+
+  const section = String(task.section || '').trim().toLowerCase();
+  if (section !== 'elements' && section !== 'flash') {
+    return res.status(400).json({
+      error: 'Speed ranking is available for basics, elements, and flash tasks only.',
+    });
+  }
+
+  // Fetch competition rules for display name mode
+  let nameMode = 'first_name_initial';
+  try {
+    const { data: rulesData } = await adminSupabase.rpc('competition_rules');
+    const ruleRow = Array.isArray(rulesData) ? rulesData[0] : rulesData;
+    if (ruleRow?.leaderboard_names) {
+      nameMode = String(ruleRow.leaderboard_names).trim();
+    }
+  } catch {
+    // Keep default first_name_initial
+  }
+
+  // Fetch caller's level when student is in 'level' scope
+  let callerLevel = null;
+  if (!isAdmin && scope === 'level') {
+    const { data: myProf } = await adminSupabase
+      .from('profiles')
+      .select('level')
+      .eq('id', student.id)
+      .single();
+    callerLevel = myProf?.level ? String(myProf.level).trim() : null;
+  }
+
+  // Fetch eligible student profiles (active = true, role = 'student', leaderboard_visible != false)
+  const { data: profiles, error: profErr } = await adminSupabase
+    .from('profiles')
+    .select('id, student_code, full_name, level, active, leaderboard_visible, role')
+    .eq('role', 'student')
+    .eq('active', true);
+
+  if (profErr || !Array.isArray(profiles)) {
+    return res.status(500).json({ error: 'Could not load student profiles for leaderboard.' });
+  }
+
+  const eligibleProfiles = new Map();
+  for (const p of profiles) {
+    if (p.leaderboard_visible === false) continue;
+    const pLevel = p.level ? String(p.level).trim() : '';
+    if (!isAdmin) {
+      if (scope === 'level') {
+        if (callerLevel && pLevel.toLowerCase() !== callerLevel.toLowerCase()) continue;
+        if (!callerLevel && pLevel) continue;
+      }
+    } else if (requestedLevel && requestedLevel.toLowerCase() !== 'all') {
+      if (pLevel.toLowerCase() !== requestedLevel.toLowerCase()) continue;
+    }
+    eligibleProfiles.set(p.id, p);
+  }
+
+  if (eligibleProfiles.size === 0) {
+    return res.status(200).json({ rows: [] });
+  }
+
+  const activityType = section === 'elements' ? 'element' : 'flash_anzan';
+  const startIso = `${bounds.startDate}T00:00:00+05:30`;
+
+  const { data: actRows, error: actErr } = await adminSupabase
+    .from('activity_results')
+    .select('id, student_id, activity_type, activity_name, correct, total, time_seconds, settings, created_at')
+    .eq('activity_type', activityType)
+    .gte('created_at', startIso);
+
+  if (actErr || !Array.isArray(actRows)) {
+    return res.status(500).json({ error: 'Could not load activity results for leaderboard.' });
+  }
+
+  const targetDrillKey = task.activity_key ? String(task.activity_key).trim() : '';
+  const targetDrillTitle = targetDrillKey && DRILLS[targetDrillKey] ? DRILLS[targetDrillKey].title : '';
+
+  // Group matching rows by student_id within [bounds.startDate, bounds.endDate] in IST
+  const byStudent = new Map();
+  for (const r of actRows) {
+    if (!eligibleProfiles.has(r.student_id)) continue;
+    const istDate = toIstDateStr(r.created_at);
+    if (!istDate || istDate < bounds.startDate || istDate > bounds.endDate) continue;
+
+    const settings = r.settings && typeof r.settings === 'object' ? r.settings : {};
+
+    if (section === 'elements') {
+      const rowDrill = settings.drill ? String(settings.drill).trim() : '';
+      const rowName = r.activity_name ? String(r.activity_name).trim() : '';
+      const matchesDrill =
+        (targetDrillKey && rowDrill === targetDrillKey) ||
+        (targetDrillTitle && rowName.toLowerCase() === targetDrillTitle.toLowerCase());
+      if (!matchesDrill) continue;
+    } else if (section === 'flash') {
+      if (task.flash_digits !== null && task.flash_digits !== undefined) {
+        if (Number(settings.digits) !== Number(task.flash_digits)) continue;
+      }
+      if (task.flash_count !== null && task.flash_count !== undefined) {
+        if (Number(settings.count) !== Number(task.flash_count)) continue;
+      }
+      if (task.flash_speed_ms !== null && task.flash_speed_ms !== undefined) {
+        if (Number(settings.speed_ms) !== Number(task.flash_speed_ms)) continue;
+      }
+      if (task.flash_mode !== null && task.flash_mode !== undefined && String(task.flash_mode).trim()) {
+        if (String(settings.mode || '').trim() !== String(task.flash_mode).trim()) continue;
+      }
+    }
+
+    if (!byStudent.has(r.student_id)) {
+      byStudent.set(r.student_id, []);
+    }
+    byStudent.get(r.student_id).push(r);
+  }
+
+  const summaries = [];
+  for (const [stuId, rows] of byStudent.entries()) {
+    const prof = eligibleProfiles.get(stuId);
+    if (!prof || rows.length === 0) continue;
+
+    if (section === 'elements') {
+      let bestRow = null;
+      let bestPerMin = -1;
+      for (const r of rows) {
+        const corr = Math.max(0, Number(r.correct) || 0);
+        const tot = Math.max(corr, Number(r.total) || 0);
+        const sec = Math.max(1, Number(r.time_seconds) || 1);
+        const cpm = Math.round(((corr * 60) / sec) * 10) / 10;
+        if (!bestRow) {
+          bestRow = { corr, tot, sec };
+          bestPerMin = cpm;
+        } else {
+          const bestWrong = bestRow.tot - bestRow.corr;
+          const currWrong = tot - corr;
+          if (
+            cpm > bestPerMin ||
+            (cpm === bestPerMin && corr > bestRow.corr) ||
+            (cpm === bestPerMin && corr === bestRow.corr && currWrong < bestWrong) ||
+            (cpm === bestPerMin && corr === bestRow.corr && currWrong === bestWrong && sec < bestRow.sec)
+          ) {
+            bestRow = { corr, tot, sec };
+            bestPerMin = cpm;
+          }
+        }
+      }
+      if (bestRow) {
+        summaries.push({
+          student_id: stuId,
+          profile: prof,
+          best_per_minute: bestPerMin,
+          correct: bestRow.corr,
+          attempted: bestRow.tot,
+          seconds: bestRow.sec,
+          attempts: rows.length,
+        });
+      }
+    } else if (section === 'flash') {
+      const totalTries = rows.length;
+      let totalCorrect = 0;
+      let bestCorrectSec = null;
+      let bestAnySec = null;
+      for (const r of rows) {
+        const corr = Math.max(0, Number(r.correct) || 0);
+        const sec = Math.max(1, Number(r.time_seconds) || 1);
+        totalCorrect += corr;
+        if (bestAnySec === null || sec < bestAnySec) {
+          bestAnySec = sec;
+        }
+        if (corr > 0 && (bestCorrectSec === null || sec < bestCorrectSec)) {
+          bestCorrectSec = sec;
+        }
+      }
+      const chosenSec = bestCorrectSec !== null ? bestCorrectSec : (bestAnySec || 1);
+      const bestPerMin =
+        bestCorrectSec !== null
+          ? Math.round((60 / bestCorrectSec) * 10) / 10
+          : 0;
+
+      summaries.push({
+        student_id: stuId,
+        profile: prof,
+        best_per_minute: bestPerMin,
+        correct: totalCorrect,
+        attempted: totalTries,
+        seconds: chosenSec,
+        attempts: totalTries,
+      });
+    }
+  }
+
+  summaries.sort((a, b) => {
+    if (b.best_per_minute !== a.best_per_minute) return b.best_per_minute - a.best_per_minute;
+    if (b.correct !== a.correct) return b.correct - a.correct;
+    const aWrong = a.attempted - a.correct;
+    const bWrong = b.attempted - b.correct;
+    if (aWrong !== bWrong) return aWrong - bWrong;
+    if (a.seconds !== b.seconds) return a.seconds - b.seconds;
+    return String(a.profile.student_code || '').localeCompare(String(b.profile.student_code || ''));
+  });
+
+  const ranked = summaries.map((item, idx) => ({
+    rank: idx + 1,
+    student_id: isAdmin ? item.student_id : null,
+    display_name: formatLeaderboardDisplayName(item.profile, nameMode),
+    level: item.profile.level || null,
+    best_per_minute: item.best_per_minute,
+    correct: item.correct,
+    attempted: item.attempted,
+    seconds: item.seconds,
+    attempts: item.attempts,
+    is_me: !isAdmin && item.student_id === student.id,
+  }));
+
+  if (isAdmin) {
+    const cap = Math.min(200, Math.max(1, rawLimit));
+    return res.status(200).json({ rows: ranked.slice(0, cap) });
+  }
+
+  const topLimit = Math.min(10, Math.max(1, rawLimit));
+  const topRows = ranked.slice(0, topLimit);
+  const ownRow = ranked.find((r) => r.is_me);
+  if (ownRow && !topRows.some((r) => r.is_me)) {
+    topRows.push(ownRow);
+  }
+
+  return res.status(200).json({ rows: topRows });
 }
 

@@ -49,16 +49,28 @@ export function boardUsesPeriod(board) {
 }
 
 /**
- * Returns whether a daily task supports speed ranking via `todo_task_leaderboard`:
- * strictly tasks where `section === 'basics'` and `category_id` is present.
+ * Returns whether a daily task supports speed ranking on the Daily To-Do Leaderboard:
+ * - `basics` tasks that have a `category_id`
+ * - `elements` tasks that have an `activity_key`
+ * - `flash` tasks
  * @param {Object|null|undefined} task
  * @returns {boolean}
  */
 export function isSpeedRankableTask(task) {
   if (!task || typeof task !== 'object') return false;
   const section = String(task.section || '').trim().toLowerCase();
-  const categoryId = task.category_id ? String(task.category_id).trim() : '';
-  return section === 'basics' && Boolean(categoryId);
+  if (section === 'basics') {
+    const categoryId = task.category_id ? String(task.category_id).trim() : '';
+    return Boolean(categoryId);
+  }
+  if (section === 'elements') {
+    const activityKey = task.activity_key ? String(task.activity_key).trim() : '';
+    return Boolean(activityKey);
+  }
+  if (section === 'flash') {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -190,6 +202,10 @@ export function formatTaskFilterOptions(tasks) {
         t.category_id !== null && t.category_id !== undefined && String(t.category_id).trim()
           ? String(t.category_id).trim()
           : null;
+      const activityKey =
+        t.activity_key !== null && t.activity_key !== undefined && String(t.activity_key).trim()
+          ? String(t.activity_key).trim()
+          : null;
       const section = String(t.section || 'round').trim().toLowerCase();
       return {
         id: String(t.id),
@@ -199,8 +215,13 @@ export function formatTaskFilterOptions(tasks) {
         title,
         section,
         category_id: categoryId,
+        activity_key: activityKey,
         level: typeof t.level === 'string' && t.level.trim() ? t.level.trim() : null,
-        isSpeedRanked: isSpeedRankableTask({ section, category_id: categoryId })
+        isSpeedRanked: isSpeedRankableTask({
+          section,
+          category_id: categoryId,
+          activity_key: activityKey
+        })
       };
     });
 }

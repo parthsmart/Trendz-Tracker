@@ -18,12 +18,45 @@ function normalizeSupabaseUrl(url) {
   return url.trim().replace(/\/rest\/v1\/?$/i, '').replace(/\/+$/, '');
 }
 
+const RETIRED_PROJECT_REF = 'ctwjujnqxkhononxykdc';
+
+function extractJwtProjectRefBrowser(token) {
+  if (!token || typeof token !== 'string' || !token.startsWith('eyJ')) return '';
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return '';
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const json = atob(base64);
+    const payload = JSON.parse(json);
+    return typeof payload?.ref === 'string' ? payload.ref : '';
+  } catch {
+    return '';
+  }
+}
+
+function isKeyMismatchedOrRetired(url, key) {
+  if (!key) return true;
+  const keyRef = extractJwtProjectRefBrowser(key);
+  if (!keyRef) return false;
+  if (keyRef === RETIRED_PROJECT_REF) return true;
+  const urlMatch = String(url || '').match(/^https:\/\/([a-z0-9-]+)\.supabase\.co$/i);
+  const urlRef = urlMatch ? urlMatch[1] : '';
+  return Boolean(urlRef && keyRef !== urlRef);
+}
+
 // 1. Read build-time environment variables injected by Vite
 const buildUrl = typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_SUPABASE_URL ? import.meta.env.VITE_SUPABASE_URL : '';
 const buildAnonKey = typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_SUPABASE_ANON_KEY ? import.meta.env.VITE_SUPABASE_ANON_KEY : '';
 
 let resolvedUrl = normalizeSupabaseUrl(buildUrl);
 let resolvedAnonKey = (buildAnonKey || '').trim();
+
+if (resolvedUrl.includes(RETIRED_PROJECT_REF)) {
+  resolvedUrl = '';
+}
+if (isKeyMismatchedOrRetired(resolvedUrl, resolvedAnonKey)) {
+  resolvedAnonKey = '';
+}
 
 /**
  * Checks if current host is allowed to run Demo Mode or use preview fallbacks.
@@ -34,8 +67,6 @@ export function isDemoAllowedHost() {
   const hostname = window.location.hostname;
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname.endsWith('.run.app');
 }
-
-const RETIRED_PROJECT_REF = 'ctwjujnqxkhononxykdc';
 
 function purgeRetiredProjectStorage(activeUrl) {
   if (typeof window === 'undefined') return;
@@ -49,13 +80,21 @@ function purgeRetiredProjectStorage(activeUrl) {
 }
 
 // 2. For Studio preview only (localhost and *.run.app): check sessionStorage cache if build variables are empty
-if (!resolvedUrl && typeof window !== 'undefined' && isDemoAllowedHost()) {
+if ((!resolvedUrl || !resolvedAnonKey) && typeof window !== 'undefined' && isDemoAllowedHost()) {
   try {
     const cachedUrl = sessionStorage.getItem('trendz_supabase_url');
     const cachedKey = sessionStorage.getItem('trendz_supabase_anon_key');
-    if (cachedUrl && cachedKey && !cachedUrl.includes(RETIRED_PROJECT_REF)) {
+    if (
+      cachedUrl &&
+      cachedKey &&
+      !cachedUrl.includes(RETIRED_PROJECT_REF) &&
+      !isKeyMismatchedOrRetired(cachedUrl, cachedKey)
+    ) {
       resolvedUrl = normalizeSupabaseUrl(cachedUrl);
       resolvedAnonKey = cachedKey.trim();
+    } else {
+      sessionStorage.removeItem('trendz_supabase_url');
+      sessionStorage.removeItem('trendz_supabase_anon_key');
     }
   } catch {
     // sessionStorage not available
@@ -72,7 +111,7 @@ export const SUPABASE_CONFIG = {
 let previewConfigPromise = null;
 
 if (
-  (!resolvedUrl || resolvedUrl.includes(RETIRED_PROJECT_REF)) &&
+  (!resolvedUrl || !resolvedAnonKey || resolvedUrl.includes(RETIRED_PROJECT_REF)) &&
   typeof window !== 'undefined' &&
   isDemoAllowedHost()
 ) {
