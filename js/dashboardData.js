@@ -261,7 +261,7 @@ export async function fetchStudentDashboardData(studentId, { includeScoreSheet =
         try {
           const { data, error } = await supabase
             .from('categories')
-            .select('id, name, section, sort_order, active, digits, rows_count, operation')
+            .select('id, name, section, sort_order, active')
             .order('sort_order', { ascending: true });
           if (!error && data) return data;
         } catch {

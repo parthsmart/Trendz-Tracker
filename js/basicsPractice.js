@@ -139,7 +139,7 @@ async function loadSetupData(categoryIdParam) {
       const initialQueries = [
         supabase
           .from('categories')
-          .select('id, name, section, sort_order, active, digits, rows_count, operation')
+          .select('id, name, section, sort_order, active')
           .eq('section', 'basics')
           .eq('active', true)
           .order('sort_order', { ascending: true }),
@@ -1131,7 +1131,8 @@ async function initBasicsPracticePage() {
     return;
   }
 
-  const catParam = urlParams.get('cat') || urlParams.get('category_id') || '';
+  const catParam =
+    urlParams.get('cat') || urlParams.get('category') || urlParams.get('category_id') || '';
   await loadSetupData(catParam);
 }
 

@@ -61,7 +61,7 @@ async function loadBasicsCategories() {
       if (supabase) {
         const { data, error } = await supabase
           .from('categories')
-          .select('id, name, section, sort_order, active, digits, rows_count, operation')
+          .select('id, name, section, sort_order, active')
           .eq('section', 'basics')
           .eq('active', true)
           .order('sort_order', { ascending: true });
@@ -90,7 +90,7 @@ async function loadBasicsCategories() {
 
     // Preselect category if passed in URL query parameter (e.g. from Today's To-Do link)
     const urlParams = new URLSearchParams(window.location.search);
-    const catParam = urlParams.get('cat') || urlParams.get('category_id');
+    const catParam = urlParams.get('cat') || urlParams.get('category') || urlParams.get('category_id');
     if (catParam && selectEl.querySelector(`option[value="${catParam}"]`)) {
       selectEl.value = catParam;
     }
@@ -106,7 +106,7 @@ async function loadBasicsCategories() {
       `).join('');
 
       const urlParams = new URLSearchParams(window.location.search);
-      const catParam = urlParams.get('cat') || urlParams.get('category_id');
+      const catParam = urlParams.get('cat') || urlParams.get('category') || urlParams.get('category_id');
       if (catParam && selectEl.querySelector(`option[value="${catParam}"]`)) {
         selectEl.value = catParam;
       }
