@@ -38,7 +38,7 @@ async function loadResources() {
 
         if (error) {
           console.warn('Database error loading resources:', error.message);
-          allResources = DemoDB.getResources();
+          allResources = [];
         } else {
           allResources = data || [];
         }
@@ -47,11 +47,11 @@ async function loadResources() {
       }
     }
 
-    allResources = DemoDB.getResources();
+    allResources = isSupabaseConfigured() ? [] : DemoDB.getResources();
     renderResourcesTable();
   } catch (err) {
     console.warn('Error loading resources:', err);
-    allResources = DemoDB.getResources();
+    allResources = isSupabaseConfigured() ? [] : DemoDB.getResources();
     renderResourcesTable();
   }
 }

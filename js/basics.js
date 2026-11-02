@@ -288,13 +288,13 @@ async function loadBasicsHistory() {
           .limit(200);
 
         if (error) {
-          console.warn('Could not fetch basics results_with_target from Supabase, checking local cache:', error.message);
-          allBasicsResults = DemoDB.getResultsWithTarget(currentProfile.id, 'basics');
+          console.warn('Could not fetch basics results_with_target from Supabase:', error.message);
+          allBasicsResults = [];
         } else {
           allBasicsResults = data || [];
         }
       } else {
-        allBasicsResults = DemoDB.getResultsWithTarget(currentProfile.id, 'basics');
+        allBasicsResults = [];
       }
     } else {
       // Demo Mode retrieval with pre-computed meets_target
@@ -307,8 +307,10 @@ async function loadBasicsHistory() {
 
     renderHistory();
   } catch (err) {
-    console.warn('Error loading basics history, using local fallback:', err);
-    allBasicsResults = DemoDB.getResultsWithTarget(currentProfile?.id || 'default', 'basics');
+    console.warn('Error loading basics history:', err);
+    allBasicsResults = isSupabaseConfigured()
+      ? []
+      : DemoDB.getResultsWithTarget(currentProfile?.id || 'default', 'basics');
     renderHistory();
   }
 }
