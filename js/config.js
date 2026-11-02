@@ -35,12 +35,25 @@ export function isDemoAllowedHost() {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname.endsWith('.run.app');
 }
 
+const RETIRED_PROJECT_REF = 'ctwjujnqxkhononxykdc';
+
+function purgeRetiredProjectStorage(activeUrl) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (activeUrl && !activeUrl.includes(RETIRED_PROJECT_REF)) {
+      localStorage.removeItem(`sb-${RETIRED_PROJECT_REF}-auth-token`);
+    }
+  } catch {
+    // storage unavailable
+  }
+}
+
 // 2. For Studio preview only (localhost and *.run.app): check sessionStorage cache if build variables are empty
 if (!resolvedUrl && typeof window !== 'undefined' && isDemoAllowedHost()) {
   try {
     const cachedUrl = sessionStorage.getItem('trendz_supabase_url');
     const cachedKey = sessionStorage.getItem('trendz_supabase_anon_key');
-    if (cachedUrl && cachedKey) {
+    if (cachedUrl && cachedKey && !cachedUrl.includes(RETIRED_PROJECT_REF)) {
       resolvedUrl = normalizeSupabaseUrl(cachedUrl);
       resolvedAnonKey = cachedKey.trim();
     }
@@ -54,11 +67,15 @@ export const SUPABASE_CONFIG = {
   anonKey: resolvedAnonKey,
 };
 
-// 3. For Studio preview only: if credentials are still empty, fetch /api/config once and cache in sessionStorage.
+// 3. For Studio preview only: if credentials are still empty or point to the retired project, fetch /api/config once and cache in sessionStorage.
 // This is never executed in production (isDemoAllowedHost is false on production hostnames).
 let previewConfigPromise = null;
 
-if (!resolvedUrl && typeof window !== 'undefined' && isDemoAllowedHost()) {
+if (
+  (!resolvedUrl || resolvedUrl.includes(RETIRED_PROJECT_REF)) &&
+  typeof window !== 'undefined' &&
+  isDemoAllowedHost()
+) {
   previewConfigPromise = (async () => {
     try {
       const res = await fetch('/api/config');
@@ -67,16 +84,23 @@ if (!resolvedUrl && typeof window !== 'undefined' && isDemoAllowedHost()) {
         if (text && text.trim()) {
           const data = JSON.parse(text);
           if (data && data.supabaseUrl && data.supabaseAnonKey) {
-            resolvedUrl = normalizeSupabaseUrl(data.supabaseUrl);
-            resolvedAnonKey = String(data.supabaseAnonKey).trim();
+            const nextUrl = normalizeSupabaseUrl(data.supabaseUrl);
+            const nextKey = String(data.supabaseAnonKey).trim();
+            const urlChanged = resolvedUrl && resolvedUrl !== nextUrl;
+            resolvedUrl = nextUrl;
+            resolvedAnonKey = nextKey;
             SUPABASE_CONFIG.url = resolvedUrl;
             SUPABASE_CONFIG.anonKey = resolvedAnonKey;
             try {
+              if (urlChanged) {
+                sessionStorage.removeItem('trendz_profile_cache_v1');
+              }
               sessionStorage.setItem('trendz_supabase_url', resolvedUrl);
               sessionStorage.setItem('trendz_supabase_anon_key', resolvedAnonKey);
             } catch {
               // sessionStorage not available
             }
+            purgeRetiredProjectStorage(resolvedUrl);
           }
         }
       }
@@ -84,6 +108,8 @@ if (!resolvedUrl && typeof window !== 'undefined' && isDemoAllowedHost()) {
       // preview server unreachable or empty response
     }
   })();
+} else {
+  purgeRetiredProjectStorage(resolvedUrl);
 }
 
 /**

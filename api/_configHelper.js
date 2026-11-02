@@ -17,16 +17,62 @@ function isPlaceholder(val) {
   );
 }
 
+const RETIRED_PROJECT_REF = 'ctwjujnqxkhononxykdc';
+
 /**
- * Picks the first non-placeholder value from a list of candidate environment variable values.
+ * Picks the first non-placeholder value from a list of candidate environment variable values,
+ * preferring values that do not reference the retired Sydney project when a newer value is present.
  */
 function pickValidEnv(...candidates) {
+  const valid = [];
   for (const candidate of candidates) {
     if (!isPlaceholder(candidate)) {
-      return candidate.trim();
+      valid.push(candidate.trim());
     }
   }
-  return '';
+  if (valid.length === 0) return '';
+  const nonRetired = valid.find((v) => !v.includes(RETIRED_PROJECT_REF));
+  return nonRetired || valid[0];
+}
+
+function extractJwtProjectRef(token) {
+  if (!token || typeof token !== 'string' || !token.startsWith('eyJ')) return '';
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return '';
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    return typeof payload?.ref === 'string' ? payload.ref : '';
+  } catch {
+    return '';
+  }
+}
+
+function pickMatchingAnonKey(cleanUrl, ...candidates) {
+  const valid = [];
+  for (const candidate of candidates) {
+    if (!isPlaceholder(candidate)) {
+      valid.push(candidate.trim());
+    }
+  }
+  if (valid.length === 0) return '';
+
+  const urlMatch = String(cleanUrl || '').match(/^https:\/\/([a-z0-9-]+)\.supabase\.co$/i);
+  const targetRef = urlMatch ? urlMatch[1] : '';
+
+  if (targetRef) {
+    const exactMatch = valid.find((k) => extractJwtProjectRef(k) === targetRef);
+    if (exactMatch) return exactMatch;
+
+    if (targetRef !== RETIRED_PROJECT_REF) {
+      const notRetiredJwt = valid.find((k) => {
+        const ref = extractJwtProjectRef(k);
+        return !ref || ref !== RETIRED_PROJECT_REF;
+      });
+      if (notRetiredJwt) return notRetiredJwt;
+    }
+  }
+
+  return valid[0];
 }
 
 /**
@@ -34,15 +80,19 @@ function pickValidEnv(...candidates) {
  * VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY or SUPABASE_URL / SUPABASE_ANON_KEY.
  * Throws 500 error if unconfigured or placeholder.
  */
-export function getSupabaseServerConfig() {
-  const rawUrl = pickValidEnv(process.env.VITE_SUPABASE_URL, process.env.SUPABASE_URL);
-  const rawAnonKey = pickValidEnv(process.env.VITE_SUPABASE_ANON_KEY, process.env.SUPABASE_ANON_KEY);
-
-  if (!rawUrl || !rawAnonKey) {
+export function getSupabaseServerConfig(env = process.env) {
+  const rawUrl = pickValidEnv(env.SUPABASE_URL, env.VITE_SUPABASE_URL);
+  if (!rawUrl) {
     throw new Error('Supabase configuration error: SUPABASE_URL and SUPABASE_ANON_KEY must be properly configured in environment variables.');
   }
 
   const cleanUrl = rawUrl.replace(/\/rest\/v1\/?$/i, '').replace(/\/+$/, '');
+  const rawAnonKey = pickMatchingAnonKey(cleanUrl, env.SUPABASE_ANON_KEY, env.VITE_SUPABASE_ANON_KEY);
+
+  if (!rawAnonKey) {
+    throw new Error('Supabase configuration error: SUPABASE_URL and SUPABASE_ANON_KEY must be properly configured in environment variables.');
+  }
+
   return {
     url: cleanUrl,
     anonKey: rawAnonKey,
@@ -53,14 +103,15 @@ export function getSupabaseServerConfig() {
  * Checks whether a valid non-placeholder Service Role Key is configured on the server.
  */
 export function hasSupabaseAdminConfig(env = process.env) {
-  const rawUrl = pickValidEnv(env.VITE_SUPABASE_URL, env.SUPABASE_URL);
-  const rawAnonKey = pickValidEnv(env.VITE_SUPABASE_ANON_KEY, env.SUPABASE_ANON_KEY);
+  const rawUrl = pickValidEnv(env.SUPABASE_URL, env.VITE_SUPABASE_URL);
+  const cleanUrl = rawUrl ? rawUrl.replace(/\/rest\/v1\/?$/i, '').replace(/\/+$/, '') : '';
+  const rawAnonKey = pickMatchingAnonKey(cleanUrl, env.SUPABASE_ANON_KEY, env.VITE_SUPABASE_ANON_KEY);
   const rawServiceKey = pickValidEnv(
     env.SUPABASE_SERVICE_ROLE_KEY,
     env.SUPABASE_SERVICE_KEY,
     env.VITE_SUPABASE_SERVICE_ROLE_KEY
   );
-  return Boolean(rawUrl && rawAnonKey && rawServiceKey);
+  return Boolean(cleanUrl && rawAnonKey && rawServiceKey);
 }
 
 /**

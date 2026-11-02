@@ -479,7 +479,9 @@ export async function handleStartWeeklyTestSection({
 
     try {
       const generatedSet = drill.generate();
-      const questionTexts = generatedSet.map((item) => item.q);
+      const questionTexts = generatedSet.map((item) =>
+        item && item.q !== undefined ? String(item.q) : String(item?.text ?? item ?? '')
+      );
       const expectedAnswers = generatedSet.map((item) => item.expected);
 
       const sessionSettings = {
