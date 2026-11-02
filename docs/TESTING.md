@@ -1542,3 +1542,69 @@ Open browser DevTools (`F12`), toggle the Device Toolbar (`Ctrl+Shift+M` / `Cmd+
 5. **Full-Screen Stage Focus Mode**:
    - Start a Flash Anzan try, Basics round, Elements worksheet, Memoriad stage, or online Weekly Test section and confirm `body.stage-focus-mode` hides the header as before.
 
+---
+
+## Phase 16a — Weekly Test Sections of Every Kind, Trainer Section Scores & Weekly Test Leaderboards
+
+### Automated Unit Tests (`node --test`)
+- `tests/weeklySections.test.js`:
+  - `sectionSummary(section, categoriesById)` for all 5 section kinds (`basics`, `round`, `flash`, `elements`, `memoriad`).
+  - `validateSections(sections, testType, categories)` for empty/too many (>12) sections, online `round` rejection (`"Round scores are available for offline tests only for now"`), wrong category section, unavailable online Basics category, missing online Basics duration, invalid Elements/Memoriad activity keys, out-of-range Flash settings, and duplicate sections.
+  - `toRows(sections, categories)` and `speedSecondsToMs` float rounding (`0.2..5.0` s -> `200..5000` ms without floating-point drift).
+- `tests/weeklyTestBoard.test.js`:
+  - `scoreText(correct, attempted)` (`"38 of 40"`, `"0 of 0"`).
+  - `boardTitle(testTitle, period, scope, level)` for both single-test and period-based Weekly Test leaderboards.
+  - `mapWeeklyTestLeaderboardRows` privacy, level chip in global scope, and own-rank divider outside top 10.
+- `tests/weeklyTestView.test.js`:
+  - `isSectionStartable` (true only for open, unattempted `basics` sections) and `isSectionComingSoon` (true for open, unattempted `flash`, `elements`, and `memoriad` sections).
+
+### Manual Browser Verification
+1. **Admin Multi-Kind Sections Builder (`/pages/weekly-tests.html`)**:
+   - Click **+ New Weekly Test**, add sections of kind **Basics**, **Flash Anzan**, **Elements**, **Memoriad**, and (when Offline) **Round scores**, reorder with `↑`/`↓`, and save.
+   - Switch between **Offline** and **Online** in the modal and verify that **Round scores** is disabled for Online tests with `"Round scores are available for offline tests only for now"`.
+   - Edit an existing test that has student scores/attempts and verify locked sections cannot be deleted while new sections can be added in place.
+2. **Admin Section Score Entry & Per-Test Leaderboard**:
+   - Select a test with sections, click each section tab (`1. Basics: ...`, `2. Flash: ...`), enter `Correct`, `Total`, and optional `Time (mm:ss)`, verify live wrong count and shared score colour, and click **Save scores**.
+   - Switch to the **Leaderboard** tab on the test detail card and verify live rankings (`Rank`, `Student`, `Points`, `Correct of attempted`, `Time`).
+3. **Student Weekly Test Page & Main Leaderboard (`/pages/weekly-test.html`, `/pages/leaderboard.html`)**:
+   - Sign in as a student, open **Weekly Test**, and verify that open Online tests show **Start** on Basics sections and a disabled **Available soon** button on Flash, Elements, and Memoriad sections.
+   - Switch to the **Leaderboard** tab on `/pages/weekly-test.html`, test the **All tests** period selector (`This week`, `This month`, `This year`, `All time`, `Pick a date`) and individual closed/offline tests, and verify the **Weekly tests** tab on `/pages/leaderboard.html`.
+
+---
+
+## Phase 16b — Online Weekly Test Runners for Elements, Flash Anzan & Memoriad
+
+### Automated Unit Tests (`node --test`)
+1. Run the Phase 16b unit tests:
+   ```bash
+   node --test tests/weeklyTestView.test.js tests/weeklyTestPhase16b.test.js
+   ```
+2. **Expected**:
+   - `applyFlashTry`: increments `tries_started` up to `question_count`, increments `tries_correct` only on correct answers, accumulates `seconds_used`, updates `score_row` (`correct = tries_correct`, `total = question_count`), marks `done = true` and `status = 'submitted'` on the final try, and refuses tries beyond `question_count`.
+   - `finalScore`: converts `basics`, `elements`, `memoriad` (`total = questions_total`), and `flash` results into `{ correct, total, time_seconds, shouldSave }`.
+   - `runnerLink` & `flashProgressText`: builds `/pages/basics-practice.html?test=...&section=...`, `/pages/element-drill.html?test=...&section=...`, `/pages/flash.html?test=...&section=...`, and `/pages/memoriad-play.html?test=...&section=...`, and formats `"Try 1 of 5"`.
+   - Isolation test verifies that running `elements`, `flash`, and `memoriad` weekly test sections writes only to `weekly_test_scores` and `weekly_test_attempts` and leaves `results` and `activity_results` unchanged.
+
+### Manual Browser Verification
+1. **Student Weekly Test Page (`/pages/weekly-test.html`)**:
+   - Sign in as a student (`AB001` / `pass123`) and open **Weekly Test**.
+   - On an open online test, verify that **Basics**, **Flash Anzan**, **Elements**, and **Memoriad** sections all show **Start** (no *"Available soon"* button).
+   - Click **Start** on a section and confirm the modal warns: *"You can take this section only once. If you leave the page, the section ends."* with **Cancel** and **Start now**.
+2. **Elements Section Runner (`/pages/element-drill.html?test=<id>&section=<id>`)**:
+   - Start an Elements section from an open online test.
+   - Confirm the site header and drill chooser are hidden, the test title and **Exit** button are shown, and the timer starts immediately.
+   - Answer the worksheet questions and click **Submit Answers**.
+   - Confirm the result screen shows your score, accuracy, time, wrong answers first, *"✓ Saved as part of <test title>"*, and **Back to Weekly Test** (with no *"Try again"* button).
+3. **Flash Anzan Multi-Try Section Runner (`/pages/flash.html?test=<id>&section=<id>`)**:
+   - Start a Flash Anzan section (e.g., `3 tries`).
+   - Confirm the setup screen and history table are hidden and the top summary shows *"Try 1 of 3"*.
+   - After try 1 finishes and you enter an answer, confirm the screen says **"Answer recorded"** (without revealing whether the answer was right or wrong) and shows a **"Next try"** button.
+   - Leave the page after try 1 and return to `/pages/weekly-test.html`: confirm the section status shows *"In progress: 1 of 3 tries"* with a **"Continue"** button.
+   - Click **Continue**, finish the remaining tries, and confirm the final screen shows *"<tries_correct> of 3 correct"*, total time, shared score colour badge, *"✓ Saved as part of <test title>"*, and **Back to Weekly Test**.
+4. **Memoriad Section Runner & Narrow-Screen Pre-Check (`/pages/memoriad-play.html?test=<id>&section=<id>`)**:
+   - Resize the browser window below `1000 px` and start a Memoriad section: confirm the page shows *"Memoriad uses a full desktop keyboard..."* and **Back to Weekly Test** **before** starting the attempt (so the section remains `"To do"`).
+   - At `>= 1000 px` width, start the Memoriad section: confirm the setup screen is skipped, fixed competition defaults are used, and submitting shows *"Saved as part of <test title>"* and **Back to Weekly Test**.
+5. **Admin Online Results & Reset (`/pages/weekly-tests.html`)**:
+   - Sign in as Admin (`ADMIN01` / `admin123`), open `/pages/weekly-tests.html`, and select the online test.
+   - Confirm completed sections show score, wrong count, and time, while an in-progress Flash section shows *"Started, not finished"* + *"tries n of m"* + **Reset**.
+   - Click **Reset** on a student's section and confirm both the attempt and score for that section are cleared so the student can take it again.

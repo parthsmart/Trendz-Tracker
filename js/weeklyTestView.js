@@ -6,19 +6,51 @@
  * Tested with `node --test tests/weeklyTestView.test.js`.
  */
 
+import {
+  sectionKindLabel,
+  sectionSummary,
+  sectionShortTitle,
+} from './weeklySections.js';
+
+export { sectionKindLabel, sectionSummary, sectionShortTitle };
+
 const IST_TIMEZONE = 'Asia/Kolkata';
+
+const ONLINE_RUNNABLE_KINDS = new Set(['basics', 'elements', 'flash', 'memoriad']);
+
+/**
+ * Returns true if the student can currently click "Continue" on a partially-completed
+ * Flash Anzan section (`kind === 'flash'`, `testState === 'open'`, `attempt === 'started'`,
+ * and `tries_started < question_count`).
+ *
+ * @param {{ kind?: string, attempt?: 'started'|'submitted'|null, tries_started?: number|null, question_count?: number|null }} section
+ * @param {string} [testState='open']
+ * @returns {boolean}
+ */
+export function isSectionResumable(section, testState = 'open') {
+  if (String(testState || '').toLowerCase() !== 'open') return false;
+  if (!section || typeof section !== 'object') return false;
+  const kind = String(section.kind || 'basics').trim().toLowerCase();
+  if (kind !== 'flash') return false;
+  if (section.attempt !== 'started') return false;
+  const triesStarted = Math.max(0, Number(section.tries_started) || 0);
+  const questionCount = Math.max(1, Number(section.question_count) || 5);
+  return triesStarted < questionCount;
+}
 
 /**
  * Returns the student-facing status chip label for an online weekly test section:
- * - When `section.attempt === 'submitted'` (or `correct` and `total` are present on a submitted attempt):
+ * - When `section.attempt === 'submitted'` (or `correct` and `total` are present on a submitted/closed attempt):
  *   `"Done: <correct> of <total>"`
+ * - When `section.attempt === 'started'` on an open Flash section with tries left:
+ *   `"In progress: <tries_started> of <question_count> tries"`
  * - When `section.attempt === 'started'` without a submitted score:
  *   `"Missed"`
  * - When `section.attempt === null` (not started):
  *   - If `testState === 'closed'`: `"Missed"`
  *   - Otherwise (`'open'` or `'upcoming'`): `"To do"`
  *
- * @param {{ attempt?: 'started'|'submitted'|null, correct?: number|null, total?: number|null }} section
+ * @param {{ kind?: string, attempt?: 'started'|'submitted'|null, tries_started?: number|null, question_count?: number|null, correct?: number|null, total?: number|null }} section
  * @param {'upcoming'|'open'|'closed'|string} [testState='open']
  * @returns {string}
  */
@@ -37,7 +69,11 @@ export function sectionStatusLabel(section, testState = 'open') {
   }
 
   if (attempt === 'started') {
-    // A started section that was abandoned or closed without submitting a score is lost ("Missed")
+    if (isSectionResumable(section, state)) {
+      const triesStarted = Math.max(0, Number(section.tries_started) || 0);
+      const questionCount = Math.max(1, Number(section.question_count) || 5);
+      return `In progress: ${triesStarted} of ${questionCount} tries`;
+    }
     if (
       section.correct !== null &&
       section.correct !== undefined &&
@@ -60,26 +96,42 @@ export function sectionStatusLabel(section, testState = 'open') {
 
 /**
  * Returns true if the student can currently click "Start" on this section:
- * only when the test is `'open'` and `section.attempt` is null/empty (`"To do"`).
+ * in Phase 16b, Basics, Elements, Flash Anzan, and Memoriad sections can be started online
+ * when the test is `'open'` and `section.attempt` is null/empty (`"To do"`).
  *
- * @param {{ attempt?: 'started'|'submitted'|null }} section
+ * @param {{ kind?: string, attempt?: 'started'|'submitted'|null }} section
  * @param {string} testState
  * @returns {boolean}
  */
 export function isSectionStartable(section, testState) {
   if (String(testState || '').toLowerCase() !== 'open') return false;
   if (!section || typeof section !== 'object') return false;
+  const kind = String(section.kind || 'basics').trim().toLowerCase();
+  if (!ONLINE_RUNNABLE_KINDS.has(kind)) return false;
   return section.attempt === null || section.attempt === undefined || section.attempt === '';
 }
 
 /**
- * Returns the next section in position order that is still `"To do"` (`attempt == null`),
- * or `null` when all sections have been started or submitted.
+ * Returns true if an online section is not yet runnable online.
+ * In Phase 16b, all four online section kinds (basics, elements, flash, memoriad) are active.
  *
- * @param {Array<{ category_id?: string, name?: string, seconds?: number, position?: number, attempt?: 'started'|'submitted'|null }>} sections
+ * @param {{ kind?: string, attempt?: 'started'|'submitted'|null }} _section
+ * @param {string} _testState
+ * @returns {boolean}
+ */
+export function isSectionComingSoon(_section, _testState) {
+  return false;
+}
+
+/**
+ * Returns the next startable or resumable online section in position order,
+ * or `null` when all online sections have been completed or abandoned.
+ *
+ * @param {Array<Record<string, any>>} sections
+ * @param {string} [testState='open']
  * @returns {object|null}
  */
-export function nextSection(sections) {
+export function nextSection(sections, testState = 'open') {
   if (!Array.isArray(sections) || sections.length === 0) return null;
 
   const sorted = [...sections].sort((a, b) => {
@@ -89,7 +141,9 @@ export function nextSection(sections) {
   });
 
   const found = sorted.find(
-    (s) => s && (s.attempt === null || s.attempt === undefined || s.attempt === '')
+    (s) =>
+      s &&
+      (isSectionResumable(s, testState) || isSectionStartable(s, testState))
   );
   return found || null;
 }

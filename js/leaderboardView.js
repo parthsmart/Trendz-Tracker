@@ -10,6 +10,7 @@ import { periodLabel } from './periods.js';
 
 export const BOARD_LABELS = {
   points: 'Points',
+  weekly_tests: 'Weekly tests',
   streak: 'Streak',
   practice_days: 'Practice days',
   todo: 'Daily To-Do',
@@ -39,7 +40,12 @@ export const TASK_SPEED_UNAVAILABLE_MESSAGE =
  * @returns {boolean}
  */
 export function boardUsesPeriod(board) {
-  return board === 'points' || board === 'practice_days' || board === 'todo';
+  return (
+    board === 'points' ||
+    board === 'weekly_tests' ||
+    board === 'practice_days' ||
+    board === 'todo'
+  );
 }
 
 /**

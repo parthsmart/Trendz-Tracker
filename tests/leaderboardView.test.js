@@ -48,8 +48,9 @@ describe('scopeLabel(level, scope)', () => {
 });
 
 describe('boardUsesPeriod(board)', () => {
-  it('returns true for points, practice_days, and todo, and false for streak and improved', () => {
+  it('returns true for points, weekly_tests, practice_days, and todo, and false for streak and improved', () => {
     assert.equal(boardUsesPeriod('points'), true);
+    assert.equal(boardUsesPeriod('weekly_tests'), true);
     assert.equal(boardUsesPeriod('practice_days'), true);
     assert.equal(boardUsesPeriod('todo'), true);
     assert.equal(boardUsesPeriod('streak'), false);

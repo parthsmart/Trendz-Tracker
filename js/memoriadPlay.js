@@ -49,6 +49,10 @@ import {
 } from './stepBoxes.js';
 import { getMemoriadTimeLimit } from './memoriadConfig.js';
 import { getScoreFeedback } from './scoreColors.js';
+import {
+  parseTestRunnerQuery,
+  RUNNER_EXIT_CONFIRM_TEXT,
+} from './weeklyTestRunner.js';
 
 const STORAGE_PREFIX = 'trendz_memoriad_settings_v1_';
 
@@ -152,6 +156,12 @@ let activeModuleKey = 'calendar';
 let currentSettings = {};
 let phase = 'settings'; // 'settings' | 'concentration' | 'stage' | 'results'
 
+// Weekly Test runner state (?test=<id>&section=<id>)
+let isTestMode = false;
+let activeTestId = null;
+let activeSectionId = null;
+let activeTestTitle = 'Weekly Test';
+
 // Active Session State (held in JS memory; never rendered until Stage begins)
 let sessionData = null; // { session_id, module, title, questions, settings }
 let activeQuestionIndex = 0;
@@ -181,8 +191,58 @@ async function initMemoriadPlay() {
     renderDemoBanner();
   }
 
+  const runnerQuery = parseTestRunnerQuery(window.location.search);
+  isTestMode = runnerQuery.isTestMode;
+  activeTestId = runnerQuery.testId;
+  activeSectionId = runnerQuery.sectionId;
+
   const params = new URLSearchParams(window.location.search);
   const requestedModule = (params.get('module') || 'calendar').trim().toLowerCase();
+
+  if (isTestMode) {
+    const appHeader = document.querySelector('.app-header');
+    if (appHeader) appHeader.style.display = 'none';
+
+    const narrowTitle = document.getElementById('memoriad-narrow-guard-title');
+    const narrowBack = document.getElementById('memoriad-narrow-guard-back');
+    if (narrowTitle) {
+      narrowTitle.textContent =
+        'Use a laptop or desktop with a keyboard for this test section';
+    }
+    if (narrowBack) {
+      narrowBack.href = '/pages/weekly-test.html';
+      narrowBack.textContent = '← Back to Weekly Test';
+    }
+
+    // Check screen width BEFORE calling start so a phone does not consume the single attempt!
+    if (window.innerWidth < 1000) {
+      return;
+    }
+
+    if (MODULE_META[requestedModule]) {
+      activeModuleKey = requestedModule;
+    }
+    currentSettings = {
+      ...loadModuleSettings(activeModuleKey),
+      dates: 125,
+      typing_direction: 'rtl',
+      highlight_columns: 1,
+      timer_shown: true,
+      concentration_seconds: 5,
+    };
+
+    window.addEventListener('keydown', handleGlobalStageKeydown);
+    window.addEventListener('beforeunload', (e) => {
+      if (isTestMode && (phase === 'concentration' || phase === 'stage')) {
+        e.preventDefault();
+        e.returnValue = RUNNER_EXIT_CONFIRM_TEXT;
+        return e.returnValue;
+      }
+    });
+
+    await startTestMemoriadSection();
+    return;
+  }
 
   if (!MODULE_META[requestedModule]) {
     renderUnsupportedModule(requestedModule);
@@ -583,6 +643,85 @@ async function handleStartFromSettings() {
     if (startBtn) {
       startBtn.disabled = false;
       startBtn.textContent = 'Start Competition Stage →';
+    }
+  }
+}
+
+async function startTestMemoriadSection() {
+  const viewRoot = document.getElementById('memoriad-view-root');
+  if (viewRoot) {
+    viewRoot.innerHTML = `
+      <div class="card" style="max-width: 560px; margin: var(--space-6) auto; padding: var(--space-6); text-align: center;">
+        <div class="loading-state">Starting weekly test Memoriad section...</div>
+      </div>
+    `;
+  }
+
+  try {
+    const started = await callMemoriadApi({
+      action: 'start',
+      test_id: activeTestId,
+      section_id: activeSectionId,
+    });
+
+    if (started.module && MODULE_META[started.module]) {
+      activeModuleKey = started.module;
+    }
+    activeTestTitle = started.title || activeTestTitle;
+    currentSettings = {
+      ...loadModuleSettings(activeModuleKey),
+      dates: 125,
+      typing_direction: 'rtl',
+      highlight_columns: 1,
+      timer_shown: true,
+      concentration_seconds: 5,
+    };
+
+    sessionData = {
+      ...started,
+      title: started.module_title || MODULE_META[activeModuleKey]?.title || 'Memoriad',
+    };
+    activeQuestionIndex = 0;
+    lastSubmissionResult = null;
+    lastSubmissionError = null;
+    lastFinishedBy = 'finish';
+    stageInputsLocked = false;
+
+    if (activeModuleKey === 'calendar') {
+      calendarAnswers = new Array(started.questions.length).fill(null);
+    } else if (activeModuleKey === 'additions') {
+      additionsSlots = started.questions.map(() =>
+        createAnswerSlots(11, 'rtl', '', 1)
+      );
+      additionsManualStepOffsets = new Array(started.questions.length).fill(0);
+    } else if (activeModuleKey === 'multiplications') {
+      multiplicationsSlots = started.questions.map(() =>
+        createAnswerSlots(16, 'rtl', '', 1)
+      );
+      multiplicationsStepStates = new Array(started.questions.length).fill(0);
+    } else if (activeModuleKey === 'square_roots') {
+      squareRootsSlots = started.questions.map(() =>
+        createAnswerSlots(8, 'ltr', '', 1)
+      );
+      squareRootsStepStates = new Array(started.questions.length).fill(0);
+    }
+
+    enterConcentrationPhase(5);
+  } catch (err) {
+    if (viewRoot) {
+      viewRoot.innerHTML = `
+        <div class="card" style="max-width: 620px; margin: var(--space-6) auto; padding: var(--space-6);">
+          <h1 style="font-size: 1.35rem; margin-bottom: var(--space-2); color: var(--color-danger);">
+            Cannot Start Section
+          </h1>
+          <p style="font-size: var(--text-sm); color: var(--text-main); margin-bottom: var(--space-4);">
+            ${escapeHtml(err?.message || 'Could not start this weekly test section.')}
+          </p>
+          <a href="/pages/weekly-test.html" class="btn btn-primary" style="text-decoration: none;">
+            &larr; Back to Weekly Test
+          </a>
+        </div>
+      `;
     }
   }
 }
@@ -2071,14 +2210,21 @@ function bindStageChromeButtons() {
 
   exitBtn?.addEventListener('click', () => {
     openStageModal({
-      title: 'Discard This Practice Try?',
-      message: 'Exiting now will discard your current answers without saving a score.',
-      confirmLabel: 'Discard & Exit',
+      title: isTestMode ? 'Leave Weekly Test Section?' : 'Discard This Practice Try?',
+      message: isTestMode
+        ? RUNNER_EXIT_CONFIRM_TEXT
+        : 'Exiting now will discard your current answers without saving a score.',
+      confirmLabel: isTestMode ? 'Leave Section' : 'Discard & Exit',
       onConfirm: () => {
         try {
           if (document.fullscreenElement) document.exitFullscreen?.();
         } catch {
           // Ignore
+        }
+        if (isTestMode) {
+          phase = 'results';
+          window.location.href = '/pages/weekly-test.html';
+          return;
         }
         renderSettingsView();
       },
@@ -2257,6 +2403,17 @@ function renderSubmissionErrorView() {
     `
     : '';
 
+  const tryAgainBtnHtml = isTestMode
+    ? ''
+    : `
+      <button type="button" id="btn-error-try-again" class="btn btn-secondary">
+        Try again
+      </button>
+    `;
+
+  const backHref = isTestMode ? '/pages/weekly-test.html' : '/pages/memoriad.html';
+  const backLabel = isTestMode ? 'Back to Weekly Test' : 'Back to Memoriad';
+
   viewRoot.innerHTML = `
     <div class="card" style="max-width: 620px; margin: var(--space-6) auto; padding: var(--space-6);">
       <h1 style="font-size: 1.35rem; margin-bottom: var(--space-2); color: var(--color-danger);">
@@ -2267,11 +2424,9 @@ function renderSubmissionErrorView() {
       </p>
       <div style="display: flex; gap: var(--space-3); flex-wrap: wrap;">
         ${retryButtonHtml}
-        <button type="button" id="btn-error-try-again" class="btn btn-secondary">
-          Try again
-        </button>
-        <a href="/pages/memoriad.html" class="btn btn-outline" style="text-decoration: none;">
-          Back to Memoriad
+        ${tryAgainBtnHtml}
+        <a href="${backHref}" class="btn btn-outline" style="text-decoration: none;">
+          ${backLabel}
         </a>
       </div>
     </div>
@@ -2292,10 +2447,13 @@ function renderResultsView() {
   const res = lastSubmissionResult;
   const feedback = getScoreFeedback(res.correct, res.attempted);
   const usedSecondsFormatted = Number(res.used_seconds || 0).toFixed(2);
+  const testTitle = res.test_title || activeTestTitle;
   const saveBannerText =
     res.attempted === 0 || res.saved === false
       ? 'No questions were attempted, so no score was saved.'
-      : 'Saved to your scores.';
+      : isTestMode
+        ? `Saved as part of ${testTitle}`
+        : 'Saved to your scores.';
   const saveBannerClass =
     res.attempted === 0 || res.saved === false ? 'banner-demo' : 'banner-success';
 
@@ -2403,12 +2561,18 @@ function renderResultsView() {
           </div>
 
           <div style="display: flex; gap: var(--space-2);">
-            <button type="button" id="btn-results-try-again" class="btn btn-primary">
-              Try again
-            </button>
-            <a href="/pages/memoriad.html" class="btn btn-outline" style="text-decoration: none;">
-              Back to Memoriad
-            </a>
+            ${
+              isTestMode
+                ? `<a href="/pages/weekly-test.html" class="btn btn-primary" style="text-decoration: none;">Back to Weekly Test</a>`
+                : `
+                  <button type="button" id="btn-results-try-again" class="btn btn-primary">
+                    Try again
+                  </button>
+                  <a href="/pages/memoriad.html" class="btn btn-outline" style="text-decoration: none;">
+                    Back to Memoriad
+                  </a>
+                `
+            }
           </div>
         </div>
 
@@ -2488,6 +2652,21 @@ function renderResultsView() {
 
 async function callMemoriadApi(payload) {
   if (isDemoMode() || !isSupabaseConfigured()) {
+    if (isTestMode) {
+      if (payload.action === 'start') {
+        return DemoDB.mockStartWeeklyTestSection(
+          currentProfile?.id,
+          activeTestId,
+          null,
+          activeSectionId
+        );
+      }
+      return DemoDB.mockSubmitWeeklyTestSection(
+        currentProfile?.id,
+        payload.session_id,
+        payload.answers
+      );
+    }
     if (payload.action === 'start') {
       return DemoDB.mockMemoriadStart(payload.module, payload.settings);
     }
@@ -2504,10 +2683,11 @@ async function callMemoriadApi(payload) {
   const supabase = await getSupabase();
   const { data: sessionDataAuth } = await supabase.auth.getSession();
   const token = sessionDataAuth?.session?.access_token;
+  const endpoint = isTestMode ? '/api/weekly-test' : '/api/memoriad';
 
   let res;
   try {
-    res = await fetch('/api/memoriad', {
+    res = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

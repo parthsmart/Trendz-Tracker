@@ -1,23 +1,24 @@
 /**
  * Trendz Tracker - Student Weekly Test Controller (js/weeklyTest.js)
  *
- * Phase 13a:
+ * Phase 13a + Phase 16a:
+ * - Top tabs: "My Tests" and "Leaderboard"
  * - Calls `my_weekly_tests()` (or DemoDB.mockMyWeeklyTests in Demo Mode).
  * - Groups tests via `groupTests(tests)` into "Available now", "Upcoming", and "Past".
  * - Online test cards show title, date, opening/closing window (India time; "All day (India time)" when empty),
- *   notes, and section cards in position order with category, duration, status chip ("To do", "Done: 18 of 20",
- *   or "Missed"), and a "Start" button when status is "To do" and the test is 'open'.
- * - Offline test cards show date, "With your trainer", and scores once entered (category, correct out of total,
- *   "Entered by teacher").
+ *   notes, and section cards in position order with kind label, sectionSummary, and status chip:
+ *   - Online Basics sections show "Start" when open and unattempted (`isSectionStartable`).
+ *   - Online Flash, Elements, and Memoriad sections show a disabled button "Available soon" (`isSectionComingSoon`).
+ * - Offline test cards show date, "With your trainer", their sections as information, and per-section scores
+ *   once entered ("Entered by teacher", shared score colour, "n wrong").
  * - Past tests show per-section scores with the shared score colour (js/scoreColors.js).
- * - Clicking "Start" shows a confirmation modal:
- *   "You can take this section only once. If you leave the page, the section is lost."
- * - Starting calls `/api/weekly-test` (`action: 'start'`), sets a `beforeunload` warning while the section is running,
- *   and opens the timed one-question-at-a-time player (fixed section time).
- * - When time runs out or the student finishes, sends `submit`. If sending fails, keeps answers in memory and shows
- *   "Try sending again" until the section expires.
- * - Results screen shows: correct out of attempted, accuracy, time, "Saved as part of <test title>",
- *   and either "Next section" or "Test complete".
+ * - Leaderboard tab:
+ *   - Test selector: "All tests" (with period selector: This week, This month [default], This year, All time,
+ *     Pick a date reusing js/periods.js) plus one entry per test whose `leaderboard_ready` is true.
+ *   - Scope switch ("<your level> (your level only)" / "Global (all trainees)", hidden when global_leaderboard_enabled() is false).
+ *   - Columns: Rank, Student (with level chip in global scope), Points, Correct of attempted, Time.
+ *   - Highlights the student's own row and shows their own rank below the top 10.
+ *   - Text under the table: "Points = correct answers minus wrong answers in each section (never below 0). Online tests appear after they close."
  */
 
 import { requireAuth } from './guard.js';
@@ -30,21 +31,58 @@ import { formatSectionDuration } from './basicsSupport.js';
 import {
   sectionStatusLabel,
   isSectionStartable,
+  isSectionResumable,
+  isSectionComingSoon,
   nextSection,
   windowText,
   groupTests,
+  sectionKindLabel,
+  sectionSummary,
 } from './weeklyTestView.js';
+import {
+  START_SECTION_CONFIRM_TEXT,
+  runnerLink,
+} from './weeklyTestRunner.js';
+import {
+  WEEKLY_TEST_BOARD_EXPLANATION,
+  boardTitle,
+  mapWeeklyTestLeaderboardRows,
+} from './weeklyTestBoard.js';
+import {
+  fetchWeeklyTestLeaderboard,
+  fetchGlobalLeaderboardEnabled,
+} from './leaderboardData.js';
+import { scopeLabel } from './leaderboardView.js';
+import {
+  MIN_LEADERBOARD_DATE,
+  getISTDateYMD,
+  periodValue,
+  validatePeriodDate,
+} from './periods.js';
 import { createDrillPlayer, computeRemainingSeconds } from './drillPlayer.js';
 import { formatDisplayDateIST, formatSecondsToTime } from './stats.js';
 import { openModal, closeModal, setupModalListeners, setupAdminNav } from './modal.js';
 
+const WT_SCOPE_STORAGE_KEY = 'trendz_wt_leaderboard_scope_v1';
+
 let currentProfile = null;
 let myTests = [];
+let activeTab = 'my_tests'; // 'my_tests' | 'leaderboard'
+
+// Weekly Test Leaderboard tab state
+let todayIST = getISTDateYMD();
+let wtSelectedTestId = 'all'; // 'all' or a test.id
+let wtPeriodChoice = 'month'; // 'week' | 'month' | 'year' | 'all' | 'date'
+let wtPeriod = 'month';
+let wtCustomDate = '';
+let wtScope = 'level'; // 'level' | 'global'
+let wtGlobalEnabled = true;
 
 // Active running section state
-let pendingStartRequest = null; // { testId, testTitle, categoryId, categoryName, seconds }
+let pendingStartRequest = null; // { testId, testTitle, sectionId, categoryId, categoryName, seconds }
 let activeTestId = null;
 let activeTestTitle = '';
+let activeSectionId = null;
 let activeCategoryId = null;
 let activeCategoryName = '';
 let activeSessionId = null;
@@ -57,6 +95,24 @@ let sectionRunning = false;
 let roundEnded = false;
 let isSubmitting = false;
 let pendingSubmissionAnswers = null;
+
+function readStoredWtScope() {
+  try {
+    const val = localStorage.getItem(WT_SCOPE_STORAGE_KEY);
+    if (val === 'global' || val === 'level') return val;
+  } catch {
+    // Ignore storage errors
+  }
+  return 'level';
+}
+
+function writeStoredWtScope(scope) {
+  try {
+    localStorage.setItem(WT_SCOPE_STORAGE_KEY, scope === 'global' ? 'global' : 'level');
+  } catch {
+    // Ignore storage errors
+  }
+}
 
 async function getAccessToken() {
   if (!isSupabaseConfigured()) return null;
@@ -77,6 +133,10 @@ async function initStudentWeeklyTestPage() {
   currentProfile = await requireAuth(['student']);
   if (!currentProfile) return;
 
+  todayIST = getISTDateYMD();
+  wtCustomDate = todayIST;
+  wtScope = readStoredWtScope();
+
   renderHeaderUser(currentProfile);
   setupAdminNav();
   setupModalListeners();
@@ -86,11 +146,22 @@ async function initStudentWeeklyTestPage() {
   }
 
   setupBeforeUnloadGuard();
+  setupTopTabsAndLeaderboardControls();
   setupStartModalHandlers();
   setupPlayerHandlers();
   setupResultsHandlers();
 
-  await loadMyWeeklyTests();
+  const [, globalFlag] = await Promise.all([
+    loadMyWeeklyTests(),
+    fetchGlobalLeaderboardEnabled().catch(() => false),
+  ]);
+
+  wtGlobalEnabled = Boolean(globalFlag);
+  if (!wtGlobalEnabled && wtScope === 'global') {
+    wtScope = 'level';
+    writeStoredWtScope('level');
+  }
+  syncWtScopeUI();
 }
 
 function setupBeforeUnloadGuard() {
@@ -125,6 +196,334 @@ function showScreen(screenId) {
   });
 }
 
+function switchTopTab(tabKey, targetTestId = null) {
+  activeTab = tabKey === 'leaderboard' ? 'leaderboard' : 'my_tests';
+
+  document.querySelectorAll('[data-wt-tab]').forEach((btn) => {
+    const isActive = btn.getAttribute('data-wt-tab') === activeTab;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  });
+
+  const myTestsPanel = document.getElementById('wt-panel-my-tests');
+  const lbPanel = document.getElementById('wt-panel-leaderboard');
+  if (myTestsPanel) myTestsPanel.style.display = activeTab === 'my_tests' ? 'block' : 'none';
+  if (lbPanel) lbPanel.style.display = activeTab === 'leaderboard' ? 'block' : 'none';
+
+  if (activeTab === 'leaderboard') {
+    if (targetTestId) {
+      wtSelectedTestId = targetTestId;
+    }
+    populateWtBoardTestSelect();
+    syncWtBoardControlsUI();
+    loadStudentWeeklyTestLeaderboard();
+  }
+}
+
+function setupTopTabsAndLeaderboardControls() {
+  document.querySelectorAll('[data-wt-tab]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const targetTab = btn.getAttribute('data-wt-tab');
+      if (!targetTab || targetTab === activeTab) return;
+      switchTopTab(targetTab);
+    });
+  });
+
+  const testSelect = document.getElementById('wt-board-test-select');
+  if (testSelect) {
+    testSelect.addEventListener('change', () => {
+      wtSelectedTestId = testSelect.value || 'all';
+      syncWtBoardControlsUI();
+      loadStudentWeeklyTestLeaderboard();
+    });
+  }
+
+  document.querySelectorAll('[data-wt-scope]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const s = btn.getAttribute('data-wt-scope');
+      if (!s || s === wtScope) return;
+      if (s === 'global' && !wtGlobalEnabled) return;
+      wtScope = s === 'global' ? 'global' : 'level';
+      writeStoredWtScope(wtScope);
+      syncWtScopeUI();
+      loadStudentWeeklyTestLeaderboard();
+    });
+  });
+
+  const dateInput = document.getElementById('input-wt-board-date');
+  const dateError = document.getElementById('wt-board-date-error');
+
+  document.querySelectorAll('[data-wt-period-choice]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const choice = btn.getAttribute('data-wt-period-choice');
+      if (!choice) return;
+
+      if (dateError) {
+        dateError.style.display = 'none';
+        dateError.textContent = '';
+      }
+
+      if (choice === 'date') {
+        wtPeriodChoice = 'date';
+        const candidateDate = dateInput?.value || wtCustomDate || todayIST;
+        const check = validatePeriodDate(candidateDate, todayIST);
+        const validDate = check.valid ? check.dateText : todayIST;
+        wtCustomDate = validDate;
+        if (dateInput) dateInput.value = validDate;
+        const resolved = periodValue('date', validDate, todayIST);
+        if (resolved) wtPeriod = resolved;
+        syncWtBoardControlsUI();
+        loadStudentWeeklyTestLeaderboard();
+        return;
+      }
+
+      const resolved = periodValue(choice, '', todayIST);
+      if (!resolved) return;
+      if (choice === wtPeriodChoice && resolved === wtPeriod) return;
+      wtPeriodChoice = choice;
+      wtPeriod = resolved;
+      syncWtBoardControlsUI();
+      loadStudentWeeklyTestLeaderboard();
+    });
+  });
+
+  if (dateInput) {
+    dateInput.addEventListener('change', () => {
+      const check = validatePeriodDate(dateInput.value, todayIST);
+      if (!check.valid) {
+        if (dateError) {
+          dateError.textContent = check.error || 'Enter a valid date.';
+          dateError.style.display = 'inline-block';
+        }
+        return;
+      }
+      if (dateError) {
+        dateError.textContent = '';
+        dateError.style.display = 'none';
+      }
+      wtCustomDate = check.dateText;
+      wtPeriodChoice = 'date';
+      const resolved = periodValue('date', check.dateText, todayIST);
+      if (resolved) {
+        wtPeriod = resolved;
+        syncWtBoardControlsUI();
+        loadStudentWeeklyTestLeaderboard();
+      }
+    });
+  }
+}
+
+function populateWtBoardTestSelect() {
+  const selectEl = document.getElementById('wt-board-test-select');
+  if (!selectEl) return;
+
+  const readyTests = myTests.filter((t) => Boolean(t.leaderboard_ready));
+  if (wtSelectedTestId !== 'all' && !readyTests.some((t) => String(t.id) === String(wtSelectedTestId))) {
+    wtSelectedTestId = 'all';
+  }
+
+  const optionsHtml =
+    `<option value="all" ${wtSelectedTestId === 'all' ? 'selected' : ''}>All tests</option>` +
+    readyTests
+      .map((t) => {
+        const isSel = String(t.id) === String(wtSelectedTestId);
+        const dateStr = formatDisplayDateIST(t.test_date);
+        return `<option value="${escapeHtml(t.id)}" ${isSel ? 'selected' : ''}>${escapeHtml(t.title)} (${escapeHtml(dateStr)})</option>`;
+      })
+      .join('');
+
+  selectEl.innerHTML = optionsHtml;
+}
+
+function syncWtScopeUI() {
+  const btnLevel = document.getElementById('btn-wt-scope-level');
+  const btnGlobal = document.getElementById('btn-wt-scope-global');
+  const scopeContainer = document.getElementById('wt-board-scope-controls');
+
+  if (btnLevel) {
+    btnLevel.textContent = scopeLabel(currentProfile?.level, 'level');
+    const isLevel = wtScope === 'level';
+    btnLevel.classList.toggle('active', isLevel);
+    btnLevel.setAttribute('aria-pressed', isLevel ? 'true' : 'false');
+  }
+  if (btnGlobal) {
+    btnGlobal.textContent = scopeLabel(currentProfile?.level, 'global');
+    btnGlobal.style.display = wtGlobalEnabled ? '' : 'none';
+    const isGlobal = wtScope === 'global' && wtGlobalEnabled;
+    btnGlobal.classList.toggle('active', isGlobal);
+    btnGlobal.setAttribute('aria-pressed', isGlobal ? 'true' : 'false');
+  }
+  if (scopeContainer) {
+    scopeContainer.style.display = wtGlobalEnabled ? 'inline-flex' : 'none';
+  }
+}
+
+function syncWtBoardControlsUI() {
+  const periodWrapper = document.getElementById('wt-board-period-wrapper');
+  const isAllTests = !wtSelectedTestId || wtSelectedTestId === 'all';
+  if (periodWrapper) {
+    periodWrapper.style.display = isAllTests ? 'flex' : 'none';
+  }
+
+  document.querySelectorAll('[data-wt-period-choice]').forEach((btn) => {
+    const choice = btn.getAttribute('data-wt-period-choice');
+    const active = choice === wtPeriodChoice;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+
+  const dateBox = document.getElementById('wt-board-date-picker-box');
+  const dateInput = document.getElementById('input-wt-board-date');
+  if (dateInput) {
+    dateInput.setAttribute('min', MIN_LEADERBOARD_DATE);
+    dateInput.setAttribute('max', todayIST);
+    if (wtCustomDate && dateInput.value !== wtCustomDate) {
+      dateInput.value = wtCustomDate;
+    }
+  }
+  if (dateBox) {
+    dateBox.style.display = isAllTests && wtPeriodChoice === 'date' ? 'inline-flex' : 'none';
+  }
+
+  syncWtScopeUI();
+
+  const selectedTestObj =
+    !isAllTests ? myTests.find((t) => String(t.id) === String(wtSelectedTestId)) : null;
+  const titleEl = document.getElementById('wt-board-card-title');
+  const badgeEl = document.getElementById('wt-board-scope-badge');
+  const footerEl = document.getElementById('wt-board-footer');
+
+  if (titleEl) {
+    titleEl.textContent = boardTitle(
+      selectedTestObj ? selectedTestObj.title : null,
+      wtPeriod,
+      wtScope,
+      currentProfile?.level,
+      todayIST
+    );
+  }
+  if (badgeEl) {
+    badgeEl.textContent = scopeLabel(currentProfile?.level, wtScope);
+  }
+  if (footerEl) {
+    footerEl.textContent = WEEKLY_TEST_BOARD_EXPLANATION;
+  }
+}
+
+async function loadStudentWeeklyTestLeaderboard() {
+  const tbody = document.getElementById('wt-board-tbody');
+  const tableEl = document.getElementById('wt-board-table');
+  const emptyEl = document.getElementById('wt-board-empty');
+  const emptyTitleEl = document.getElementById('wt-board-empty-title');
+  const emptyDescEl = document.getElementById('wt-board-empty-desc');
+
+  if (!tbody) return;
+
+  if (emptyEl) emptyEl.style.display = 'none';
+  if (tableEl) tableEl.style.display = 'table';
+  tbody.innerHTML = `
+    <tr>
+      <td colspan="5" class="loading-state" style="text-align: center; padding: var(--space-6);">
+        Loading weekly test leaderboard...
+      </td>
+    </tr>
+  `;
+
+  try {
+    const isAllTests = !wtSelectedTestId || wtSelectedTestId === 'all';
+    const rawRows = await fetchWeeklyTestLeaderboard(
+      {
+        testId: isAllTests ? null : wtSelectedTestId,
+        period: isAllTests ? wtPeriod : 'all',
+        level: null,
+        limit: 10,
+        scope: wtScope,
+      },
+      currentProfile
+    );
+
+    const mapped = mapWeeklyTestLeaderboardRows(rawRows, {
+      scope: wtScope,
+      isAdmin: false,
+    });
+
+    if (mapped.length === 0) {
+      tbody.innerHTML = '';
+      if (tableEl) tableEl.style.display = 'none';
+      if (emptyTitleEl) emptyTitleEl.textContent = 'No weekly test rankings yet';
+      if (emptyDescEl) emptyDescEl.textContent = WEEKLY_TEST_BOARD_EXPLANATION;
+      if (emptyEl) emptyEl.style.display = 'flex';
+      return;
+    }
+
+    const htmlRows = [];
+    mapped.forEach((row) => {
+      const isMe = row.is_me;
+      if (row.is_outside_top_10) {
+        htmlRows.push(`
+          <tr class="section-divider-row" aria-label="Your rank outside top 10">
+            <th colspan="5" style="text-align: center; font-size: var(--text-sm); color: var(--text-muted);">
+              &bull; &bull; &bull; Your Rank &bull; &bull; &bull;
+            </th>
+          </tr>
+        `);
+      }
+
+      const rowStyle = isMe
+        ? 'background-color: var(--color-primary-subtle); font-weight: 700;'
+        : '';
+      const levelChip =
+        row.show_level_chip && row.level
+          ? `<span class="badge badge-neutral" style="margin-left: 8px;">${escapeHtml(row.level)}</span>`
+          : '';
+      const youBadge = isMe
+        ? `<span class="badge badge-neutral" style="margin-left: 8px;">You</span>`
+        : '';
+
+      htmlRows.push(`
+        <tr style="${rowStyle}" data-is-me="${isMe ? 'true' : 'false'}">
+          <td><span class="num" style="font-weight: 700;">#${escapeHtml(row.rank)}</span></td>
+          <td>
+            <div style="display: inline-flex; align-items: center; flex-wrap: wrap;">
+              <span style="font-weight: ${isMe ? '700' : '600'}; color: var(--text-main);">${escapeHtml(row.display_name)}</span>
+              ${levelChip}
+              ${youBadge}
+            </div>
+          </td>
+          <td class="num" style="text-align: right; font-weight: 700; color: ${isMe ? 'var(--color-primary)' : 'var(--text-main)'};">
+            ${escapeHtml(row.formatted_points)}
+          </td>
+          <td class="num" style="text-align: right; color: var(--text-main);">
+            ${escapeHtml(row.formatted_score)}
+          </td>
+          <td class="num" style="text-align: right; color: var(--text-muted);">
+            ${escapeHtml(row.formatted_time)}
+          </td>
+        </tr>
+      `);
+    });
+
+    tbody.innerHTML = htmlRows.join('');
+  } catch (err) {
+    const errMsg = err?.message || 'Unable to load weekly test leaderboard.';
+    if (wtScope === 'global' && errMsg.toLowerCase().includes('switched off')) {
+      showToast('info', 'The global leaderboard is switched off.');
+      wtGlobalEnabled = false;
+      wtScope = 'level';
+      writeStoredWtScope('level');
+      syncWtScopeUI();
+      await loadStudentWeeklyTestLeaderboard();
+      return;
+    }
+
+    tbody.innerHTML = '';
+    if (tableEl) tableEl.style.display = 'none';
+    if (emptyTitleEl) emptyTitleEl.textContent = 'Leaderboard unavailable';
+    if (emptyDescEl) emptyDescEl.textContent = errMsg;
+    if (emptyEl) emptyEl.style.display = 'flex';
+  }
+}
+
 async function loadMyWeeklyTests() {
   const container = document.getElementById('weekly-tests-content');
   try {
@@ -139,6 +538,7 @@ async function loadMyWeeklyTests() {
       myTests = [];
     }
 
+    populateWtBoardTestSelect();
     renderWeeklyTestsGroups();
   } catch (err) {
     console.error('Failed to load my_weekly_tests:', err);
@@ -219,22 +619,38 @@ function renderWeeklyTestsGroups() {
 
   container.innerHTML = html;
 
-  // Bind "Start" buttons on startable online sections
+  // Bind "Start" and "Continue" buttons on startable/resumable online sections
   container.querySelectorAll('.btn-start-test-section').forEach((btn) => {
     btn.onclick = () => {
       const testId = btn.getAttribute('data-test-id');
       const testTitle = btn.getAttribute('data-test-title');
-      const categoryId = btn.getAttribute('data-category-id');
-      const categoryName = btn.getAttribute('data-category-name');
+      const sectionId = btn.getAttribute('data-section-id') || null;
+      const kind = btn.getAttribute('data-kind') || 'basics';
+      const categoryId = btn.getAttribute('data-category-id') || '';
+      const categoryName = btn.getAttribute('data-category-name') || '';
+      const summaryText = btn.getAttribute('data-summary') || categoryName;
       const seconds = Number(btn.getAttribute('data-seconds')) || 60;
+      const resume = btn.getAttribute('data-resume') === 'true';
 
       promptStartSection({
         testId,
         testTitle,
+        sectionId,
+        kind,
         categoryId,
         categoryName,
+        summaryText,
         seconds,
+        resume,
       });
+    };
+  });
+
+  // Bind "View test leaderboard" buttons
+  container.querySelectorAll('.btn-open-test-leaderboard').forEach((btn) => {
+    btn.onclick = () => {
+      const testId = btn.getAttribute('data-test-id');
+      switchTopTab('leaderboard', testId);
     };
   });
 }
@@ -243,13 +659,16 @@ function renderTestCard(test, groupKind) {
   const isOnline = String(test.type || test.test_type || 'offline').toLowerCase() === 'online';
   const dateLabel = formatDisplayDateIST(test.test_date);
   const state = String(test.state || '').toLowerCase();
+  const sections = Array.isArray(test.sections)
+    ? [...test.sections].sort((a, b) => (Number(a.position) || 0) - (Number(b.position) || 0))
+    : [];
+  const lbReady = Boolean(test.leaderboard_ready);
+  const lbBtnHtml = lbReady
+    ? `<button type="button" class="btn btn-outline btn-sm btn-open-test-leaderboard" data-test-id="${escapeHtml(test.id)}">Leaderboard</button>`
+    : '';
 
   if (isOnline) {
     const winLabel = windowText(test.opens_at, test.closes_at);
-    const sections = Array.isArray(test.sections)
-      ? [...test.sections].sort((a, b) => (Number(a.position) || 0) - (Number(b.position) || 0))
-      : [];
-
     const borderStyle =
       groupKind === 'available'
         ? 'border-left: 4px solid var(--color-primary);'
@@ -278,15 +697,19 @@ function renderTestCard(test, groupKind) {
                 : ''
             }
           </div>
+          ${lbBtnHtml}
         </div>
 
-        <!-- Online Sections List in Position Order -->
-        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: var(--space-3); margin-top: var(--space-3);">
+        <!-- Online Sections List in Position Order (All Section Kinds) -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--space-3); margin-top: var(--space-3);">
           ${sections
             .map((sec, idx) => {
+              const kindLabel = sectionKindLabel(sec.kind);
+              const summaryText = sectionSummary(sec);
               const statusText = sectionStatusLabel(sec, state);
               const startable = isSectionStartable(sec, state);
-              const durLabel = formatSectionDuration(sec.seconds);
+              const resumable = isSectionResumable(sec, state);
+              const comingSoon = isSectionComingSoon(sec, state);
               const hasScore =
                 sec.attempt === 'submitted' &&
                 sec.total !== null &&
@@ -305,22 +728,61 @@ function renderTestCard(test, groupKind) {
                 } else {
                   chipHtml = `<span class="status-chip chip-verified" style="font-size: 11px;">${escapeHtml(statusText)}</span>`;
                 }
+              } else if (statusText.startsWith('In progress:')) {
+                chipHtml = `<span class="status-chip" style="background: #DBEAFE; color: #1E40AF; font-size: 11px;">${escapeHtml(statusText)}</span>`;
               } else if (statusText === 'Missed') {
                 chipHtml = `<span class="status-chip chip-flagged" style="font-size: 11px;">Missed</span>`;
               } else {
                 chipHtml = `<span class="status-chip chip-unverified" style="font-size: 11px;">To do</span>`;
               }
 
+              let actionBtnHtml = '';
+              if (startable || resumable) {
+                const btnLabel = resumable ? 'Continue' : 'Start';
+                actionBtnHtml = `
+                  <button
+                    type="button"
+                    class="btn btn-primary btn-sm btn-start-test-section"
+                    data-test-id="${escapeHtml(test.id)}"
+                    data-test-title="${escapeHtml(test.title)}"
+                    data-section-id="${escapeHtml(sec.section_id || sec.id || '')}"
+                    data-kind="${escapeHtml(String(sec.kind || 'basics').toLowerCase())}"
+                    data-category-id="${escapeHtml(sec.category_id || '')}"
+                    data-category-name="${escapeHtml(sec.name || summaryText)}"
+                    data-summary="${escapeHtml(summaryText)}"
+                    data-seconds="${Number(sec.seconds) || 60}"
+                    data-resume="${resumable ? 'true' : 'false'}"
+                    style="width: 100%; justify-content: center;"
+                  >
+                    ${btnLabel}
+                  </button>
+                `;
+              } else if (comingSoon) {
+                actionBtnHtml = `
+                  <button
+                    type="button"
+                    class="btn btn-outline btn-sm"
+                    disabled
+                    style="width: 100%; justify-content: center; opacity: 0.7; cursor: not-allowed;"
+                  >
+                    Available soon
+                  </button>
+                `;
+              }
+
               return `
                 <div style="padding: var(--space-3) var(--space-4); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-surface-subtle); display: flex; flex-direction: column; justify-content: space-between; gap: var(--space-3);">
                   <div>
                     <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2);">
-                      <span style="font-weight: 700; font-size: var(--text-sm); color: var(--text-main);">
-                        ${idx + 1}. ${escapeHtml(sec.name)}
+                      <span class="status-chip chip-unverified" style="font-size: 10px; padding: 1px 6px;">
+                        ${escapeHtml(kindLabel)}
                       </span>
                       <span class="num" style="font-size: 11px; color: var(--text-muted); font-weight: 600;">
-                        ${escapeHtml(durLabel)}
+                        #${idx + 1}
                       </span>
+                    </div>
+                    <div style="font-weight: 700; font-size: var(--text-sm); color: var(--text-main); margin-top: 6px;">
+                      ${escapeHtml(summaryText)}
                     </div>
                     <div style="margin-top: var(--space-2); display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                       ${chipHtml}
@@ -331,25 +793,7 @@ function renderTestCard(test, groupKind) {
                       }
                     </div>
                   </div>
-
-                  ${
-                    startable
-                      ? `
-                        <button
-                          type="button"
-                          class="btn btn-primary btn-sm btn-start-test-section"
-                          data-test-id="${escapeHtml(test.id)}"
-                          data-test-title="${escapeHtml(test.title)}"
-                          data-category-id="${escapeHtml(sec.category_id)}"
-                          data-category-name="${escapeHtml(sec.name)}"
-                          data-seconds="${Number(sec.seconds) || 60}"
-                          style="width: 100%; justify-content: center;"
-                        >
-                          Start
-                        </button>
-                      `
-                      : ''
-                  }
+                  ${actionBtnHtml}
                 </div>
               `;
             })
@@ -359,8 +803,9 @@ function renderTestCard(test, groupKind) {
     `;
   }
 
-  // Offline Test Card
+  // Offline Test Card (with sections and/or scores)
   const scores = Array.isArray(test.scores) ? test.scores : [];
+
   return `
     <article class="card" style="padding: var(--space-5);">
       <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: var(--space-2);">
@@ -383,60 +828,152 @@ function renderTestCard(test, groupKind) {
               : ''
           }
         </div>
+        ${lbBtnHtml}
       </div>
 
       ${
-        scores.length > 0
+        sections.length > 0
           ? `
-            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--space-3); margin-top: var(--space-3);">
-              ${scores
-                .map((sc) => {
-                  const fb = getScoreFeedback(sc.correct, sc.total);
-                  const sourceLabel =
-                    sc.source === 'online' ? 'Online' : 'Entered by teacher';
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: var(--space-3); margin-top: var(--space-3);">
+              ${sections
+                .map((sec, idx) => {
+                  const kindLabel = sectionKindLabel(sec.kind);
+                  const summaryText = sectionSummary(sec);
+                  const hasScore =
+                    sec.total !== null &&
+                    sec.total !== undefined &&
+                    Number(sec.total) > 0;
+                  const fb = hasScore ? getScoreFeedback(sec.correct, sec.total) : null;
+
                   return `
                     <div style="padding: var(--space-3) var(--space-4); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-surface-subtle);">
                       <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2);">
-                        <span style="font-weight: 700; font-size: var(--text-sm); color: var(--text-main);">
-                          ${escapeHtml(sc.category)}
+                        <span class="status-chip chip-unverified" style="font-size: 10px; padding: 1px 6px;">
+                          ${escapeHtml(kindLabel)}
                         </span>
-                        <span class="status-chip ${fb.badgeClass}" style="color: ${fb.colorVar}; background: ${fb.bgVar}; font-size: 11px;">
-                          ${sc.correct} of ${sc.total} &middot; ${escapeHtml(fb.wrongText)}
+                        <span class="num" style="font-size: 11px; color: var(--text-muted); font-weight: 600;">
+                          #${idx + 1}
                         </span>
                       </div>
-                      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; font-size: 11px; color: var(--text-muted);">
-                        <span>${escapeHtml(sourceLabel)}</span>
-                        ${
-                          sc.time_seconds != null
-                            ? `<span class="num">${escapeHtml(formatSecondsToTime(sc.time_seconds))}</span>`
-                            : ''
-                        }
+                      <div style="font-weight: 700; font-size: var(--text-sm); color: var(--text-main); margin-top: 6px;">
+                        ${escapeHtml(summaryText)}
                       </div>
+                      ${
+                        hasScore && fb
+                          ? `
+                            <div style="margin-top: var(--space-2); display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap;">
+                              <span class="status-chip ${fb.badgeClass}" style="color: ${fb.colorVar}; background: ${fb.bgVar}; font-size: 11px;">
+                                ${sec.correct} of ${sec.total} &middot; ${escapeHtml(fb.wrongText)}
+                              </span>
+                              ${
+                                sec.time_seconds != null
+                                  ? `<span class="num" style="font-size: 11px; color: var(--text-muted);">${escapeHtml(formatSecondsToTime(sec.time_seconds))}</span>`
+                                  : ''
+                              }
+                            </div>
+                            <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                              Entered by teacher
+                            </div>
+                          `
+                          : `
+                            <div style="font-size: 11px; color: var(--text-muted); margin-top: 6px;">
+                              With your trainer
+                            </div>
+                          `
+                      }
                     </div>
                   `;
                 })
                 .join('')}
             </div>
           `
-          : `
-            <p style="font-size: var(--text-xs); color: var(--text-muted); margin: var(--space-3) 0 0 0;">
-              Scores will appear here once entered by your trainer.
-            </p>
-          `
+          : scores.length > 0
+            ? `
+              <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--space-3); margin-top: var(--space-3);">
+                ${scores
+                  .map((sc) => {
+                    const fb = getScoreFeedback(sc.correct, sc.total);
+                    const sourceLabel =
+                      sc.source === 'online' ? 'Online' : 'Entered by teacher';
+                    const labelText =
+                      sc.category || sectionKindLabel(sc.kind) || 'Section';
+                    return `
+                      <div style="padding: var(--space-3) var(--space-4); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-surface-subtle);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2);">
+                          <span style="font-weight: 700; font-size: var(--text-sm); color: var(--text-main);">
+                            ${escapeHtml(labelText)}
+                          </span>
+                          <span class="status-chip ${fb.badgeClass}" style="color: ${fb.colorVar}; background: ${fb.bgVar}; font-size: 11px;">
+                            ${sc.correct} of ${sc.total} &middot; ${escapeHtml(fb.wrongText)}
+                          </span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; font-size: 11px; color: var(--text-muted);">
+                          <span>${escapeHtml(sourceLabel)}</span>
+                          ${
+                            sc.time_seconds != null
+                              ? `<span class="num">${escapeHtml(formatSecondsToTime(sc.time_seconds))}</span>`
+                              : ''
+                          }
+                        </div>
+                      </div>
+                    `;
+                  })
+                  .join('')}
+              </div>
+            `
+            : `
+              <p style="font-size: var(--text-xs); color: var(--text-muted); margin: var(--space-3) 0 0 0;">
+                Scores will appear here once entered by your trainer.
+              </p>
+            `
       }
     </article>
   `;
 }
 
 // ============================================================================
-// START SECTION CONFIRMATION & TIMED PLAYER
+// START SECTION CONFIRMATION & TIMED BASICS PLAYER
 // ============================================================================
 
-function promptStartSection({ testId, testTitle, categoryId, categoryName, seconds }) {
-  pendingStartRequest = { testId, testTitle, categoryId, categoryName, seconds };
+function promptStartSection({
+  testId,
+  testTitle,
+  sectionId,
+  kind = 'basics',
+  categoryId,
+  categoryName,
+  summaryText,
+  seconds,
+  resume = false,
+}) {
+  pendingStartRequest = {
+    testId,
+    testTitle,
+    sectionId,
+    kind: String(kind || 'basics').toLowerCase(),
+    categoryId,
+    categoryName,
+    summaryText: summaryText || categoryName,
+    seconds,
+    resume,
+  };
+  const titleEl = document.getElementById('start-section-modal-title');
   const summaryEl = document.getElementById('start-section-modal-summary');
+  const warningEl = document.getElementById('start-section-modal-warning');
+  const confirmBtn = document.getElementById('btn-confirm-start-section');
+
+  if (titleEl) {
+    titleEl.textContent = resume ? 'Continue Test Section' : 'Start Test Section';
+  }
   if (summaryEl) {
-    summaryEl.textContent = `${testTitle} — ${categoryName} (${formatSectionDuration(seconds)})`;
+    const label = summaryText || `${categoryName} (${formatSectionDuration(seconds)})`;
+    summaryEl.textContent = `${testTitle} — ${label}`;
+  }
+  if (warningEl) {
+    warningEl.textContent = START_SECTION_CONFIRM_TEXT;
+  }
+  if (confirmBtn) {
+    confirmBtn.textContent = resume ? 'Continue' : 'Start';
   }
   openModal('start-section-modal');
 }
@@ -452,6 +989,20 @@ function setupStartModalHandlers() {
 
     try {
       closeModal('start-section-modal');
+      if (
+        reqInfo.kind === 'elements' ||
+        reqInfo.kind === 'flash' ||
+        reqInfo.kind === 'memoriad'
+      ) {
+        const targetUrl = runnerLink(
+          { kind: reqInfo.kind, section_id: reqInfo.sectionId },
+          reqInfo.testId
+        );
+        if (targetUrl) {
+          window.location.href = targetUrl;
+          return;
+        }
+      }
       await startWeeklyTestSection(reqInfo);
     } finally {
       btnConfirm.disabled = false;
@@ -459,7 +1010,14 @@ function setupStartModalHandlers() {
   };
 }
 
-async function startWeeklyTestSection({ testId, testTitle, categoryId, categoryName, seconds }) {
+async function startWeeklyTestSection({
+  testId,
+  testTitle,
+  sectionId,
+  categoryId,
+  categoryName,
+  seconds,
+}) {
   showErrorBanner('');
 
   try {
@@ -476,6 +1034,7 @@ async function startWeeklyTestSection({ testId, testTitle, categoryId, categoryN
         body: JSON.stringify({
           action: 'start',
           test_id: testId,
+          section_id: sectionId || undefined,
           category_id: categoryId,
         }),
       });
@@ -486,13 +1045,19 @@ async function startWeeklyTestSection({ testId, testTitle, categoryId, categoryN
       }
       payload = data;
     } else if (isDemoMode() && DemoDB && DemoDB.mockStartWeeklyTestSection) {
-      payload = DemoDB.mockStartWeeklyTestSection(currentProfile.id, testId, categoryId);
+      payload = DemoDB.mockStartWeeklyTestSection(
+        currentProfile.id,
+        testId,
+        categoryId,
+        sectionId
+      );
     } else {
       throw new Error('Database connection is not configured.');
     }
 
     activeTestId = testId;
     activeTestTitle = payload.title || testTitle || 'Weekly Test';
+    activeSectionId = payload.section_id || sectionId || null;
     activeCategoryId = categoryId;
     activeCategoryName = payload.category_name || categoryName;
     activeSessionId = payload.session_id;
@@ -757,7 +1322,6 @@ async function submitWeeklyTestSection(answersArray) {
     sectionRunning = false;
     pendingSubmissionAnswers = null;
 
-    // Reload tests so `nextSection(sections)` reflects the updated attempt status
     await loadMyWeeklyTests();
     renderSectionResultsScreen(resultPayload);
   } catch (err) {
@@ -811,7 +1375,7 @@ function renderSectionResultsScreen(result) {
     timeTextEl.textContent = formatSecondsToTime(usedSeconds);
   }
 
-  // Check if there is a next "To do" section in this test
+  // Check if there is a next startable Basics section in this test
   const updatedTest = myTests.find((t) => t.id === activeTestId);
   const nextTodoSec =
     updatedTest && String(updatedTest.state).toLowerCase() === 'open'
@@ -819,21 +1383,25 @@ function renderSectionResultsScreen(result) {
       : null;
 
   if (nextTodoSec) {
+    const nextSummary = sectionSummary(nextTodoSec);
+    const nextResumable = isSectionResumable(nextTodoSec, 'open');
     if (subheadlineEl) {
-      subheadlineEl.textContent = `${activeCategoryName} complete · Up next: ${nextTodoSec.name} (${formatSectionDuration(
-        nextTodoSec.seconds
-      )})`;
+      subheadlineEl.textContent = `${activeCategoryName} complete · Up next: ${nextSummary}`;
     }
     if (nextSecBtn) {
       nextSecBtn.style.display = 'inline-flex';
-      nextSecBtn.textContent = `Next section: ${nextTodoSec.name} →`;
+      nextSecBtn.textContent = `${nextResumable ? 'Continue' : 'Next'} section: ${nextSummary} →`;
       nextSecBtn.onclick = () => {
         promptStartSection({
           testId: updatedTest.id,
           testTitle: updatedTest.title,
+          sectionId: nextTodoSec.section_id || nextTodoSec.id || null,
+          kind: String(nextTodoSec.kind || 'basics').toLowerCase(),
           categoryId: nextTodoSec.category_id,
-          categoryName: nextTodoSec.name,
+          categoryName: nextTodoSec.name || nextSummary,
+          summaryText: nextSummary,
           seconds: Number(nextTodoSec.seconds) || 60,
+          resume: nextResumable,
         });
       };
     }

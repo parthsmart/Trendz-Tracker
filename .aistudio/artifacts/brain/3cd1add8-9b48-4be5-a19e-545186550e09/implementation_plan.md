@@ -1,133 +1,161 @@
-# Phase 14e: Restore Desktop Inline Header & Restrict Three-Dot Menu to Mobile (`< 1024px`)
+# Phase 16b — Online Weekly Test Runners for Elements, Flash Anzan & Memoriad
 
-Restore the pre-Phase 14d inline desktop header navigation (including the Student **Practice ▾** dropdown + notifications bell and the Admin **Setup ▾** dropdown) on screens at or above `1024 px`, while displaying the Phase 14d three-dot menu and drawer **only** on screens below `1024 px`—all driven by a single `js/navConfig.js` configuration with zero duplicated link lists and zero new dependencies.
+Online weekly test sections of kind **Elements**, **Flash Anzan**, and **Memoriad** become playable directly on the website alongside **Basics**, reusing the existing worksheet, Flash Anzan, and Memoriad stage pages in a dedicated locked test mode (`?test=<id>&section=<id>`) backed by `/api/weekly-test` and storing scores exclusively in `weekly_test_scores`.
 
----
-
-### User Review & Critical Decisions
+## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> - **Git History & Pre-14d Reference**: No `.git` repository history is present in the container workspace (`fatal: not a git repository`), which we explicitly note here as requested. However, the exact pre-14d HTML structures are still preserved inside the existing page templates (`pages/student.html` lines 24–51 for the Student inline bar, **Practice ▾** dropdown, and notifications bell with count badge; and `pages/report.html` lines 45–70 for the Admin inline bar and **Setup ▾** dropdown). We will use those exact structures and classes (`.nav-zone`, `.nav-link`, `.nav-dropdown`, `.nav-dropdown-toggle`, `.nav-dropdown-menu`, `.dropdown-item`, `.nav-bell-link`, `#nav-notifications-badge`) rendered dynamically from `js/navConfig.js`.
-> - **Single Breakpoint Constant (`1024 px`)**: Stored in `css/variables.css` as `--nav-mobile-breakpoint: 1024px;` and in `js/navConfig.js` as `export const NAV_MOBILE_BREAKPOINT_PX = 1024;`, verified by an automated unit test that reads both files.
-> - **Zero New Dependencies**: Pure HTML, CSS, and vanilla JavaScript ES modules (`0` new packages).
+> **Session Scope Decision: Full Phase 16b vs. Two-Part Split**
+> - **Recommended Default (Option A — Complete Phase 16b in One Session)**: Implement all four online section kinds (`basics`, `elements`, `flash`, and `memoriad`), the unified `/api/weekly-test` endpoint, the pure helpers and unit tests, the student Weekly Test "Start" / "Continue" flow, and the Admin Flash reset support in a single cohesive pass. Because `api/_drills.js` and `api/_memoriad.js` already expose pure generators and graders, all three runners can be wired cleanly in one session without leaving Memoriad disabled.
+> - **Alternative (Option B — Elements & Flash First, Memoriad Next)**: Implement the `/api/weekly-test` switch to `section_id` plus the **Elements** and **Flash Anzan** test runners first, leaving Memoriad sections on `"Available soon"` for a follow-up session. Let me know if you prefer Option B.
+
+> [!NOTE]
+> **Zero New Dependencies & Strict Database Boundaries**
+> - **New Dependencies**: **None** (`0` packages added). Built strictly with plain HTML, CSS, and vanilla ES2022 JavaScript modules.
+> - **Isolated Test Storage**: Online weekly test submissions write **only** to `weekly_test_scores` and `weekly_test_attempts` (plus `drill_sessions` with `settings.kind = 'weekly_test'`). They **never** write to `activity_results` or `results`, ensuring weekly tests never tick daily tasks or count toward practice streaks.
+> - **Authoritative Eligibility & Generation**: Eligibility is checked exclusively via the service-role RPC `weekly_test_check_section(p_test, p_student, p_section)`, and Flash Anzan test numbers are generated exclusively via the service-role RPC `flash_generate_question(p_digits, p_count, p_mode)`.
 
 ---
 
-### 1. Overview & Core Concept
+## 1. Overview & Core Concept
 
 - **What It Does**:
-  - **Desktop (`>= 1024 px`)**: Renders the classic horizontal header (`[logo] [Trendz Tracker] [inline navigation links & dropdowns] ... [name · ID] [Sign out]`). The three-dot menu button, backdrop, and mobile drawer are set to `display: none !important` (and `hidden`) so they take zero layout space and cannot receive keyboard focus.
-  - **Mobile / Tablet (`< 1024 px`)**: Hides the desktop inline links and dropdowns (`display: none !important` and `hidden`) and shows `[logo] [Trendz Tracker] [44×44 three-dot menu button]` on the left with `[name · ID] [Sign out]` on the right (shortening the name to first name below `480 px`).
-  - **Live Viewport Switching (`matchMedia`)**: Uses `window.matchMedia('(min-width: 1024px)')` so rotating a tablet or resizing a window switches cleanly between desktop inline navigation and mobile three-dot navigation without reloading, automatically closing any open dropdown or mobile drawer on switch.
+  1. **Unified Section-Based Weekly Test API (`/api/weekly-test`)**: Switches `start` and `submit` actions to `section_id`, enforces a 60-starts-per-hour rate limit per student, delegates eligibility to `weekly_test_check_section`, and handles server-authoritative generation and grading for `basics`, `elements`, `memoriad`, and multi-try `flash` sections without ever returning expected answers on `start` or logging student answers/tokens.
+  2. **Test Mode in Existing Runners (`?test=<id>&section=<id>`)**: Reuses the Elements worksheet page, the Flash Anzan page, and the Memoriad stage page (plus Basics) in a distraction-free test mode: hides the site header/navigation and setup screens, uses server-fixed settings, guards against accidental exits (`beforeunload` + Exit confirmation), supports network-error retries (`"Try sending again"`) until session expiry, and finishes with `"Saved as part of <test title>"` and a `"Back to Weekly Test"` button.
+  3. **Multi-Try Flash Anzan Test Sections**: Supports `1–10` tries (`question_count`) with live progress (`"Try 2 of 5"`), records each try immediately into `weekly_test_scores` (`correct = tries_correct, total = question_count`) so started/unanswered tries count as wrong, withholds per-try correctness (`"Answer recorded"` + `"Next try"`), reveals `"n of m correct"` after the final try, and allows resuming remaining tries if the student reloads or returns via `"Continue"`.
+  4. **Student & Admin Weekly Test Updates**: Replaces `"Available soon"` on the student Weekly Test page with active `"Start"` buttons (and `"Continue"` for in-progress Flash sections with tries remaining), updates the confirmation modal text, and ensures Admin `"Reset"` cleanly clears both `weekly_test_attempts` and `weekly_test_scores` for Flash and all other section kinds.
+- **Target Audience**: Students taking timed online weekly tests across all mental-math disciplines and trainers monitoring/resetting attempts.
+- **Key Value**: Completes the end-to-end online weekly test lifecycle across every discipline while reusing proven worksheet and stage interfaces.
 
 ---
 
-### 2. User Experience & Visual Design
+## 2. User Experience & Visual Design
 
-- **Desktop Header (`>= 1024 px`)**:
-  - **Student Inline Bar** (rendered from `js/navConfig.js`):
-    - Top-level links & controls in order:
-      1. **Today** (`/pages/student.html`)
-      2. **Round scores** (`/pages/round-scores.html`)
-      3. **Practice ▾** dropdown (`.nav-dropdown` / `#nav-practice-dropdown`) containing **Basics**, **Flash Anzan**, **Elements**, and **Memoriad** (marked active when on any of those 4 pages)
-      4. **Weekly Test** (`/pages/weekly-test.html`)
-      5. **Leaderboard** (`/pages/leaderboard.html`)
-      6. **Monthly Report** (`/pages/monthly-report.html`)
-      7. **Notifications bell** (`/pages/notifications.html`, `.nav-bell-link` with SVG bell icon and `#nav-notifications-badge` count badge)
-  - **Admin Inline Bar** (rendered from `js/navConfig.js`):
-    - Top-level links & controls in order:
-      1. **Overview** (`/pages/admin.html`)
-      2. **Review** (`/pages/review.html`)
-      3. **Students** (`/pages/students.html`, also marked current on `/pages/student-detail.html`)
-      4. **Attendance** (`/pages/attendance.html`)
-      5. **Weekly Tests** (`/pages/weekly-tests.html`)
-      6. **Leaderboard** (`/pages/leaderboard.html`)
-      7. **Monthly Report** (`/pages/monthly-report.html`)
-      8. **Setup ▾** dropdown (`.nav-dropdown` / `#nav-setup-dropdown`) listing the admin setup pages (**Settings hub**, **Daily To-Do**, **Resources**, **Categories**, **Rounds**, **Targets**, **Competition settings**, **Announcements**, **Reports**, **Import**, **Backup**), with the `Setup ▾` toggle marked active whenever the current page is one of its items.
-  - **Desktop Dropdown Interaction**:
-    - Clicking or pressing `Enter`/`Space`/`ArrowDown` on **Practice ▾** or **Setup ▾** toggles `.open` / `aria-expanded="true"` on the dropdown menu; hovering on desktop pointer devices also opens smoothly; pressing `Escape`, clicking outside, or switching across the `1024 px` breakpoint closes the dropdown.
-  - **No Wrapping & Compact Admin Range (`1024 px` – `1280 px`)**:
-    - `"Trendz Tracker"` and user names always have `white-space: nowrap`.
-    - Between `1024 px` and `1280 px` on the Admin header, link horizontal padding/gap tightens and the user name displays the first name only (`data-short-name`, with the full name preserved in `title` tooltip) so nothing wraps or overflows at `1024`, `1100`, `1280`, or `1440 px`.
+### Key User Flows
 
-- **Mobile Header (`< 1024 px`)**:
-  - Desktop `.nav-zone` is `display: none !important` and `hidden` (unreachable by `Tab` or screen readers).
-  - `.header-menu-anchor` (`#btn-header-nav-menu` + `#header-nav-menu`) is visible (`display: inline-flex`).
-  - Below `480 px`, the header user name displays the first name only (`data-short-name`) with full name in `title`, and **Sign out** remains reachable in the menu (and header above `480 px`).
-  - Full-screen practice/test stages (`body.stage-focus-mode`) continue hiding the header on all screen sizes.
+1. **Student Weekly Test Page (`My Tests` Tab)**:
+   - Open, unattempted sections of kind `basics`, `elements`, `flash`, and `memoriad` display an active **Start** button.
+   - A `flash` section with `attempt === 'started'` and `tries_started < question_count` displays a **Continue** button (and status chip showing progress, e.g. `"In progress: 2 of 5 tries"`), allowing the student to finish their remaining tries.
+   - Completed sections show `"Done: 18 of 20"` with the shared score colour (`js/scoreColors.js`). Abandoned non-Flash sections (or closed tests) show `"Missed"`.
+   - Clicking **Start** (or **Continue**) opens the confirmation modal with the exact warning:
+     > *"You can take this section only once. If you leave the page, the section ends."*
+   - Confirming navigates to the corresponding runner in test mode (`?test=<test_id>&section=<section_id>`) or starts the inline Basics player.
 
----
+2. **Common Test Mode Rules Across All Runners (`?test=<id>&section=<id>`)**:
+   - **No Site Header or Setup Screen**: The top navigation bar and setup/configuration controls are hidden; the runner immediately calls `POST /api/weekly-test { action: 'start', test_id, section_id }` using only the server-returned settings.
+   - **Exit & Tab-Close Protection**:
+     - An **Exit** button is shown in the runner top bar; clicking it prompts: *"This section can be taken only once. Leaving now ends it."* before returning to `/pages/weekly-test.html`.
+     - While a section is in progress, `beforeunload` warns the student before closing or reloading the tab.
+   - **Network Retry**: If `submit` fails due to a network or 5xx error, answers remain in memory and a retry banner offers **"Try sending again"** until the session's `expires_at` timestamp.
+   - **Test Result Screen**: Shows `"Saved as part of <test title>"` and a primary **"Back to Weekly Test"** button (plus **"Next section"** when another startable section remains).
 
-### 3. Key Product Decisions & Trade-Offs
+3. **Elements Runner in Test Mode**:
+   - Displays the test title, drill title, answer hint, countdown timer, and all worksheet questions.
+   - Auto-submits when the countdown reaches `00:00` or when the student clicks **Submit now**.
+   - Grades via `/api/weekly-test { action: 'submit', session_id, answers }` and displays the score, shared score colour (`wrong = attempted - correct`), question review, `"Saved as part of <test title>"`, and **"Back to Weekly Test"**.
 
-- **Decision 1: Single Source of Truth in `js/navConfig.js` for Both Desktop Inline Links/Dropdowns and Mobile Menu**
-  - *Chosen Approach*: Each item in `NAV_CONFIG.student` and `NAV_CONFIG.admin` defines `{ id, label, href, group, desktopPlacement, badge, action }`, where `desktopPlacement` is `'inline'`, `'practice-dropdown'`, `'setup-dropdown'`, `'bell'`, or `'menu-only'` (`Account` and `Sign out`, which live in the right-hand `.actions-zone` on desktop and in the `Account` group of the mobile menu).
-  - *Why*: Eliminates any second link list while allowing `headerNav.js` to render both the desktop inline bar (with `Practice ▾` / `Setup ▾` dropdowns and the student notifications bell) and the `< 1024 px` grouped three-dot menu from the exact same array.
+4. **Memoriad Runner in Test Mode**:
+   - On screens narrower than `1000 px`, displays the desktop-keyboard required message and a **"Back to Weekly Test"** button **before** calling `start` (so the student's attempt is not consumed on a phone).
+   - Uses fixed competition settings from the server (`Calendar`: 125 dates; typing direction right-to-left; additions highlight columns 1; concentration time 5 s; timer shown).
+   - Runs the 5-second Concentration countdown, followed by the full-viewport Stage, and submits on **Finish** or when time expires.
+   - Displays the evaluation breakdown, `"Saved as part of <test title>"`, and **"Back to Weekly Test"**.
 
-- **Decision 2: Strict Single Active Navigation via `1024 px` CSS + `matchMedia` Synchronization**
-  - *Chosen Approach*: CSS media queries (`@media (min-width: 1024px)` and `@media (max-width: 1023.98px)`) enforce `display: none !important` on the inactive navigation, while `window.matchMedia('(min-width: 1024px)')` in `js/headerNav.js` synchronizes `hidden` attributes and closes any open mobile menu or desktop dropdown whenever the viewport crosses `1024 px`.
-  - *Why*: Guarantees keyboard (`Tab`) and screen-reader users never encounter duplicate navigation landmarks or focusable off-screen elements.
+5. **Flash Anzan Runner in Test Mode**:
+   - Displays the test title, `"Try <try_no> of <question_count>"`, and the locked section settings summary.
+   - Runs the 3-2-1 countdown, flashes the server-generated numbers (`buildTimeline`), and shows the numeric answer input (`Submit` or `I don't know`).
+   - **Per-Try Privacy**: After submitting a try before the last one, shows **"Answer recorded"** (never revealing whether the try was right or wrong, nor the expected sum) and a **"Next try"** button that requests the next try from `/api/weekly-test { action: 'start', test_id, section_id }`.
+   - **Final Summary**: After the final try (`try_no === question_count`), displays **`"<tries_correct> of <question_count> correct"`**, total time used, shared score colour feedback, `"Saved as part of <test title>"`, and **"Back to Weekly Test"**.
+   - **Reload / Resume Behavior**: Because `tries_started` is incremented on `start` and `weekly_test_scores` is updated on every try, reloading mid-try forfeits that single try as wrong while allowing the student to continue any remaining tries (`tries_started < question_count`).
 
 ---
 
-### 4. Technical Architecture & Component Flow
+## 3. Key Product Decisions & Trade-Offs
+
+- **Decision 1: Dedicated Pure Helper Modules (`api/_weeklyTest.js` & `js/weeklyTestRunner.js`)**
+  - *Chosen Approach*: Extract all pure state transitions, score mapping, and URL/progress formatting into `api/_weeklyTest.js` (`applyFlashTry`, `finalScore`, `isWeeklyTestSession`, `buildMemoriadFixedSettings`) and `js/weeklyTestRunner.js` (`runnerLink`, `flashProgressText`, `parseTestRunnerQuery`), each covered by `node --test` unit tests.
+  - *Why*: Keeps `/api/weekly-test.js` and the browser runner controllers clean, deterministic, and testable without mocking DOM or network calls.
+  - *Alternatives Considered*: Embedding Flash try counters and score conversion directly inside `/api/weekly-test.js` — rejected because pure functions make edge cases (e.g. `tries_started` cap at `question_count`, `attempted === 0`, Memoriad `questions_total` vs Elements `attempted`) verifiable in isolation.
+
+- **Decision 2: Immediate Score Upsert on Every Flash Try**
+  - *Chosen Approach*: When a Flash section starts for the first time, insert `weekly_test_attempts` (`tries_started: 0, tries_correct: 0, seconds_used: 0, status: 'started'`) and upsert `weekly_test_scores` (`correct: 0, total: question_count, time_seconds: 0, source: 'online', section_id`). Each `start` call atomically increments `tries_started` (up to `question_count`), and each `submit` updates `tries_correct`, `seconds_used`, and `weekly_test_scores` (`correct = tries_correct, total = question_count, time_seconds = seconds_used`), setting `attempt.status = 'submitted'` when `tries_started === question_count`.
+  - *Why*: Guarantees that even if a student closes the browser after starting some tries, their recorded score in `weekly_test_scores` accurately reflects `tries_correct` out of `question_count` (unanswered started tries count as wrong).
+  - *Alternatives Considered*: Waiting until the last try to insert `weekly_test_scores` — rejected because abandoning midway would leave no score row despite completed tries.
+
+- **Decision 3: Pre-Flight Desktop Viewport Check for Memoriad Test Sections**
+  - *Chosen Approach*: Check viewport width (`>= 1000 px`) on the client **before** sending `POST /api/weekly-test { action: 'start' }` for a Memoriad test section.
+  - *Why*: Calling `start` creates the single-attempt `weekly_test_attempts` row on the server. Checking the viewport before calling `start` ensures a student opening a Memoriad section on a mobile phone sees the friendly desktop-required notice without losing their attempt.
+
+---
+
+## 4. Technical Architecture & Data Strategy
+
+### Architecture & Component Diagram
 
 ```
-┌───────────────────────────────────────────────────────────────────────────┐
-│                   js/navConfig.js + css/variables.css                     │
-│  • NAV_MOBILE_BREAKPOINT_PX = 1024  <==>  --nav-mobile-breakpoint: 1024px │
-│  • Single NAV_CONFIG for 'student' & 'admin' (no duplicate hrefs/lists)   │
-└────────────────────────────────────┬──────────────────────────────────────┘
-                                     │
-                                     ▼
-┌───────────────────────────────────────────────────────────────────────────┐
-│                             js/headerNav.js                               │
-│  matchMedia('(min-width: 1024px)') listener:                              │
-│  • Closes open mobile drawer / desktop dropdown on breakpoint crossing    │
-│  • Syncs `hidden` attribute so only ONE <nav> is active in accessibility  │
-├────────────────────────────────────┬──────────────────────────────────────┤
-│     Desktop (>= 1024px)            │         Mobile (< 1024px)            │
-│ • .header-menu-anchor: display:none│ • .nav-zone: display:none            │
-│ • Student .nav-zone:               │ • .header-menu-anchor:               │
-│   Today | Round scores |           │   44x44 ⋮ Button + Unread Dot        │
-│   Practice ▾ (Basics, Flash Anzan, │   Grouped Menu / Slide-in Drawer     │
-│   Elements, Memoriad) |            │ • Right side:                        │
-│   Weekly Test | Leaderboard |      │   Name (first name < 480px) +        │
-│   Monthly Report | Bell + Badge    │   Sign out (also in menu)            │
-│ • Admin .nav-zone:                 │                                      │
-│   Overview | Review | Students |   │                                      │
-│   Attendance | Weekly Tests |      │                                      │
-│   Leaderboard | Monthly Report |   │                                      │
-│   Setup ▾ (Settings hub + tools)   │                                      │
-│ • 1024..1280px Admin: tight gap +  │                                      │
-│   first name with full-name title  │                                      │
-└────────────────────────────────────┴──────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                     Pure Weekly Test Modules (Unit Tested)                   │
+│                                                                              │
+│  ┌────────────────────────────────────┐  ┌────────────────────────────────┐  │
+│  │         api/_weeklyTest.js         │  │     js/weeklyTestRunner.js     │  │
+│  │ - applyFlashTry(att, sec, ok, s)   │  │ - runnerLink(section, testId)  │  │
+│  │ - finalScore(kind, evaluation)     │  │ - flashProgressText(s, total)  │  │
+│  │ - isWeeklyTestSession(session)     │  │ - parseTestRunnerQuery(search) │  │
+│  │ - getMemoriadTestFixedSettings(m)  │  └───────────────┬────────────────┘  │
+│  └─────────────────┬──────────────────┘                  │                   │
+└────────────────────┼─────────────────────────────────────┼───────────────────┘
+                     │                                     │
+                     ▼                                     ▼
+┌───────────────────────────────────────┐  ┌───────────────────────────────────┐
+│     Serverless API: /api/weekly-test  │  │   Browser Runners in Test Mode    │
+│                                       │  │     (?test=<id>&section=<id>)     │
+│  POST { action: 'start',              │  │                                   │
+│         test_id, section_id }         │◄─┼─ 1. Basics (weeklyTest.js /       │
+│  - verifyStudentCaller(req)           │  │     basicsPractice.js)            │
+│  - 60 starts/hr rate limit            │  │  2. Elements (elementDrill.js)    │
+│  - RPC weekly_test_check_section      │  │  3. Flash Anzan (flash.js)        │
+│  - Branch by kind:                    │  │  4. Memoriad (memoriadPlay.js     │
+│    • basics   -> generateBasicsSet    │  │     with >=1000px pre-check)      │
+│    • elements -> DRILLS[key].generate │  │                                   │
+│    • memoriad -> generateMemoriadSet  │  │  Common Test Mode UX:             │
+│    • flash    -> RPC                  │  │  - Hide header & setup controls   │
+│      flash_generate_question          │  │  - Exit confirm + beforeunload    │
+│                                       │  │  - Network retry until expires_at │
+│  POST { action: 'submit',             │  │  - "Saved as part of <title>" +   │
+│         session_id, answers|answer }  │  │    "Back to Weekly Test"          │
+│  - Verify open weekly_test session    │  └───────────────────────────────────┘
+│  - Claim drill_sessions ('submitted') │
+│  - Grade & write ONLY to              │
+│    weekly_test_scores &               │
+│    weekly_test_attempts               │
+└───────────────────────────────────────┘
 ```
 
----
+### Server & Client Specifications
 
-### 5. Verification, Tests & Documentation Updates
-
-1. **Automated Unit Tests (`tests/navConfig.test.js` & `tests/navMenuState.test.js`)**:
-   - Add a test in `tests/navConfig.test.js` that reads both `css/variables.css` (`--nav-mobile-breakpoint: 1024px`) and `js/navConfig.js` (`NAV_MOBILE_BREAKPOINT_PX = 1024`) and asserts that both equal `1024` and match each other.
-   - Keep all existing Phase 14d `navConfig` tests (every `vite.config.ts` input page covered, no duplicate `href`s or `id`s) and update the desktop structure test to verify the full desktop inline + dropdown order for both `student` and `admin`.
-2. **Documentation Updates (`docs/DECISIONS.md` & `docs/TESTING.md`)**:
-   - Update `docs/DECISIONS.md` so the navigation decision records that desktop (`>= 1024 px`) keeps the full inline links and dropdowns (`Practice ▾` and `Setup ▾`), the three-dot menu is strictly for screens below `1024 px`, and both read from the single `js/navConfig.js`.
-   - Update `docs/TESTING.md` with a step-by-step verification checklist at `390`, `768`, `1023`, `1024`, `1280`, and `1440 px` for both **Student** and **Admin** roles.
-
----
-
-### 6. Session Summary (5 Lines)
-1. Audited the header navigation across HTML templates, `js/navConfig.js`, `js/headerNav.js`, and `css/style.css`, noting that no `.git` history exists in the container while the pre-14d Student (`Practice ▾` + bell) and Admin (`Setup ▾`) markup structures remain in `pages/student.html` and `pages/report.html`.
-2. Designed a unified `js/navConfig.js` model that feeds both the `< 1024 px` three-dot menu and the `>= 1024 px` desktop inline links + dropdowns (`Practice ▾` for students, `Setup ▾` for admins) without duplicating link lists.
-3. Defined a single `1024 px` breakpoint constant (`--nav-mobile-breakpoint: 1024px` in `css/variables.css` and `NAV_MOBILE_BREAKPOINT_PX = 1024` in `js/navConfig.js`) paired with `matchMedia('(min-width: 1024px)')` to close menus on resize and keep only one navigation active at a time.
-4. Specified compact Admin header spacing and first-name display (`data-short-name` with full-name tooltip) between `1024 px` and `1280 px` so `"Trendz Tracker"`, links, and user names never wrap at `1024`, `1100`, `1280`, or `1440 px`.
-5. Planned unit tests verifying CSS/JS breakpoint constant parity and `docs/DECISIONS.md` + `docs/TESTING.md` updates covering `390, 768, 1023, 1024, 1280, and 1440 px` for both roles, with zero new dependencies.
-
----
-
-### 7. Beginner Test Guide (To Run After Approval)
-1. **Run the automated tests**: Run `node --test tests/navConfig.test.js tests/navMenuState.test.js` to confirm all pages are listed once in `js/navConfig.js` and the `1024 px` breakpoint matches between CSS and JS.
-2. **Check Desktop (`1024 px`, `1100 px`, `1280 px`, `1440 px`)**: Open DevTools Device Toolbar (`Ctrl+Shift+M`) at `1024 px` and above; confirm the three-dot button is completely gone (`display: none`), Students see `Today, Round scores, Practice ▾, Weekly Test, Leaderboard, Monthly Report` + the Notifications bell, and Admins see `Overview, Review, Students, Attendance, Weekly Tests, Leaderboard, Monthly Report, Setup ▾` on one single line without wrapping.
-3. **Check Mobile (`1023 px`, `768 px`, `390 px`)**: Resize to `1023 px` or below; confirm the inline links disappear and the `44×44` three-dot button appears beside `"Trendz Tracker"`, opening the panel (`701–1023 px`) or left slide-in drawer (`<= 700 px`).
-4. **Check Live Resize (`matchMedia`)**: Open the three-dot menu at `900 px` and drag the viewport width past `1024 px`; confirm the mobile menu closes automatically and switches to the desktop inline bar without reloading.
+1. **Serverless Endpoint (`/api/weekly-test.js` + `/api/_weeklyTest.js`)**:
+   - **Rate Limit**: Counts `drill_sessions` started by `student.id` in the last 1 hour (`started_at >= now - 1h`); rejects with HTTP 429 if `>= 60`.
+   - **`start` (`{ action: 'start', test_id, section_id }`)**:
+     - Calls service-role RPC `weekly_test_check_section(p_test: testId, p_student: student.id, p_section: sectionId)` (with fallback compatibility if legacy `category_id` is passed). When `check.ok !== true`, returns HTTP 400 with `{ error: check.reason }`.
+     - **`basics`**: Generates pool by `check.seconds` (`30->50, 60->100, 120->200, 300->500`), inserts `weekly_test_attempts` (`status: 'started', section_id, category_id`), inserts `drill_sessions` (`activity_type: 'basics'`, `settings: { kind: 'weekly_test', test_id, section_id, category_id, seconds, pool, title }`, `expires_at = now + seconds + 60s`), and returns `{ ok: true, session_id, kind: 'basics', title, category_name, seconds, questions }`.
+     - **`elements`**: Looks up `DRILLS[check.activity_key]` (must be enabled); generates questions & expected answers; inserts `weekly_test_attempts` (`status: 'started', section_id`); inserts `drill_sessions` (`activity_type: 'element'`, `settings: { kind: 'weekly_test', test_id, section_id, drill: check.activity_key, title: check.title, time_limit_seconds }`, `expires_at = now + time_limit_seconds + 60s`); returns `{ ok: true, session_id, kind: 'elements', title: check.title, drill: check.activity_key, drill_title: drill.title, questions: questionTexts, time_limit_seconds: drill.time_limit_seconds, hint: drill.hint }`.
+     - **`memoriad`**: Uses fixed competition settings (`calendar`: `{ dates: 125, concentration_seconds: 5, timer_shown: true, day_style: 'upper3', leftmost_day: 0, key_zero_day: 5, highlight_active: true, date_format: 'DD-MM-YYYY' }`; `additions`: `{ typing_direction: 'rtl', highlight_columns: 1, concentration_seconds: 5, timer_shown: true }`; `multiplications`: `{ typing_direction: 'rtl', question_format: 'stacked', concentration_seconds: 5, timer_shown: true }`; `square_roots`: `{ concentration_seconds: 5, timer_shown: true }`); generates via `generateMemoriadSet`; inserts `weekly_test_attempts` (`status: 'started', section_id`); inserts `drill_sessions` (`activity_type: 'memoriad'`, `settings: { kind: 'weekly_test', test_id, section_id, module: check.activity_key, title: check.title, ...fixedSettings }`, `expires_at = now + concentration_seconds + limit + 60s`); returns `{ ok: true, session_id, kind: 'memoriad', title: check.title, module: check.activity_key, module_title, questions, time_limit_seconds, settings: fixedSettings }`.
+     - **`flash`**:
+       - On first try (`!check.resume` and no existing attempt row): inserts `weekly_test_attempts` (`test_id, student_id, section_id, status: 'started', tries_started: 0, tries_correct: 0, seconds_used: 0`) and upserts `weekly_test_scores` (`test_id, student_id, section_id, correct: 0, total: check.question_count, time_seconds: 0, source: 'online'`).
+       - Atomically increments `tries_started` on `weekly_test_attempts` (never above `check.question_count`; rejects if already at `question_count`).
+       - Calls service-role RPC `flash_generate_question(p_digits: check.flash_digits, p_count: check.flash_count, p_mode: check.flash_mode)` to get the signed `numbers` array and computes the canonical sum on the server.
+       - Computes `min_seconds = Math.max(1, Math.floor((check.flash_count * check.flash_speed_ms) / 1000 * 0.8))` and `expires_at = now + Math.ceil((check.flash_count * check.flash_speed_ms) / 1000) + 600s`.
+       - Inserts `drill_sessions` (`activity_type: 'flash_anzan'`, `settings: { kind: 'weekly_test', test_id, section_id, title: check.title, try_no, question_count: check.question_count, digits: check.flash_digits, count: check.flash_count, speed_ms: check.flash_speed_ms, mode: check.flash_mode }`, `questions: [numbers]`, `expected: [expectedSum]`, `min_seconds`, `expires_at`).
+       - Returns `{ ok: true, session_id, kind: 'flash', title: check.title, numbers, settings: { digits, count, speed_ms, mode }, try_no, question_count: check.question_count }`.
+   - **`submit` (`{ action: 'submit', session_id, answers | answer }`)**:
+     - Loads student's own open `drill_sessions` row where `settings.kind === 'weekly_test'`, verifies `now <= expires_at`, evaluates by `activity_type`, and atomically claims `drill_sessions` (`status = 'open' -> 'submitted'`).
+     - **`basics`**: Same as Phase 16a (`checkTimedBasicsSubmission`; if `attempted === 0`, marks attempt `'submitted'` with no score row; if `attempted > 0`, upserts `weekly_test_scores` with `total = attempted` and marks attempt `'submitted'`).
+     - **`element`**: Validates and grades with `gradeDrillSubmission` and checks `elapsed >= attempted * 0.25`. If `attempted === 0`, marks attempt `'submitted'` and saves no score row. If `attempted > 0`, upserts `weekly_test_scores` (`correct: graded.correct, total: graded.attempted, time_seconds: graded.seconds, source: 'online', section_id`) and marks attempt `'submitted'`.
+     - **`memoriad`**: Computes `usedSeconds` with `computeMemoriadUsedSeconds` and grades with `evaluateMemoriadSubmission`. If `evaluation.attempted === 0`, marks attempt `'submitted'` and saves no score row. If `evaluation.attempted > 0`, upserts `weekly_test_scores` (`correct: evaluation.correct, total: evaluation.questions_total, time_seconds: Math.round(usedSeconds), source: 'online', section_id`) and marks attempt `'submitted'`.
+     - **`flash_anzan`**: Checks `elapsed >= session.min_seconds`, compares `answer` (`number` or `null` for `"I don't know"`) to `expected[0]`, computes `trySeconds = Math.max(1, Math.round(elapsedSeconds))`, and applies `applyFlashTry(attemptRow, sectionSpec, isCorrect, trySeconds)`:
+       - Increments `tries_correct` when `isCorrect` is true, adds `trySeconds` to `seconds_used`, and sets `status = 'submitted'` (and `finished_at = now`) when `tries_started >= question_count`.
+       - Upserts `weekly_test_scores` (`correct: updated.tries_correct, total: question_count, time_seconds: updated.seconds_used, source: 'online', section_id`).
+       - When `tries_started < question_count`, returns `{ ok: true, recorded: true, done: false, try_no, question_count }` (never returning `correct` or `expected`).
+       - When `tries_started >= question_count`, returns `{ ok: true, recorded: true, done: true, try_no, question_count, tries_correct: updated.tries_correct, total: question_count, time_seconds: updated.seconds_used }`.
+       - If any score/attempt DB update fails after claiming `drill_sessions`, re-opens the `drill_sessions` row so the student can retry submitting.
+       - Also updates `js/demoDb.js` so Demo Mode on localhost/preview supports starting and submitting all 4 weekly test section kinds.
+       - Also adds clean URL rewrites or query support so both `/pages/element-drill.html?test=<id>&section=<id>` (and alias `/pages/elements-worksheet.html`) and `/pages/memoriad-play.html?test=<id>&section=<id>` (and alias `/pages/memoriad-stage.html`) work seamlessly.

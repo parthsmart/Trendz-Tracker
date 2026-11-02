@@ -14,6 +14,10 @@ import {
   TASK_SPEED_EXPLANATION_TEXT,
   TASK_SPEED_EMPTY_MESSAGE
 } from './leaderboardView.js';
+import {
+  WEEKLY_TEST_BOARD_EXPLANATION,
+  ONLINE_TEST_NOT_CLOSED_MESSAGE
+} from './weeklyTestBoard.js';
 import { getSupabase, DemoDB, clearStaleSupabaseSession } from './supabaseClient.js';
 
 /**
@@ -29,6 +33,9 @@ export function normalizeLeaderboardErrorMessage(rawMessage) {
   }
   if (lower.includes('switched off')) {
     return 'The global leaderboard is switched off.';
+  }
+  if (lower.includes('after the test closes') || lower.includes('appears after')) {
+    return ONLINE_TEST_NOT_CLOSED_MESSAGE;
   }
   if (lower.includes('basics tasks with a category only')) {
     return 'Speed ranking is available for basics tasks with a category only.';
@@ -77,6 +84,80 @@ export async function fetchLeaderboard(
 
   const { data, error } = await supabase.rpc('leaderboard', {
     p_board: board,
+    p_period: period,
+    p_level: level,
+    p_limit: limit,
+    p_scope: scope
+  });
+
+  if (error) {
+    const msg = error.message || '';
+    if (msg.includes('JWT') || msg.includes('token') || msg.includes('Refresh')) {
+      clearStaleSupabaseSession();
+      window.location.href = '/index.html';
+      return [];
+    }
+    throw new Error(normalizeLeaderboardErrorMessage(msg));
+  }
+
+  return Array.isArray(data) ? data : [];
+}
+
+/**
+ * Calls RPC `weekly_test_leaderboard(p_test, p_period, p_level, p_limit, p_scope)`.
+ * Never calculates points or ranks in JavaScript.
+ *
+ * @param {Object} [params]
+ * @param {string|null} [params.testId=null] - UUID of a specific weekly test, or null for all tests in period
+ * @param {string} [params.period='month'] - 'today' | 'yesterday' | 'week' | 'month' | 'year' | 'all' | 'date:YYYY-MM-DD'
+ * @param {string|null} [params.level=null]
+ * @param {number} [params.limit=10]
+ * @param {'level'|'global'} [params.scope='level']
+ * @param {Object|null} [callerProfile=null]
+ * @returns {Promise<Array<{
+ *   rank: number,
+ *   student_id: string|null,
+ *   display_name: string,
+ *   level: string|null,
+ *   points: number,
+ *   correct: number,
+ *   attempted: number,
+ *   seconds: number|null,
+ *   tests: number,
+ *   is_me: boolean
+ * }>>}
+ */
+export async function fetchWeeklyTestLeaderboard(
+  { testId = null, period = 'month', level = null, limit = 10, scope = 'level' } = {},
+  callerProfile = null
+) {
+  const cleanTestId = testId && String(testId).trim() && String(testId).trim() !== 'all'
+    ? String(testId).trim()
+    : null;
+
+  if (!isSupabaseConfigured()) {
+    if (!isDemoAllowedHost()) {
+      throw new Error('Configuration error - contact the administrator.');
+    }
+    return DemoDB.mockWeeklyTestLeaderboard(
+      {
+        p_test: cleanTestId,
+        p_period: period,
+        p_level: level,
+        p_limit: limit,
+        p_scope: scope
+      },
+      callerProfile
+    );
+  }
+
+  const supabase = await getSupabase();
+  if (!supabase) {
+    throw new Error('Database client unavailable.');
+  }
+
+  const { data, error } = await supabase.rpc('weekly_test_leaderboard', {
+    p_test: cleanTestId,
     p_period: period,
     p_level: level,
     p_limit: limit,
@@ -316,7 +397,7 @@ export function formatLeaderboardValue(board, value) {
 
 /**
  * Builds the plain-English "How it works" explanation per board from `competition_rules()`.
- * @param {'points'|'streak'|'practice_days'|'todo'|'improved'} board
+ * @param {'points'|'weekly_tests'|'streak'|'practice_days'|'todo'|'improved'} board
  * @param {Object} rules - returned by fetchCompetitionRules()
  * @param {Object} [options]
  * @param {boolean} [options.isTaskSpeedBoard=false]
@@ -330,6 +411,8 @@ export function buildHowItWorksText(board, rules, { isTaskSpeedBoard = false } =
   switch (board) {
     case 'points':
       return `Points = for each weekly test category, correct answers minus wrong answers (never below 0) times ${multiplier}, plus ${presentPts} points for each session you attended; excused sessions give nothing and cost nothing.`;
+    case 'weekly_tests':
+      return WEEKLY_TEST_BOARD_EXPLANATION;
     case 'improved':
       return `Most improved = this week's accuracy minus last week's, needs at least ${minEntries} entries in each week.`;
     case 'practice_days':
@@ -348,7 +431,7 @@ export function buildHowItWorksText(board, rules, { isTaskSpeedBoard = false } =
 
 /**
  * Returns an encouraging empty state message for the given board and period.
- * @param {'points'|'streak'|'practice_days'|'todo'|'improved'} board
+ * @param {'points'|'weekly_tests'|'streak'|'practice_days'|'todo'|'improved'} board
  * @param {string} [period='week']
  * @param {Object} [options]
  * @param {boolean} [options.isTaskSpeedBoard=false]
@@ -359,6 +442,9 @@ export function getLeaderboardEmptyMessage(
   period = 'week',
   { isTaskSpeedBoard = false } = {}
 ) {
+  if (board === 'weekly_tests') {
+    return 'No weekly test scores in this period yet.';
+  }
   if (board === 'todo') {
     if (isTaskSpeedBoard) {
       return TASK_SPEED_EMPTY_MESSAGE;

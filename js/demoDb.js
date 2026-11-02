@@ -713,26 +713,169 @@ function initDemoStorage() {
     localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_TESTS, JSON.stringify(initialWeeklyTests));
   }
 
-  // 10b. Initial Weekly Test Sections (Phase 13a)
+  // 10b. Initial Weekly Test Sections (Phase 13a + Phase 16a Multi-Kind Sections)
   if (!localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_SECTIONS)) {
     const initialSections = [
-      { id: 'wsec-1', test_id: 'wkt-online-1', position: 1, category_id: 'cat-bas-1', seconds: 30 },
-      { id: 'wsec-2', test_id: 'wkt-online-1', position: 2, category_id: 'cat-bas-2', seconds: 60 },
-      { id: 'wsec-3', test_id: 'wkt-online-1', position: 3, category_id: 'cat-bas-4', seconds: 60 }
+      // Online test wkt-online-1: Basics + Flash Anzan + Elements + Memoriad
+      {
+        id: 'wsec-1',
+        test_id: 'wkt-online-1',
+        position: 1,
+        kind: 'basics',
+        category_id: 'cat-bas-1',
+        activity_key: null,
+        seconds: 30,
+        flash_digits: null,
+        flash_count: null,
+        flash_speed_ms: null,
+        flash_mode: null,
+        question_count: null
+      },
+      {
+        id: 'wsec-2',
+        test_id: 'wkt-online-1',
+        position: 2,
+        kind: 'basics',
+        category_id: 'cat-bas-2',
+        activity_key: null,
+        seconds: 60,
+        flash_digits: null,
+        flash_count: null,
+        flash_speed_ms: null,
+        flash_mode: null,
+        question_count: null
+      },
+      {
+        id: 'wsec-3',
+        test_id: 'wkt-online-1',
+        position: 3,
+        kind: 'flash',
+        category_id: null,
+        activity_key: null,
+        seconds: null,
+        flash_digits: 1,
+        flash_count: 50,
+        flash_speed_ms: 500,
+        flash_mode: 'add',
+        question_count: 5
+      },
+      {
+        id: 'wsec-4',
+        test_id: 'wkt-online-1',
+        position: 4,
+        kind: 'elements',
+        category_id: null,
+        activity_key: 'day_codes',
+        seconds: null,
+        flash_digits: null,
+        flash_count: null,
+        flash_speed_ms: null,
+        flash_mode: null,
+        question_count: null
+      },
+      {
+        id: 'wsec-5',
+        test_id: 'wkt-online-1',
+        position: 5,
+        kind: 'memoriad',
+        category_id: null,
+        activity_key: 'additions',
+        seconds: null,
+        flash_digits: null,
+        flash_count: null,
+        flash_speed_ms: null,
+        flash_mode: null,
+        question_count: null
+      },
+      // Offline test wkt-1: Sections of every kind (Basics, Round, Flash, Elements, Memoriad)
+      {
+        id: 'wsec-off-1',
+        test_id: 'wkt-1',
+        position: 1,
+        kind: 'basics',
+        category_id: 'cat-bas-1',
+        activity_key: null,
+        seconds: 120,
+        flash_digits: null,
+        flash_count: null,
+        flash_speed_ms: null,
+        flash_mode: null,
+        question_count: null
+      },
+      {
+        id: 'wsec-off-2',
+        test_id: 'wkt-1',
+        position: 2,
+        kind: 'round',
+        category_id: 'cat-rnd-1',
+        activity_key: null,
+        seconds: null,
+        flash_digits: null,
+        flash_count: null,
+        flash_speed_ms: null,
+        flash_mode: null,
+        question_count: null
+      },
+      {
+        id: 'wsec-off-3',
+        test_id: 'wkt-1',
+        position: 3,
+        kind: 'flash',
+        category_id: null,
+        activity_key: null,
+        seconds: null,
+        flash_digits: 2,
+        flash_count: 25,
+        flash_speed_ms: 800,
+        flash_mode: 'add_sub',
+        question_count: 5
+      },
+      {
+        id: 'wsec-off-4',
+        test_id: 'wkt-1',
+        position: 4,
+        kind: 'elements',
+        category_id: null,
+        activity_key: 'day_codes',
+        seconds: null,
+        flash_digits: null,
+        flash_count: null,
+        flash_speed_ms: null,
+        flash_mode: null,
+        question_count: null
+      },
+      {
+        id: 'wsec-off-5',
+        test_id: 'wkt-1',
+        position: 5,
+        kind: 'memoriad',
+        category_id: null,
+        activity_key: 'calendar',
+        seconds: null,
+        flash_digits: null,
+        flash_count: null,
+        flash_speed_ms: null,
+        flash_mode: null,
+        question_count: null
+      }
     ];
     localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_SECTIONS, JSON.stringify(initialSections));
   }
 
-  // 10c. Initial Weekly Test Attempts (Phase 13a)
+  // 10c. Initial Weekly Test Attempts (Phase 13a + Phase 16a)
   if (!localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_ATTEMPTS)) {
     const initialAttempts = [
       {
         id: 'watt-1',
         test_id: 'wkt-online-1',
         student_id: 'usr-101',
+        section_id: 'wsec-1',
         category_id: 'cat-bas-1',
         session_id: 'demo-wt-sess-1',
         status: 'submitted',
+        tries_started: 1,
+        tries_correct: 1,
+        seconds_used: 30,
         started_at: '2026-10-30T05:00:00.000Z',
         finished_at: '2026-10-30T05:00:30.000Z'
       },
@@ -740,9 +883,13 @@ function initDemoStorage() {
         id: 'watt-2',
         test_id: 'wkt-online-1',
         student_id: 'usr-102',
+        section_id: 'wsec-1',
         category_id: 'cat-bas-1',
         session_id: 'demo-wt-sess-2',
         status: 'started',
+        tries_started: 1,
+        tries_correct: 0,
+        seconds_used: null,
         started_at: '2026-10-30T05:10:00.000Z',
         finished_at: null
       }
@@ -755,29 +902,31 @@ function initDemoStorage() {
     localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_REMOVALS, JSON.stringify([]));
   }
 
-  // 11. Initial Weekly Test Scores (Phase 4b + Phase 13a)
+  // 11. Initial Weekly Test Scores (Phase 4b + Phase 13a + Phase 16a)
   if (!localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_SCORES)) {
     const initialWeeklyScores = [
       // Online Test wkt-online-1: STU101 completed section 1 (1d4r: 18 of 20 in 30s)
-      { id: 'sc-on-1', test_id: 'wkt-online-1', student_id: 'usr-101', category_id: 'cat-bas-1', correct: 18, total: 20, time_seconds: 30, source: 'online', created_at: '2026-10-30T05:00:30.000Z' },
-      // Offline Test 1: wkt-1
-      { id: 'sc-1-1', test_id: 'wkt-1', student_id: 'usr-102', category_id: 'cat-bas-1', correct: 19, total: 20, time_seconds: 95, source: 'teacher', created_at: '2026-10-18T05:00:00.000Z' },
-      { id: 'sc-1-2', test_id: 'wkt-1', student_id: 'usr-102', category_id: 'cat-bas-2', correct: 18, total: 20, time_seconds: 110, source: 'teacher', created_at: '2026-10-18T05:00:00.000Z' },
-      { id: 'sc-1-3', test_id: 'wkt-1', student_id: 'usr-101', category_id: 'cat-bas-1', correct: 20, total: 20, time_seconds: 85, source: 'teacher', created_at: '2026-10-18T05:00:00.000Z' },
-      { id: 'sc-1-4', test_id: 'wkt-1', student_id: 'usr-103', category_id: 'cat-bas-1', correct: 17, total: 20, time_seconds: 135, source: 'teacher', created_at: '2026-10-18T05:00:00.000Z' },
-      { id: 'sc-1-5', test_id: 'wkt-1', student_id: 'usr-105', category_id: 'cat-bas-1', correct: 15, total: 20, time_seconds: 155, source: 'teacher', created_at: '2026-10-18T05:00:00.000Z' },
-      { id: 'sc-1-6', test_id: 'wkt-1', student_id: 'usr-106', category_id: 'cat-bas-1', correct: 18, total: 20, time_seconds: 115, source: 'teacher', created_at: '2026-10-18T05:00:00.000Z' },
-      { id: 'sc-1-7', test_id: 'wkt-1', student_id: 'usr-107', category_id: 'cat-bas-1', correct: 20, total: 20, time_seconds: 78, source: 'teacher', created_at: '2026-10-18T05:00:00.000Z' },
-      // Test 2: wkt-2
-      { id: 'sc-2-1', test_id: 'wkt-2', student_id: 'usr-102', category_id: 'cat-bas-1', correct: 20, total: 20, time_seconds: 88, source: 'teacher', created_at: '2026-10-11T05:00:00.000Z' },
-      { id: 'sc-2-2', test_id: 'wkt-2', student_id: 'usr-102', category_id: 'cat-bas-2', correct: 19, total: 20, time_seconds: 105, source: 'teacher', created_at: '2026-10-11T05:00:00.000Z' },
-      { id: 'sc-2-3', test_id: 'wkt-2', student_id: 'usr-101', category_id: 'cat-bas-1', correct: 19, total: 20, time_seconds: 90, source: 'teacher', created_at: '2026-10-11T05:00:00.000Z' },
+      { id: 'sc-on-1', test_id: 'wkt-online-1', student_id: 'usr-101', section_id: 'wsec-1', category_id: 'cat-bas-1', correct: 18, total: 20, time_seconds: 30, source: 'online', created_at: '2026-10-30T05:00:30.000Z' },
+      // Offline Test 1: wkt-1 (section-based scores across basics, round, flash, elements, memoriad)
+      { id: 'sc-1-1', test_id: 'wkt-1', student_id: 'usr-102', section_id: 'wsec-off-1', category_id: 'cat-bas-1', correct: 19, total: 20, time_seconds: 95, source: 'teacher', created_at: '2026-10-18T05:00:00.000Z' },
+      { id: 'sc-1-2', test_id: 'wkt-1', student_id: 'usr-102', section_id: 'wsec-off-2', category_id: 'cat-rnd-1', correct: 18, total: 20, time_seconds: 110, source: 'teacher', created_at: '2026-10-18T05:00:00.000Z' },
+      { id: 'sc-1-3', test_id: 'wkt-1', student_id: 'usr-101', section_id: 'wsec-off-1', category_id: 'cat-bas-1', correct: 20, total: 20, time_seconds: 85, source: 'teacher', created_at: '2026-10-18T05:00:00.000Z' },
+      { id: 'sc-1-3b', test_id: 'wkt-1', student_id: 'usr-101', section_id: 'wsec-off-3', category_id: null, correct: 4, total: 5, time_seconds: 25, source: 'teacher', created_at: '2026-10-18T05:00:00.000Z' },
+      { id: 'sc-1-3c', test_id: 'wkt-1', student_id: 'usr-101', section_id: 'wsec-off-4', category_id: null, correct: 35, total: 36, time_seconds: 52, source: 'teacher', created_at: '2026-10-18T05:00:00.000Z' },
+      { id: 'sc-1-4', test_id: 'wkt-1', student_id: 'usr-103', section_id: 'wsec-off-1', category_id: 'cat-bas-1', correct: 17, total: 20, time_seconds: 135, source: 'teacher', created_at: '2026-10-18T05:00:00.000Z' },
+      { id: 'sc-1-5', test_id: 'wkt-1', student_id: 'usr-105', section_id: 'wsec-off-1', category_id: 'cat-bas-1', correct: 15, total: 20, time_seconds: 155, source: 'teacher', created_at: '2026-10-18T05:00:00.000Z' },
+      { id: 'sc-1-6', test_id: 'wkt-1', student_id: 'usr-106', section_id: 'wsec-off-1', category_id: 'cat-bas-1', correct: 18, total: 20, time_seconds: 115, source: 'teacher', created_at: '2026-10-18T05:00:00.000Z' },
+      { id: 'sc-1-7', test_id: 'wkt-1', student_id: 'usr-107', section_id: 'wsec-off-1', category_id: 'cat-bas-1', correct: 20, total: 20, time_seconds: 78, source: 'teacher', created_at: '2026-10-18T05:00:00.000Z' },
+      // Legacy Offline Tests without sections: wkt-2, wkt-3, wkt-4, wkt-5
+      { id: 'sc-2-1', test_id: 'wkt-2', student_id: 'usr-102', section_id: null, category_id: 'cat-bas-1', correct: 20, total: 20, time_seconds: 88, source: 'teacher', created_at: '2026-10-11T05:00:00.000Z' },
+      { id: 'sc-2-2', test_id: 'wkt-2', student_id: 'usr-102', section_id: null, category_id: 'cat-bas-2', correct: 19, total: 20, time_seconds: 105, source: 'teacher', created_at: '2026-10-11T05:00:00.000Z' },
+      { id: 'sc-2-3', test_id: 'wkt-2', student_id: 'usr-101', section_id: null, category_id: 'cat-bas-1', correct: 19, total: 20, time_seconds: 90, source: 'teacher', created_at: '2026-10-11T05:00:00.000Z' },
       // Test 3: wkt-3
-      { id: 'sc-3-1', test_id: 'wkt-3', student_id: 'usr-102', category_id: 'cat-bas-1', correct: 18, total: 20, time_seconds: 102, source: 'teacher', created_at: '2026-10-04T05:00:00.000Z' },
+      { id: 'sc-3-1', test_id: 'wkt-3', student_id: 'usr-102', section_id: null, category_id: 'cat-bas-1', correct: 18, total: 20, time_seconds: 102, source: 'teacher', created_at: '2026-10-04T05:00:00.000Z' },
       // Test 4: wkt-4
-      { id: 'sc-4-1', test_id: 'wkt-4', student_id: 'usr-102', category_id: 'cat-bas-1', correct: 19, total: 20, time_seconds: 94, source: 'teacher', created_at: '2026-09-27T05:00:00.000Z' },
+      { id: 'sc-4-1', test_id: 'wkt-4', student_id: 'usr-102', section_id: null, category_id: 'cat-bas-1', correct: 19, total: 20, time_seconds: 94, source: 'teacher', created_at: '2026-09-27T05:00:00.000Z' },
       // Test 5: wkt-5
-      { id: 'sc-5-1', test_id: 'wkt-5', student_id: 'usr-102', category_id: 'cat-bas-1', correct: 17, total: 20, time_seconds: 115, source: 'teacher', created_at: '2026-09-20T05:00:00.000Z' }
+      { id: 'sc-5-1', test_id: 'wkt-5', student_id: 'usr-102', section_id: null, category_id: 'cat-bas-1', correct: 17, total: 20, time_seconds: 115, source: 'teacher', created_at: '2026-09-20T05:00:00.000Z' }
     ];
     localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_SCORES, JSON.stringify(initialWeeklyScores));
   }
@@ -1895,22 +2044,86 @@ export const DemoDB = {
     const sections = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_SECTIONS) || '[]');
     return sections
       .filter(s => s.test_id === testId)
+      .map(s => ({
+        ...s,
+        kind: s.kind || 'basics',
+        category_id: s.category_id || null,
+        activity_key: s.activity_key || null,
+        seconds: s.seconds != null ? Number(s.seconds) : null,
+        flash_digits: s.flash_digits != null ? Number(s.flash_digits) : null,
+        flash_count: s.flash_count != null ? Number(s.flash_count) : null,
+        flash_speed_ms: s.flash_speed_ms != null ? Number(s.flash_speed_ms) : null,
+        flash_mode: s.flash_mode || null,
+        question_count: s.question_count != null ? Number(s.question_count) : null
+      }))
       .sort((a, b) => (Number(a.position) || 0) - (Number(b.position) || 0));
   },
 
+  /**
+   * Updates sections in place by id, inserts new ones, and deletes removed ones
+   * ONLY when they have no scores or attempts (never deletes all and re-inserts).
+   */
   saveWeeklyTestSections(testId, sectionsList) {
     initDemoStorage();
     let sections = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_SECTIONS) || '[]');
-    sections = sections.filter(s => s.test_id !== testId);
+    const scores = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_SCORES) || '[]');
+    const attempts = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_ATTEMPTS) || '[]');
+
+    const lockedIds = new Set();
+    scores.filter(sc => sc.test_id === testId && sc.section_id).forEach(sc => lockedIds.add(sc.section_id));
+    attempts.filter(at => at.test_id === testId && at.section_id).forEach(at => lockedIds.add(at.section_id));
+
+    const existingForTest = sections.filter(s => s.test_id === testId);
+    const incomingIds = new Set((sectionsList || []).map(s => s.id).filter(Boolean));
+
+    // Refuse removing a locked section
+    for (const oldSec of existingForTest) {
+      if (!incomingIds.has(oldSec.id) && lockedIds.has(oldSec.id)) {
+        throw new Error('Cannot remove a section that already has student scores or attempts.');
+      }
+    }
+
+    // Remove unlocked sections that are no longer in incomingIds
+    sections = sections.filter(s => s.test_id !== testId || incomingIds.has(s.id));
+
     (sectionsList || []).forEach((s, idx) => {
-      sections.push({
-        id: `wsec-${Date.now()}-${idx + 1}`,
+      const pos = Number(s.position) || idx + 1;
+      const rowData = {
         test_id: testId,
-        position: s.position || idx + 1,
-        category_id: s.category_id,
-        seconds: Number(s.seconds) || 60
+        position: pos,
+        kind: s.kind || 'basics',
+        category_id: s.category_id || null,
+        activity_key: s.activity_key || null,
+        seconds: s.seconds !== null && s.seconds !== undefined && s.seconds !== '' ? Number(s.seconds) : null,
+        flash_digits: s.flash_digits != null ? Number(s.flash_digits) : null,
+        flash_count: s.flash_count != null ? Number(s.flash_count) : null,
+        flash_speed_ms: s.flash_speed_ms != null ? Number(s.flash_speed_ms) : null,
+        flash_mode: s.flash_mode || null,
+        question_count: s.question_count != null ? Number(s.question_count) : null
+      };
+
+      if (s.id) {
+        const existingIdx = sections.findIndex(ex => ex.id === s.id && ex.test_id === testId);
+        if (existingIdx !== -1) {
+          if (lockedIds.has(s.id)) {
+            // Only position can change on a locked section
+            sections[existingIdx].position = pos;
+          } else {
+            sections[existingIdx] = {
+              ...sections[existingIdx],
+              ...rowData
+            };
+          }
+          return;
+        }
+      }
+
+      sections.push({
+        id: `wsec-${Date.now()}-${idx + 1}-${Math.random().toString(36).slice(2, 5)}`,
+        ...rowData
       });
     });
+
     localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_SECTIONS, JSON.stringify(sections));
     return true;
   },
@@ -1927,18 +2140,21 @@ export const DemoDB = {
     return scores.filter(s => s.test_id === testId);
   },
 
-  resetWeeklyTestSectionAttempt(testId, studentId, categoryId) {
+  resetWeeklyTestSectionAttempt(testId, studentId, categoryId = null, sectionId = null) {
     initDemoStorage();
+    const matchesTarget = (row) => {
+      if (row.test_id !== testId || row.student_id !== studentId) return false;
+      if (sectionId && row.section_id === sectionId) return true;
+      if (categoryId && (row.section_id === categoryId || row.category_id === categoryId)) return true;
+      return false;
+    };
+
     let attempts = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_ATTEMPTS) || '[]');
-    attempts = attempts.filter(
-      a => !(a.test_id === testId && a.student_id === studentId && a.category_id === categoryId)
-    );
+    attempts = attempts.filter(a => !matchesTarget(a));
     localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_ATTEMPTS, JSON.stringify(attempts));
 
     let scores = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_SCORES) || '[]');
-    scores = scores.filter(
-      s => !(s.test_id === testId && s.student_id === studentId && s.category_id === categoryId)
-    );
+    scores = scores.filter(s => !matchesTarget(s));
     localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_SCORES, JSON.stringify(scores));
     return true;
   },
@@ -2076,41 +2292,78 @@ export const DemoDB = {
           else state = 'past';
         }
 
-        const testSections = sections
+        const rawTestSecs = sections
           .filter(s => s.test_id === t.id)
-          .sort((a, b) => (Number(a.position) || 0) - (Number(b.position) || 0))
-          .map(s => {
-            const cat = catMap.get(s.category_id);
-            const att = attempts.find(
-              a => a.test_id === t.id && a.student_id === studentId && a.category_id === s.category_id
-            );
-            const sc = scores.find(
-              r => r.test_id === t.id && r.student_id === studentId && r.category_id === s.category_id
-            );
-            return {
-              category_id: s.category_id,
-              name: cat ? cat.name : s.category_id,
-              seconds: Number(s.seconds) || 60,
-              position: Number(s.position) || 1,
-              attempt: att ? att.status : null,
-              correct: sc ? Number(sc.correct) : null,
-              total: sc ? Number(sc.total) : null,
-              time_seconds: sc && sc.time_seconds != null ? Number(sc.time_seconds) : null
-            };
-          });
+          .sort((a, b) => (Number(a.position) || 0) - (Number(b.position) || 0));
+
+        const secMap = new Map(rawTestSecs.map(s => [s.id, s]));
+
+        const testSections = rawTestSecs.map(s => {
+          const kind = s.kind || 'basics';
+          const cat = s.category_id ? catMap.get(s.category_id) : null;
+          const att = attempts.find(
+            a =>
+              a.test_id === t.id &&
+              a.student_id === studentId &&
+              ((a.section_id && a.section_id === s.id) ||
+                (!a.section_id && s.category_id && a.category_id === s.category_id))
+          );
+          const sc = scores.find(
+            r =>
+              r.test_id === t.id &&
+              r.student_id === studentId &&
+              ((r.section_id && r.section_id === s.id) ||
+                (!r.section_id && s.category_id && r.category_id === s.category_id))
+          );
+          return {
+            section_id: s.id,
+            kind,
+            category_id: s.category_id || null,
+            name: cat ? cat.name : null,
+            activity_key: s.activity_key || null,
+            seconds: s.seconds != null ? Number(s.seconds) : null,
+            position: Number(s.position) || 1,
+            flash_digits: s.flash_digits != null ? Number(s.flash_digits) : null,
+            flash_count: s.flash_count != null ? Number(s.flash_count) : null,
+            flash_speed_ms: s.flash_speed_ms != null ? Number(s.flash_speed_ms) : null,
+            flash_mode: s.flash_mode || null,
+            question_count: s.question_count != null ? Number(s.question_count) : null,
+            attempt: att ? att.status : null,
+            tries_started: att?.tries_started != null ? Number(att.tries_started) : 0,
+            tries_correct: att?.tries_correct != null ? Number(att.tries_correct) : 0,
+            correct: sc ? Number(sc.correct) : null,
+            total: sc ? Number(sc.total) : null,
+            time_seconds: sc && sc.time_seconds != null ? Number(sc.time_seconds) : null
+          };
+        });
 
         const testScores = scores
           .filter(r => r.test_id === t.id && r.student_id === studentId)
           .map(r => {
-            const cat = catMap.get(r.category_id);
+            const sec = r.section_id ? secMap.get(r.section_id) : null;
+            const catId = r.category_id || sec?.category_id || null;
+            const cat = catId ? catMap.get(catId) : null;
+            const kind = sec?.kind || (cat?.section === 'round' ? 'round' : 'basics');
             return {
-              category: cat ? cat.name : r.category_id,
+              section_id: r.section_id || null,
+              category_id: catId,
+              category: cat ? cat.name : null,
+              kind,
+              activity_key: sec?.activity_key || null,
+              flash_digits: sec?.flash_digits ?? null,
+              flash_count: sec?.flash_count ?? null,
+              flash_speed_ms: sec?.flash_speed_ms ?? null,
+              flash_mode: sec?.flash_mode ?? null,
+              question_count: sec?.question_count ?? null,
+              seconds: sec?.seconds ?? null,
               correct: Number(r.correct),
               total: Number(r.total),
               time_seconds: r.time_seconds != null ? Number(r.time_seconds) : null,
               source: r.source || 'teacher'
             };
           });
+
+        const leaderboardReady = !isOnline || state === 'closed';
 
         return {
           id: t.id,
@@ -2121,13 +2374,14 @@ export const DemoDB = {
           opens_at: t.opens_at || null,
           closes_at: t.closes_at || null,
           state,
+          leaderboard_ready: leaderboardReady,
           sections: testSections,
           scores: testScores
         };
       });
   },
 
-  mockStartWeeklyTestSection(studentId, testId, categoryId) {
+  mockStartWeeklyTestSection(studentId, testId, categoryId, sectionId = null) {
     if (!isDemoMode()) {
       throw new Error('Action blocked: Demo mode cannot mutate live database.');
     }
@@ -2140,50 +2394,235 @@ export const DemoDB = {
     if (test.state !== 'open') {
       throw new Error('This weekly test is not currently open.');
     }
-    const sec = (test.sections || []).find(s => s.category_id === categoryId);
+    const sec = (test.sections || []).find(
+      s => (sectionId && s.section_id === sectionId) || (!sectionId && s.category_id === categoryId)
+    );
     if (!sec) {
       throw new Error('Section not found in this weekly test.');
     }
+    const kind = String(sec.kind || 'basics').toLowerCase();
+    const attempts = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_ATTEMPTS) || '[]');
+    const scores = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_SCORES) || '[]');
+    const sessions = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_SESSIONS) || '{}');
+    const sessionId = `demo-wt-sess-${Date.now()}`;
+    const startedAt = new Date().toISOString();
+
+    if (kind === 'flash') {
+      const qCount = Math.max(1, Number(sec.question_count) || 5);
+      const attIdx = attempts.findIndex(
+        a =>
+          a.test_id === testId &&
+          a.student_id === studentId &&
+          ((sec.section_id && a.section_id === sec.section_id) ||
+            (!sec.section_id && sec.category_id && a.category_id === sec.category_id))
+      );
+
+      let nextTryNo = 1;
+      let triesCorrect = 0;
+      let secondsUsed = 0;
+
+      if (attIdx >= 0) {
+        const existingAtt = attempts[attIdx];
+        if (existingAtt.status === 'submitted' || Number(existingAtt.tries_started) >= qCount) {
+          throw new Error('You have already finished this Flash Anzan section.');
+        }
+        nextTryNo = (Number(existingAtt.tries_started) || 0) + 1;
+        triesCorrect = Number(existingAtt.tries_correct) || 0;
+        secondsUsed = Number(existingAtt.seconds_used) || 0;
+        attempts[attIdx].tries_started = nextTryNo;
+        attempts[attIdx].session_id = sessionId;
+      } else {
+        attempts.push({
+          id: `watt-${Date.now()}`,
+          test_id: testId,
+          student_id: studentId,
+          section_id: sec.section_id || null,
+          category_id: null,
+          session_id: sessionId,
+          status: 'started',
+          tries_started: 1,
+          tries_correct: 0,
+          seconds_used: 0,
+          started_at: startedAt,
+          finished_at: null,
+        });
+        const scIdx = scores.findIndex(
+          r => r.test_id === testId && r.student_id === studentId && r.section_id === sec.section_id
+        );
+        const partialScore = {
+          id: scIdx >= 0 ? scores[scIdx].id : `sc-on-${Date.now()}`,
+          test_id: testId,
+          student_id: studentId,
+          section_id: sec.section_id || null,
+          category_id: null,
+          correct: 0,
+          total: qCount,
+          time_seconds: 0,
+          source: 'online',
+          created_at: startedAt,
+        };
+        if (scIdx >= 0) scores[scIdx] = partialScore;
+        else scores.push(partialScore);
+        localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_SCORES, JSON.stringify(scores));
+      }
+      localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_ATTEMPTS, JSON.stringify(attempts));
+
+      const flashSettings = {
+        digits: Number(sec.flash_digits) || 2,
+        count: Number(sec.flash_count) || 5,
+        speed_ms: Number(sec.flash_speed_ms) || 1000,
+        mode: sec.flash_mode === 'add_sub' ? 'add_sub' : 'add',
+        question_count: qCount,
+      };
+      const flashStart = this.mockFlashStart(flashSettings, studentId);
+      const expectedSum = (flashStart.numbers || []).reduce((acc, n) => acc + Number(n), 0);
+
+      sessions[sessionId] = {
+        kind: 'flash',
+        test_id: testId,
+        title: test.title,
+        student_id: studentId,
+        section_id: sec.section_id || null,
+        try_no: nextTryNo,
+        question_count: qCount,
+        tries_correct: triesCorrect,
+        seconds_used: secondsUsed,
+        expected: expectedSum,
+        settings: flashSettings,
+        started_at: startedAt,
+      };
+      localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_SESSIONS, JSON.stringify(sessions));
+
+      return {
+        ok: true,
+        session_id: sessionId,
+        kind: 'flash',
+        test_id: testId,
+        section_id: sec.section_id || null,
+        title: test.title,
+        try_no: nextTryNo,
+        question_count: qCount,
+        tries_correct: triesCorrect,
+        numbers: flashStart.numbers,
+        settings: flashSettings,
+      };
+    }
+
     if (sec.attempt) {
       throw new Error('You have already started this section.');
     }
-
-    const attempts = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_ATTEMPTS) || '[]');
-    const sessionId = `demo-wt-sess-${Date.now()}`;
-    const startedAt = new Date().toISOString();
 
     attempts.push({
       id: `watt-${Date.now()}`,
       test_id: testId,
       student_id: studentId,
-      category_id: categoryId,
+      section_id: sec.section_id || null,
+      category_id: sec.category_id || categoryId || null,
       session_id: sessionId,
       status: 'started',
+      tries_started: 1,
+      tries_correct: 0,
+      seconds_used: null,
       started_at: startedAt,
-      finished_at: null
+      finished_at: null,
     });
     localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_ATTEMPTS, JSON.stringify(attempts));
 
-    // Reuse DemoDB.mockBasicsDrillStart question format
-    const drillStart = this.mockBasicsDrillStart(categoryId, 'timed', sec.seconds);
-    const sessions = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_SESSIONS) || '{}');
+    if (kind === 'elements') {
+      const elemStart = this.mockElementDrillStart(sec.activity_key || 'day_codes');
+      sessions[sessionId] = {
+        kind: 'elements',
+        test_id: testId,
+        title: test.title,
+        student_id: studentId,
+        section_id: sec.section_id || null,
+        drill: sec.activity_key || 'day_codes',
+        drill_title: elemStart.title,
+        time_limit_seconds: elemStart.time_limit_seconds,
+        started_at: startedAt,
+      };
+      localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_SESSIONS, JSON.stringify(sessions));
+      return {
+        ok: true,
+        session_id: sessionId,
+        kind: 'elements',
+        test_id: testId,
+        section_id: sec.section_id || null,
+        title: test.title,
+        drill: sec.activity_key || 'day_codes',
+        drill_title: elemStart.title,
+        questions: elemStart.questions,
+        time_limit_seconds: elemStart.time_limit_seconds,
+        hint: elemStart.hint,
+      };
+    }
+
+    if (kind === 'memoriad') {
+      const mod = sec.activity_key || 'calendar';
+      const memStart = this.mockMemoriadStart(mod, { concentration_seconds: 5 });
+      const fixedSettings = {
+        dates: 125,
+        typing_direction: 'rtl',
+        additions_columns: 1,
+        concentration_seconds: 5,
+        show_timer: true,
+      };
+      sessions[sessionId] = {
+        kind: 'memoriad',
+        test_id: testId,
+        title: test.title,
+        student_id: studentId,
+        section_id: sec.section_id || null,
+        module: mod,
+        module_title: memStart.title,
+        time_limit_seconds: memStart.time_limit_seconds,
+        started_at: startedAt,
+      };
+      localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_SESSIONS, JSON.stringify(sessions));
+      return {
+        ok: true,
+        session_id: sessionId,
+        kind: 'memoriad',
+        test_id: testId,
+        section_id: sec.section_id || null,
+        title: test.title,
+        module: mod,
+        module_title: memStart.title,
+        questions: memStart.questions,
+        time_limit_seconds: memStart.time_limit_seconds,
+        limits: {
+          time_limit_seconds: memStart.time_limit_seconds,
+          questions_total: Array.isArray(memStart.questions) ? memStart.questions.length : 10,
+        },
+        settings: fixedSettings,
+      };
+    }
+
+    // Default: basics
+    const drillStart = this.mockBasicsDrillStart(sec.category_id || categoryId, 'timed', sec.seconds);
     sessions[sessionId] = {
+      kind: 'basics',
       test_id: testId,
+      title: test.title,
       student_id: studentId,
-      category_id: categoryId,
+      section_id: sec.section_id || null,
+      category_id: sec.category_id || categoryId,
       seconds: sec.seconds,
       started_at: startedAt,
-      drill_session_id: drillStart.session_id
+      drill_session_id: drillStart.session_id,
     };
     localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_SESSIONS, JSON.stringify(sessions));
 
     return {
       ok: true,
       session_id: sessionId,
+      kind: 'basics',
+      test_id: testId,
+      section_id: sec.section_id || null,
       title: test.title,
       category_name: sec.name,
       seconds: sec.seconds,
-      questions: drillStart.questions
+      questions: drillStart.questions,
     };
   },
 
@@ -2198,6 +2637,150 @@ export const DemoDB = {
       throw new Error('Weekly test session not found.');
     }
 
+    const kind = String(sess.kind || 'basics').toLowerCase();
+    const attempts = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_ATTEMPTS) || '[]');
+    const scores = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_SCORES) || '[]');
+
+    const upsertScoreRow = (correct, total, timeSeconds, categoryId = null) => {
+      const existingIdx = scores.findIndex(
+        sc =>
+          sc.test_id === sess.test_id &&
+          sc.student_id === studentId &&
+          ((sess.section_id && sc.section_id === sess.section_id) ||
+            (!sess.section_id && categoryId && sc.category_id === categoryId))
+      );
+      const row = {
+        id: existingIdx >= 0 ? scores[existingIdx].id : `sc-on-${Date.now()}`,
+        test_id: sess.test_id,
+        student_id: studentId,
+        section_id: sess.section_id || null,
+        category_id: categoryId || null,
+        correct,
+        total,
+        time_seconds: timeSeconds,
+        source: 'online',
+        created_at: new Date().toISOString(),
+      };
+      if (existingIdx >= 0) scores[existingIdx] = row;
+      else scores.push(row);
+      localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_SCORES, JSON.stringify(scores));
+    };
+
+    if (kind === 'flash') {
+      const givenNum =
+        answers !== null && answers !== undefined && String(answers).trim() !== ''
+          ? Number(String(answers).trim())
+          : NaN;
+      const isCorrect = Number.isFinite(givenNum) && givenNum === Number(sess.expected);
+      const trySec = Math.max(1, Math.round((Date.now() - new Date(sess.started_at).getTime()) / 1000));
+      const newTriesCorrect = (Number(sess.tries_correct) || 0) + (isCorrect ? 1 : 0);
+      const newSecondsUsed = (Number(sess.seconds_used) || 0) + trySec;
+      const tryNo = Number(sess.try_no) || 1;
+      const qCount = Number(sess.question_count) || 5;
+      const done = tryNo >= qCount;
+
+      const attIdx = attempts.findIndex(
+        a => a.test_id === sess.test_id && a.student_id === studentId && a.section_id === sess.section_id
+      );
+      if (attIdx >= 0) {
+        attempts[attIdx].tries_correct = newTriesCorrect;
+        attempts[attIdx].seconds_used = newSecondsUsed;
+        if (done) {
+          attempts[attIdx].status = 'submitted';
+          attempts[attIdx].finished_at = new Date().toISOString();
+        }
+        localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_ATTEMPTS, JSON.stringify(attempts));
+      }
+
+      upsertScoreRow(newTriesCorrect, qCount, newSecondsUsed, null);
+
+      if (!done) {
+        return {
+          ok: true,
+          kind: 'flash',
+          done: false,
+          try_no: tryNo,
+          question_count: qCount,
+          title: sess.title || 'Weekly Test',
+        };
+      }
+      return {
+        ok: true,
+        kind: 'flash',
+        done: true,
+        try_no: tryNo,
+        question_count: qCount,
+        tries_correct: newTriesCorrect,
+        correct: newTriesCorrect,
+        total: qCount,
+        seconds_used: newSecondsUsed,
+        title: sess.title || 'Weekly Test',
+      };
+    }
+
+    if (kind === 'elements') {
+      const fixedResult = {
+        ok: true,
+        kind: 'elements',
+        title: sess.title || 'Weekly Test',
+        correct: 4,
+        attempted: 5,
+        questions_total: 5,
+        accuracy: 80.0,
+        seconds: 18,
+        detail: [
+          { question: 'Sunday', expected_display: '1', given: answers?.[0] ?? '1', correct: true },
+          { question: 'Saturday', expected_display: '0', given: answers?.[1] ?? '0', correct: true },
+          { question: 'February (02)', expected_display: '4', given: answers?.[2] ?? '4', correct: true },
+          { question: '47', expected_display: '2209', given: answers?.[3] ?? '2209', correct: true },
+          { question: '97 / 4', expected_display: '24', given: answers?.[4] ?? '23', correct: false },
+        ],
+      };
+      const attIdx = attempts.findIndex(
+        a => a.test_id === sess.test_id && a.student_id === studentId && a.section_id === sess.section_id
+      );
+      if (attIdx >= 0) {
+        attempts[attIdx].status = 'submitted';
+        attempts[attIdx].seconds_used = fixedResult.seconds;
+        attempts[attIdx].finished_at = new Date().toISOString();
+        localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_ATTEMPTS, JSON.stringify(attempts));
+      }
+      upsertScoreRow(fixedResult.correct, fixedResult.questions_total, fixedResult.seconds, null);
+      return fixedResult;
+    }
+
+    if (kind === 'memoriad') {
+      const mod = sess.module || 'calendar';
+      const totalQ = mod === 'calendar' ? 25 : 10;
+      const correctQ = mod === 'calendar' ? 24 : mod === 'square_roots' ? 8 : 9;
+      const usedSec = mod === 'calendar' ? 31.42 : 118.65;
+      const attIdx = attempts.findIndex(
+        a => a.test_id === sess.test_id && a.student_id === studentId && a.section_id === sess.section_id
+      );
+      if (attIdx >= 0) {
+        attempts[attIdx].status = 'submitted';
+        attempts[attIdx].seconds_used = Math.round(usedSec);
+        attempts[attIdx].finished_at = new Date().toISOString();
+        localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_ATTEMPTS, JSON.stringify(attempts));
+      }
+      upsertScoreRow(correctQ, totalQ, Math.round(usedSec), null);
+      return {
+        ok: true,
+        kind: 'memoriad',
+        module: mod,
+        title: sess.module_title || 'Mental Calendar Dates',
+        test_title: sess.title || 'Weekly Test',
+        questions_total: totalQ,
+        attempted: totalQ,
+        correct: correctQ,
+        wrong: totalQ - correctQ,
+        score: mod === 'square_roots' ? 312 : correctQ,
+        used_seconds: usedSec,
+        saved: true,
+        detail: [],
+      };
+    }
+
     const attempted = Array.isArray(answers) ? answers.length : 0;
     const elapsedSec = Math.max(
       1,
@@ -2209,15 +2792,16 @@ export const DemoDB = {
       )
     );
 
-    const attempts = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_ATTEMPTS) || '[]');
     const attIdx = attempts.findIndex(
       a =>
         a.test_id === sess.test_id &&
         a.student_id === studentId &&
-        a.category_id === sess.category_id
+        ((sess.section_id && a.section_id === sess.section_id) ||
+          (!sess.section_id && a.category_id === sess.category_id))
     );
     if (attIdx >= 0) {
       attempts[attIdx].status = 'submitted';
+      attempts[attIdx].seconds_used = elapsedSec;
       attempts[attIdx].finished_at = new Date().toISOString();
       localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_ATTEMPTS, JSON.stringify(attempts));
     }
@@ -2225,14 +2809,15 @@ export const DemoDB = {
     if (attempted === 0) {
       return {
         ok: true,
+        kind: 'basics',
+        title: sess.title || 'Weekly Test',
         correct: 0,
         attempted: 0,
         accuracy: 0,
-        used_seconds: elapsedSec
+        used_seconds: elapsedSec,
       };
     }
 
-    // Grade against the underlying demo basics session
     const demoDrillSessions = JSON.parse(
       localStorage.getItem('trendz_demo_drill_sessions_v1') || '{}'
     );
@@ -2249,56 +2834,46 @@ export const DemoDB = {
     }
 
     const accuracy = Math.round((correct / attempted) * 1000) / 10;
-
-    const scores = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_SCORES) || '[]');
-    const existingIdx = scores.findIndex(
-      sc =>
-        sc.test_id === sess.test_id &&
-        sc.student_id === studentId &&
-        sc.category_id === sess.category_id
-    );
-    const scoreRow = {
-      id: existingIdx >= 0 ? scores[existingIdx].id : `sc-on-${Date.now()}`,
-      test_id: sess.test_id,
-      student_id: studentId,
-      category_id: sess.category_id,
-      correct,
-      total: attempted,
-      time_seconds: elapsedSec,
-      source: 'online',
-      created_at: new Date().toISOString()
-    };
-    if (existingIdx >= 0) {
-      scores[existingIdx] = scoreRow;
-    } else {
-      scores.push(scoreRow);
-    }
-    localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_SCORES, JSON.stringify(scores));
+    upsertScoreRow(correct, attempted, elapsedSec, sess.category_id);
 
     return {
       ok: true,
+      kind: 'basics',
+      title: sess.title || 'Weekly Test',
       correct,
       attempted,
       accuracy,
-      used_seconds: elapsedSec
+      used_seconds: elapsedSec,
     };
   },
 
-  getWeeklyTestScores(testId, categoryId) {
+  getWeeklyTestScores(testId, categoryId = null, sectionId = null) {
     initDemoStorage();
     const scores = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_SCORES) || '[]');
+    if (sectionId) {
+      return scores.filter(
+        s =>
+          s.test_id === testId &&
+          (s.section_id === sectionId || (!s.section_id && categoryId && s.category_id === categoryId))
+      );
+    }
     return scores.filter(s => s.test_id === testId && s.category_id === categoryId);
   },
 
-  saveWeeklyTestScores(testId, categoryId, scoresList) {
+  saveWeeklyTestScores(testId, categoryId = null, scoresList = [], sectionId = null) {
     initDemoStorage();
     let scores = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_SCORES) || '[]');
 
     scoresList.forEach(item => {
-      const idx = scores.findIndex(s => s.test_id === testId && s.category_id === categoryId && s.student_id === item.student_id);
+      const idx = scores.findIndex(s => {
+        if (s.test_id !== testId || s.student_id !== item.student_id) return false;
+        if (sectionId) {
+          return s.section_id === sectionId || (!s.section_id && categoryId && s.category_id === categoryId);
+        }
+        return s.category_id === categoryId;
+      });
 
       if (item.correct === null || item.correct === '' || item.total === null || item.total === '') {
-        // Clear if previously entered and now blank
         if (idx !== -1) {
           scores.splice(idx, 1);
         }
@@ -2310,19 +2885,24 @@ export const DemoDB = {
         if (idx !== -1) {
           scores[idx] = {
             ...scores[idx],
+            section_id: sectionId || scores[idx].section_id || null,
+            category_id: categoryId !== undefined ? categoryId : scores[idx].category_id,
             correct: correctNum,
             total: totalNum,
-            time_seconds: timeSec
+            time_seconds: timeSec,
+            source: 'teacher'
           };
         } else {
           scores.push({
             id: `sc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
             test_id: testId,
             student_id: item.student_id,
-            category_id: categoryId,
+            section_id: sectionId || null,
+            category_id: categoryId || null,
             correct: correctNum,
             total: totalNum,
             time_seconds: timeSec,
+            source: 'teacher',
             created_at: new Date().toISOString()
           });
         }
@@ -3370,6 +3950,105 @@ export const DemoDB = {
       attempted: item.attempted,
       seconds: item.seconds,
       attempts: item.attempts,
+      is_me: !isAdmin && item.student_id === callerId
+    }));
+
+    if (isAdmin) {
+      const cap = Math.min(200, Number(p_limit) || 200);
+      return mapped.slice(0, cap);
+    }
+
+    const topLimit = Math.min(10, Number(p_limit) || 10);
+    const topRows = mapped.slice(0, topLimit);
+    const ownRow = mapped.find(r => r.is_me);
+    if (ownRow && !topRows.some(r => r.is_me)) {
+      topRows.push(ownRow);
+    }
+    return topRows;
+  },
+
+  /**
+   * Phase 16a Demo Mode: Fixed pre-baked Weekly Test Leaderboard rows.
+   * Zero point or rank calculation in JavaScript.
+   */
+  mockWeeklyTestLeaderboard(
+    {
+      p_test = null,
+      p_period = 'month',
+      p_level = null,
+      p_limit = 10,
+      p_scope = 'level'
+    } = {},
+    callerProfile = null
+  ) {
+    initDemoStorage();
+    const rules = this.mockCompetitionRules();
+    const useCode = rules.leaderboard_names === 'student_code';
+    const isAdmin = callerProfile?.role === 'admin';
+    const callerId = callerProfile?.id || 'usr-101';
+    const callerLevel = callerProfile?.level || 'Level 3';
+    const scope = p_scope === 'global' ? 'global' : 'level';
+
+    if (!isAdmin && scope === 'global' && !this.mockGlobalLeaderboardEnabled()) {
+      throw new Error('The global leaderboard is switched off.');
+    }
+
+    if (p_test && !isAdmin) {
+      const myTests = this.mockMyWeeklyTests(callerId);
+      const targetTest = myTests.find(t => t.id === p_test);
+      if (targetTest && targetTest.type === 'online' && !targetTest.leaderboard_ready) {
+        throw new Error('The leaderboard of an online test appears after the test closes.');
+      }
+    }
+
+    const storedStudents = this.getStudents();
+    const hiddenSet = new Set(
+      storedStudents.filter(s => s.leaderboard_visible === false || s.active === false).map(s => s.id)
+    );
+
+    const WEEKLY_BOARD_FIXTURES = {
+      'wkt-1': [
+        { rank: 1, student_id: 'usr-101', name_initial: 'Aarav S.', code: 'STU101', level: 'Level 3', points: 114, correct: 59, attempted: 61, seconds: 162, tests: 1 },
+        { rank: 2, student_id: 'usr-107', name_initial: 'Arjun N.', code: 'STU107', level: 'Master', points: 40, correct: 20, attempted: 20, seconds: 78, tests: 1 },
+        { rank: 3, student_id: 'usr-102', name_initial: 'Diya P.', code: 'STU102', level: 'Level 2', points: 68, correct: 37, attempted: 40, seconds: 205, tests: 1 },
+        { rank: 4, student_id: 'usr-106', name_initial: 'Mira J.', code: 'STU106', level: 'Level 3', points: 32, correct: 18, attempted: 20, seconds: 115, tests: 1 },
+        { rank: 5, student_id: 'usr-103', name_initial: 'Kabir V.', code: 'STU103', level: 'Level 4', points: 28, correct: 17, attempted: 20, seconds: 135, tests: 1 },
+        { rank: 6, student_id: 'usr-105', name_initial: 'Rohan M.', code: 'STU105', level: 'Level 2', points: 20, correct: 15, attempted: 20, seconds: 155, tests: 1 }
+      ],
+      'wkt-online-1': [
+        { rank: 1, student_id: 'usr-101', name_initial: 'Aarav S.', code: 'STU101', level: 'Level 3', points: 32, correct: 18, attempted: 20, seconds: 30, tests: 1 }
+      ],
+      default: [
+        { rank: 1, student_id: 'usr-101', name_initial: 'Aarav S.', code: 'STU101', level: 'Level 3', points: 150, correct: 78, attempted: 81, seconds: 252, tests: 2 },
+        { rank: 2, student_id: 'usr-301', name_initial: 'Ishaan K.', code: 'STU301', level: 'Level 3', points: 144, correct: 75, attempted: 78, seconds: 240, tests: 2 },
+        { rank: 3, student_id: 'usr-102', name_initial: 'Diya P.', code: 'STU102', level: 'Level 2', points: 142, correct: 76, attempted: 80, seconds: 398, tests: 2 },
+        { rank: 4, student_id: 'usr-107', name_initial: 'Arjun N.', code: 'STU107', level: 'Master', points: 120, correct: 60, attempted: 60, seconds: 210, tests: 2 },
+        { rank: 5, student_id: 'usr-106', name_initial: 'Mira J.', code: 'STU106', level: 'Level 3', points: 96, correct: 52, attempted: 56, seconds: 290, tests: 2 },
+        { rank: 6, student_id: 'usr-103', name_initial: 'Kabir V.', code: 'STU103', level: 'Level 4', points: 88, correct: 48, attempted: 52, seconds: 310, tests: 2 }
+      ]
+    };
+
+    const rawPool = (p_test && WEEKLY_BOARD_FIXTURES[p_test]) || WEEKLY_BOARD_FIXTURES.default;
+    let pool = rawPool.filter(item => !hiddenSet.has(item.student_id));
+
+    if (!isAdmin) {
+      if (scope !== 'global') {
+        pool = pool.filter(item => item.level === callerLevel);
+      }
+    } else if (p_level && p_level !== 'all') {
+      pool = pool.filter(item => item.level === p_level);
+    }
+
+    const mapped = pool.map((item, idx) => ({
+      rank: idx + 1,
+      student_id: isAdmin ? item.student_id : null,
+      display_name: useCode ? item.code : item.name_initial,
+      level: item.level,
+      points: item.points,
+      correct: item.correct,
+      attempted: item.attempted,
+      seconds: item.seconds,
+      tests: item.tests,
       is_me: !isAdmin && item.student_id === callerId
     }));
 

@@ -122,7 +122,7 @@
              ============================================================== -->
         <section id="drill-intro-screen" aria-labelledby="intro-drill-title">
           <div style="margin-bottom: var(--space-4);">
-            <a href="/pages/elements.html" class="btn btn-secondary btn-sm">&larr; All Drills</a>
+            <a id="link-intro-back" href="/pages/elements.html" class="btn btn-secondary btn-sm">&larr; All Drills</a>
           </div>
 
           <div class="card" style="max-width: 680px; margin: 0 auto;">
@@ -271,6 +271,13 @@
             >
               <div>
                 <div
+                  id="worksheet-test-badge"
+                  class="status-chip"
+                  style="display: none; background: #DBEAFE; color: #1E40AF; font-size: 11px; margin-bottom: 4px;"
+                >
+                  Weekly Test
+                </div>
+                <div
                   id="worksheet-drill-title"
                   style="font-size: var(--text-base); font-weight: 800; color: var(--text-main);"
                 >
@@ -330,6 +337,14 @@
                   style="min-height: 44px;"
                 >
                   Submit now
+                </button>
+                <button
+                  type="button"
+                  id="btn-exit-test-worksheet"
+                  class="btn btn-outline btn-sm"
+                  style="display: none; min-height: 44px;"
+                >
+                  Exit
                 </button>
               </div>
             </div>
@@ -439,13 +454,31 @@
                 <button type="button" id="btn-same-drill-again" class="btn btn-primary btn-sm">
                   Same drill again
                 </button>
-                <a href="/pages/elements.html" class="btn btn-secondary btn-sm" style="text-decoration: none;">
+                <a id="btn-result-all-drills" href="/pages/elements.html" class="btn btn-secondary btn-sm" style="text-decoration: none;">
                   All drills
                 </a>
               </div>
             </div>
 
             <div class="card-body">
+              <!-- Weekly Test Saved Callout -->
+              <div
+                id="result-test-saved-banner"
+                style="
+                  display: none;
+                  background: #ECFDF5;
+                  color: #065F46;
+                  border: 1px solid #A7F3D0;
+                  border-radius: var(--radius-md);
+                  padding: var(--space-3) var(--space-4);
+                  margin-bottom: var(--space-4);
+                  font-weight: 700;
+                  font-size: var(--text-sm);
+                "
+              >
+                &check; Saved as part of Weekly Test
+              </div>
+
               <!-- Personal Best Callout -->
               <div
                 id="result-personal-best-banner"
