@@ -34,6 +34,7 @@
 
   /* Legacy type aliases mapped onto the strict 14..28 scale */
   --text-xs: var(--text-sm);
+  --text-md: var(--text-base);
   --text-3xl: var(--text-2xl);
 
   --line-height-body: 1.5;
@@ -131,10 +132,12 @@
   --color-score-perfect-subtle: #DCFCE7;
   --color-score-warning: #B45309;
   --color-score-warning-subtle: #FEF3C7;
+  --color-score-close: var(--color-score-warning);
   --color-score-alert: #0369A1;
   --color-score-alert-subtle: #E0F2FE;
   --color-score-danger: #B91C1C;
   --color-score-danger-subtle: #FEE2E2;
+  --color-score-danger-bg: var(--color-danger-subtle);
 
   /* --------------------------------------------------------------------------
      10. Layout & Transitions

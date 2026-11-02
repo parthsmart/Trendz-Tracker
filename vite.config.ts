@@ -1,15 +1,23 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { defineConfig } from 'vite';
+import { getSupabaseServerConfig } from './api/_configHelper.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export default defineConfig(({ command }) => {
+  let resolvedServerConfig: { url: string; anonKey: string } | null = null;
+  try {
+    resolvedServerConfig = getSupabaseServerConfig(process.env);
+  } catch {
+    resolvedServerConfig = null;
+  }
+
   // Enforce required build variables when deploying on Vercel
   if (process.env.VERCEL) {
-    const url = process.env.VITE_SUPABASE_URL || '';
-    const anonKey = process.env.VITE_SUPABASE_ANON_KEY || '';
+    const url = resolvedServerConfig?.url || process.env.VITE_SUPABASE_URL || '';
+    const anonKey = resolvedServerConfig?.anonKey || process.env.VITE_SUPABASE_ANON_KEY || '';
 
     const isInvalidUrl = !url ||
       url.includes('YOUR_') ||
@@ -37,7 +45,12 @@ export default defineConfig(({ command }) => {
     { find: '@', replacement: path.resolve(__dirname, '.') },
   ];
 
-  const rawSupabaseUrl = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '').trim();
+  const rawSupabaseUrl = (
+    resolvedServerConfig?.url ||
+    process.env.VITE_SUPABASE_URL ||
+    process.env.SUPABASE_URL ||
+    ''
+  ).trim();
   let supabaseOrigin = '';
   try {
     if (
@@ -52,6 +65,14 @@ export default defineConfig(({ command }) => {
   }
 
   return {
+    ...(resolvedServerConfig
+      ? {
+          define: {
+            'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(resolvedServerConfig.url),
+            'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(resolvedServerConfig.anonKey),
+          },
+        }
+      : {}),
     plugins: [
       {
         name: 'trendz-supabase-preconnect',

@@ -3900,11 +3900,12 @@ export const DemoDB = {
 
     const tasks = this.getTodos();
     const task = tasks.find(t => String(t.id) === String(p_task));
-    if (
-      !task ||
-      String(task.section || '').trim().toLowerCase() !== 'basics' ||
-      !task.category_id
-    ) {
+    const sec = task ? String(task.section || '').trim().toLowerCase() : '';
+    const isRankable =
+      (sec === 'basics' && Boolean(task?.category_id)) ||
+      (sec === 'elements' && Boolean(task?.activity_key)) ||
+      sec === 'flash';
+    if (!task || !isRankable) {
       throw new Error('Speed ranking is available for basics tasks with a category only.');
     }
 

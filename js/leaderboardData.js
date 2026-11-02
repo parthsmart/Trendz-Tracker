@@ -206,7 +206,7 @@ export async function fetchTodoTaskLeaderboard(
   callerProfile = null
 ) {
   if (!taskId) {
-    throw new Error('Speed ranking is available for basics tasks with a category only.');
+    throw new Error('Speed ranking is available for basics, elements, and flash tasks only.');
   }
 
   if (!isSupabaseConfigured()) {
@@ -245,6 +245,33 @@ export async function fetchTodoTaskLeaderboard(
       window.location.href = '/index.html';
       return [];
     }
+    if (msg.toLowerCase().includes('basics tasks with a category only')) {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) {
+        throw new Error('Please sign in to view the task leaderboard.');
+      }
+      const resp = await fetch('/api/drill', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({
+          action: 'task_leaderboard',
+          task_id: taskId,
+          period,
+          level,
+          limit,
+          scope
+        })
+      });
+      const payload = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        throw new Error(normalizeLeaderboardErrorMessage(payload.error || 'Could not load leaderboard.'));
+      }
+      return Array.isArray(payload.rows) ? payload.rows : [];
+    }
     throw new Error(normalizeLeaderboardErrorMessage(msg));
   }
 
@@ -280,7 +307,7 @@ export async function fetchTodoLeaderboardTasks(
     if (supabase) {
       const { data, error } = await supabase
         .from('daily_tasks')
-        .select('id, title, section, category_id, activity_key, level, required_count, sort_order, active')
+        .select('id, title, section, category_id, activity_key, flash_digits, flash_count, flash_speed_ms, flash_mode, level, required_count, sort_order, active')
         .eq('active', true)
         .order('sort_order', { ascending: true })
         .order('created_at', { ascending: true });

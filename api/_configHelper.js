@@ -119,7 +119,7 @@ export function hasSupabaseAdminConfig(env = process.env) {
  * Throws 500 error if unconfigured or placeholder.
  */
 export function getSupabaseAdminConfig(env = process.env) {
-  const { url, anonKey } = getSupabaseServerConfig();
+  const { url, anonKey } = getSupabaseServerConfig(env);
   const rawServiceKey = pickValidEnv(
     env.SUPABASE_SERVICE_ROLE_KEY,
     env.SUPABASE_SERVICE_KEY,
