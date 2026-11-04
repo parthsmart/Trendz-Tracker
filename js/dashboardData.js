@@ -60,6 +60,7 @@ export async function fetchStudentScoreSheetData(studentId) {
         } catch {
           // fall through
         }
+        return [];
       }
       return DemoDB.getRoundSeries();
     })(),
@@ -74,6 +75,7 @@ export async function fetchStudentScoreSheetData(studentId) {
         } catch {
           // fall through
         }
+        return [];
       }
       return DemoDB.getCategorySeries();
     })(),
@@ -90,6 +92,7 @@ export async function fetchStudentScoreSheetData(studentId) {
         } catch {
           // fall through
         }
+        return [];
       }
       const matchedRounds = DemoDB.getStudentRounds(studentId);
       return matchedRounds.length > 0 ? matchedRounds : DemoDB.getStudentRounds('usr-101');
@@ -106,6 +109,7 @@ export async function fetchStudentScoreSheetData(studentId) {
         } catch {
           // fall through
         }
+        return [];
       }
       return DemoDB.getResources().filter((r) => r.active !== false);
     })(),
@@ -191,6 +195,7 @@ export async function fetchStudentDashboardData(studentId, { includeScoreSheet =
         } catch {
           // fall through
         }
+        return { current_streak: 0, best_streak: 0, shields: 0, active_today: false };
       }
       return await DemoDB.mockStreakFor(studentId);
     })(),
@@ -236,6 +241,7 @@ export async function fetchStudentDashboardData(studentId, { includeScoreSheet =
         } catch {
           // fall through
         }
+        return [];
       }
       const demoRows = await DemoDB.mockTodoFor(studentId);
       const demoTasks = DemoDB.getTodos ? DemoDB.getTodos() : [];
@@ -267,6 +273,7 @@ export async function fetchStudentDashboardData(studentId, { includeScoreSheet =
         } catch {
           // fall through
         }
+        return [];
       }
       return DemoDB.getCategories();
     })(),
@@ -314,6 +321,7 @@ export async function fetchStudentDashboardData(studentId, { includeScoreSheet =
         } catch {
           // fall through
         }
+        return [];
       }
       // DemoDB results with target status: match studentId or fallback to sample usr-101 results
       const matched = DemoDB.getResultsWithTarget(studentId, null);
@@ -335,6 +343,7 @@ export async function fetchStudentDashboardData(studentId, { includeScoreSheet =
         } catch {
           // fall through
         }
+        return { present_count: 0, absent_count: 0, excused_count: 0, attendance_pct: null };
       }
       return DemoDB.mockAttendanceSummary(studentId);
     })(),
@@ -364,6 +373,7 @@ export async function fetchStudentDashboardData(studentId, { includeScoreSheet =
         } catch {
           // fall through
         }
+        return { tests: [], scores: [] };
       }
       const demoTests = DemoDB.getWeeklyTests();
       const testIds = demoTests.map(t => t.id);
@@ -391,6 +401,7 @@ export async function fetchStudentDashboardData(studentId, { includeScoreSheet =
         } catch {
           // fall through
         }
+        return [];
       }
       return DemoDB.getActivityResults(studentId);
     })()
@@ -435,6 +446,7 @@ export async function resolveStudentProfile(studentId) {
     } catch {
       // fall through
     }
+    return null;
   }
 
   // DemoDB fallback

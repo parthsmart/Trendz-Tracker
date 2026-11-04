@@ -365,3 +365,67 @@ Tracks the per-student sync state for the readable Google Sheets score-sheet mir
   - `series`: `[{ id, name, is_current }]` (current series first)
   - `categories`: `[{ id, name, series_id, sort_order }]` (round categories per series, in order)
   - `rounds`: `[{ id, series_id, number, date, type, time_taken_seconds, cells: [{ category_id, correct, total, time_seconds, note }] }]` (newest round first within each series).
+
+---
+
+## Phase 17a & 17b: JMCWC Simulator Database Contract, Tables & Server Lifecycle RPCs
+
+> **Authoritative Deployed Database Contract Snapshot**:  
+> The exact read-only snapshot extracted directly from the owner's deployed Supabase PostgreSQL database is saved permanently at [`docs/JMCWC_DATABASE_CONTRACT.json`](./JMCWC_DATABASE_CONTRACT.json). Treat `docs/JMCWC_DATABASE_CONTRACT.json` as the single source of truth for all JMCWC table columns, constraints, indexes, triggers, and RPC function definitions.
+
+### 1. Access Control & RLS Posture
+All 7 JMCWC tables (`jmcwc_assignments`, `jmcwc_categories`, `jmcwc_papers`, `jmcwc_targets`, `jmcwc_attempts`, `jmcwc_payloads`, `jmcwc_scores`) have `rls_enabled = true` with `policies = []` and permissions restricted to `{postgres, service_role}`. All 9 JMCWC functions execute with `security_definer = false` and permissions restricted to `{postgres, service_role}`. Direct browser/client queries using `anon` or `authenticated` JWTs have zero access; all reads and writes go through the authenticated server API (`POST /api/jmcwc` in `api/jmcwc.js` / `api/_jmcwcServer.js`) using the server-only `service_role` client after verifying the caller's Bearer token via `supabase.auth.getUser(token)` and enforcing `public.profiles` role and active status.
+
+### 2. Tables (7 Total)
+1. **`public.jmcwc_categories`**:
+   - Columns: `key text PRIMARY KEY`, `label text NOT NULL`, `workbook_sheet text NOT NULL`, `position integer NOT NULL UNIQUE`, `legacy_category_id uuid NULL REFERENCES public.categories(id) ON DELETE SET NULL`.
+   - Stores the 23 visible JMCWC workbook categories (`addition` through `sum_squares`).
+2. **`public.jmcwc_assignments`**:
+   - Columns: `student_id uuid PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE`, `group_key text NOT NULL CHECK (group_key IN ('junior1','junior2','senior'))`, `updated_at timestamptz NOT NULL DEFAULT now()`.
+   - Trigger: `BEFORE INSERT OR UPDATE FOR EACH ROW EXECUTE FUNCTION jmcwc_assignment_guard()`.
+3. **`public.jmcwc_papers`**:
+   - Columns: `id uuid PRIMARY KEY DEFAULT gen_random_uuid()`, `group_key text NOT NULL CHECK (group_key IN ('junior1','junior2','senior'))`, `version text NOT NULL`, `spec jsonb NOT NULL CHECK (jsonb_typeof(spec) = 'object')`, `published boolean NOT NULL DEFAULT false`, `created_at timestamptz NOT NULL DEFAULT now()`.
+   - Unique constraint: `(group_key, version)`.
+   - Trigger: `BEFORE INSERT OR UPDATE FOR EACH ROW EXECUTE FUNCTION jmcwc_paper_guard()`.
+   - Current deployed status: `junior1`, `junior2`, and `senior` at `version = '2026.1'` are inserted with `published = false` (23 sections each).
+4. **`public.jmcwc_targets`**:
+   - Columns: `group_key text NOT NULL`, `category_key text NOT NULL REFERENCES public.jmcwc_categories(key)`, `target_seconds integer NULL CHECK (target_seconds > 0 AND target_seconds <= 86400)`, `updated_at timestamptz NOT NULL DEFAULT now()`.
+   - Primary key: `(group_key, category_key)`.
+5. **`public.jmcwc_attempts`**:
+   - Columns: `id uuid PRIMARY KEY`, `student_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE`, `request_id uuid NOT NULL`, `paper_id uuid NOT NULL REFERENCES public.jmcwc_papers(id)`, `group_key text NOT NULL`, `mode text NOT NULL CHECK (mode IN ('flat','category'))`, `category_key text NULL REFERENCES public.jmcwc_categories(key)`, `status text NOT NULL DEFAULT 'paused' CHECK (status IN ('paused','running','grading','submitted'))`, `active_ms bigint NOT NULL DEFAULT 0`, `target_seconds integer NULL`, `last_seen_at timestamptz NULL`, `lease_id uuid NULL`, `save_seq bigint NOT NULL DEFAULT -1`, `revision bigint NOT NULL DEFAULT 0`, `answers jsonb NOT NULL DEFAULT '{}'::jsonb`, `created_at timestamptz NOT NULL DEFAULT now()`, `finished_at timestamptz NULL`, `submitted_reason text NULL CHECK (submitted_reason IN ('early','time_limit'))`.
+   - Indexes: `UNIQUE (student_id, request_id)`, `(student_id, created_at DESC)`, and partial unique index `jmcwc_one_running ON (student_id) WHERE (status = 'running')`.
+6. **`public.jmcwc_payloads`**:
+   - Columns: `attempt_id uuid PRIMARY KEY REFERENCES public.jmcwc_attempts(id) ON DELETE CASCADE`, `questions jsonb NOT NULL CHECK (jsonb_typeof(questions) = 'array')`.
+   - Stores the generated private questions including `answer_key` and frozen `max_marks` (never returned directly to clients).
+7. **`public.jmcwc_scores`**:
+   - Columns: `attempt_id uuid PRIMARY KEY REFERENCES public.jmcwc_attempts(id) ON DELETE CASCADE`, `marks numeric NOT NULL CHECK (marks >= 0)`, `max_marks numeric NOT NULL`, `correct integer NOT NULL`, `partial integer NOT NULL`, `wrong integer NOT NULL`, `skipped integer NOT NULL`, `items jsonb NOT NULL CHECK (jsonb_typeof(items) = 'array')`, `created_at timestamptz NOT NULL DEFAULT now()`.
+
+### 3. Database Functions & Triggers (9 Total)
+1. **`public.jmcwc_check_student(p_student uuid) -> text`**: Verifies `profiles` row is an active student and returns `group_key` from `jmcwc_assignments` (raising an exception if unassigned).
+2. **`public.jmcwc_create_attempt(p_student uuid, p_request uuid, p_paper uuid, p_mode text, p_category text, p_questions jsonb) -> uuid`**: Enforces idempotency on `(student_id, request_id)`, requires `published = true` on `jmcwc_papers`, enforces the 3-unfinished-flat-round cap, validates every generated question slot and mark via `jmcwc_validate_marks`, snapshots `target_seconds` for category rounds, and inserts into `jmcwc_attempts` (`status = 'paused'`) and `jmcwc_payloads`.
+3. **`public.jmcwc_act(p_student uuid, p_attempt uuid, p_action text, p_lease uuid, p_seq bigint, p_answers jsonb) -> jsonb`**: Executes `'read'`, `'resume'`, `'save'`, `'heartbeat'`, `'pause'`, or `'submit'` under a student-level transactional advisory lock, ticking active time via `jmcwc_tick`, rotating leases on `'resume'`, validating monotonic `save_seq` and answer patches (`<= 250KB` patch, `<= 4KB` string/null per question), and transitioning to `'grading'` on early submit or 2-hour flat expiry.
+4. **`public.jmcwc_list(p_student uuid, p_offset integer) -> SETOF jmcwc_attempts`**: Ticks any running attempts for the student and returns up to 50 attempts ordered by `created_at DESC, id`.
+5. **`public.jmcwc_finalize(p_student uuid, p_attempt uuid, p_revision bigint, p_items jsonb) -> void`**: Idempotently finalizes an attempt in `status = 'grading'` matching `p_revision`, verifying every question is graded once with consistent `award` (`m`, `m/2`, or `0`) and `blank` (`coalesce(btrim(a.answers->>(q->>'id')), '') = ''` $\iff$ `verdict = 'skipped'`), inserting `jmcwc_scores`, and setting `status = 'submitted'`.
+6. **`public.jmcwc_validate_marks(p_category text, p_slot jsonb, p_question_marks numeric) -> void`**: Validates fixed and dynamic slot scoring metadata (`parameters.scoring_mode`, `parameters.mark_rule`, `parameters.mark_range`) and generated question `max_marks`.
+7. **`public.jmcwc_tick(p_attempt uuid) -> void`**: Internal timer helper that auto-pauses running attempts when the heartbeat gap exceeds `25,000 ms` (without adding the gap to `active_ms`) and transitions flat rounds to `'grading'` (`submitted_reason = 'time_limit'`) when `active_ms >= 7,200,000 ms`.
+8. **`public.jmcwc_assignment_guard() -> trigger`**: Prevents assigning non-student profiles or changing a student's `group_key` while unfinished simulator attempts (`status <> 'submitted'`) exist.
+9. **`public.jmcwc_paper_guard() -> trigger`**: Prevents mutating published papers (`published = true`) and validates all 23 sections and slot mark rules before a paper is published.
+
+### 4. Phase 17c Backup, Restore Order & Student Deletion Scoping
+- **Private Server Backup & FK Restore Order (`api/_backupTables.js`, `api/backup.js`, `docs/RESTORE.md`)**:
+  - All 7 JMCWC tables are included in `JMCWC_BACKUP_TABLES` and `PRIVATE_SERVER_BACKUP_TABLES` in strict foreign-key dependency order:
+    1. `jmcwc_papers`
+    2. `jmcwc_categories`
+    3. `jmcwc_targets`
+    4. `jmcwc_assignments`
+    5. `jmcwc_attempts`
+    6. `jmcwc_payloads`
+    7. `jmcwc_scores`
+- **Answer-Key Privacy Boundary (`FORBIDDEN_PUBLIC_OR_MIRROR_TABLES = ['jmcwc_payloads']`)**:
+  - `public.jmcwc_payloads` stores generated per-attempt question payloads including `answer_key` and accepted alternatives.
+  - `jmcwc_payloads` is **never** included in `BACKUP_TABLES` (Google Sheets nightly/manual sync), `EXPORT_TABLES` (browser CSV ZIP export), or `api/_mirror.js` (per-student Google Sheets score-sheet mirror). It is exported exclusively through authenticated admin-only private server backups (`POST /api/backup` `{ action: 'private_jmcwc_backup' }`).
+- **Student Deletion Scoping & Flat-Round Cap Protection**:
+  - Deleting a student account previews (`admin_get_student_deletion_preview`) and deletes (`admin_delete_student_jmcwc_data` with `confirm_student_account_deletion: true`) only that student's rows in `jmcwc_scores`, `jmcwc_payloads`, `jmcwc_attempts`, and `jmcwc_assignments`.
+  - Shared configuration tables (`jmcwc_papers`, `jmcwc_categories`, `jmcwc_targets`) are never deleted when deleting a student.
+  - Deleting individual JMCWC attempts while keeping the student account is forbidden (`403 ATTEMPT_DELETE_SHORTCUT_FORBIDDEN`) so the 3-unfinished-flat-round cap cannot be bypassed.
+

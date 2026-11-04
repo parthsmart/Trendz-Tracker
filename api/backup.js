@@ -23,6 +23,9 @@ import {
   BACKUP_TABLES,
   SNAPSHOT_TABLES,
   APPEND_TABLES,
+  JMCWC_BACKUP_TABLES,
+  FORBIDDEN_PUBLIC_OR_MIRROR_TABLES,
+  RESTORE_TABLE_ORDER,
   SNAPSHOT_MAX_ROWS,
   PAGE_SIZE,
   SHEETS_UPDATE_CHUNK_ROWS,
@@ -1061,6 +1064,49 @@ export async function executeBackupRunPass({
   }
 }
 
+/**
+ * Exports all 7 JMCWC tables in strict foreign-key restore order for private server-side admin backup.
+ * Never writes `jmcwc_payloads` to Google Sheets or public backups.
+ */
+export async function handlePrivateJmcwcBackup({ supabase }) {
+  const tables = {};
+  const counts = {};
+
+  for (const spec of JMCWC_BACKUP_TABLES) {
+    let query = supabase.from(spec.name).select('*');
+    const orderCols = Array.isArray(spec.orderBy) ? spec.orderBy : [];
+    for (const ord of orderCols) {
+      query = query.order(ord.column, { ascending: ord.ascending !== false });
+    }
+    const execQuery =
+      typeof query.range === 'function' ? query.range(0, SNAPSHOT_MAX_ROWS - 1) : query;
+    const { data, error } = await execQuery;
+    if (error) {
+      throw new Error(`Failed reading ${spec.name}: ${error.message || 'database error'}`);
+    }
+    const rows = Array.isArray(data) ? data : [];
+    tables[spec.name] = rows;
+    counts[spec.name] = rows.length;
+  }
+
+  const body = {
+    ok: true,
+    private_server_only: true,
+    private_server_backup: true,
+    restore_order: JMCWC_BACKUP_TABLES.map((t) => t.name),
+    full_restore_order: RESTORE_TABLE_ORDER,
+    excluded_from_public_and_sheets: FORBIDDEN_PUBLIC_OR_MIRROR_TABLES,
+    counts,
+    tables,
+  };
+
+  return {
+    httpStatus: 200,
+    body,
+    ...body,
+  };
+}
+
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
 
@@ -1095,7 +1141,7 @@ export default async function handler(req, res) {
   }
 
   // =========================================================================
-  // 2. POST = Admin Action ({ action: 'status' | 'run' | 'rebuild_mirror' })
+  // 2. POST = Admin Action ({ action: 'status' | 'run' | 'rebuild_mirror' | 'private_jmcwc_backup' })
   // =========================================================================
   if (req.method === 'POST') {
     let adminProfile;
@@ -1110,10 +1156,15 @@ export default async function handler(req, res) {
     const body = req.body && typeof req.body === 'object' ? req.body : {};
     const action = body.action;
 
-    if (action !== 'status' && action !== 'run' && action !== 'rebuild_mirror') {
+    if (
+      action !== 'status' &&
+      action !== 'run' &&
+      action !== 'rebuild_mirror' &&
+      action !== 'private_jmcwc_backup'
+    ) {
       return res.status(400).json({
         error:
-          'Request body must specify { "action": "status" }, { "action": "run" }, or { "action": "rebuild_mirror" }.',
+          'Request body must specify { "action": "status" }, { "action": "run" }, { "action": "rebuild_mirror" }, or { "action": "private_jmcwc_backup" }.',
       });
     }
 
@@ -1132,6 +1183,12 @@ export default async function handler(req, res) {
         const adminSupabase = getAdminClient();
         const rebuildPayload = await handleRebuildMirror({ supabase: adminSupabase });
         return res.status(200).json(rebuildPayload);
+      }
+
+      if (action === 'private_jmcwc_backup') {
+        const adminSupabase = getAdminClient();
+        const privatePayload = await handlePrivateJmcwcBackup({ supabase: adminSupabase });
+        return res.status(privatePayload.httpStatus || 200).json(privatePayload.body || privatePayload);
       }
 
       // action === 'run' requires service role and Google config

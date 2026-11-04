@@ -108,8 +108,7 @@ export function hasSupabaseAdminConfig(env = process.env) {
   const rawAnonKey = pickMatchingAnonKey(cleanUrl, env.SUPABASE_ANON_KEY, env.VITE_SUPABASE_ANON_KEY);
   const rawServiceKey = pickValidEnv(
     env.SUPABASE_SERVICE_ROLE_KEY,
-    env.SUPABASE_SERVICE_KEY,
-    env.VITE_SUPABASE_SERVICE_ROLE_KEY
+    env.SUPABASE_SERVICE_KEY
   );
   return Boolean(cleanUrl && rawAnonKey && rawServiceKey);
 }
@@ -117,13 +116,13 @@ export function hasSupabaseAdminConfig(env = process.env) {
 /**
  * Reads and validates Supabase Service Role Key for server-only administrative tasks.
  * Throws 500 error if unconfigured or placeholder.
+ * Service keys MUST remain strictly server-side and never use a VITE_ prefix.
  */
 export function getSupabaseAdminConfig(env = process.env) {
   const { url, anonKey } = getSupabaseServerConfig(env);
   const rawServiceKey = pickValidEnv(
     env.SUPABASE_SERVICE_ROLE_KEY,
-    env.SUPABASE_SERVICE_KEY,
-    env.VITE_SUPABASE_SERVICE_ROLE_KEY
+    env.SUPABASE_SERVICE_KEY
   );
 
   if (isPlaceholder(rawServiceKey)) {
