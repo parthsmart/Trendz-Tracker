@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
+    "preview:staging": "tsx --env-file=.env.staging.local server.ts",
     "build": "vite build",
     "start": "tsx server.ts",
     "test": "node --test tests/*.test.js",

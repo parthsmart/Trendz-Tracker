@@ -8,6 +8,7 @@ import { getSupabase, DemoDB, clearStaleSupabaseSession } from './supabaseClient
 import { isDemoMode } from './demoDb.js';
 import { readProfileCache, writeProfileCache, clearProfileCache } from './profileCache.js';
 import { clearNotificationsCache } from './notificationBadge.js';
+import { clearAllJmcwcLocalRecovery, syncJmcwcRecoveryUserScope } from './jmcwcClient.js';
 
 let inFlightProfilePromise = null;
 let inFlightProfileUserId = null;
@@ -107,6 +108,7 @@ export async function loginWithStudentId(studentId, password) {
       throw new Error('Your account is deactivated. Please contact your Trendz Abacus teacher.');
     }
 
+    syncJmcwcRecoveryUserScope(profile.id);
     writeProfileCache(profile);
     return { user: authData.user, profile };
   }
@@ -131,6 +133,7 @@ export async function loginWithStudentId(studentId, password) {
         created_at: new Date().toISOString()
       };
       DemoDB.setDemoAuth(adminProfile);
+      syncJmcwcRecoveryUserScope(adminProfile.id);
       writeProfileCache(adminProfile);
       return { user: { id: adminProfile.id, email }, profile: adminProfile };
     } else {
@@ -157,6 +160,7 @@ export async function loginWithStudentId(studentId, password) {
   }
 
   DemoDB.setDemoAuth(matchedStudent);
+  syncJmcwcRecoveryUserScope(matchedStudent.id);
   writeProfileCache(matchedStudent);
   return { user: { id: matchedStudent.id, email }, profile: matchedStudent };
 }
@@ -243,6 +247,7 @@ export async function getCurrentProfile({ allowCached = true, onRevalidated = nu
         return null;
       }
 
+      syncJmcwcRecoveryUserScope(profile.id);
       writeProfileCache(profile);
       return profile;
     } catch (err) {
@@ -261,6 +266,7 @@ export async function getCurrentProfile({ allowCached = true, onRevalidated = nu
 
   const demoProfile = DemoDB.getDemoAuth();
   if (demoProfile) {
+    syncJmcwcRecoveryUserScope(demoProfile.id);
     writeProfileCache(demoProfile);
   }
   return demoProfile;
@@ -277,6 +283,7 @@ export async function logoutUser() {
 
   clearProfileCache();
   clearNotificationsCache();
+  clearAllJmcwcLocalRecovery();
 
   try {
     await ensurePreviewConfigLoaded();
@@ -298,6 +305,7 @@ export async function logoutUser() {
   } finally {
     clearProfileCache();
     clearNotificationsCache();
+    clearAllJmcwcLocalRecovery();
     clearStaleSupabaseSession();
     try {
       if (DemoDB && typeof DemoDB.setDemoAuth === 'function') {

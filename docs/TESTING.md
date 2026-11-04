@@ -1608,3 +1608,38 @@ Open browser DevTools (`F12`), toggle the Device Toolbar (`Ctrl+Shift+M` / `Cmd+
    - Sign in as Admin (`ADMIN01` / `admin123`), open `/pages/weekly-tests.html`, and select the online test.
    - Confirm completed sections show score, wrong count, and time, while an in-progress Flash section shows *"Started, not finished"* + *"tries n of m"* + **Reset**.
    - Click **Reset** on a student's section and confirm both the attempt and score for that section are cleared so the student can take it again.
+
+
+---
+
+## Phase 17a, 17b & 17c — JMCWC Blueprints, Pure Generators/Graders, Authenticated Server APIs, Student Runner, Admin & Backup Integration
+
+Authoritative database contract reference: [`docs/JMCWC_DATABASE_CONTRACT.json`](./JMCWC_DATABASE_CONTRACT.json).
+
+> **CRITICAL VERIFICATION STATUS (LIVE POSTGRESQL INTEGRATION PENDING):**
+> - The automated tests in `tests/jmcwcEngine.test.js`, `tests/jmcwcServer.test.js`, `tests/jmcwcPhase17c.test.js`, and `tests/backup.test.js` use local Node unit tests and an in-memory contract emulator.
+> - **They do NOT establish actual PostgreSQL integration, row-level locking (`FOR UPDATE`), trigger enforcement, or live database concurrency correctness.**
+> - All three JMCWC papers (`junior1`, `junior2`, `senior`, `version = '2026.1'`) remain `published = false` in production (`paper_available: false`), keeping online practice unavailable to students until live PostgreSQL database integration and concurrency checks pass.
+> - No paper publication controls are exposed in the Admin UI.
+
+### Automated Unit & Emulator Contract Tests (`node --test`)
+1. Run the Phase 17a, 17b, 17c, and Backup test suites:
+   ```bash
+   node --test tests/jmcwcEngine.test.js tests/jmcwcServer.test.js tests/jmcwcPhase17c.test.js tests/backup.test.js
+   ```
+2. **Expected (`tests/jmcwcEngine.test.js` — Phase 17a)**:
+   - Validates all 3 paper blueprints (`junior1`, `junior2`, `senior`, `version = '2026.1'`, `published = false`, 23 sections each) against `jmcwc_paper_guard` and `jmcwc_validate_marks`.
+   - Verifies all 23 category generators (`api/_jmcwcGenerate.js`), dynamic mark rules, and all 14 answer-type graders (`api/_jmcwcGrade.js`), including exact/partial/wrong/skipped verdicts and `toPublicQuestions` stripping `answer_key`.
+3. **Expected (`tests/jmcwcServer.test.js` — Phase 17b)**:
+   - Verifies `api/_jmcwcServer.js` against the exact 9 deployed PostgreSQL functions in `docs/JMCWC_DATABASE_CONTRACT.json` (`jmcwc_check_student`, `jmcwc_create_attempt`, `jmcwc_act`, `jmcwc_list`, `jmcwc_finalize`, `jmcwc_validate_marks`, `jmcwc_tick`, `jmcwc_assignment_guard`, `jmcwc_paper_guard`).
+   - Verifies bearer-token auth, URL-token rejection, unpublished paper rejection (`409 NO_PUBLISHED_PAPER`), 3-unfinished-flat-round cap (`409 FLAT_CAP_REACHED`), idempotent `request_id` replay, single active attempt & takeover confirmation (`409 TAKEOVER_CONFIRMATION_REQUIRED`), `lease_id` enforcement (`409 LEASE_MISMATCH`), `save_seq` ordering, 48 KB pause keepalive cap, 2-hour flat active-time expiry (`active_ms >= 7200000`), response whitelisting (never leaking `answer_key` or `lease_id` on paused/list responses), and admin overview/assignment/target/mapping/review endpoints.
+4. **Expected (`tests/jmcwcPhase17c.test.js` & `tests/backup.test.js` — Phase 17c)**:
+   - **Browser Module Boundary**: Verifies `shared/jmcwcSaveQueue.js`, `js/jmcwcClient.js`, `js/roundScores.js`, and `js/rounds.js` have zero server imports and never reference nonexistent columns like `last_heartbeat_at`.
+   - **Landing Page & 3-Slot Cap**: Verifies non-editable group label, unassigned block message (`"Ask your teacher to assign your JMCWC group."`), unpublished paper block, 3-unfinished-flat-round cap (excluding category and manual rounds), and unfinished flat round cards.
+   - **Category & Manual Targets**: Verifies neutral actual-time vs optional target comparison (zero time limit or penalty) and manual category target lookup via `jmcwc_categories.legacy_category_id`.
+   - **Accessible Inputs & Precision**: Verifies input descriptors for all 14 answer types (`integer`, `signed_number`, `decimal`, `fraction_or_decimal`, `repeating_decimal`, `mixed_number`, `base_representation`, `ratio`, `time_24h`, `day_of_week`, `multi_value`, `prime_factorization`, `money_decimal`, `expression_or_number`) and exact raw string preservation.
+   - **Controllable Clock Timing, Pause & Keepalive**: Verifies monotonic timer calculation from server `active_ms`, immediate question/input hiding on explicit Pause, `visibilitychange`/`pagehide`, lease loss (`409 LEASE_MISMATCH`), and 2-hour flat expiry, plus `fetch('/api/jmcwc', { keepalive: true })` with `Authorization: Bearer <token>` and 48 KB fallback.
+   - **Scoped Local Unsent Recovery**: Verifies `localStorage` keys scoped by `userId` + `attemptId`, conflict detection (`Recover` / `Discard`), blocking restore on submitted/expired attempts, and cleanup on sign-out, account change, and submission.
+   - **Review & History Isolation**: Verifies frozen attempt `max_marks` display, `"One valid answer"` label on alternative-answer items (`sum_squares`), and `Online` vs `Manual` history rows without polluting legacy manual accuracy, Points leaderboard, or weekly-test scores.
+   - **Admin Deletion & Backup Safety**: Verifies `JMCWC_BACKUP_TABLES` and `RESTORE_TABLE_ORDER` FK order, strict exclusion of `jmcwc_payloads` and `answer_key` from public backups and Google Sheets mirrors, rejection of standalone attempt-deletion shortcuts (`403 ATTEMPT_DELETE_SHORTCUT_FORBIDDEN`), and student-scoped deletion preserving shared `jmcwc_papers`, `jmcwc_categories`, and `jmcwc_targets`.
+

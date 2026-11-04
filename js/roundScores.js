@@ -27,6 +27,23 @@ import { formatDisplayDateIST, getISTDateString } from './stats.js';
 import { DemoDB, getSupabase } from './supabaseClient.js';
 import { formatSecondsToMMSS, parseTimeToSeconds, setupEnterKeyNavigation } from './timeUtils.js';
 import { showToast } from './toast.js';
+import {
+  JMCWC_UNASSIGNED_GROUP_MESSAGE,
+  formatJmcwcGroupLabel,
+  formatJmcwcCategoryTitle,
+  formatActiveDurationMs,
+  formatDurationSeconds,
+  formatNeutralTargetComparison,
+  resolveManualCategoryTargetSeconds,
+  computeMonotonicTimerState,
+  buildLandingPageViewModel,
+  describeQuestionInputSpec,
+  splitMultiValueRaw,
+  joinMultiValueRaw,
+  buildSubmittedReviewViewModel,
+  formatOnlineAttemptsForRoundHistory,
+  createJmcwcRunnerController,
+} from './jmcwcClient.js';
 
 let currentProfile = null;
 let todayIST = '';
@@ -38,6 +55,18 @@ let existingResultsMap = new Map(); // category_id -> result object
 let initialRowValues = new Map(); // category_id -> JSON string of initial values to detect dirty rows
 let initialRoundMeta = { round_type: 'Category wise', time_taken: '' };
 let pendingNavigationCallback = null;
+
+// Phase 17c JMCWC Online Practice state
+let activeRoundScoresMode = 'manual'; // 'manual' | 'online'
+let jmcwcOverviewData = null;
+let jmcwcCategoriesList = [];
+let jmcwcTargetsMap = {};
+let jmcwcOnlineAttempts = [];
+let jmcwcRunner = null;
+let jmcwcCurrentSectionOrder = 1;
+let jmcwcCurrentQuestionIndex = 0;
+let pendingTakeoverAttemptId = null;
+let isSubmittingPausedAttempt = false;
 
 /**
  * Formats database errors into clear, friendly messages for students
@@ -239,6 +268,7 @@ async function loadStudentRounds(preselectRoundId = null) {
           </p>
         </div>
       `;
+      renderCombinedRoundHistory();
       return;
     }
 
@@ -268,6 +298,7 @@ async function loadStudentRounds(preselectRoundId = null) {
 
     renderSelectedRoundMeta();
     await loadRoundResults();
+    renderCombinedRoundHistory();
   } catch (err) {
     console.error('Error loading student rounds:', err);
     showToast('error', formatFriendlyRoundError(err));
@@ -618,7 +649,7 @@ function renderCategoryRows() {
           />
         </div>
 
-        <!-- Time Input (mm:ss or seconds) -->
+        <!-- Time Input (mm:ss or seconds) + Current Configured Target -->
         <div class="cell-time">
           <label class="sr-only" for="input-time-${escapeHtml(cat.id)}">${escapeHtml(cat.name)} time elapsed</label>
           <input
@@ -633,6 +664,19 @@ function renderCategoryRows() {
             data-cat-id="${escapeHtml(cat.id)}"
             aria-label="${escapeHtml(cat.name)} time elapsed"
           />
+          ${(() => {
+            const targetSec = resolveManualCategoryTargetSeconds(cat, jmcwcCategoriesList, jmcwcTargetsMap);
+            if (!targetSec) return '';
+            const actualSec = existing && existing.time_seconds !== null && existing.time_seconds !== undefined
+              ? Number(existing.time_seconds)
+              : null;
+            const comp = actualSec !== null ? formatNeutralTargetComparison(actualSec * 1000, targetSec) : null;
+            return `
+              <div class="num manual-cat-target-note" data-target-for="${escapeHtml(cat.id)}" data-target-sec="${targetSec}" style="font-size: 11px; color: var(--text-muted); margin-top: 3px; text-align: right;">
+                ${escapeHtml(comp ? comp.comparisonText : `Target: ${formatDurationSeconds(targetSec)}`)}
+              </div>
+            `;
+          })()}
         </div>
 
         <!-- Accuracy & Wrong Count Feedback -->
@@ -891,8 +935,24 @@ function attachLiveInputListeners() {
     });
   });
 
-  // Time format on blur
+  // Time format on blur & live neutral target comparison in manual entry
   container.querySelectorAll('.input-time').forEach(input => {
+    const updateManualTargetNote = () => {
+      const catId = input.getAttribute('data-cat-id');
+      const noteEl = container.querySelector(`.manual-cat-target-note[data-target-for="${catId}"]`);
+      if (!noteEl) return;
+      const targetSec = Number(noteEl.getAttribute('data-target-sec')) || null;
+      if (!targetSec) return;
+      const raw = input.value.trim();
+      const parsedSec = raw ? parseTimeToSeconds(raw) : null;
+      if (parsedSec !== null) {
+        const comp = formatNeutralTargetComparison(parsedSec * 1000, targetSec);
+        noteEl.textContent = comp.comparisonText;
+      } else {
+        noteEl.textContent = `Target: ${formatDurationSeconds(targetSec)}`;
+      }
+    };
+    input.addEventListener('input', updateManualTargetNote);
     input.addEventListener('blur', () => {
       const raw = input.value.trim();
       const catId = input.getAttribute('data-cat-id');
@@ -903,6 +963,7 @@ function attachLiveInputListeners() {
           input.value = formatSecondsToMMSS(seconds);
         }
       }
+      updateManualTargetNote();
       if (row) {
         validateRowFields(row, getFlatMode());
       }
@@ -1199,6 +1260,14 @@ async function initRoundScores() {
   if (codeEl) codeEl.textContent = currentProfile.student_code || 'STU';
 
   document.getElementById('btn-header-logout')?.addEventListener('click', async () => {
+    stopRunnerSchedulers();
+    if (jmcwcRunner) {
+      try {
+        await jmcwcRunner.pauseAttempt();
+      } catch {
+        // Best effort pause on sign-out
+      }
+    }
     const { logoutUser } = await import('./auth.js');
     await logoutUser();
   });
@@ -1301,7 +1370,1863 @@ async function initRoundScores() {
 
   // Initial load
   await loadCurrentSeriesAndToday();
+  await loadJmcwcOverviewAndAttempts();
   await loadStudentRounds();
+  renderCombinedRoundHistory();
+  setupJmcwcOnlinePracticeUI();
+}
+
+// ============================================================================
+// Phase 17c — JMCWC Online Practice & Combined History Controller
+// ============================================================================
+
+async function getJmcwcBearerToken() {
+  if (!isSupabaseConfigured()) return '';
+  try {
+    const supabase = await getSupabase();
+    if (!supabase) return '';
+    const { data } = await supabase.auth.getSession();
+    return data?.session?.access_token || '';
+  } catch {
+    return '';
+  }
+}
+
+async function callJmcwcApi(payload) {
+  const token = await getJmcwcBearerToken();
+  if (!token) {
+    throw new Error('Authentication required for JMCWC online practice.');
+  }
+  const response = await fetch('/api/jmcwc', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data?.ok === false) {
+    const err = new Error(data?.error?.message || `Request failed (${response.status})`);
+    err.status = response.status;
+    err.code = data?.error?.code || 'API_ERROR';
+    throw err;
+  }
+  return data;
+}
+
+async function loadJmcwcOverviewAndAttempts() {
+  const groupBadge = document.getElementById('jmcwc-assigned-group-badge');
+  if (!isSupabaseConfigured()) {
+    // In Demo Mode or unconfigured environment, online practice remains unavailable
+    jmcwcOverviewData = {
+      assigned_group: null,
+      paper: null,
+      categories: [],
+      targets: {},
+      unfinished_flat_count: 0,
+      active_attempt_id: null,
+    };
+    jmcwcOnlineAttempts = [];
+    renderJmcwcLandingState();
+    return;
+  }
+
+  try {
+    const [overviewRes, attemptsRes] = await Promise.all([
+      callJmcwcApi({ action: 'get_practice_overview' }),
+      callJmcwcApi({ action: 'list_attempts', limit: 50 }),
+    ]);
+
+    jmcwcOverviewData = overviewRes;
+    jmcwcCategoriesList = Array.isArray(overviewRes.categories) ? overviewRes.categories : [];
+    jmcwcTargetsMap = overviewRes.targets && typeof overviewRes.targets === 'object' ? overviewRes.targets : {};
+    jmcwcOnlineAttempts = Array.isArray(attemptsRes.attempts) ? attemptsRes.attempts : [];
+
+    // Re-render manual category rows if already mounted so target labels appear
+    if (roundCategories.length > 0 && selectedRoundId) {
+      renderCategoryRows();
+    }
+  } catch (err) {
+    console.warn('JMCWC overview check:', err.message);
+    if (groupBadge) {
+      groupBadge.textContent = 'JMCWC Group: Unassigned';
+    }
+    jmcwcOverviewData = {
+      assigned_group: null,
+      paper: null,
+      categories: [],
+      targets: {},
+      unfinished_flat_count: 0,
+      active_attempt_id: null,
+    };
+    jmcwcOnlineAttempts = [];
+  }
+
+  renderJmcwcLandingState();
+  renderCombinedRoundHistory();
+}
+
+function showJmcwcOnlineError(msg) {
+  const banner = document.getElementById('jmcwc-online-error-banner');
+  const textEl = document.getElementById('jmcwc-online-error-text');
+  if (!banner || !textEl) return;
+  if (!msg) {
+    banner.style.display = 'none';
+    textEl.textContent = '';
+    return;
+  }
+  textEl.textContent = msg;
+  banner.style.display = 'flex';
+}
+
+function renderJmcwcLandingState() {
+  const vm = buildLandingPageViewModel(jmcwcOverviewData || {}, jmcwcOnlineAttempts || []);
+
+  const topGroupBadge = document.getElementById('jmcwc-assigned-group-badge');
+  const onlineGroupLabel = document.getElementById('jmcwc-online-group-label');
+  const unassignedBanner = document.getElementById('jmcwc-unassigned-banner');
+  const unassignedText = document.getElementById('jmcwc-unassigned-text');
+  const unavailableBanner = document.getElementById('jmcwc-unavailable-banner');
+  const unavailableText = document.getElementById('jmcwc-unavailable-text');
+
+  if (topGroupBadge) {
+    topGroupBadge.textContent = vm.hasGroup
+      ? `JMCWC Group: ${vm.groupLabel}`
+      : 'JMCWC Group: Unassigned';
+    topGroupBadge.className = vm.hasGroup ? 'badge badge-primary' : 'badge badge-neutral';
+  }
+  if (onlineGroupLabel) {
+    onlineGroupLabel.textContent = vm.groupLabel;
+  }
+
+  if (unassignedBanner && unassignedText) {
+    if (!vm.hasGroup) {
+      unassignedText.textContent = vm.unassignedMessage || JMCWC_UNASSIGNED_GROUP_MESSAGE;
+      unassignedBanner.style.display = 'flex';
+    } else {
+      unassignedBanner.style.display = 'none';
+    }
+  }
+
+  if (unavailableBanner && unavailableText) {
+    if (vm.hasGroup && !vm.hasPublishedPaper) {
+      unavailableText.textContent = vm.paperUnavailableMessage || 'Online practice paper for your group is not published yet.';
+      unavailableBanner.style.display = 'flex';
+    } else {
+      unavailableBanner.style.display = 'none';
+    }
+  }
+
+  // Flat round card
+  const flatSlotsBadge = document.getElementById('jmcwc-flat-slots-badge');
+  const flatCapReason = document.getElementById('jmcwc-flat-cap-reason');
+  const btnStartFlat = document.getElementById('btn-jmcwc-start-flat');
+  const paperQcountEl = document.getElementById('jmcwc-landing-paper-qcount');
+
+  if (paperQcountEl) {
+    const fallbackTotal = Array.isArray(vm.categories)
+      ? vm.categories.reduce((acc, c) => acc + (Number(c.question_count) || 0), 0)
+      : 0;
+    const resolvedQcount =
+      vm.totalPaperQuestions != null && vm.totalPaperQuestions > 0
+        ? vm.totalPaperQuestions
+        : fallbackTotal > 0
+          ? fallbackTotal
+          : null;
+    paperQcountEl.textContent = resolvedQcount != null ? String(resolvedQcount) : 'all';
+  }
+
+  if (flatSlotsBadge) {
+    flatSlotsBadge.textContent = `${vm.unfinishedFlatCount} / ${vm.maxUnfinishedFlatRounds} unfinished`;
+  }
+  if (flatCapReason) {
+    if (vm.newFlatDisabledReason && vm.unfinishedFlatCount >= vm.maxUnfinishedFlatRounds) {
+      flatCapReason.textContent = vm.newFlatDisabledReason;
+      flatCapReason.style.display = 'block';
+    } else {
+      flatCapReason.style.display = 'none';
+      flatCapReason.textContent = '';
+    }
+  }
+  if (btnStartFlat) {
+    btnStartFlat.disabled = !vm.canStartNewFlat;
+    btnStartFlat.title = vm.newFlatDisabledReason || 'Start a new 23-category JMCWC flat round';
+  }
+
+  // Category-wise card
+  const catSelect = document.getElementById('select-jmcwc-category');
+  const catTargetPreview = document.getElementById('jmcwc-category-target-preview');
+  const btnStartCat = document.getElementById('btn-jmcwc-start-category');
+  const catBadgeEl = document.getElementById('jmcwc-landing-category-qcount');
+
+  if (catSelect) {
+    const prevVal = catSelect.value;
+    if (vm.categories.length === 0) {
+      catSelect.innerHTML = '<option value="">No categories available</option>';
+      catSelect.disabled = true;
+      if (catBadgeEl) catBadgeEl.textContent = 'Practice';
+    } else {
+      catSelect.innerHTML = vm.categories.map(c => {
+        const qCountStr = c.question_count != null ? ` (${c.question_count} questions)` : '';
+        const targetStr = c.target_seconds ? ` (Target: ${c.target_formatted})` : '';
+        return `
+          <option value="${escapeHtml(c.id)}">
+            #${c.section_order} ${escapeHtml(c.display_name)}${qCountStr}${targetStr}
+          </option>
+        `;
+      }).join('');
+      if (prevVal && vm.categories.some(c => c.id === prevVal)) {
+        catSelect.value = prevVal;
+      }
+      catSelect.disabled = !vm.canStartCategory;
+    }
+
+    const updateCatTargetPreview = () => {
+      const selectedCat = vm.categories.find(c => c.id === catSelect.value);
+      if (catBadgeEl) {
+        catBadgeEl.textContent = selectedCat && selectedCat.question_count != null
+          ? `${selectedCat.question_count} questions`
+          : 'Practice';
+      }
+      if (catTargetPreview) {
+        catTargetPreview.textContent = selectedCat && selectedCat.target_seconds
+          ? `Optional target: ${selectedCat.target_formatted} (no time limit or penalty)`
+          : 'Optional target: No target configured';
+      }
+    };
+    catSelect.onchange = updateCatTargetPreview;
+    updateCatTargetPreview();
+  }
+
+  if (btnStartCat) {
+    btnStartCat.disabled = !vm.canStartCategory || vm.categories.length === 0;
+  }
+
+  // Unfinished Flat Round cards
+  const flatCardsContainer = document.getElementById('jmcwc-unfinished-flat-cards');
+  if (flatCardsContainer) {
+    if (vm.unfinishedFlatCards.length === 0) {
+      flatCardsContainer.innerHTML = `<div style="font-size: var(--text-xs); color: var(--text-muted);">No unfinished flat rounds.</div>`;
+    } else {
+      flatCardsContainer.innerHTML = vm.unfinishedFlatCards.map(card => `
+        <div class="card" style="padding: var(--space-4); border: 1px solid var(--border-subtle); background: var(--bg-surface-subtle); display: flex; flex-direction: column; justify-content: space-between; gap: var(--space-3);">
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2);">
+              <span class="badge ${card.status === 'running' ? 'badge-active' : 'badge-warning'}">${escapeHtml(card.status === 'running' ? 'Running' : 'Paused')}</span>
+              <span class="num" style="font-size: var(--text-xs); color: var(--text-muted);">${escapeHtml(formatDisplayDateIST((card.started_at || '').slice(0, 10)))}</span>
+            </div>
+            <div class="num" style="font-size: var(--text-sm); font-weight: 700; color: var(--text-main); margin-bottom: 4px;">
+              Answered: ${card.answered_count} / ${card.question_count}
+            </div>
+            <div class="num" style="font-size: var(--text-xs); color: var(--text-muted);">
+              Active time used: <strong>${escapeHtml(card.active_time_formatted)}</strong>
+            </div>
+            <div class="num" style="font-size: var(--text-xs); color: var(--text-muted);">
+              Remaining time: <strong>${escapeHtml(card.remaining_time_formatted)}</strong>
+            </div>
+          </div>
+          <button
+            type="button"
+            class="btn btn-primary btn-sm btn-jmcwc-resume-attempt"
+            data-attempt-id="${escapeHtml(card.id)}"
+            style="width: 100%; min-height: 38px;"
+          >
+            Resume
+          </button>
+        </div>
+      `).join('');
+
+      flatCardsContainer.querySelectorAll('.btn-jmcwc-resume-attempt').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const attemptId = btn.getAttribute('data-attempt-id');
+          if (attemptId) handleResumeOnlineAttempt(attemptId, false);
+        });
+      });
+    }
+  }
+
+  // Unfinished Category Practice cards
+  const catSection = document.getElementById('jmcwc-unfinished-cat-section');
+  const catCardsContainer = document.getElementById('jmcwc-unfinished-cat-cards');
+  if (catSection && catCardsContainer) {
+    if (vm.unfinishedCategoryCards.length === 0) {
+      catSection.style.display = 'none';
+      catCardsContainer.innerHTML = '';
+    } else {
+      catSection.style.display = 'block';
+      catCardsContainer.innerHTML = vm.unfinishedCategoryCards.map(card => `
+        <div class="card" style="padding: var(--space-4); border: 1px solid var(--border-subtle); background: var(--bg-surface-subtle); display: flex; flex-direction: column; justify-content: space-between; gap: var(--space-3);">
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2);">
+              <span class="badge badge-neutral">${escapeHtml(card.category_name)}</span>
+              <span class="num" style="font-size: var(--text-xs); color: var(--text-muted);">${escapeHtml(formatDisplayDateIST((card.started_at || '').slice(0, 10)))}</span>
+            </div>
+            <div class="num" style="font-size: var(--text-xs); color: var(--text-muted);">
+              Answered: <strong>${card.answered_count} / ${card.question_count}</strong> · Elapsed: <strong>${escapeHtml(card.active_time_formatted)}</strong>
+            </div>
+          </div>
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm btn-jmcwc-resume-cat"
+            data-attempt-id="${escapeHtml(card.id)}"
+            style="width: 100%; min-height: 38px;"
+          >
+            Resume Category
+          </button>
+        </div>
+      `).join('');
+
+      catCardsContainer.querySelectorAll('.btn-jmcwc-resume-cat').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const attemptId = btn.getAttribute('data-attempt-id');
+          if (attemptId) handleResumeOnlineAttempt(attemptId, false);
+        });
+      });
+    }
+  }
+}
+
+/**
+ * Renders the Combined Round Scores History table with `Manual` and `Online` labels.
+ * Preserves legacy manual round numbering and restrictions, and never merges online weighted marks
+ * into legacy accuracy, Points leaderboard, or weekly-test scores.
+ */
+function renderCombinedRoundHistory() {
+  const tbody = document.getElementById('round-history-tbody');
+  if (!tbody) return;
+
+  const manualEntries = (studentRounds || []).map(r => ({
+    source: 'Manual',
+    id: r.id,
+    title: `Round ${r.round_number}`,
+    dateStr: r.round_date || (r.created_at ? r.created_at.slice(0, 10) : ''),
+    sortMs: r.round_date ? Date.parse(r.round_date) : (r.created_at ? Date.parse(r.created_at) : 0),
+    modeLabel: r.round_type || 'Category wise',
+    timeText: r.time_taken_seconds !== null && r.time_taken_seconds !== undefined
+      ? formatSecondsToMMSS(r.time_taken_seconds)
+      : '—',
+    summaryText: currentSeries ? `${currentSeries.name} (Manual series)` : 'Manual series round',
+    status: 'manual',
+  }));
+
+  const onlineFormatted = formatOnlineAttemptsForRoundHistory(
+    jmcwcOnlineAttempts || [],
+    jmcwcCategoriesList || []
+  ).map(o => ({
+    source: 'Online',
+    id: o.id,
+    title: o.mode_label,
+    dateStr: (o.date_iso || '').slice(0, 10),
+    sortMs: o.date_iso ? Date.parse(o.date_iso) : 0,
+    modeLabel: `${formatJmcwcGroupLabel(o.group_key)} · ${o.mode === 'flat' ? 'Flat Round' : 'Category-wise'}`,
+    timeText: o.active_time_formatted,
+    summaryText: o.is_submitted && o.marks_text
+      ? `Marks: ${o.marks_text} (frozen max) · ${o.correct_count || 0} correct, ${o.partial_count || 0} partial`
+      : `Unfinished (${o.status})`,
+    status: o.status,
+    is_submitted: o.is_submitted,
+  }));
+
+  const combined = [...manualEntries, ...onlineFormatted].sort((a, b) => (b.sortMs || 0) - (a.sortMs || 0));
+
+  if (combined.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="7" style="text-align: center; color: var(--text-muted); font-size: var(--text-xs); padding: var(--space-4);">
+          No manual or online rounds recorded yet.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = combined.map(item => `
+    <tr>
+      <td>
+        <span class="badge ${item.source === 'Online' ? 'badge-primary' : 'badge-neutral'}">
+          ${escapeHtml(item.source)}
+        </span>
+      </td>
+      <td style="font-weight: 700; color: var(--text-main);">
+        ${escapeHtml(item.title)}
+      </td>
+      <td class="num" style="color: var(--text-muted);">
+        ${escapeHtml(item.dateStr ? formatDisplayDateIST(item.dateStr) : '—')}
+      </td>
+      <td>
+        ${escapeHtml(item.modeLabel)}
+      </td>
+      <td class="num">
+        ${escapeHtml(item.timeText)}
+      </td>
+      <td class="num" style="font-size: var(--text-xs);">
+        ${escapeHtml(item.summaryText)}
+      </td>
+      <td style="text-align: right;">
+        ${item.source === 'Manual' ? `
+          <button
+            type="button"
+            class="btn btn-outline btn-sm btn-history-open-manual"
+            data-round-id="${escapeHtml(item.id)}"
+          >
+            Open Manual
+          </button>
+        ` : item.is_submitted ? `
+          <button
+            type="button"
+            class="btn btn-outline btn-sm btn-history-open-review"
+            data-attempt-id="${escapeHtml(item.id)}"
+          >
+            Review
+          </button>
+        ` : `
+          <button
+            type="button"
+            class="btn btn-primary btn-sm btn-history-resume-online"
+            data-attempt-id="${escapeHtml(item.id)}"
+          >
+            Resume
+          </button>
+        `}
+      </td>
+    </tr>
+  `).join('');
+
+  tbody.querySelectorAll('.btn-history-open-manual').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const rId = btn.getAttribute('data-round-id');
+      await switchRoundScoresMode('manual');
+      if (rId) {
+        const selectEl = document.getElementById('select-round');
+        if (selectEl) {
+          selectEl.value = rId;
+          selectEl.dispatchEvent(new Event('change'));
+        }
+      }
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  });
+
+  tbody.querySelectorAll('.btn-history-open-review').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const attemptId = btn.getAttribute('data-attempt-id');
+      await switchRoundScoresMode('online');
+      if (attemptId) {
+        await handleOpenCompletedReview(attemptId);
+      }
+    });
+  });
+
+  tbody.querySelectorAll('.btn-history-resume-online').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const attemptId = btn.getAttribute('data-attempt-id');
+      await switchRoundScoresMode('online');
+      if (attemptId) {
+        await handleResumeOnlineAttempt(attemptId, false);
+      }
+    });
+  });
+}
+
+async function switchRoundScoresMode(targetMode) {
+  if (targetMode === activeRoundScoresMode) return;
+
+  if (activeRoundScoresMode === 'manual') {
+    const unsaved = recalculateUnsavedChanges();
+    if (unsaved > 0) {
+      showUnsavedLeaveBanner(() => {
+        updateUnsavedCountUI(0);
+        initialRowValues.clear();
+        applyModeVisibility(targetMode);
+      });
+      return;
+    }
+  } else if (activeRoundScoresMode === 'online' && jmcwcRunner) {
+    const st = jmcwcRunner.getState();
+    if (st.status === 'running') {
+      await jmcwcRunner.pauseAttempt();
+    }
+  }
+
+  applyModeVisibility(targetMode);
+}
+
+function applyModeVisibility(mode) {
+  activeRoundScoresMode = mode === 'online' ? 'online' : 'manual';
+  const btnManual = document.getElementById('btn-mode-manual');
+  const btnOnline = document.getElementById('btn-mode-online');
+  const manualPane = document.getElementById('jmcwc-manual-entry-pane');
+  const onlinePane = document.getElementById('jmcwc-online-practice-pane');
+
+  if (btnManual && btnOnline) {
+    const isOnline = activeRoundScoresMode === 'online';
+    btnManual.setAttribute('aria-selected', isOnline ? 'false' : 'true');
+    btnOnline.setAttribute('aria-selected', isOnline ? 'true' : 'false');
+    btnManual.className = isOnline ? 'btn btn-ghost btn-sm' : 'btn btn-primary btn-sm';
+    btnOnline.className = isOnline ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
+  }
+
+  if (manualPane) manualPane.style.display = activeRoundScoresMode === 'manual' ? 'block' : 'none';
+  if (onlinePane) onlinePane.style.display = activeRoundScoresMode === 'online' ? 'block' : 'none';
+}
+
+function showJmcwcSubview(subviewName) {
+  const landing = document.getElementById('jmcwc-subview-landing');
+  const runner = document.getElementById('jmcwc-subview-runner');
+  const review = document.getElementById('jmcwc-subview-review');
+
+  if (landing) landing.style.display = subviewName === 'landing' ? 'block' : 'none';
+  if (runner) runner.style.display = subviewName === 'runner' ? 'block' : 'none';
+  if (review) review.style.display = subviewName === 'review' ? 'block' : 'none';
+}
+
+function ensureJmcwcRunnerInstance() {
+  if (jmcwcRunner) return jmcwcRunner;
+  jmcwcRunner = createJmcwcRunnerController({
+    userId: currentProfile?.id || '',
+    getBearerToken: getJmcwcBearerToken,
+    onStateChange: (state) => {
+      renderJmcwcRunnerState(state);
+    },
+  });
+  return jmcwcRunner;
+}
+
+function getRunnerQuestionsInOrder(state) {
+  const sections = Array.isArray(state?.questions) ? state.questions : [];
+  const flatQuestions = [];
+  for (const sec of sections) {
+    const qList = Array.isArray(sec.questions) ? sec.questions : [];
+    for (const q of qList) {
+      flatQuestions.push({
+        ...q,
+        section_order: sec.section_order,
+        category_slug: sec.category_slug,
+        category_name: sec.display_name || sec.category_slug,
+      });
+    }
+  }
+  return flatQuestions;
+}
+
+let jmcwcHeartbeatTimerId = null;
+let jmcwcDisplayTimerId = null;
+let jmcwcIsHeartbeatInFlight = false;
+let jmcwcIsExpiryInFlight = false;
+let jmcwcRunnerViewMode = 'worksheet'; // 'worksheet' | 'single'
+let jmcwcRenderedWorksheetKey = null;
+
+function formatWorksheetMathPromptHtml(promptStr) {
+  if (!promptStr) return '';
+
+  // Check if prompt is a pure stacked arithmetic problem ending in =
+  // (Addition, Subtraction, Mixed adds/subs, Multiplication)
+  const trimmed = String(promptStr).trim();
+  if (/^(\d+)(\s*[\+\−\-\×\*]\s*\d+)+\s*=\s*$/.test(trimmed)) {
+    const rawWithoutEqual = trimmed.replace(/\s*=\s*$/, '').trim();
+    const tokenRegex = /([\+\−\-\×\*])?\s*(\d+)/g;
+    const rows = [];
+    let m;
+    let isFirst = true;
+
+    while ((m = tokenRegex.exec(rawWithoutEqual)) !== null) {
+      const op = isFirst ? '' : (m[1] || '+');
+      const num = m[2];
+      rows.push({ op, num });
+      isFirst = false;
+    }
+
+    if (rows.length >= 2) {
+      const rowsHtml = rows
+        .map(
+          (r) =>
+            `<div class="jmcwc-stacked-row"><span class="jmcwc-stacked-op">${escapeHtml(
+              r.op
+            )}</span><span class="jmcwc-stacked-num">${escapeHtml(r.num)}</span></div>`
+        )
+        .join('');
+      return `<div class="jmcwc-stacked-math" role="math" aria-label="${escapeHtml(
+        promptStr
+      )}">${rowsHtml}<div class="jmcwc-stacked-line"></div></div>`;
+    }
+  }
+
+  const escaped = escapeHtml(String(promptStr));
+
+  // Format missing digit (?) or [?] boxes
+  let formatted = escaped.replace(/(\(\?\)|\[\?\]|\?)/g, '<span class="jmcwc-missing-digit-box">?</span>');
+
+  // Format fractions like 2 3/4 or 3/4
+  formatted = formatted.replace(
+    /(\d+)\s+(\d+)\/(\d+)/g,
+    '$1 <span class="jmcwc-frac"><span class="jmcwc-num">$2</span><span class="jmcwc-den">$3</span></span>'
+  );
+  formatted = formatted.replace(
+    /(^|[^\d])(\d+)\/(\d+)/g,
+    '$1<span class="jmcwc-frac"><span class="jmcwc-num">$2</span><span class="jmcwc-den">$3</span></span>'
+  );
+
+  // Format roots
+  formatted = formatted.replace(
+    /√(\d+)/g,
+    '<span class="jmcwc-root"><span class="jmcwc-radical">√</span><span class="jmcwc-radicand">$1</span></span>'
+  );
+  formatted = formatted.replace(
+    /∛(\d+)/g,
+    '<span class="jmcwc-root"><span class="jmcwc-radical">∛</span><span class="jmcwc-radicand">$1</span></span>'
+  );
+
+  // Format powers like 2^2 or 3^2
+  formatted = formatted.replace(/(\d+)\^2/g, '$1²');
+  formatted = formatted.replace(/(\d+)\^3/g, '$1³');
+
+  return formatted;
+}
+
+function startRunnerSchedulers() {
+  stopRunnerSchedulers();
+  if (!jmcwcRunner) return;
+  const st = jmcwcRunner.getState();
+  if (st.status !== 'running' || st.questionsHidden) return;
+
+  // 1. Regular monotonic timer update without rebuilding question inputs or losing focus
+  jmcwcDisplayTimerId = setInterval(() => {
+    if (!jmcwcRunner) return;
+    const currentState = jmcwcRunner.getState();
+    if (currentState.status !== 'running' || currentState.questionsHidden) {
+      stopRunnerSchedulers();
+      return;
+    }
+
+    const timer = jmcwcRunner.getTimerState();
+    const timerValue = document.getElementById('jmcwc-runner-timer-value');
+    if (timerValue) {
+      timerValue.textContent =
+        timer.mode === 'flat' ? timer.formattedRemaining : timer.formattedElapsed;
+    }
+
+    const targetCompEl = document.getElementById('jmcwc-runner-target-comparison');
+    if (targetCompEl) {
+      const isFlat = currentState.attempt?.mode === 'flat';
+      const targetSec = resolveAttemptTargetSeconds(currentState.attempt);
+      if (!isFlat && targetSec) {
+        const comp = formatNeutralTargetComparison(timer.elapsedActiveMs, targetSec);
+        targetCompEl.textContent = comp.comparisonText;
+        targetCompEl.style.display = 'block';
+      } else {
+        targetCompEl.style.display = 'none';
+      }
+    }
+
+    // Flat expiry detection: at 2 hours (7,200,000ms), immediately hide inputs and finalize
+    if (timer.mode === 'flat' && timer.expired) {
+      triggerFlatExpiry();
+    }
+  }, 250);
+
+  // 2. Heartbeat every 10 seconds while running and visible
+  jmcwcHeartbeatTimerId = setInterval(async () => {
+    if (!jmcwcRunner) return;
+    if (document.visibilityState !== 'visible') return;
+    const currentState = jmcwcRunner.getState();
+    if (currentState.status !== 'running' || currentState.questionsHidden) {
+      stopRunnerSchedulers();
+      return;
+    }
+    if (jmcwcIsHeartbeatInFlight) return; // Prevent overlapping requests
+    jmcwcIsHeartbeatInFlight = true;
+    try {
+      await jmcwcRunner.sendHeartbeat();
+    } catch (err) {
+      console.warn('Heartbeat error:', err);
+    } finally {
+      jmcwcIsHeartbeatInFlight = false;
+    }
+  }, 10000);
+}
+
+function stopRunnerSchedulers() {
+  if (jmcwcDisplayTimerId) {
+    clearInterval(jmcwcDisplayTimerId);
+    jmcwcDisplayTimerId = null;
+  }
+  if (jmcwcHeartbeatTimerId) {
+    clearInterval(jmcwcHeartbeatTimerId);
+    jmcwcHeartbeatTimerId = null;
+  }
+  jmcwcIsHeartbeatInFlight = false;
+}
+
+async function triggerFlatExpiry() {
+  stopRunnerSchedulers();
+  if (jmcwcIsExpiryInFlight || !jmcwcRunner) return;
+  jmcwcIsExpiryInFlight = true;
+
+  // Immediately hide inputs and questions in the DOM
+  const activeWorkspace = document.getElementById('jmcwc-runner-active-workspace');
+  if (activeWorkspace) {
+    activeWorkspace.style.display = 'none';
+    const gridEl = document.getElementById('jmcwc-worksheet-grid');
+    if (gridEl) gridEl.innerHTML = '';
+    const promptEl = document.getElementById('jmcwc-q-prompt');
+    const inputContainer = document.getElementById('jmcwc-q-input-container');
+    if (promptEl) promptEl.textContent = '';
+    if (inputContainer) inputContainer.innerHTML = '';
+  }
+  jmcwcRenderedWorksheetKey = null;
+
+  const veil = document.getElementById('jmcwc-runner-hidden-veil');
+  const veilTitle = document.getElementById('jmcwc-veil-title');
+  const veilDesc = document.getElementById('jmcwc-veil-desc');
+  const btnVeilResume = document.getElementById('btn-jmcwc-veil-resume');
+  const btnVeilSubmitPaused = document.getElementById('btn-jmcwc-veil-submit-paused');
+
+  if (veil) veil.style.display = 'block';
+  if (veilTitle) veilTitle.textContent = 'Active Time Limit Reached';
+  if (veilDesc) {
+    veilDesc.textContent =
+      'Two-hour active time limit reached. Inputs are locked while your answers are being graded...';
+  }
+  if (btnVeilResume) btnVeilResume.style.display = 'none';
+  if (btnVeilSubmitPaused) btnVeilSubmitPaused.style.display = 'none';
+
+  try {
+    await jmcwcRunner.handleFlatExpiry();
+  } catch (err) {
+    console.error('handleFlatExpiry error:', err);
+  } finally {
+    jmcwcIsExpiryInFlight = false;
+  }
+}
+
+function renderJmcwcRunnerState(state) {
+  if (!state || state.status === 'idle') return;
+
+  if (state.status === 'submitted' && state.score) {
+    stopRunnerSchedulers();
+    renderCompletedReviewView({
+      attempt: state.attempt,
+      score: state.score,
+      review_questions: state.reviewQuestions || [],
+      targetSeconds: resolveAttemptTargetSeconds(state.attempt),
+    });
+    showJmcwcSubview('review');
+    loadJmcwcOverviewAndAttempts();
+    return;
+  }
+
+  showJmcwcSubview('runner');
+
+  const modeBadge = document.getElementById('jmcwc-runner-mode-badge');
+  const titleEl = document.getElementById('jmcwc-runner-title');
+  const progressText = document.getElementById('jmcwc-runner-progress-text');
+  const timerLabel = document.getElementById('jmcwc-runner-timer-label');
+  const timerValue = document.getElementById('jmcwc-runner-timer-value');
+  const targetCompEl = document.getElementById('jmcwc-runner-target-comparison');
+  const saveBadge = document.getElementById('jmcwc-runner-save-badge');
+  const btnPause = document.getElementById('btn-jmcwc-runner-pause');
+  const veil = document.getElementById('jmcwc-runner-hidden-veil');
+  const veilTitle = document.getElementById('jmcwc-veil-title');
+  const veilDesc = document.getElementById('jmcwc-veil-desc');
+  const btnVeilResume = document.getElementById('btn-jmcwc-veil-resume');
+  const btnVeilSubmitPaused = document.getElementById('btn-jmcwc-veil-submit-paused');
+  const activeWorkspace = document.getElementById('jmcwc-runner-active-workspace');
+  const conflictBanner = document.getElementById('jmcwc-recovery-conflict-banner');
+
+  const isFlat = state.attempt?.mode === 'flat';
+  if (modeBadge) {
+    modeBadge.textContent = isFlat ? 'Flat Round (2h Active)' : 'Category-wise';
+  }
+
+  const attCatKey = state.attempt?.category_key || state.attempt?.category_id;
+  const catObj = attCatKey
+    ? jmcwcCategoriesList.find((c) => (c.key || c.id) === attCatKey)
+    : null;
+  if (titleEl) {
+    titleEl.textContent = isFlat
+      ? `${formatJmcwcGroupLabel(state.attempt?.group_key)} Full Paper`
+      : catObj
+        ? catObj.display_name || catObj.label
+        : 'Category Practice';
+  }
+
+  // Answered / Unanswered counts
+  const counts = jmcwcRunner ? jmcwcRunner.getAnswerCounts() : { answeredCount: 0, totalCount: 0 };
+  if (progressText) {
+    progressText.textContent = `${counts.answeredCount} / ${counts.totalCount} answered`;
+  }
+
+  // Timer & optional neutral category target comparison
+  if (timerLabel) {
+    timerLabel.textContent = isFlat ? 'Remaining Active Time' : 'Elapsed Active Time';
+  }
+  if (timerValue && state.timer) {
+    timerValue.textContent = isFlat
+      ? state.timer.formattedRemaining
+      : state.timer.formattedElapsed;
+  }
+
+  const targetSec = resolveAttemptTargetSeconds(state.attempt);
+  if (targetCompEl) {
+    if (!isFlat && targetSec && state.timer) {
+      const comp = formatNeutralTargetComparison(state.timer.elapsedActiveMs, targetSec);
+      targetCompEl.textContent = comp.comparisonText;
+      targetCompEl.style.display = 'block';
+    } else {
+      targetCompEl.style.display = 'none';
+      targetCompEl.textContent = '';
+    }
+  }
+
+  // Save Status Indicator: Saving / Saved / Offline—paused
+  if (saveBadge) {
+    const label = state.saveStatusLabel || 'Saved';
+    saveBadge.textContent = label;
+    if (label === 'Saving') {
+      saveBadge.className = 'badge badge-warning num';
+    } else if (label === 'Offline—paused') {
+      saveBadge.className = 'badge badge-inactive num';
+    } else {
+      saveBadge.className = 'badge badge-active num';
+    }
+  }
+
+  // Local unsent recovery conflict prompt
+  if (conflictBanner) {
+    conflictBanner.style.display = state.recoveryConflict ? 'flex' : 'none';
+  }
+
+  // Immediately hide questions and inputs if paused, lease-lost, grading, or expired
+  if (state.questionsHidden || state.status !== 'running') {
+    stopRunnerSchedulers();
+    if (activeWorkspace) {
+      activeWorkspace.style.display = 'none';
+      const gridEl = document.getElementById('jmcwc-worksheet-grid');
+      if (gridEl) gridEl.innerHTML = '';
+      const promptEl = document.getElementById('jmcwc-q-prompt');
+      const inputContainer = document.getElementById('jmcwc-q-input-container');
+      if (promptEl) promptEl.textContent = '';
+      if (inputContainer) inputContainer.innerHTML = '';
+    }
+    jmcwcRenderedWorksheetKey = null;
+
+    if (veil) veil.style.display = 'block';
+    if (btnPause) btnPause.disabled = true;
+
+    if (state.status === 'lease_lost') {
+      if (veilTitle) veilTitle.textContent = 'Active Session Moved to Another Tab or Device';
+      if (veilDesc) {
+        veilDesc.textContent =
+          state.errorMessage ||
+          'Questions are hidden because this attempt was resumed elsewhere.';
+      }
+      if (btnVeilResume) {
+        btnVeilResume.textContent = 'Take Over Here';
+        btnVeilResume.style.display = 'inline-flex';
+      }
+      if (btnVeilSubmitPaused) btnVeilSubmitPaused.style.display = 'none';
+    } else if (state.status === 'grading') {
+      if (veilTitle) veilTitle.textContent = 'Finalizing & Grading Attempt...';
+      if (veilDesc) {
+        veilDesc.textContent =
+          'Inputs are locked while the server finalizes your saved answers.';
+      }
+      if (btnVeilResume) btnVeilResume.style.display = 'none';
+      if (btnVeilSubmitPaused) btnVeilSubmitPaused.style.display = 'none';
+    } else {
+      if (veilTitle) veilTitle.textContent = 'Attempt Paused';
+      if (veilDesc) {
+        veilDesc.textContent =
+          'Questions and inputs are hidden while paused. Returning or reloading requires clicking Resume Attempt below.';
+      }
+      if (btnVeilResume) {
+        btnVeilResume.textContent = 'Resume Attempt';
+        btnVeilResume.style.display = 'inline-flex';
+      }
+      if (btnVeilSubmitPaused) {
+        btnVeilSubmitPaused.style.display = 'inline-flex';
+      }
+    }
+    return;
+  }
+
+  // Active running state
+  if (veil) veil.style.display = 'none';
+  if (activeWorkspace) activeWorkspace.style.display = 'block';
+  if (btnPause) btnPause.disabled = false;
+
+  startRunnerSchedulers();
+  renderActiveRunnerQuestionWorkspace(state);
+}
+
+function resolveAttemptTargetSeconds(attempt) {
+  if (!attempt || attempt.mode !== 'category') return null;
+  const catKey = attempt.category_key || attempt.category_id;
+  if (!catKey) return null;
+  const t = jmcwcTargetsMap[catKey] ?? attempt.target_seconds;
+  return Number.isInteger(t) && t > 0 ? t : null;
+}
+
+function renderActiveRunnerQuestionWorkspace(state) {
+  const sections = Array.isArray(state.questions) ? state.questions : [];
+  const allQuestions = getRunnerQuestionsInOrder(state);
+  if (allQuestions.length === 0) {
+    // Never leave a previous attempt's questions visible during an empty response.
+    for (const id of ['jmcwc-worksheet-grid', 'jmcwc-q-prompt', 'jmcwc-q-input-container', 'jmcwc-sheet-section-title', 'jmcwc-runner-question-pills']) {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = '';
+    }
+    jmcwcRenderedWorksheetKey = null;
+    return;
+  }
+
+  if (jmcwcCurrentQuestionIndex < 0 || jmcwcCurrentQuestionIndex >= allQuestions.length) {
+    jmcwcCurrentQuestionIndex = 0;
+  }
+
+  const currentQ = allQuestions[jmcwcCurrentQuestionIndex];
+  jmcwcCurrentSectionOrder = currentQ.section_order;
+
+  // 1. Category section dropdown (visible when > 1 section)
+  const navWrap = document.getElementById('jmcwc-runner-category-nav-wrap');
+  const sectionSelect = document.getElementById('select-jmcwc-runner-section');
+  if (navWrap && sectionSelect) {
+    if (sections.length <= 1) {
+      navWrap.style.display = 'none';
+    } else {
+      navWrap.style.display = 'block';
+      sectionSelect.innerHTML = sections
+        .map((sec) => {
+          const secQs = Array.isArray(sec.questions) ? sec.questions : [];
+          const secAnswered = secQs.filter((q) => {
+            const v = state.answers?.[q.question_key];
+            return v !== undefined && v !== null && String(v).trim() !== '';
+          }).length;
+          return `
+          <option value="${sec.section_order}" ${sec.section_order === jmcwcCurrentSectionOrder ? 'selected' : ''}>
+            Section ${sec.section_order}: ${escapeHtml(sec.display_name || sec.category_slug)} (${secAnswered}/${secQs.length} answered)
+          </option>
+        `;
+        })
+        .join('');
+
+      sectionSelect.onchange = () => {
+        const targetSecOrder = Number(sectionSelect.value);
+        const firstIdx = allQuestions.findIndex((q) => q.section_order === targetSecOrder);
+        if (firstIdx >= 0) {
+          jmcwcCurrentQuestionIndex = firstIdx;
+          jmcwcRenderedWorksheetKey = null;
+          renderActiveRunnerQuestionWorkspace(jmcwcRunner.getState());
+        }
+      };
+    }
+  }
+
+  // 2. Question pills for the current section
+  const pillsContainer = document.getElementById('jmcwc-runner-question-pills');
+  const sectionQuestions = allQuestions
+    .map((q, globalIdx) => ({ ...q, globalIdx }))
+    .filter((q) => q.section_order === jmcwcCurrentSectionOrder);
+
+  if (pillsContainer) {
+    pillsContainer.innerHTML = sectionQuestions
+      .map((q) => {
+        const rawAns = state.answers?.[q.question_key];
+        const isAnswered = rawAns !== undefined && rawAns !== null && String(rawAns).trim() !== '';
+        const isCurrent = q.globalIdx === jmcwcCurrentQuestionIndex;
+        return `
+        <button
+          type="button"
+          class="btn ${isCurrent ? 'btn-primary' : isAnswered ? 'btn-secondary' : 'btn-outline'} btn-sm num"
+          data-global-q-idx="${q.globalIdx}"
+          data-q-key="${q.question_key}"
+          aria-label="Question ${q.question_index} (${isAnswered ? 'Answered' : 'Unanswered'}), ${q.marks} ${q.marks === 1 ? 'mark' : 'marks'}"
+          aria-current="${isCurrent ? 'step' : 'false'}"
+          style="min-width: 40px; min-height: 36px; font-weight: 700;"
+        >
+          ${q.question_index}${isAnswered ? ' ✓' : ''}
+        </button>
+      `;
+      })
+      .join('');
+
+    pillsContainer.querySelectorAll('[data-global-q-idx]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        jmcwcCurrentQuestionIndex = Number(btn.getAttribute('data-global-q-idx')) || 0;
+        if (jmcwcRunnerViewMode === 'worksheet') {
+          const qKey = btn.getAttribute('data-q-key');
+          const targetInp = document.querySelector(`.jmcwc-sheet-input[data-q-key="${qKey}"]`);
+          if (targetInp) {
+            targetInp.focus();
+            targetInp.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        } else {
+          renderActiveRunnerQuestionWorkspace(jmcwcRunner.getState());
+        }
+      });
+    });
+  }
+
+  // 3. View Switcher buttons
+  const btnViewWorksheet = document.getElementById('btn-jmcwc-view-worksheet');
+  const btnViewSingle = document.getElementById('btn-jmcwc-view-single');
+  const worksheetView = document.getElementById('jmcwc-runner-worksheet-view');
+  const singleView = document.getElementById('jmcwc-runner-single-card-view');
+
+  if (btnViewWorksheet && btnViewSingle && worksheetView && singleView) {
+    btnViewWorksheet.onclick = () => {
+      jmcwcRunnerViewMode = 'worksheet';
+      btnViewWorksheet.className = 'btn btn-primary btn-sm';
+      btnViewSingle.className = 'btn btn-ghost btn-sm';
+      worksheetView.style.display = 'block';
+      singleView.style.display = 'none';
+      jmcwcRenderedWorksheetKey = null;
+      renderActiveRunnerQuestionWorkspace(jmcwcRunner.getState());
+    };
+    btnViewSingle.onclick = () => {
+      jmcwcRunnerViewMode = 'single';
+      btnViewSingle.className = 'btn btn-primary btn-sm';
+      btnViewWorksheet.className = 'btn btn-ghost btn-sm';
+      worksheetView.style.display = 'none';
+      singleView.style.display = 'block';
+      jmcwcRenderedWorksheetKey = null;
+      renderActiveRunnerQuestionWorkspace(jmcwcRunner.getState());
+    };
+
+    if (jmcwcRunnerViewMode === 'worksheet') {
+      btnViewWorksheet.className = 'btn btn-primary btn-sm';
+      btnViewSingle.className = 'btn btn-ghost btn-sm';
+      worksheetView.style.display = 'block';
+      singleView.style.display = 'none';
+    } else {
+      btnViewSingle.className = 'btn btn-primary btn-sm';
+      btnViewWorksheet.className = 'btn btn-ghost btn-sm';
+      worksheetView.style.display = 'none';
+      singleView.style.display = 'block';
+    }
+  }
+
+  // 4. Render or update Worksheet Grid View vs Single Card View
+  if (jmcwcRunnerViewMode === 'worksheet') {
+    renderWorksheetGridView(state, sectionQuestions, currentQ);
+  } else {
+    renderSingleCardView(state, allQuestions, currentQ);
+  }
+}
+
+function renderWorksheetGridView(state, sectionQuestions, currentQ) {
+  const titleEl = document.getElementById('jmcwc-sheet-section-title');
+  const badgeEl = document.getElementById('jmcwc-sheet-answered-badge');
+  const gridEl = document.getElementById('jmcwc-worksheet-grid');
+  if (!gridEl) return;
+
+  const activeSec = state.questions.find((s) => s.section_order === jmcwcCurrentSectionOrder);
+  const secName = activeSec
+    ? activeSec.display_name || activeSec.category_slug
+    : currentQ.category_name;
+  if (titleEl) {
+    titleEl.textContent = `Section ${jmcwcCurrentSectionOrder}: ${secName}`;
+  }
+
+  const answeredInSec = sectionQuestions.filter((q) => {
+    const v = state.answers?.[q.question_key];
+    return v !== undefined && v !== null && String(v).trim() !== '';
+  }).length;
+  if (badgeEl) {
+    badgeEl.textContent = `${answeredInSec} / ${sectionQuestions.length} answered`;
+  }
+
+  // If section already rendered, do NOT rebuild innerHTML to avoid destroying input elements / focus!
+  // Section 1 occurs in every category attempt. Reuse DOM only for the same
+  // attempt and immutable question content, never merely the same section number.
+  const worksheetKey = JSON.stringify([
+    state.attempt?.id,
+    jmcwcCurrentSectionOrder,
+    activeSec?.category_slug,
+    sectionQuestions.map(q => [q.question_key, q.category_slug, q.prompt, q.input, q.marks]),
+  ]);
+  if (jmcwcRenderedWorksheetKey === worksheetKey && gridEl.children.length > 0) {
+    for (const q of sectionQuestions) {
+      const rawAns = state.answers?.[q.question_key];
+      const isAns = rawAns !== undefined && rawAns !== null && String(rawAns).trim() !== '';
+      const cell = document.getElementById(`jmcwc-qcell-${q.question_key}`);
+      const chip = document.getElementById(`chip-q-${q.question_key}`);
+      if (cell) cell.classList.toggle('is-answered', isAns);
+      if (chip) {
+        chip.textContent = isAns ? 'Answered' : 'Unanswered';
+        chip.className = isAns ? 'status-chip chip-done' : 'status-chip chip-unverified';
+      }
+    }
+    return;
+  }
+
+  jmcwcRenderedWorksheetKey = worksheetKey;
+
+  // Build grid HTML for all questions in this section
+  gridEl.innerHTML = sectionQuestions
+    .map((q, idx) => {
+      const rawVal = state.answers?.[q.question_key] ?? '';
+      const isAns = String(rawVal).trim() !== '';
+      const spec = describeQuestionInputSpec(q);
+      const mathHtml = formatWorksheetMathPromptHtml(q.prompt);
+
+      let inputHtml = '';
+      if (spec.kind === 'day_of_week') {
+        inputHtml = `
+          <select
+            class="form-select jmcwc-sheet-input num"
+            data-q-idx="${idx}"
+            data-q-key="${q.question_key}"
+            aria-label="${escapeHtml(spec.ariaLabel)}"
+            style="min-height: 40px; font-weight: 600;"
+          >
+            <option value="">-- Select day --</option>
+            ${spec.options
+              .map(
+                (day) => `
+              <option value="${escapeHtml(day)}" ${
+                String(rawVal).trim().toLowerCase() === day.toLowerCase() ? 'selected' : ''
+              }>
+                ${escapeHtml(day)}
+              </option>
+            `
+              )
+              .join('')}
+          </select>
+        `;
+      } else if (spec.kind === 'multi_value') {
+        const parts = splitMultiValueRaw(rawVal, spec.slotCount);
+        inputHtml = `
+          <div style="display: flex; gap: 4px;">
+            ${parts
+              .map(
+                (pVal, pIdx) => `
+              <input
+                type="text"
+                class="form-input num jmcwc-sheet-input jmcwc-sheet-multi-sub"
+                data-q-idx="${idx}"
+                data-q-key="${q.question_key}"
+                data-slot-idx="${pIdx}"
+                inputmode="${escapeHtml(spec.inputMode)}"
+                placeholder="Val ${pIdx + 1}"
+                value="${escapeHtml(pVal)}"
+                autocomplete="off"
+                spellcheck="false"
+                aria-label="Question ${q.question_index} value ${pIdx + 1}"
+                style="min-height: 40px; font-weight: 600;"
+              />
+            `
+              )
+              .join('')}
+          </div>
+        `;
+      } else {
+        const tokensHtml =
+          spec.quickInsertTokens && spec.quickInsertTokens.length > 0
+            ? `<div style="display: flex; gap: 4px; margin-top: 4px;">
+                ${spec.quickInsertTokens
+                  .map(
+                    (t) =>
+                      `<button type="button" class="jmcwc-token-btn" data-q-key="${q.question_key}" data-token="${escapeHtml(t)}">${escapeHtml(t)}</button>`
+                  )
+                  .join('')}
+              </div>`
+            : '';
+
+        inputHtml = `
+          <input
+            type="text"
+            class="form-input num jmcwc-sheet-input"
+            data-q-idx="${idx}"
+            data-q-key="${q.question_key}"
+            inputmode="${escapeHtml(spec.inputMode)}"
+            placeholder="${escapeHtml(spec.placeholder)}"
+            value="${escapeHtml(String(rawVal))}"
+            autocomplete="off"
+            spellcheck="false"
+            aria-label="${escapeHtml(spec.ariaLabel)}"
+            style="min-height: 40px; font-size: 15px; font-weight: 700;"
+          />
+          ${tokensHtml}
+        `;
+      }
+
+      return `
+        <div class="jmcwc-worksheet-cell ${isAns ? 'is-answered' : ''}" id="jmcwc-qcell-${q.question_key}">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <strong style="font-size: 13px;">#${q.question_index}</strong>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span class="status-chip ${isAns ? 'chip-done' : 'chip-unverified'}" id="chip-q-${q.question_key}">
+                ${isAns ? 'Answered' : 'Unanswered'}
+              </span>
+              <span class="badge badge-neutral num" style="font-size: 11px;">${q.marks}m</span>
+            </div>
+          </div>
+
+          <div class="num" style="font-size: 16px; font-weight: 700; color: var(--text-main); margin-bottom: 8px; font-variant-numeric: tabular-nums;">
+            ${mathHtml}
+          </div>
+
+          <div>
+            ${inputHtml}
+          </div>
+        </div>
+      `;
+    })
+    .join('');
+
+  // Wire event handlers for the inputs in the worksheet
+  const allSheetInputs = Array.from(gridEl.querySelectorAll('.jmcwc-sheet-input'));
+  allSheetInputs.forEach((inp) => {
+    const qKey = inp.getAttribute('data-q-key');
+
+    if (inp.tagName === 'SELECT') {
+      inp.addEventListener('change', () => {
+        jmcwcRunner.recordAnswer(qKey, inp.value);
+        updateCellAnsweredState(qKey, inp.value);
+      });
+    } else if (inp.classList.contains('jmcwc-sheet-multi-sub')) {
+      const parentCell = inp.closest('.jmcwc-worksheet-cell');
+      const subInputs = Array.from(parentCell.querySelectorAll('.jmcwc-sheet-multi-sub'));
+      inp.addEventListener('input', () => {
+        const joined = joinMultiValueRaw(subInputs.map((s) => s.value));
+        jmcwcRunner.recordAnswer(qKey, joined);
+        updateCellAnsweredState(qKey, joined);
+      });
+    } else {
+      inp.addEventListener('input', () => {
+        jmcwcRunner.recordAnswer(qKey, inp.value);
+        updateCellAnsweredState(qKey, inp.value);
+      });
+    }
+
+    // Keyboard navigation: Enter or ArrowDown moves to next; ArrowUp moves to previous
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        const nextInp = allSheetInputs[allSheetInputs.indexOf(inp) + 1];
+        if (nextInp) nextInp.focus();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        const prevInp = allSheetInputs[allSheetInputs.indexOf(inp) - 1];
+        if (prevInp) prevInp.focus();
+      }
+    });
+  });
+
+  // Wire quick token buttons
+  gridEl.querySelectorAll('.jmcwc-token-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const qKey = btn.getAttribute('data-q-key');
+      const token = btn.getAttribute('data-token');
+      const targetInp = gridEl.querySelector(`input.jmcwc-sheet-input[data-q-key="${qKey}"]`);
+      if (targetInp) {
+        targetInp.value += token;
+        targetInp.dispatchEvent(new Event('input'));
+        targetInp.focus();
+      }
+    });
+  });
+}
+
+function updateCellAnsweredState(qKey, value) {
+  const isAns = value !== undefined && value !== null && String(value).trim() !== '';
+  const cell = document.getElementById(`jmcwc-qcell-${qKey}`);
+  const chip = document.getElementById(`chip-q-${qKey}`);
+  if (cell) cell.classList.toggle('is-answered', isAns);
+  if (chip) {
+    chip.textContent = isAns ? 'Answered' : 'Unanswered';
+    chip.className = isAns ? 'status-chip chip-done' : 'status-chip chip-unverified';
+  }
+  const pillBtn = document.querySelector(`#jmcwc-runner-question-pills [data-q-key="${qKey}"]`);
+  if (pillBtn) {
+    const qNum = pillBtn.textContent.replace(/[^\d]/g, '');
+    pillBtn.textContent = `${qNum}${isAns ? ' ✓' : ''}`;
+  }
+  const progressText = document.getElementById('jmcwc-runner-progress-text');
+  if (progressText && jmcwcRunner) {
+    const counts = jmcwcRunner.getAnswerCounts();
+    progressText.textContent = `${counts.answeredCount} / ${counts.totalCount} answered`;
+  }
+  const badgeEl = document.getElementById('jmcwc-sheet-answered-badge');
+  if (badgeEl) {
+    const totalInSec = document.querySelectorAll('.jmcwc-worksheet-cell').length;
+    const ansInSec = document.querySelectorAll('.jmcwc-worksheet-cell.is-answered').length;
+    badgeEl.textContent = `${ansInSec} / ${totalInSec} answered`;
+  }
+}
+
+function renderSingleCardView(state, allQuestions, currentQ) {
+  const secLabel = document.getElementById('jmcwc-q-section-label');
+  const numLabel = document.getElementById('jmcwc-q-number-label');
+  const ansChip = document.getElementById('jmcwc-q-answered-chip');
+  const marksBadge = document.getElementById('jmcwc-q-marks-badge');
+  const promptEl = document.getElementById('jmcwc-q-prompt');
+  const inputContainer = document.getElementById('jmcwc-q-input-container');
+  const hintEl = document.getElementById('jmcwc-q-input-hint');
+
+  const rawValue = state.answers?.[currentQ.question_key] ?? '';
+  const isAnswered = String(rawValue).trim() !== '';
+
+  if (secLabel) secLabel.textContent = `Section ${currentQ.section_order} · ${currentQ.category_name}`;
+  if (numLabel) numLabel.textContent = `Question ${currentQ.question_index}`;
+  if (ansChip) {
+    ansChip.textContent = isAnswered ? 'Answered' : 'Unanswered';
+    ansChip.className = isAnswered ? 'status-chip chip-done' : 'status-chip chip-unverified';
+  }
+  if (marksBadge) {
+    marksBadge.textContent = `${currentQ.marks} ${currentQ.marks === 1 ? 'mark' : 'marks'}`;
+  }
+  if (promptEl) {
+    promptEl.innerHTML = formatWorksheetMathPromptHtml(currentQ.prompt || '');
+  }
+
+  const spec = describeQuestionInputSpec(currentQ);
+  if (hintEl) {
+    hintEl.textContent = spec.helperText || '';
+  }
+
+  if (inputContainer) {
+    if (spec.kind === 'day_of_week') {
+      inputContainer.innerHTML = `
+        <label for="jmcwc-active-answer-input" class="form-label">${escapeHtml(spec.ariaLabel)}</label>
+        <select
+          id="jmcwc-active-answer-input"
+          class="form-select"
+          aria-label="${escapeHtml(spec.ariaLabel)}"
+          style="max-width: 320px; min-height: 44px; font-weight: 600;"
+        >
+          <option value="">-- Select day of week (or leave blank to skip) --</option>
+          ${spec.options
+            .map(
+              (day) => `
+            <option value="${escapeHtml(day)}" ${
+              String(rawValue).trim().toLowerCase() === day.toLowerCase() ? 'selected' : ''
+            }>
+              ${escapeHtml(day)}
+            </option>
+          `
+            )
+            .join('')}
+        </select>
+      `;
+      const sel = document.getElementById('jmcwc-active-answer-input');
+      sel?.addEventListener('change', () => {
+        jmcwcRunner.recordAnswer(currentQ.question_key, sel.value);
+        updateQuestionChipInPlace(currentQ, sel.value);
+      });
+      sel?.focus();
+    } else if (spec.kind === 'multi_value') {
+      const parts = splitMultiValueRaw(rawValue, spec.slotCount);
+      inputContainer.innerHTML = `
+        <fieldset style="border: none; padding: 0; margin: 0;">
+          <legend class="form-label" style="margin-bottom: var(--space-2);">${escapeHtml(spec.ariaLabel)}</legend>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--space-2);">
+            ${parts
+              .map(
+                (partVal, idx) => `
+              <div>
+                <label for="jmcwc-multi-slot-${idx}" style="font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 2px;">
+                  Value ${idx + 1}
+                </label>
+                <input
+                  type="text"
+                  id="jmcwc-multi-slot-${idx}"
+                  class="form-input num jmcwc-multi-input"
+                  data-slot-idx="${idx}"
+                  inputmode="${escapeHtml(spec.inputMode)}"
+                  placeholder="${escapeHtml(spec.placeholder)}"
+                  value="${escapeHtml(partVal)}"
+                  autocomplete="off"
+                  spellcheck="false"
+                  aria-label="Question ${currentQ.question_index} value ${idx + 1} of ${spec.slotCount}"
+                  style="min-height: 44px; font-size: var(--text-base); font-weight: 600;"
+                />
+              </div>
+            `
+              )
+              .join('')}
+          </div>
+        </fieldset>
+      `;
+      const multiInputs = Array.from(inputContainer.querySelectorAll('.jmcwc-multi-input'));
+      const syncMulti = () => {
+        const currentValues = multiInputs.map((inp) => inp.value);
+        const joined = joinMultiValueRaw(currentValues);
+        jmcwcRunner.recordAnswer(currentQ.question_key, joined);
+        updateQuestionChipInPlace(currentQ, joined);
+      };
+      multiInputs.forEach((inp, idx) => {
+        inp.addEventListener('input', syncMulti);
+        inp.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            if (idx + 1 < multiInputs.length) {
+              multiInputs[idx + 1].focus();
+            } else {
+              navigateRunnerQuestion(1);
+            }
+          }
+        });
+      });
+      multiInputs[0]?.focus();
+    } else {
+      const tokensHtml =
+        spec.quickInsertTokens && spec.quickInsertTokens.length > 0
+          ? `<div style="display: flex; gap: 6px; margin-top: 6px;">
+              ${spec.quickInsertTokens
+                .map(
+                  (t) =>
+                    `<button type="button" class="jmcwc-token-btn" data-token="${escapeHtml(t)}">${escapeHtml(t)}</button>`
+                )
+                .join('')}
+            </div>`
+          : '';
+
+      inputContainer.innerHTML = `
+        <label for="jmcwc-active-answer-input" class="form-label">${escapeHtml(spec.ariaLabel)}</label>
+        <input
+          type="text"
+          id="jmcwc-active-answer-input"
+          class="form-input num"
+          inputmode="${escapeHtml(spec.inputMode)}"
+          placeholder="${escapeHtml(spec.placeholder)}"
+          value="${escapeHtml(String(rawValue))}"
+          autocomplete="off"
+          spellcheck="false"
+          aria-label="${escapeHtml(spec.ariaLabel)}"
+          style="max-width: 380px; min-height: 46px; font-size: var(--text-md); font-weight: 700;"
+        />
+        ${tokensHtml}
+      `;
+      const inp = document.getElementById('jmcwc-active-answer-input');
+      inp?.addEventListener('input', () => {
+        jmcwcRunner.recordAnswer(currentQ.question_key, inp.value);
+        updateQuestionChipInPlace(currentQ, inp.value);
+      });
+      inp?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          navigateRunnerQuestion(1);
+        }
+      });
+      inputContainer.querySelectorAll('.jmcwc-token-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          if (inp) {
+            inp.value += btn.getAttribute('data-token');
+            inp.dispatchEvent(new Event('input'));
+            inp.focus();
+          }
+        });
+      });
+      inp?.focus();
+    }
+  }
+
+  // Previous / Next buttons state
+  const btnPrev = document.getElementById('btn-jmcwc-q-prev');
+  const btnNext = document.getElementById('btn-jmcwc-q-next');
+  if (btnPrev) btnPrev.disabled = jmcwcCurrentQuestionIndex <= 0;
+  if (btnNext) btnNext.disabled = jmcwcCurrentQuestionIndex >= allQuestions.length - 1;
+}
+
+function updateQuestionChipInPlace(currentQ, rawVal) {
+  const isAnswered = rawVal !== undefined && rawVal !== null && String(rawVal).trim() !== '';
+  const ansChip = document.getElementById('jmcwc-q-answered-chip');
+  if (ansChip) {
+    ansChip.textContent = isAnswered ? 'Answered' : 'Unanswered';
+    ansChip.className = isAnswered ? 'status-chip chip-done' : 'status-chip chip-unverified';
+  }
+  const progressText = document.getElementById('jmcwc-runner-progress-text');
+  if (progressText && jmcwcRunner) {
+    const counts = jmcwcRunner.getAnswerCounts();
+    progressText.textContent = `${counts.answeredCount} / ${counts.totalCount} answered`;
+  }
+  const pillBtn = document.querySelector(`#jmcwc-runner-question-pills [data-global-q-idx="${jmcwcCurrentQuestionIndex}"]`);
+  if (pillBtn) {
+    pillBtn.textContent = `${currentQ.question_index}${isAnswered ? ' ✓' : ''}`;
+  }
+}
+
+function navigateRunnerQuestion(delta) {
+  if (!jmcwcRunner) return;
+  const st = jmcwcRunner.getState();
+  if (st.status !== 'running' || st.questionsHidden) return;
+  const allQuestions = getRunnerQuestionsInOrder(st);
+  const nextIdx = jmcwcCurrentQuestionIndex + delta;
+  if (nextIdx >= 0 && nextIdx < allQuestions.length) {
+    jmcwcCurrentQuestionIndex = nextIdx;
+    renderActiveRunnerQuestionWorkspace(st);
+  }
+}
+
+function isTakeoverConflict(err) {
+  if (!err) return false;
+  const status = Number(err.statusCode ?? err.status);
+  const code = String(err.code || '');
+  const msg = String(err.message || '').toLowerCase();
+  return (
+    code === 'TAKEOVER_CONFIRMATION_REQUIRED' ||
+    ((status === 409 || status === 400) &&
+      (msg.includes('takeover') ||
+        msg.includes('another simulator round') ||
+        msg.includes('another active session') ||
+        msg.includes('currently active')))
+  );
+}
+
+async function handleStartOnlineFlatRound() {
+  showJmcwcOnlineError('');
+  const runner = ensureJmcwcRunnerInstance();
+  try {
+    jmcwcCurrentQuestionIndex = 0;
+    await runner.startAttempt({ mode: 'flat', categoryId: null });
+    await loadJmcwcOverviewAndAttempts();
+  } catch (err) {
+    if (isTakeoverConflict(err)) {
+      pendingTakeoverAttemptId =
+        err.attemptId ||
+        runner.getState()?.takeoverConfirmation?.attemptId ||
+        runner.getState()?.attempt?.id ||
+        null;
+      openInlineModal('jmcwc-takeover-modal');
+      return;
+    }
+    showJmcwcOnlineError(err.message);
+    showToast('error', err.message);
+  }
+}
+
+async function handleStartOnlineCategoryPractice() {
+  showJmcwcOnlineError('');
+  const catSelect = document.getElementById('select-jmcwc-category');
+  const categoryId = catSelect?.value || '';
+  if (!categoryId) {
+    showToast('info', 'Please select a category first.');
+    return;
+  }
+  const runner = ensureJmcwcRunnerInstance();
+  try {
+    jmcwcCurrentQuestionIndex = 0;
+    await runner.startAttempt({ mode: 'category', categoryId });
+    await loadJmcwcOverviewAndAttempts();
+  } catch (err) {
+    if (isTakeoverConflict(err)) {
+      pendingTakeoverAttemptId =
+        err.attemptId ||
+        runner.getState()?.takeoverConfirmation?.attemptId ||
+        runner.getState()?.attempt?.id ||
+        null;
+      openInlineModal('jmcwc-takeover-modal');
+      return;
+    }
+    showJmcwcOnlineError(err.message);
+    showToast('error', err.message);
+  }
+}
+
+async function handleResumeOnlineAttempt(attemptId, takeover = false) {
+  showJmcwcOnlineError('');
+  const runner = ensureJmcwcRunnerInstance();
+  try {
+    jmcwcCurrentQuestionIndex = 0;
+    await runner.resumeAttempt(attemptId, { takeover });
+    await loadJmcwcOverviewAndAttempts();
+  } catch (err) {
+    if (isTakeoverConflict(err)) {
+      pendingTakeoverAttemptId = attemptId;
+      openInlineModal('jmcwc-takeover-modal');
+      return;
+    }
+    showJmcwcOnlineError(err.message);
+    showToast('error', err.message);
+  }
+}
+
+async function handleOpenCompletedReview(attemptId) {
+  showJmcwcOnlineError('');
+  try {
+    const res = await callJmcwcApi({
+      action: 'get_attempt_review',
+      attempt_id: attemptId,
+    });
+    renderCompletedReviewView({
+      attempt: res.attempt,
+      score: res.score,
+      review_questions: res.review_questions || [],
+      targetSeconds: resolveAttemptTargetSeconds(res.attempt),
+    });
+    showJmcwcSubview('review');
+  } catch (err) {
+    showJmcwcOnlineError(err.message);
+    showToast('error', err.message);
+  }
+}
+
+function renderCompletedReviewView({ attempt, score, review_questions, targetSeconds }) {
+  const vm = buildSubmittedReviewViewModel({
+    attempt,
+    score,
+    review_questions,
+    targetSeconds,
+  });
+
+  const modeLabel = document.getElementById('jmcwc-review-mode-label');
+  const titleEl = document.getElementById('jmcwc-review-title');
+  const marksEl = document.getElementById('jmcwc-review-marks');
+  const partialEl = document.getElementById('jmcwc-review-partial-note');
+  const countsEl = document.getElementById('jmcwc-review-counts');
+  const timeEl = document.getElementById('jmcwc-review-active-time');
+  const targetCompEl = document.getElementById('jmcwc-review-target-comparison');
+  const tbody = document.getElementById('jmcwc-review-tbody');
+
+  if (modeLabel) {
+    modeLabel.textContent = `${vm.groupLabel} · ${vm.mode === 'flat' ? 'Flat Round' : 'Category-wise'}`;
+  }
+  if (titleEl) {
+    const datePart = vm.submittedAt ? ` (${formatDisplayDateIST(vm.submittedAt.slice(0, 10))})` : '';
+    titleEl.textContent = `Completed Attempt Review${datePart}`;
+  }
+  if (marksEl) {
+    marksEl.textContent = `${vm.earnedMarks} / ${vm.maxMarks}`;
+  }
+  if (partialEl) {
+    partialEl.textContent = `Partial marks awarded: ${vm.partialMarks} (${vm.partialCount} questions)`;
+  }
+  if (countsEl) {
+    countsEl.textContent = `${vm.correctCount} correct · ${vm.partialCount} partial · ${vm.wrongCount} wrong · ${vm.skippedCount} skipped`;
+  }
+  if (timeEl) {
+    timeEl.textContent = vm.activeTimeFormatted;
+  }
+  if (targetCompEl) {
+    targetCompEl.textContent = vm.targetComparison ? vm.targetComparison.comparisonText : '';
+  }
+
+  if (tbody) {
+    tbody.innerHTML = vm.questions.map(q => {
+      const verdictBadgeClass =
+        q.verdict === 'correct'
+          ? 'badge-active'
+          : q.verdict === 'partial'
+            ? 'badge-warning'
+            : q.verdict === 'skipped'
+              ? 'badge-neutral'
+              : 'badge-danger';
+      return `
+        <tr>
+          <td class="num" style="font-weight: 700;">#${q.index}</td>
+          <td style="font-size: var(--text-xs); color: var(--text-muted);">${escapeHtml(q.category_name)}</td>
+          <td class="num" style="font-weight: 600;">${escapeHtml(q.prompt)}</td>
+          <td class="num">${q.submitted_raw ? escapeHtml(q.submitted_raw) : '<span style="color: var(--text-dim);">Skipped</span>'}</td>
+          <td class="num">
+            <div style="font-size: 11px; color: var(--text-muted); font-weight: 600;">${escapeHtml(q.expected_answer_label)}:</div>
+            <div style="font-weight: 700;">${escapeHtml(q.expected_display)}</div>
+          </td>
+          <td class="num" style="text-align: right; font-weight: 700;">
+            ${q.awarded_marks} / ${q.max_marks}
+          </td>
+          <td style="font-size: var(--text-xs);">
+            <span class="badge ${verdictBadgeClass}" style="margin-bottom: 4px; display: inline-block;">
+              ${escapeHtml(q.verdict)}
+            </span>
+            ${q.explanation ? `<div style="color: var(--text-muted);">${escapeHtml(q.explanation)}</div>` : ''}
+          </td>
+        </tr>
+      `;
+    }).join('');
+  }
+}
+
+function openInlineModal(modalId) {
+  const el = document.getElementById(modalId);
+  if (!el) return;
+  el.classList.add('is-open');
+  el.style.display = 'flex';
+  el.setAttribute('aria-hidden', 'false');
+}
+
+function closeInlineModal(modalId) {
+  const el = document.getElementById(modalId);
+  if (!el) return;
+  el.classList.remove('is-open');
+  el.style.display = 'none';
+  el.setAttribute('aria-hidden', 'true');
+}
+
+function openSubmitConfirmationModal(isPausedSubmit = false) {
+  if (!jmcwcRunner) return;
+  isSubmittingPausedAttempt = Boolean(isPausedSubmit);
+  const counts = jmcwcRunner.getAnswerCounts();
+
+  const pausedNotice = document.getElementById('jmcwc-submit-paused-notice');
+  const ansEl = document.getElementById('jmcwc-submit-answered-count');
+  const unansEl = document.getElementById('jmcwc-submit-unanswered-count');
+  const confirmBtnText = document.getElementById('btn-jmcwc-confirm-submit-text');
+
+  if (pausedNotice) {
+    pausedNotice.style.display = isSubmittingPausedAttempt ? 'block' : 'none';
+  }
+  if (ansEl) ansEl.textContent = String(counts.answeredCount);
+  if (unansEl) unansEl.textContent = String(counts.unansweredCount);
+  if (confirmBtnText) {
+    confirmBtnText.textContent = isSubmittingPausedAttempt
+      ? 'Resume & Submit Now'
+      : 'Submit Attempt';
+  }
+
+  openInlineModal('jmcwc-submit-confirm-modal');
+}
+
+function setupJmcwcOnlinePracticeUI() {
+  // Mode tabs
+  document.getElementById('btn-mode-manual')?.addEventListener('click', () => {
+    switchRoundScoresMode('manual');
+  });
+  document.getElementById('btn-mode-online')?.addEventListener('click', () => {
+    switchRoundScoresMode('online');
+  });
+
+  // Start Flat / Category buttons
+  document.getElementById('btn-jmcwc-start-flat')?.addEventListener('click', handleStartOnlineFlatRound);
+  document.getElementById('btn-jmcwc-start-category')?.addEventListener('click', handleStartOnlineCategoryPractice);
+
+  // Runner controls
+  document.getElementById('btn-jmcwc-runner-pause')?.addEventListener('click', async () => {
+    stopRunnerSchedulers();
+    if (!jmcwcRunner) return;
+    await jmcwcRunner.pauseAttempt();
+    await loadJmcwcOverviewAndAttempts();
+  });
+
+  document.getElementById('btn-jmcwc-runner-submit')?.addEventListener('click', () => {
+    stopRunnerSchedulers();
+    if (!jmcwcRunner) return;
+    const st = jmcwcRunner.getState();
+    openSubmitConfirmationModal(st.status === 'paused');
+  });
+
+  document.getElementById('btn-jmcwc-runner-exit')?.addEventListener('click', async () => {
+    stopRunnerSchedulers();
+    if (jmcwcRunner) {
+      const st = jmcwcRunner.getState();
+      if (st.status === 'running') {
+        await jmcwcRunner.pauseAttempt();
+      }
+    }
+    showJmcwcSubview('landing');
+    await loadJmcwcOverviewAndAttempts();
+  });
+
+  // Veil controls (Paused / Lease-lost)
+  document.getElementById('btn-jmcwc-veil-resume')?.addEventListener('click', async () => {
+    if (!jmcwcRunner) return;
+    const st = jmcwcRunner.getState();
+    const attemptId = st.attempt?.id;
+    if (!attemptId) return;
+    if (st.status === 'lease_lost') {
+      pendingTakeoverAttemptId = attemptId;
+      openInlineModal('jmcwc-takeover-modal');
+      return;
+    }
+    await handleResumeOnlineAttempt(attemptId, false);
+  });
+
+  document.getElementById('btn-jmcwc-veil-submit-paused')?.addEventListener('click', () => {
+    openSubmitConfirmationModal(true);
+  });
+
+  document.getElementById('btn-jmcwc-veil-back')?.addEventListener('click', async () => {
+    showJmcwcSubview('landing');
+    await loadJmcwcOverviewAndAttempts();
+  });
+
+  // Local recovery conflict buttons
+  document.getElementById('btn-jmcwc-recover-local')?.addEventListener('click', async () => {
+    if (!jmcwcRunner) return;
+    await jmcwcRunner.resolveRecoveryConflict('recover');
+  });
+  document.getElementById('btn-jmcwc-discard-local')?.addEventListener('click', async () => {
+    if (!jmcwcRunner) return;
+    await jmcwcRunner.resolveRecoveryConflict('discard');
+  });
+
+  // Previous / Next buttons & keyboard navigation
+  document.getElementById('btn-jmcwc-q-prev')?.addEventListener('click', () => {
+    navigateRunnerQuestion(-1);
+  });
+  document.getElementById('btn-jmcwc-q-next')?.addEventListener('click', () => {
+    navigateRunnerQuestion(1);
+  });
+
+  // Submit confirmation modal actions
+  document.getElementById('btn-jmcwc-close-submit-modal')?.addEventListener('click', () => {
+    closeInlineModal('jmcwc-submit-confirm-modal');
+  });
+  document.getElementById('btn-jmcwc-cancel-submit')?.addEventListener('click', () => {
+    closeInlineModal('jmcwc-submit-confirm-modal');
+  });
+  document.getElementById('btn-jmcwc-confirm-submit')?.addEventListener('click', async () => {
+    if (!jmcwcRunner) return;
+    const btn = document.getElementById('btn-jmcwc-confirm-submit');
+    if (btn) btn.disabled = true;
+    try {
+      await jmcwcRunner.submitAttempt({ resumeIfPaused: isSubmittingPausedAttempt });
+      closeInlineModal('jmcwc-submit-confirm-modal');
+    } catch (err) {
+      closeInlineModal('jmcwc-submit-confirm-modal');
+      showJmcwcOnlineError(err.message);
+      showToast('error', err.message);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
+
+  // Takeover confirmation modal actions
+  document.getElementById('btn-jmcwc-close-takeover-modal')?.addEventListener('click', () => {
+    pendingTakeoverAttemptId = null;
+    closeInlineModal('jmcwc-takeover-modal');
+  });
+  document.getElementById('btn-jmcwc-cancel-takeover')?.addEventListener('click', () => {
+    pendingTakeoverAttemptId = null;
+    closeInlineModal('jmcwc-takeover-modal');
+  });
+  document.getElementById('btn-jmcwc-confirm-takeover')?.addEventListener('click', async () => {
+    const attemptId = pendingTakeoverAttemptId;
+    pendingTakeoverAttemptId = null;
+    closeInlineModal('jmcwc-takeover-modal');
+    if (attemptId) {
+      await handleResumeOnlineAttempt(attemptId, true);
+    }
+  });
+
+  // Close review button
+  document.getElementById('btn-jmcwc-close-review')?.addEventListener('click', async () => {
+    showJmcwcSubview('landing');
+    await loadJmcwcOverviewAndAttempts();
+  });
+
+  // Best-effort save/pause on pagehide, visibilitychange (hidden), and beforeunload
+  window.addEventListener('pagehide', () => {
+    stopRunnerSchedulers();
+    if (jmcwcRunner) {
+      jmcwcRunner.handleVisibilityHiddenOrPageHide();
+    }
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      stopRunnerSchedulers();
+      if (jmcwcRunner) {
+        jmcwcRunner.handleVisibilityHiddenOrPageHide();
+      }
+    }
+  });
+  window.addEventListener('beforeunload', () => {
+    stopRunnerSchedulers();
+  });
 }
 
 document.addEventListener('DOMContentLoaded', initRoundScores);

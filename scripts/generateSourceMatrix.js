@@ -15,15 +15,42 @@ md += `- \`docs/sources/JMCWC-2026-Simulator-Seniors.xlsx\` (2.4 MB, 27 sheets, 
 md += `- \`docs/sources/JMCWC_Rules_2025.pdf\` (94 KB, 15 official contest rules & examples)\n\n`;
 
 md += `## 1. Executive Summary & Paper Topology\n\n`;
-md += `| Group | Source Workbook | Total Sheets | Visible Categories | Total Questions | Total Cached Marks | Status |\n`;
+md += `| Group | Source Workbook | Total Sheets | Visible Categories | Total Questions | Cached Snapshot Marks | Status |\n`;
 md += `|---|---|---|---|---|---|---|\n`;
 md += `| **Junior 1** (\`junior1\`) | \`JMCWC-2026-Simulator-Juniors-1.xlsx\` | 27 (4 hidden) | 23 | **440** | 2,310 | **Verified & Validated** |\n`;
 md += `| **Junior 2** (\`junior2\`) | \`JMCWC-2026-Simulator-Juniors-2.xlsx\` | 27 (4 hidden) | 23 | **445** | 2,469 | **Verified & Validated** |\n`;
 md += `| **Senior** (\`senior\`) | \`JMCWC-2026-Simulator-Seniors.xlsx\` | 27 (4 hidden) | 23 | **446** | 2,595 | **Verified & Validated** |\n\n`;
-
-md += `*Note on Scoring Formulation:*\n`;
-md += `- In 19 of the 23 categories, question marks per slot are strictly deterministic and fixed in the workbook.\n`;
-md += `- In 4 categories (\`multiplication\`, \`prime_factors\`, \`approximation\`, \`sum_squares\`), marks are dynamically determined by the exact generated numbers and formula specified in the workbook. The cached mark totals reflect the static snapshot saved inside the source workbooks.\n\n`;
+md += `### 1.1. Fixed vs. Dynamic Scoring Analysis & Upstream Dependency Graph\n\n`;
+md += `Across all 23 categories in the three workbooks, an exhaustive trace of every mark formula and its upstream cell dependency tree reveals that:\n\n`;
+md += `1. **19 Categories are strictly FIXED (Type A):**\n`;
+md += `   - **Categories:** \`addition\`, \`subtraction\`, \`mixed\`, \`division\`, \`brackets\`, \`hcf_lcm\`, \`fraction_add\`, \`fraction_sub\`, \`fraction_mul\`, \`fraction_div\`, \`remainder\`, \`ratio\`, \`square_root\`, \`inexact_square_root\`, \`next_square\`, \`cube_root\`, \`next_cube\`, \`calendar\`, \`elapsed_time\`.\n`;
+md += `   - **Formula Proof:** In each of these 19 categories, mark formulas reference only fixed slot parameters (levels, digits, adjustments) or variables where random operands mathematically cancel out:\n`;
+md += `     - \`subtraction\`: \`AH5 = INT(LOG(AB5+0.5))+1\`. Since minuend \`AB5\` has exactly \`AA5\` digits by construction, \`INT(LOG(AB5+0.5))+1\` is identically equal to \`AA5\` for all random numbers. The mark is strictly fixed at \`AA5 + M5\`.\n`;
+md += `     - \`remainder\`: \`AK6 = AI6 + AJ6 - 1 = Y6 + Z6 - 1\`. Because \`Z6 = V6 - Y6\`, the random number \`Y6\` cancels out completely (\`Y6 + (V6 - Y6) - 1 = V6 - 1\`), yielding a constant mark equal to the level setting.\n`;
+md += `     - \`next_square\`: \`AI8 = INT(LOG(AD8+0.05))\`. Radicand \`AD8\` is in $[10^{V8}, 10^{V8+1}-1]$, so \`LOG\` is in $[V8, V8+1)$, evaluating identically to \`V8\` for all generated numbers.\n`;
+md += `     - \`next_cube\`: \`AI7 = INT(LOG(AD7+0.05))\` evaluates identically to fixed level \`V7\`.\n`;
+md += `     - All other 15 categories reference fixed table constants or slot adjustment cells.\n\n`;
+md += `2. **4 Categories are dynamically score-calculated (Type B):**\n`;
+md += `   - **\`multiplication\` (\`04_Int_Mults\`):** \`BD8 = INT(BD7^0.75 + 0.35)\` where \`BD7 = d1 * d2\` (\`mark_rule: "multiplication_digits_product"\`). When the total digit count can be partitioned unevenly (e.g., 7 digits into 4×3 digits vs 5×2 digits), the mark varies between 5 and 6 points based on the randomly chosen partition.\n`;
+md += `   - **\`prime_factors\` (\`07_Primes\`):** \`G9 = INT(CA6 * 1.2)\` where \`CA6\` looks up composite product \`BZ6\` in valuation table \`$Q$16..$R$27\` (\`mark_rule: "prime_factors_target_scale"\`, \`mark_range: [3, 10]\`).\n`;
+md += `   - **\`approximation\` (\`15_Approximations\`):** In slots 1..6 (\`nearest_int_mul\`, \`BV{r} = (BU{r} + BU{r}^2)/2 + 1\`) and slots 11..16 (\`nearest_int_div\`, \`AV{r} = (AU{r} + AU{r}^2)/2 + 1\`), marks depend on the digit count of the rounded integer answer (\`mark_rule: "approximation_product_digits"\`, \`mark_range: [2, 16]\`). Slots 7..10 (\`sig_figs_4_mul\`) and 17..20 (\`sig_figs_4_div\`) are strictly fixed at 11 marks.\n`;
+md += `   - **\`sum_squares\` (\`25_Sums_of_Squares\`):** In Junior 1, \`G{r} = L{r} + M{r} - 2\` (\`mark_rule: "sum_squares_j1_decomposition"\`, \`mark_range: [2, 6]\`). In Junior 2 and Senior, \`G{r} = AJ{r} + J{r}\` depends on the generated target magnitude (\`mark_rule: "sum_squares_j2_target"\` and \`"sum_squares_sr_target"\`, \`mark_range: [2, 10]\`).\n\n`;
+md += `### 1.2. Critical Terminology & Distinction\n\n`;
+md += `- **Cached Workbook Example Total:** The static sum recorded in the author's original Excel snapshot (Junior 1: **2,310**, Junior 2: **2,469**, Senior: **2,595**). These represent a single valid evaluation of the dynamic formulas saved in the workbook file at the time of authoring. They are preserved in \`paper.spec.total_cached_marks\` as historical reference.\n`;
+md += `- **Fixed Blueprint Slots:** Slots where \`parameters.scoring_mode\` is \`"fixed"\` (or omitted), with no \`mark_rule\` or \`mark_range\`, and where generated question \`max_marks\` must equal blueprint \`max_marks\`.\n`;
+md += `- **Dynamic Blueprint Slots:** Slots where \`parameters.scoring_mode = "dynamic"\`, \`parameters.mark_rule\` is a recognized rule name, and \`parameters.mark_range = [min, max]\`. Scoring metadata is placed strictly inside \`slot.parameters\`, never at the slot top level.\n`;
+md += `- **Maximum Marks for a Particular Generated Attempt:** In live generation, the trusted server generator computes each question's exact \`max_marks\` from the generated operands using registered pure scoring functions (\`DYNAMIC_SCORING_RULES\`), validates containment in \`parameters.mark_range\`, and freezes that integer mark into the persisted question payload at attempt creation. The attempt's maximum marks are derived by summing the persisted question \`max_marks\`.\n\n`;
+md += `### 1.3. Deployed Database Contract & Actual RPC / Guard Functions\n\n`;
+md += `The database schema and validation contract enforce fixed and dynamic slots via the nine owner-deployed JMCWC database functions:\n`;
+md += `1. \`jmcwc_assignment_guard()\`\n`;
+md += `2. \`jmcwc_paper_guard()\`\n`;
+md += `3. \`jmcwc_check_student(uuid)\`\n`;
+md += `4. \`jmcwc_tick(uuid)\`\n`;
+md += `5. \`jmcwc_create_attempt(uuid,uuid,uuid,text,text,jsonb)\`\n`;
+md += `6. \`jmcwc_act(uuid,uuid,text,uuid,bigint,jsonb)\`\n`;
+md += `7. \`jmcwc_list(uuid,integer)\`\n`;
+md += `8. \`jmcwc_finalize(uuid,uuid,bigint,jsonb)\`\n`;
+md += `9. \`jmcwc_validate_marks(text,jsonb,numeric)\`\n\n`;
 
 md += `## 2. Broken Formula Investigations & Forensic Repairs\n\n`;
 md += `Across all 81 worksheets (27 sheets × 3 workbooks), formula errors (\`#REF!\` and \`#VALUE!\`) were present in only 4 visible sheets. Each was forensically analyzed across adjacent cells and all three workbooks:\n\n`;

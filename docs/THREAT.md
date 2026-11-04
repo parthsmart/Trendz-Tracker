@@ -288,3 +288,33 @@ The serverless functions in `/api/create-student.js` and `/api/reset-password.js
    - `POST /api/weekly-test` (`action: 'start'`) enforces a rate limit of at most 60 session starts per hour per student across `drill_sessions`.
    - Weekly test submissions write **only** to `weekly_test_scores` and `weekly_test_attempts` and never write to `results` or `activity_results`, preventing weekly test attempts from inflating daily task completion or practice streaks.
    - Raw student answers, expected answers, and bearer tokens are never logged.
+
+
+---
+
+## Phase 17a & 17b: JMCWC Authenticated Server APIs, Session Lifecycle & Database Contract Controls
+
+Authoritative reference: [`docs/JMCWC_DATABASE_CONTRACT.json`](./JMCWC_DATABASE_CONTRACT.json).
+
+1. **Service-Role Only Database Access & Zero Direct Browser Access**:
+   - All 7 JMCWC tables (`jmcwc_assignments`, `jmcwc_attempts`, `jmcwc_categories`, `jmcwc_papers`, `jmcwc_payloads`, `jmcwc_scores`, `jmcwc_targets`) have `rls_enabled: true` with `policies: []` and permissions granted exclusively to `postgres` and `service_role`.
+   - All 9 JMCWC functions (`jmcwc_act`, `jmcwc_assignment_guard`, `jmcwc_check_student`, `jmcwc_create_attempt`, `jmcwc_finalize`, `jmcwc_list`, `jmcwc_paper_guard`, `jmcwc_tick`, `jmcwc_validate_marks`) have execute permissions granted only to `postgres` and `service_role`.
+   - Anonymous and authenticated student JWTs have zero direct read or write access to any JMCWC table or RPC via PostgREST. Every JMCWC operation passes through `POST /api/jmcwc` (`api/jmcwc.js` + `api/_jmcwcServer.js`), which verifies the bearer token via `supabase.auth.getUser(token)` and checks `profiles.active === true` and `profiles.role`.
+
+2. **Server-Authoritative Question Generation, Dynamic Scoring & Expected-Answer Stripping**:
+   - Questions, expected answers, and dynamic marks (`multiplication_digits_product`, `prime_factors_target_scale`, `approximation_product_digits`, `sum_squares_j1_decomposition`, `sum_squares_j2_target`, `sum_squares_sr_target`) are generated exclusively on the server (`api/_jmcwcGenerate.js`) using `crypto.randomInt` and validated by `jmcwc_create_attempt` and `jmcwc_validate_marks`.
+   - Dynamic marks are persisted once inside `jmcwc_payloads.questions` at attempt creation time and are never recalculated from student answers.
+   - `stripExpectedFromQuestion` and explicit response field whitelisters (`whitelistAttemptForList`, `whitelistAttemptForPaused`, `whitelistAttemptForRunning`, `whitelistAttemptForSubmitted`) guarantee that:
+     - `expected` is never sent to a student while an attempt is `running`, `paused`, or `grading`.
+     - `paused` and `list` responses never include `questions`, `expected`, `grading_detail`, `lease_token`, or internal payload fields.
+     - Only `submitted` attempts return `grading_detail` (which includes per-question `verdict`, `award`, `student_answer`, and `expected` for post-submission review).
+
+3. **Lease Tokens, Strictly Increasing `save_seq` & Expired-Before-Merge Ordering**:
+   - Only a `running` attempt holds a non-null `lease_token` and `lease_expires_at` (`now() + 90s`). Resuming a `paused` attempt or taking over a `running` attempt whose lease has expired issues a fresh `lease_token` and resets `save_seq = 0`.
+   - Any `save` or `heartbeat` with a stale `lease_token` is rejected with HTTP 409 (`jmcwc_stale_lease`).
+   - Any `save` with `p_seq <= a.save_seq` is rejected with HTTP 409 (`jmcwc_stale_save_seq`).
+   - `jmcwc_act` invokes `jmcwc_tick(a.id)` **before** merging `p_answers` on `save`, `heartbeat`, `pause`, or `submit`. If the attempt's countdown timer (`remaining_ms <= 0`) or 7-day abandonment window (`expires_at <= now()`) has elapsed, `jmcwc_tick` transitions the attempt to `'grading'` immediately without merging late answers, and the server grades and finalizes the frozen pre-expiry answers via `jmcwc_finalize`.
+
+4. **Idempotent Grading & Retry Recovery (`status = 'grading' -> 'submitted'`)**:
+   - `gradeFrozenAttemptForFinalize` in `api/_jmcwcServer.js` evaluates frozen `jmcwc_attempts.answers` against `jmcwc_payloads.questions` using PostgreSQL `btrim` blank semantics (`blank <=> verdict = 'skipped'`, `award = max_marks` for `'correct'`, `max_marks / 2` for `'partial'`, `0` otherwise) enforced by `jmcwc_finalize`.
+   - If a transient error interrupts `jmcwc_finalize`, the attempt remains in `status = 'grading'` with its frozen answers intact; any subsequent `read`, `list`, `init`, or `submit` call automatically settles and finalizes the attempt without re-running the timer or losing student work.

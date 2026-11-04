@@ -377,7 +377,7 @@ function gradePrimeFactorization(answerKey, rawAnswer) {
     .trim();
 
   if (!normalized) {
-    return { verdict: 'skipped', expected: expectedStr, explanation };
+    return { verdict: 'wrong', expected: expectedStr, explanation };
   }
 
   // Split tokens by whitespace, keeping `p^e` glued even if spaces surround `^`
@@ -750,17 +750,18 @@ export function grade(question, rawAnswer) {
       throw new Error(`Unsupported JMCWC answer_key kind: ${kind}`);
   }
 
+  const finalVerdict = result.verdict === 'skipped' ? 'wrong' : result.verdict;
   let award = 0;
-  if (result.verdict === 'correct') {
+  if (finalVerdict === 'correct') {
     award = maxMarks;
-  } else if (result.verdict === 'partial') {
+  } else if (finalVerdict === 'partial') {
     award = maxMarks / 2;
   }
 
   return {
     question_id: questionId,
     award,
-    verdict: result.verdict,
+    verdict: finalVerdict,
     expected: result.expected,
     explanation: result.explanation,
   };

@@ -32,6 +32,7 @@ import {
 
 import { grade, gradeAttempt } from '../api/_jmcwcGrade.js';
 import {
+  DYNAMIC_SCORING_RULES,
   generateQuestionForSlot,
   generateQuestionsFromBlueprint,
   toPublicQuestion,
@@ -570,9 +571,9 @@ test('Phase 17a — Deterministic seeded generation across all 23 categories & p
     const paper = JMCWC_DRAFT_PAPERS[groupKey];
     const validation = validatePaperBlueprint(paper);
     assert.equal(validation.valid, true, `Blueprint for ${groupKey} must be structurally valid`);
-    // Fully source-verified and publishable
+    // Fully source-verified and publishable once approved
     assert.equal(validation.canPublish, true);
-    assert.equal(paper.published, true);
+    assert.equal(paper.published, false, 'Draft papers must remain published: false until owner mismatch resolution');
     assert.equal(paper.spec.source_verified, true);
 
     // Deterministic seeded generation: same seed produces identical questions
@@ -635,7 +636,7 @@ test('Phase 17a — Source-verified paper topology, slot counts, cached totals &
   for (const [groupKey, meta] of Object.entries(expectedTotals)) {
     const paper = JMCWC_DRAFT_PAPERS[groupKey];
     assert.equal(paper.group_key, groupKey);
-    assert.equal(paper.version, '2026.1');
+    assert.equal(paper.version, '2026.3');
     assert.equal(paper.spec.source_workbook, meta.file);
     assert.equal(paper.spec.total_questions, meta.questions);
     assert.equal(paper.spec.total_cached_marks, meta.cachedMarks);
@@ -702,4 +703,118 @@ test('Phase 17a — Source-verified paper topology, slot counts, cached totals &
     assert.ok(cubeRootSec.questions[22].source_ref.repair_note, 'Cube roots slot 23 must have repair note');
   }
 });
+
+test('Phase 17a — Faithful workbook-derived dynamic scoring rules & frozen attempt mark derivation (no eval/Function)', () => {
+  // 1. Verify registered pure scoring functions
+  assert.equal(typeof DYNAMIC_SCORING_RULES.multiplication_digits_product, 'function');
+  assert.equal(typeof DYNAMIC_SCORING_RULES.prime_factors_target_scale, 'function');
+  assert.equal(typeof DYNAMIC_SCORING_RULES.approximation_product_digits, 'function');
+  assert.equal(typeof DYNAMIC_SCORING_RULES.sum_squares_j1_decomposition, 'function');
+  assert.equal(typeof DYNAMIC_SCORING_RULES.sum_squares_j2_target, 'function');
+  assert.equal(typeof DYNAMIC_SCORING_RULES.sum_squares_sr_target, 'function');
+
+  // 2. Multiplication formula: INT((d1 * d2)^0.75 + 0.35)
+  // 2 digits x 2 digits: (2*2)^0.75 + 0.35 = 4^0.75 + 0.35 = 2.828 + 0.35 = 3.178 -> 3
+  assert.equal(DYNAMIC_SCORING_RULES.multiplication_digits_product(['45', '89']), 3);
+  // 3 digits x 3 digits: (3*3)^0.75 + 0.35 = 9^0.75 + 0.35 = 5.196 + 0.35 = 5.546 -> 5
+  assert.equal(DYNAMIC_SCORING_RULES.multiplication_digits_product(['123', '456']), 5);
+  // 4 digits x 3 digits: (4*3)^0.75 + 0.35 = 12^0.75 + 0.35 = 6.447 + 0.35 = 6.797 -> 6
+  assert.equal(DYNAMIC_SCORING_RULES.multiplication_digits_product(['1234', '567']), 6);
+  // 5 digits x 2 digits: (5*2)^0.75 + 0.35 = 10^0.75 + 0.35 = 5.623 + 0.35 = 5.973 -> 5
+  assert.equal(DYNAMIC_SCORING_RULES.multiplication_digits_product(['12345', '67']), 5);
+  // 5 digits x 4 digits: (5*4)^0.75 + 0.35 = 20^0.75 + 0.35 = 9.457 + 0.35 = 9.807 -> 9
+  assert.equal(DYNAMIC_SCORING_RULES.multiplication_digits_product(['12345', '6789']), 9);
+
+  // 3. Prime factors formula: composite scale lookup in $Q$16..$R$27 multiplied by 1.2
+  assert.equal(DYNAMIC_SCORING_RULES.prime_factors_target_scale(350), 3); // < 400: CA=3 -> 3.6 -> 3
+  assert.equal(DYNAMIC_SCORING_RULES.prime_factors_target_scale(800), 4); // 650..1000: CA=4 -> 4.8 -> 4
+  assert.equal(DYNAMIC_SCORING_RULES.prime_factors_target_scale(1800), 6); // 1500..2000: CA=5 -> 6.0 -> 6
+  assert.equal(DYNAMIC_SCORING_RULES.prime_factors_target_scale(5000), 7); // 3500..7000: CA=6 -> 7.2 -> 7
+  assert.equal(DYNAMIC_SCORING_RULES.prime_factors_target_scale(12000), 8); // 10000..15000: CA=7 -> 8.4 -> 8
+  assert.equal(DYNAMIC_SCORING_RULES.prime_factors_target_scale(30000), 9); // 25000..40000: CA=8 -> 9.6 -> 9
+  assert.equal(DYNAMIC_SCORING_RULES.prime_factors_target_scale(50000), 10); // >= 40000: CA=9 -> 10.8 -> 10
+
+  // 4. Approximations formula: (d + d^2)/2 + 1
+  assert.equal(DYNAMIC_SCORING_RULES.approximation_product_digits(8), 2); // 1 digit -> (1+1)/2+1 = 2
+  assert.equal(DYNAMIC_SCORING_RULES.approximation_product_digits(42), 4); // 2 digits -> (2+4)/2+1 = 4
+  assert.equal(DYNAMIC_SCORING_RULES.approximation_product_digits(350), 7); // 3 digits -> (3+9)/2+1 = 7
+  assert.equal(DYNAMIC_SCORING_RULES.approximation_product_digits(2500), 11); // 4 digits -> (4+16)/2+1 = 11
+  assert.equal(DYNAMIC_SCORING_RULES.approximation_product_digits(64000), 16); // 5 digits -> (5+25)/2+1 = 16
+
+  // 5. Sum of squares formula:
+  // Junior 1: count of squares in decomposition + target digits - 2
+  assert.equal(DYNAMIC_SCORING_RULES.sum_squares_j1_decomposition(66, 4), 4); // 4 + 2 - 2 = 4
+  assert.equal(DYNAMIC_SCORING_RULES.sum_squares_j1_decomposition(141, 4), 5); // 4 + 3 - 2 = 5
+  assert.equal(DYNAMIC_SCORING_RULES.sum_squares_j1_decomposition(89, 3), 3); // 3 + 2 - 2 = 3
+  // Junior 2: target thresholds (<100->2, <400->3, <1000->4, >10000->10, else 6)
+  assert.equal(DYNAMIC_SCORING_RULES.sum_squares_j2_target(75), 2);
+  assert.equal(DYNAMIC_SCORING_RULES.sum_squares_j2_target(250), 3);
+  assert.equal(DYNAMIC_SCORING_RULES.sum_squares_j2_target(800), 4);
+  assert.equal(DYNAMIC_SCORING_RULES.sum_squares_j2_target(1500), 6);
+  assert.equal(DYNAMIC_SCORING_RULES.sum_squares_j2_target(25000), 10);
+  // Senior: target thresholds (<100->2, <400->3, <1000->4, <2000->5, >10000->10, else 6)
+  assert.equal(DYNAMIC_SCORING_RULES.sum_squares_sr_target(75), 2);
+  assert.equal(DYNAMIC_SCORING_RULES.sum_squares_sr_target(250), 3);
+  assert.equal(DYNAMIC_SCORING_RULES.sum_squares_sr_target(800), 4);
+  assert.equal(DYNAMIC_SCORING_RULES.sum_squares_sr_target(1500), 5);
+  assert.equal(DYNAMIC_SCORING_RULES.sum_squares_sr_target(25000), 10);
+
+  // 6. Sums of Squares Rule 14 Verification:
+  // Marks depend on the printed question's max_marks (frozen at attempt creation),
+  // NOT on the student's submitted decomposition choice.
+  const qSumSquaresFrozen = {
+    id: 'sum_squares_s1',
+    category_key: 'sum_squares',
+    slot: 1,
+    max_marks: 5, // printed on the sheet next to the target
+    prompt: 'Express 150 as the sum of 2 to 4 nonzero positive integer squares:',
+    input: { type: 'sum_squares', min_count: 2, max_count: 4 },
+    answer_key: {
+      kind: 'sum_of_squares',
+      target: '150',
+      min_count: 2,
+      max_count: 4,
+      example_bases: ['12', '2', '1', '1'],
+    },
+  };
+
+  // Student choice A: 10^2 + 5^2 + 5^2 (3 squares) -> earns full 5 marks
+  const resA = grade(qSumSquaresFrozen, '10, 5, 5');
+  assert.equal(resA.verdict, 'correct');
+  assert.equal(resA.award, 5);
+
+  // Student choice B: 12^2 + 2^2 + 1^2 + 1^2 (4 squares) -> earns full 5 marks
+  const resB = grade(qSumSquaresFrozen, '12² + 2² + 1² + 1²');
+  assert.equal(resB.verdict, 'correct');
+  assert.equal(resB.award, 5);
+
+  // 7. Full Blueprint Generation and Attempt Total Derivation
+  for (const groupKey of ['junior1', 'junior2', 'senior']) {
+    const paper = JMCWC_DRAFT_PAPERS[groupKey];
+    const run = generateQuestionsFromBlueprint(paper.spec, {
+      mode: 'flat',
+      seed: `attempt-seed-${groupKey}`,
+    });
+
+    // Attempt's maximum marks are strictly derived by summing generated questions
+    const expectedSum = run.privateQuestions.reduce((acc, q) => acc + q.max_marks, 0);
+    assert.equal(run.total_max_marks, expectedSum, `total_max_marks must equal sum of questions`);
+
+    // Verify each dynamic slot's generated max_marks is bounded within its declared mark_range
+    for (const q of run.privateQuestions) {
+      const sec = paper.spec.sections.find((s) => s.key === q.category_key);
+      const slotSpec = sec.questions.find((s) => s.slot === q.slot);
+      if (slotSpec.parameters?.scoring_mode === 'dynamic') {
+        const [minM, maxM] = slotSpec.parameters.mark_range;
+        assert.ok(
+          q.max_marks >= minM && q.max_marks <= maxM,
+          `Dynamic question ${q.id} mark ${q.max_marks} outside [${minM}, ${maxM}]`
+        );
+      } else {
+        assert.equal(q.max_marks, slotSpec.max_marks, `Fixed question ${q.id} mark mismatch`);
+      }
+    }
+  }
+});
+
 

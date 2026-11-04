@@ -15,10 +15,10 @@ import backupHandler from './api/backup.js';
 import drillHandler from './api/drill.js';
 import memoriadHandler from './api/memoriad.js';
 import weeklyTestHandler from './api/weekly-test.js';
-import jmcwcDriveSyncHandler from './api/jmcwc-drive-sync.js';
+import jmcwcHandler from './api/jmcwc.js';
 import { getSupabaseServerConfig } from './api/_configHelper.js';
 
-dotenv.config();
+dotenv.config({ path: process.env.DOTENV_CONFIG_PATH || process.env.ENV_FILE || '.env' });
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -63,7 +63,7 @@ app.all('/api/backup', safeHandler(backupHandler));
 app.all('/api/drill', safeHandler(drillHandler));
 app.all(['/api/memoriad', '/api/memoriad.js'], safeHandler(memoriadHandler));
 app.all(['/api/weekly-test', '/api/weekly-test.js'], safeHandler(weeklyTestHandler));
-app.all(['/api/jmcwc-drive-sync', '/api/jmcwc-drive-sync.js'], safeHandler(jmcwcDriveSyncHandler));
+app.all(['/api/jmcwc', '/api/jmcwc.js'], safeHandler(jmcwcHandler));
 
 async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';

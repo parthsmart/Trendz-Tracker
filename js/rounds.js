@@ -18,6 +18,12 @@ import { DemoDB, getSupabase } from './supabaseClient.js';
 import { formatSecondsToMMSS, parseTimeToSeconds } from './timeUtils.js';
 import { showToast } from './toast.js';
 import { shouldOpenMoreOptions, buildModalLiveSummary, setMoreOptionsOpen } from './formPattern.js';
+import {
+  formatJmcwcGroupLabel,
+  formatActiveDurationMs,
+  formatDurationSeconds,
+  buildSubmittedReviewViewModel,
+} from './jmcwcClient.js';
 
 let allStudents = [];
 let allSeries = [];
@@ -28,6 +34,14 @@ let studentRoundsList = []; // enriched with series and scores_count
 let saveAndAddAnotherRoundMode = false;
 let currentEditSeriesName = '';
 let currentEditRoundNumber = '';
+
+// Phase 17c Admin JMCWC state
+let adminJmcwcAssignments = [];
+let adminJmcwcCategories = [];
+let adminJmcwcTargets = [];
+let adminJmcwcPapers = [];
+let adminLegacyRoundCategories = [];
+let adminJmcwcAttempts = [];
 
 function escapeHtml(str) {
   if (str === null || str === undefined) return '';
@@ -558,12 +572,14 @@ async function initRounds() {
   searchInput?.addEventListener('input', () => {
     populateStudentSelect(searchInput.value);
     loadRounds();
+    syncSelectedStudentJmcwcAdminUI();
   });
 
   const studentSelect = document.getElementById('select-student-rounds');
   studentSelect?.addEventListener('change', () => {
     selectedStudentId = studentSelect.value;
     loadRounds();
+    syncSelectedStudentJmcwcAdminUI();
   });
 
   const seriesFilterSelect = document.getElementById('select-series-filter');
@@ -814,6 +830,531 @@ async function initRounds() {
 
   // Initial load
   await loadRounds();
+  setupAdminJmcwcListeners();
+  await loadAdminJmcwcOverview();
+}
+
+// ============================================================================
+// Phase 17c — Admin JMCWC Online Simulator Management
+// ============================================================================
+
+async function callAdminJmcwcApi(payload) {
+  if (!isSupabaseConfigured()) {
+    throw new Error('Live Supabase configuration is required for JMCWC administration.');
+  }
+  const supabase = await getSupabase();
+  const { data } = await supabase.auth.getSession();
+  const token = data?.session?.access_token || '';
+  if (!token) {
+    throw new Error('Admin session expired. Please sign in again.');
+  }
+
+  const response = await fetch('/api/jmcwc', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body?.ok === false) {
+    const err = new Error(body?.error?.message || `Admin JMCWC request failed (${response.status})`);
+    err.status = response.status;
+    err.code = body?.error?.code || 'ADMIN_JMCWC_ERROR';
+    throw err;
+  }
+  return body;
+}
+
+export function formatFriendlyAssignmentError(err) {
+  const msg = String(err?.message || err || '').trim();
+  if (
+    msg.toLowerCase().includes('unfinished simulator attempts') ||
+    err?.code === 'ASSIGNMENT_CHANGE_BLOCKED'
+  ) {
+    return "Complete this student's unfinished simulator attempts before changing group.";
+  }
+  return msg || 'Failed to update student JMCWC group assignment.';
+}
+
+async function loadAdminJmcwcOverview() {
+  if (!isSupabaseConfigured()) {
+    renderAdminJmcwcPapersTable([]);
+    renderAdminJmcwcCategoriesTable();
+    renderAdminJmcwcAttemptsTable([]);
+    syncSelectedStudentJmcwcAdminUI();
+    return;
+  }
+
+  try {
+    const [overviewRes, papersRes] = await Promise.all([
+      callAdminJmcwcApi({ action: 'admin_get_overview' }),
+      callAdminJmcwcApi({ action: 'admin_get_papers' }),
+    ]);
+
+    adminJmcwcAssignments = Array.isArray(overviewRes.assignments) ? overviewRes.assignments : [];
+    adminJmcwcCategories = Array.isArray(overviewRes.categories) ? overviewRes.categories : [];
+    adminJmcwcTargets = Array.isArray(overviewRes.targets) ? overviewRes.targets : [];
+    adminLegacyRoundCategories = Array.isArray(overviewRes.legacy_categories) ? overviewRes.legacy_categories : [];
+    adminJmcwcPapers = Array.isArray(papersRes.papers) ? papersRes.papers : [];
+
+    renderAdminJmcwcPapersTable(adminJmcwcPapers);
+    renderAdminJmcwcCategoriesTable();
+    await syncSelectedStudentJmcwcAdminUI();
+    await loadAdminJmcwcAttempts();
+  } catch (err) {
+    console.warn('JMCWC Admin overview load note:', err.message);
+  }
+}
+
+async function syncSelectedStudentJmcwcAdminUI() {
+  const studentObj = allStudents.find(s => s.id === selectedStudentId);
+  const labelEl = document.getElementById('admin-jmcwc-student-label');
+  const groupSelect = document.getElementById('select-admin-jmcwc-group');
+  const errEl = document.getElementById('admin-jmcwc-assignment-error');
+
+  if (errEl) {
+    errEl.style.display = 'none';
+    errEl.textContent = '';
+  }
+
+  if (labelEl) {
+    labelEl.textContent = studentObj
+      ? `${studentObj.full_name} (${studentObj.student_code})`
+      : 'None selected';
+  }
+
+  const assignment = adminJmcwcAssignments.find(a => a.student_id === selectedStudentId);
+  if (groupSelect) {
+    groupSelect.value = assignment?.group_key || '';
+    groupSelect.disabled = !selectedStudentId;
+  }
+
+  // Load deletion preview counts for the selected student
+  await loadSelectedStudentDeletionPreview();
+
+  const scopeSelect = document.getElementById('filter-jmcwc-attempt-student');
+  if (scopeSelect?.value === 'selected') {
+    await loadAdminJmcwcAttempts();
+  }
+}
+
+async function loadSelectedStudentDeletionPreview() {
+  const assignEl = document.getElementById('del-preview-assignments');
+  const attEl = document.getElementById('del-preview-attempts');
+  const payEl = document.getElementById('del-preview-payloads');
+  const scEl = document.getElementById('del-preview-scores');
+
+  if (!selectedStudentId || !isSupabaseConfigured()) {
+    if (assignEl) assignEl.textContent = '0';
+    if (attEl) attEl.textContent = '0';
+    if (payEl) payEl.textContent = '0';
+    if (scEl) scEl.textContent = '0';
+    return;
+  }
+
+  try {
+    const res = await callAdminJmcwcApi({
+      action: 'admin_get_student_deletion_preview',
+      student_id: selectedStudentId,
+    });
+    const counts = res.counts || {};
+    if (assignEl) assignEl.textContent = String(counts.jmcwc_assignments ?? 0);
+    if (attEl) attEl.textContent = String(counts.jmcwc_attempts ?? 0);
+    if (payEl) payEl.textContent = String(counts.jmcwc_payloads ?? 0);
+    if (scEl) scEl.textContent = String(counts.jmcwc_scores ?? 0);
+  } catch {
+    if (assignEl) assignEl.textContent = '0';
+    if (attEl) attEl.textContent = '0';
+    if (payEl) payEl.textContent = '0';
+    if (scEl) scEl.textContent = '0';
+  }
+}
+
+function renderAdminJmcwcPapersTable(papers) {
+  const tbody = document.getElementById('admin-jmcwc-papers-tbody');
+  if (!tbody) return;
+
+  if (!Array.isArray(papers) || papers.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="8" style="font-size: var(--text-xs); color: var(--text-muted); text-align: center;">
+          No JMCWC papers loaded.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  // Strictly read-only: NO publication controls exposed
+  tbody.innerHTML = papers.map(p => `
+    <tr>
+      <td style="font-weight: 700;">${escapeHtml(formatJmcwcGroupLabel(p.group_key))} <span class="num" style="font-size: 11px; color: var(--text-muted);">(${escapeHtml(p.group_key)})</span></td>
+      <td class="num"><code>${escapeHtml(p.version)}</code></td>
+      <td>
+        <div style="font-weight: 600;">${escapeHtml(p.title)}</div>
+        <div style="font-size: 11px; color: var(--text-muted);">Source: ${escapeHtml(p.source_workbook || '—')}</div>
+      </td>
+      <td class="num" style="text-align: right;">${Number(p.section_count) || 0}</td>
+      <td class="num" style="text-align: right;">${Number(p.question_count) || 0}</td>
+      <td class="num" style="text-align: right;">${Number(p.baseline_max_marks) || 0}</td>
+      <td class="num" style="text-align: right;">${Number(p.dynamic_slot_count) || 0}</td>
+      <td>
+        <span class="badge ${p.published ? 'badge-active' : 'badge-inactive'}">
+          ${p.published ? 'Published' : 'Unpublished (Read-only)'}
+        </span>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function renderAdminJmcwcCategoriesTable() {
+  const tbody = document.getElementById('admin-jmcwc-categories-tbody');
+  const groupSelect = document.getElementById('select-admin-jmcwc-cat-group');
+  if (!tbody || !groupSelect) return;
+
+  const groupKey = groupSelect.value || 'junior1';
+  const groupCats = adminJmcwcCategories
+    .filter(c => !c.group_key || c.group_key === groupKey)
+    .sort((a, b) => (a.section_order ?? a.position ?? 0) - (b.section_order ?? b.position ?? 0));
+
+  if (groupCats.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" style="font-size: var(--text-xs); color: var(--text-muted); text-align: center;">
+          No categories found for ${escapeHtml(formatJmcwcGroupLabel(groupKey))}.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  const targetByCatId = new Map();
+  for (const t of adminJmcwcTargets) {
+    if (t.group_key === groupKey) {
+      targetByCatId.set(t.category_key || t.category_id, t.target_seconds);
+    }
+  }
+
+  tbody.innerHTML = groupCats.map(cat => {
+    const catKey = cat.key || cat.id;
+    const targetSec = targetByCatId.get(catKey);
+    const targetDisplay = Number.isInteger(targetSec) && targetSec > 0
+      ? formatSecondsToMMSS(targetSec)
+      : '';
+
+    return `
+      <tr data-jmcwc-cat-row="${escapeHtml(cat.id)}">
+        <td class="num" style="font-weight: 700;">#${cat.section_order}</td>
+        <td style="font-weight: 600;">${escapeHtml(cat.display_name)}</td>
+        <td class="num"><code style="font-size: 11px;">${escapeHtml(cat.category_slug)}</code></td>
+        <td>
+          <input
+            type="text"
+            class="form-input num input-admin-jmcwc-target"
+            data-cat-id="${escapeHtml(cat.id)}"
+            placeholder="Optional (e.g. 3:00)"
+            value="${escapeHtml(targetDisplay)}"
+            aria-label="Optional target time for ${escapeHtml(cat.display_name)}"
+            style="max-width: 140px; min-height: 36px; font-size: var(--text-xs);"
+          />
+        </td>
+        <td>
+          <select
+            class="form-select select-admin-legacy-map"
+            data-cat-id="${escapeHtml(cat.id)}"
+            aria-label="Legacy Round category mapping for ${escapeHtml(cat.display_name)}"
+            style="min-height: 36px; font-size: var(--text-xs);"
+          >
+            <option value="">-- Unmapped --</option>
+            ${adminLegacyRoundCategories.map(leg => `
+              <option value="${escapeHtml(leg.id)}" ${cat.legacy_category_id === leg.id ? 'selected' : ''}>
+                ${escapeHtml(leg.name)}${leg.active === false ? ' [Inactive]' : ''}
+              </option>
+            `).join('')}
+          </select>
+        </td>
+        <td style="text-align: right;">
+          <button
+            type="button"
+            class="btn btn-outline btn-sm btn-save-jmcwc-cat-row"
+            data-cat-id="${escapeHtml(cat.id)}"
+            data-group-key="${escapeHtml(groupKey)}"
+          >
+            Save
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  tbody.querySelectorAll('.btn-save-jmcwc-cat-row').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const catId = btn.getAttribute('data-cat-id');
+      const gKey = btn.getAttribute('data-group-key');
+      const row = tbody.querySelector(`[data-jmcwc-cat-row="${catId}"]`);
+      if (!row || !catId) return;
+
+      const targetInput = row.querySelector('.input-admin-jmcwc-target');
+      const mapSelect = row.querySelector('.select-admin-legacy-map');
+      const rawTarget = (targetInput?.value || '').trim();
+      const legacyCategoryId = mapSelect?.value || null;
+
+      let targetSeconds = null;
+      if (rawTarget !== '') {
+        targetSeconds = parseTimeToSeconds(rawTarget);
+        if (!targetSeconds || targetSeconds <= 0) {
+          showToast('error', 'Target time must be a positive mm:ss or seconds value (or leave blank to clear).');
+          return;
+        }
+      }
+
+      btn.disabled = true;
+      try {
+        await Promise.all([
+          callAdminJmcwcApi({
+            action: 'admin_set_target',
+            group_key: gKey,
+            category_id: catId,
+            target_seconds: targetSeconds,
+          }),
+          callAdminJmcwcApi({
+            action: 'admin_set_category_mapping',
+            category_id: catId,
+            legacy_category_id: legacyCategoryId,
+          }),
+        ]);
+        showToast('success', 'Saved category target & legacy mapping.');
+        await loadAdminJmcwcOverview();
+      } catch (err) {
+        showToast('error', err.message);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
+async function loadAdminJmcwcAttempts() {
+  const tbody = document.getElementById('admin-jmcwc-attempts-tbody');
+  if (!tbody) return;
+
+  if (!isSupabaseConfigured()) {
+    renderAdminJmcwcAttemptsTable([]);
+    return;
+  }
+
+  const scopeVal = document.getElementById('filter-jmcwc-attempt-student')?.value || 'selected';
+  const groupVal = document.getElementById('filter-jmcwc-attempt-group')?.value || '';
+  const modeVal = document.getElementById('filter-jmcwc-attempt-mode')?.value || '';
+  const statusVal = document.getElementById('filter-jmcwc-attempt-status')?.value || '';
+
+  const reqPayload = {
+    action: 'admin_list_attempts',
+    limit: 100,
+  };
+  if (scopeVal === 'selected' && selectedStudentId) {
+    reqPayload.student_id = selectedStudentId;
+  }
+  if (groupVal) reqPayload.group_key = groupVal;
+  if (modeVal) reqPayload.mode = modeVal;
+  if (statusVal) reqPayload.status = statusVal;
+
+  try {
+    const res = await callAdminJmcwcApi(reqPayload);
+    adminJmcwcAttempts = Array.isArray(res.attempts) ? res.attempts : [];
+    renderAdminJmcwcAttemptsTable(adminJmcwcAttempts);
+  } catch (err) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="8" style="font-size: var(--text-xs); color: var(--color-danger-text); text-align: center;">
+          ${escapeHtml(err.message)}
+        </td>
+      </tr>
+    `;
+  }
+}
+
+function renderAdminJmcwcAttemptsTable(attempts) {
+  const tbody = document.getElementById('admin-jmcwc-attempts-tbody');
+  if (!tbody) return;
+
+  if (!Array.isArray(attempts) || attempts.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="8" style="font-size: var(--text-xs); color: var(--text-muted); text-align: center; padding: var(--space-4);">
+          No simulator attempts match the current filters.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  const studentById = new Map(allStudents.map(s => [s.id, s]));
+
+  // Strictly NO delete attempt button/shortcut so the 3-unfinished-flat-round cap cannot be bypassed
+  tbody.innerHTML = attempts.map(att => {
+    const stu = studentById.get(att.student_id) || att.student;
+    const stuLabel = stu ? `${stu.full_name} (${stu.student_code})` : att.student_id;
+    const catKey = att.category_key || att.category_id;
+    const cat = catKey ? adminJmcwcCategories.find(c => (c.key || c.id) === catKey) : null;
+    const modeLabel = att.mode === 'flat'
+      ? 'Flat Round'
+      : `Category: ${cat ? (cat.display_name || cat.label) : (catKey || 'Single Category')}`;
+    const scoreObj = att.score || att.score_summary || null;
+    const earnedVal = scoreObj ? (scoreObj.marks ?? scoreObj.earned_marks) : null;
+    const scoreText = att.status === 'submitted' && scoreObj && earnedVal !== null && earnedVal !== undefined
+      ? `${earnedVal} / ${scoreObj.max_marks}`
+      : '—';
+    const createdIso = att.created_at || att.started_at || '';
+
+    return `
+      <tr>
+        <td style="font-weight: 600;">${escapeHtml(stuLabel)}</td>
+        <td>${escapeHtml(formatJmcwcGroupLabel(att.group_key))}</td>
+        <td>${escapeHtml(modeLabel)}</td>
+        <td>
+          <span class="badge ${att.status === 'submitted' ? 'badge-active' : att.status === 'running' ? 'badge-primary' : 'badge-warning'}">
+            ${escapeHtml(att.status)}
+          </span>
+        </td>
+        <td class="num" style="font-size: var(--text-xs); color: var(--text-muted);">
+          ${escapeHtml(createdIso ? formatDisplayDateIST(createdIso.slice(0, 10)) : '—')}
+        </td>
+        <td class="num">${escapeHtml(formatActiveDurationMs(att.active_ms || 0))}</td>
+        <td class="num" style="font-weight: 700;">${escapeHtml(scoreText)}</td>
+        <td style="text-align: right;">
+          ${att.status === 'submitted' ? `
+            <button
+              type="button"
+              class="btn btn-outline btn-sm btn-admin-inspect-jmcwc-review"
+              data-attempt-id="${escapeHtml(att.id)}"
+            >
+              Inspect Review
+            </button>
+          ` : `
+            <span style="font-size: var(--text-xs); color: var(--text-dim);">In progress</span>
+          `}
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  tbody.querySelectorAll('.btn-admin-inspect-jmcwc-review').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const attemptId = btn.getAttribute('data-attempt-id');
+      if (attemptId) {
+        await handleOpenAdminAttemptReview(attemptId);
+      }
+    });
+  });
+}
+
+async function handleOpenAdminAttemptReview(attemptId) {
+  try {
+    const res = await callAdminJmcwcApi({
+      action: 'admin_get_attempt_review',
+      attempt_id: attemptId,
+    });
+
+    const vm = buildSubmittedReviewViewModel({
+      attempt: res.attempt,
+      score: res.score,
+      review_questions: res.review_questions || [],
+    });
+
+    const marksEl = document.getElementById('admin-review-marks');
+    const partialEl = document.getElementById('admin-review-partial-marks');
+    const countsEl = document.getElementById('admin-review-counts');
+    const timeEl = document.getElementById('admin-review-active-time');
+    const tbody = document.getElementById('admin-review-questions-tbody');
+
+    if (marksEl) marksEl.textContent = `${vm.earnedMarks} / ${vm.maxMarks}`;
+    if (partialEl) partialEl.textContent = `Partial marks: ${vm.partialMarks} (${vm.partialCount} questions)`;
+    if (countsEl) {
+      countsEl.textContent = `${vm.correctCount} correct · ${vm.partialCount} partial · ${vm.wrongCount} wrong · ${vm.skippedCount} skipped`;
+    }
+    if (timeEl) timeEl.textContent = vm.activeTimeFormatted;
+
+    if (tbody) {
+      tbody.innerHTML = vm.questions.map(q => `
+        <tr>
+          <td class="num" style="font-weight: 700;">${escapeHtml(q.question_key)}</td>
+          <td style="font-size: var(--text-xs); color: var(--text-muted);">${escapeHtml(q.category_name)}</td>
+          <td class="num" style="font-weight: 600;">${escapeHtml(q.prompt)}</td>
+          <td class="num">${q.submitted_raw ? escapeHtml(q.submitted_raw) : '<span style="color: var(--text-dim);">Skipped</span>'}</td>
+          <td class="num">
+            <div style="font-size: 11px; color: var(--text-muted); font-weight: 600;">${escapeHtml(q.expected_answer_label)}:</div>
+            <div style="font-weight: 700;">${escapeHtml(q.expected_display)}</div>
+          </td>
+          <td class="num" style="text-align: right; font-weight: 700;">${q.awarded_marks} / ${q.max_marks}</td>
+          <td style="font-size: var(--text-xs);">
+            <strong>${escapeHtml(q.verdict)}</strong>
+            ${q.explanation ? `<div style="color: var(--text-muted);">${escapeHtml(q.explanation)}</div>` : ''}
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    openModal('admin-jmcwc-review-modal');
+  } catch (err) {
+    showToast('error', err.message);
+  }
+}
+
+function setupAdminJmcwcListeners() {
+  document.getElementById('btn-refresh-jmcwc-admin')?.addEventListener('click', () => {
+    loadAdminJmcwcOverview();
+  });
+
+  document.getElementById('select-admin-jmcwc-cat-group')?.addEventListener('change', () => {
+    renderAdminJmcwcCategoriesTable();
+  });
+
+  document.getElementById('btn-save-jmcwc-assignment')?.addEventListener('click', async () => {
+    const errEl = document.getElementById('admin-jmcwc-assignment-error');
+    const groupSelect = document.getElementById('select-admin-jmcwc-group');
+    const saveBtn = document.getElementById('btn-save-jmcwc-assignment');
+
+    if (errEl) {
+      errEl.style.display = 'none';
+      errEl.textContent = '';
+    }
+
+    if (!selectedStudentId) {
+      showToast('info', 'Please select a student first.');
+      return;
+    }
+
+    const groupKey = groupSelect?.value || null;
+    if (saveBtn) saveBtn.disabled = true;
+
+    try {
+      await callAdminJmcwcApi({
+        action: 'admin_set_assignment',
+        student_id: selectedStudentId,
+        group_key: groupKey,
+      });
+      showToast('success', 'Student JMCWC group assignment updated.');
+      await loadAdminJmcwcOverview();
+    } catch (err) {
+      const friendly = formatFriendlyAssignmentError(err);
+      if (errEl) {
+        errEl.textContent = friendly;
+        errEl.style.display = 'block';
+      }
+      showToast('error', friendly);
+    } finally {
+      if (saveBtn) saveBtn.disabled = false;
+    }
+  });
+
+  ['filter-jmcwc-attempt-student', 'filter-jmcwc-attempt-group', 'filter-jmcwc-attempt-mode', 'filter-jmcwc-attempt-status'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', () => {
+      loadAdminJmcwcAttempts();
+    });
+  });
 }
 
 document.addEventListener('DOMContentLoaded', initRounds);

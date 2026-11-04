@@ -23,41 +23,58 @@ Before importing data rows into a new or reset Supabase project:
 
 ---
 
-## 2. Foreign-Key Safe Restoration Order (All 18 Tables)
+## 2. Foreign-Key Safe Restoration Order (Core + 7 JMCWC Tables)
 
-Always restore tables in the following dependency order so foreign key constraints are satisfied:
+Always restore tables in the following dependency order (`RESTORE_TABLE_ORDER` in `api/_backupTables.js`) so foreign key constraints are satisfied:
 
 ### Tier 1 — Independent & Configuration Tables
 1. `profiles` (`id`)
 2. `round_series` (`id`)
 3. `categories` (`id`)
 4. `competition_settings` (`id`)
+5. `jmcwc_papers` (`id`) — shared JMCWC paper blueprints
 
-### Tier 2 — Category & Curriculum Mapping Tables
-5. `category_series` (`category_id, series_id`) — depends on `categories`, `round_series`
-6. `category_aliases` (`alias`) — depends on `categories`
-7. `basics_thresholds` (`category_id, level`) — depends on `categories`, `profiles`
-8. `daily_tasks` (`id`) — depends on `profiles`
-9. `resources` (`id`) — depends on `profiles`
+### Tier 2 — Category, Curriculum & JMCWC Group Mapping Tables
+6. `category_series` (`category_id, series_id`) — depends on `categories`, `round_series`
+7. `category_aliases` (`alias`) — depends on `categories`
+8. `basics_thresholds` (`category_id, level`) — depends on `categories`, `profiles`
+9. `daily_tasks` (`id`) — depends on `profiles`
+10. `resources` (`id`) — depends on `profiles`
+11. `jmcwc_categories` (`key`) — depends on `categories(id)` via `legacy_category_id`
+12. `jmcwc_assignments` (`student_id`) — depends on `profiles(id)`
 
-### Tier 3 — Sessions, Tests & Import Batches
-10. `attendance_sessions` (`id`) — depends on `profiles`
-11. `weekly_tests` (`id`) — depends on `categories`, `profiles`
-12. `import_batches` (`id`) — depends on `profiles`
+### Tier 3 — Sessions, Tests, Import Batches & JMCWC Targets
+13. `attendance_sessions` (`id`) — depends on `profiles`
+14. `weekly_tests` (`id`) — depends on `categories`, `profiles`
+15. `import_batches` (`id`) — depends on `profiles`
+16. `jmcwc_targets` (`group_key, category_key`) — depends on `jmcwc_categories(key)`
 
-### Tier 4 — Student Rounds & Practice Records
-13. `student_rounds` (`id`) — depends on `profiles`, `round_series`, `import_batches`
-14. `results` (`id`) — depends on `profiles`, `categories`, `student_rounds`, `import_batches`
-15. `weekly_test_scores` (`id`) — depends on `weekly_tests`, `profiles`
-16. `attendance` (`id`) — depends on `attendance_sessions`, `profiles`
-17. `activity_results` (`id`) — depends on `profiles`
-18. `result_audit` (`id`) — audit log (restore last so triggers during `results` import do not collide)
+### Tier 4 — Student Rounds, Practice Records & JMCWC Attempts
+17. `student_rounds` (`id`) — depends on `profiles`, `round_series`, `import_batches`
+18. `results` (`id`) — depends on `profiles`, `categories`, `student_rounds`, `import_batches`
+19. `weekly_test_sections` (`id`) — depends on `weekly_tests`, `categories`
+20. `weekly_test_scores` (`id`) — depends on `weekly_tests`, `profiles`
+21. `weekly_test_attempts` (`id`) — depends on `weekly_tests`, `profiles`, `categories`
+22. `weekly_test_section_removals` (`id`) — depends on `weekly_tests`, `categories`, `profiles`
+23. `attendance` (`id`) — depends on `attendance_sessions`, `profiles`
+24. `activity_results` (`id`) — depends on `profiles`
+25. `jmcwc_attempts` (`id`) — depends on `profiles(id)`, `jmcwc_papers(id)`, `jmcwc_categories(key)`
+
+### Tier 5 — Audit Logs, JMCWC Private Payloads & Graded Scores
+26. `result_audit` (`id`) — audit log (restore after `results`)
+27. `profile_audit` (`id`) — profile audit log (restore after `profiles`)
+28. `jmcwc_payloads` (`attempt_id`) — depends on `jmcwc_attempts(id)` *(Private server backup only — contains question `answer_key` values; never exposed in public backups or Google Sheets mirrors)*
+29. `jmcwc_scores` (`attempt_id`) — depends on `jmcwc_attempts(id)`
+
+> **Security & Student Deletion Rules for JMCWC Tables:**
+> - **Answer-Key Privacy:** `jmcwc_payloads` contains generated question `answer_key` objects (including for active/paused attempts). It is exported **only** in authenticated private server-side admin backups (`POST /api/backup` with `{ "action": "private_jmcwc_backup" }`) and is strictly excluded from public backups and Google Sheets mirrors (`FORBIDDEN_PUBLIC_OR_MIRROR_TABLES` / `MIRROR_FORBIDDEN_TABLES`).
+> - **Student Deletion Scoping:** Deleting a single student previews and removes only that student's `jmcwc_scores`, `jmcwc_payloads`, `jmcwc_attempts`, and `jmcwc_assignments`. Shared institute tables (`jmcwc_papers`, `jmcwc_categories`, `jmcwc_targets`) are **never** deleted when deleting a student.
 
 ---
 
 ## 3. Option A: Restoring from a Manual ZIP Archive (`trendz-backup-YYYY-MM-DD.zip`)
 
-Each manual ZIP archive downloaded from `/pages/backup.html` contains 18 RFC 4180 CSV files (`<table_name>.csv`) plus `README.txt`. Every CSV represents the exact current table state at export time (no duplicate rows).
+Each manual ZIP archive downloaded from `/pages/backup.html` contains RFC 4180 CSV files (`<table_name>.csv`) plus `README.txt`. Every CSV represents the exact current table state at export time (no duplicate rows).
 
 ### Step-by-Step Procedure
 
@@ -73,27 +90,38 @@ Each manual ZIP archive downloaded from `/pages/backup.html` contains 18 RFC 418
    SET session_replication_role = 'replica';
    ```
 
-3. **Import Each CSV in Tier Order (1 → 18)**:
+3. **Import Each CSV in Tier Order**:
    Using `psql` (connected via your Supabase connection string) or Supabase Studio Table Editor CSV Import:
    ```bash
    \copy public.profiles FROM './restore_csv/profiles.csv' WITH (FORMAT csv, HEADER true, NULL '');
    \copy public.round_series FROM './restore_csv/round_series.csv' WITH (FORMAT csv, HEADER true, NULL '');
    \copy public.categories FROM './restore_csv/categories.csv' WITH (FORMAT csv, HEADER true, NULL '');
    \copy public.competition_settings FROM './restore_csv/competition_settings.csv' WITH (FORMAT csv, HEADER true, NULL '');
+   \copy public.jmcwc_papers FROM './restore_csv/jmcwc_papers.csv' WITH (FORMAT csv, HEADER true, NULL '');
    \copy public.category_series FROM './restore_csv/category_series.csv' WITH (FORMAT csv, HEADER true, NULL '');
    \copy public.category_aliases FROM './restore_csv/category_aliases.csv' WITH (FORMAT csv, HEADER true, NULL '');
    \copy public.basics_thresholds FROM './restore_csv/basics_thresholds.csv' WITH (FORMAT csv, HEADER true, NULL '');
    \copy public.daily_tasks FROM './restore_csv/daily_tasks.csv' WITH (FORMAT csv, HEADER true, NULL '');
    \copy public.resources FROM './restore_csv/resources.csv' WITH (FORMAT csv, HEADER true, NULL '');
+   \copy public.jmcwc_categories FROM './restore_csv/jmcwc_categories.csv' WITH (FORMAT csv, HEADER true, NULL '');
+   \copy public.jmcwc_assignments FROM './restore_csv/jmcwc_assignments.csv' WITH (FORMAT csv, HEADER true, NULL '');
    \copy public.attendance_sessions FROM './restore_csv/attendance_sessions.csv' WITH (FORMAT csv, HEADER true, NULL '');
    \copy public.weekly_tests FROM './restore_csv/weekly_tests.csv' WITH (FORMAT csv, HEADER true, NULL '');
    \copy public.import_batches FROM './restore_csv/import_batches.csv' WITH (FORMAT csv, HEADER true, NULL '');
+   \copy public.jmcwc_targets FROM './restore_csv/jmcwc_targets.csv' WITH (FORMAT csv, HEADER true, NULL '');
    \copy public.student_rounds FROM './restore_csv/student_rounds.csv' WITH (FORMAT csv, HEADER true, NULL '');
    \copy public.results FROM './restore_csv/results.csv' WITH (FORMAT csv, HEADER true, NULL '');
+   \copy public.weekly_test_sections FROM './restore_csv/weekly_test_sections.csv' WITH (FORMAT csv, HEADER true, NULL '');
    \copy public.weekly_test_scores FROM './restore_csv/weekly_test_scores.csv' WITH (FORMAT csv, HEADER true, NULL '');
+   \copy public.weekly_test_attempts FROM './restore_csv/weekly_test_attempts.csv' WITH (FORMAT csv, HEADER true, NULL '');
+   \copy public.weekly_test_section_removals FROM './restore_csv/weekly_test_section_removals.csv' WITH (FORMAT csv, HEADER true, NULL '');
    \copy public.attendance FROM './restore_csv/attendance.csv' WITH (FORMAT csv, HEADER true, NULL '');
    \copy public.activity_results FROM './restore_csv/activity_results.csv' WITH (FORMAT csv, HEADER true, NULL '');
+   \copy public.jmcwc_attempts FROM './restore_csv/jmcwc_attempts.csv' WITH (FORMAT csv, HEADER true, NULL '');
    \copy public.result_audit FROM './restore_csv/result_audit.csv' WITH (FORMAT csv, HEADER true, NULL '');
+   \copy public.profile_audit FROM './restore_csv/profile_audit.csv' WITH (FORMAT csv, HEADER true, NULL '');
+   \copy public.jmcwc_payloads FROM './restore_csv/jmcwc_payloads.csv' WITH (FORMAT csv, HEADER true, NULL '');
+   \copy public.jmcwc_scores FROM './restore_csv/jmcwc_scores.csv' WITH (FORMAT csv, HEADER true, NULL '');
    ```
 
 4. **Re-enable Triggers**:

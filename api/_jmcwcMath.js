@@ -63,6 +63,13 @@ export function createSeededRng(seedInput = 1) {
   }
 
   return {
+    /**
+     * Random IEEE 754 double in [0, 1) with full 53-bit precision,
+     * matching the mathematical behavior of Excel's RAND().
+     */
+    float() {
+      return (nextUint32() * 0x200000 + (nextUint32() >>> 11)) / 0x20000000000000;
+    },
     /** Random integer in [min, max] inclusive */
     int(min, max) {
       const lo = Math.ceil(Number(min));

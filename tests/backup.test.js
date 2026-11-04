@@ -27,7 +27,16 @@ import {
   resolveAppendHeader,
   buildKeysetOrFilter,
   colIndexToLetter,
+  JMCWC_BACKUP_TABLES,
+  FORBIDDEN_PUBLIC_OR_MIRROR_TABLES,
+  PRIVATE_SERVER_BACKUP_TABLES,
+  RESTORE_TABLE_ORDER,
+  sanitizeTablesForPublicBackupOrMirror,
+  computeStudentDeletionJmcwcCounts,
+  restoreJmcwcTablesFromPrivateBackup,
 } from '../api/_backupTables.js';
+import { generateQuestionsFromBlueprint } from '../api/_jmcwcGenerate.js';
+import { gradeAttempt } from '../api/_jmcwcGrade.js';
 import {
   getGoogleBackupConfig,
   hasGoogleBackupConfig,
@@ -38,12 +47,17 @@ import {
   getAccessToken,
   formatSheetRange,
 } from '../api/_google.js';
+import {
+  MIRROR_FORBIDDEN_TABLES,
+  assertMirrorExcludesPayloads,
+} from '../api/_mirror.js';
 import backupHandler, {
   TIME_BUDGET_MS,
   STALE_LOCK_MS,
   SAFE_HORIZON_MS,
   sanitizeBackupError,
   executeBackupRunPass,
+  handlePrivateJmcwcBackup,
 } from '../api/backup.js';
 import {
   EXPORT_PAGE_SIZE,
@@ -656,4 +670,265 @@ describe('Phase 5c — 4. Backup Endpoint Auth, Lock & Pass Execution (api/backu
     assert.equal(res2.body.tables.todo_days_finalized, 0);
     assert.ok(res2.body.tables.todo_finalize_error.includes('todo_finalize temporary db glitch'));
   });
+
+  it('Phase 17c — defines all 7 JMCWC tables in FK restore order, excludes jmcwc_payloads from public/mirror backups, and computes student deletion counts accurately', async () => {
+    const expectedJmcwcTables = [
+      'jmcwc_papers',
+      'jmcwc_categories',
+      'jmcwc_targets',
+      'jmcwc_assignments',
+      'jmcwc_attempts',
+      'jmcwc_payloads',
+      'jmcwc_scores',
+    ];
+    assert.deepEqual(
+      JMCWC_BACKUP_TABLES.map((t) => t.name),
+      expectedJmcwcTables
+    );
+    assert.equal(PRIVATE_SERVER_BACKUP_TABLES.length, 29);
+    assert.equal(RESTORE_TABLE_ORDER.length, 32);
+
+    // Public/Google Sheets BACKUP_TABLES and browser EXPORT_TABLES must never include jmcwc_payloads
+    assert.ok(!BACKUP_TABLES.some((t) => t.name === 'jmcwc_payloads'));
+    assert.ok(!EXPORT_TABLES.some((t) => t.name === 'jmcwc_payloads'));
+    assert.deepEqual(FORBIDDEN_PUBLIC_OR_MIRROR_TABLES, ['jmcwc_payloads']);
+    assert.deepEqual(MIRROR_FORBIDDEN_TABLES, ['jmcwc_payloads']);
+
+    const sanitized = sanitizeTablesForPublicBackupOrMirror({
+      profiles: [{ id: 's1' }],
+      jmcwc_attempts: [{ id: 'a1' }],
+      jmcwc_payloads: [{ attempt_id: 'a1', questions: [{ answer_key: '42' }] }],
+    });
+    assert.equal('jmcwc_payloads' in sanitized, false);
+    assert.equal(sanitized.jmcwc_attempts.length, 1);
+
+    assert.throws(
+      () => assertMirrorExcludesPayloads({ jmcwc_payloads: [{ attempt_id: 'a1' }] }),
+      /Security violation: jmcwc_payloads/
+    );
+    assert.equal(assertMirrorExcludesPayloads({ student: { id: 's1' }, rounds: [] }), true);
+
+    // Private server backup exports all 7 JMCWC tables in FK restore order
+    const mockPrivateSupabase = {
+      from(tableName) {
+        return {
+          select() {
+            return {
+              order() {
+                return this;
+              },
+              range: async () => ({
+                data: [{ table: tableName }],
+                error: null,
+              }),
+            };
+          },
+        };
+      },
+    };
+    const privRes = await handlePrivateJmcwcBackup({ supabase: mockPrivateSupabase });
+    assert.equal(privRes.httpStatus, 200);
+    assert.equal(privRes.body.ok, true);
+    assert.equal(privRes.body.private_server_only, true);
+    assert.deepEqual(privRes.body.restore_order, expectedJmcwcTables);
+    assert.equal(Object.keys(privRes.body.tables).length, 7);
+
+    // Student deletion counts include student-owned JMCWC rows and preserve shared tables
+    const delSummary = computeStudentDeletionJmcwcCounts('stu-1', {
+      jmcwc_assignments: [{ student_id: 'stu-1', group_key: 'junior1' }, { student_id: 'stu-2', group_key: 'senior' }],
+      jmcwc_attempts: [
+        { id: 'att-1', student_id: 'stu-1' },
+        { id: 'att-2', student_id: 'stu-1' },
+        { id: 'att-3', student_id: 'stu-2' },
+      ],
+      jmcwc_payloads: [{ attempt_id: 'att-1' }, { attempt_id: 'att-2' }, { attempt_id: 'att-3' }],
+      jmcwc_scores: [{ attempt_id: 'att-1' }, { attempt_id: 'att-3' }],
+    });
+    assert.deepEqual(delSummary.counts, {
+      jmcwc_assignments: 1,
+      jmcwc_attempts: 2,
+      jmcwc_payloads: 2,
+      jmcwc_scores: 1,
+    });
+    assert.equal(delSummary.total_rows_to_delete, 6);
+    assert.deepEqual(delSummary.preserved_shared_tables, [
+      'jmcwc_papers',
+      'jmcwc_categories',
+      'jmcwc_targets',
+    ]);
+  });
+
+  it('Phase 17c — performs a complete private backup and restore round-trip preserving unfinished attempt jmcwc_payloads, answer_key, and dynamic marking metadata', async () => {
+    const paperSpec = {
+      sections: [
+        {
+          key: 'addition',
+          questions: [
+            {
+              slot: 1,
+              max_marks: 1,
+              generator: 'addition',
+              parameters: { scoring_mode: 'fixed', digits: [2, 2] },
+            },
+          ],
+        },
+        {
+          key: 'multiplication',
+          questions: [
+            {
+              slot: 1,
+              max_marks: 3,
+              generator: 'multiplication',
+              parameters: {
+                scoring_mode: 'dynamic',
+                mark_rule: 'multiplication_digits_product',
+                mark_range: [2, 6],
+                digits: [2, 2],
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    const { privateQuestions } = generateQuestionsFromBlueprint(paperSpec, {
+      mode: 'flat',
+      seed: 172026,
+    });
+    assert.equal(privateQuestions.length, 2);
+    assert.ok(privateQuestions[0].answer_key, 'Generated question 0 must contain private answer_key');
+    assert.ok(privateQuestions[1].answer_key, 'Generated question 1 must contain private answer_key');
+
+    const correctAns0 = String(privateQuestions[0].answer_key.value);
+    const unfinishedAnswers = {
+      [privateQuestions[0].id]: correctAns0,
+      // Question 1 left unanswered in this paused unfinished attempt
+    };
+
+    const liveDbState = {
+      jmcwc_papers: [
+        {
+          id: 'paper-j1-uuid',
+          group_key: 'junior1',
+          version: '2026.1',
+          spec: paperSpec,
+          published: false,
+          created_at: '2026-11-03T10:00:00Z',
+        },
+      ],
+      jmcwc_categories: [
+        { key: 'addition', label: 'Addition', position: 1, legacy_category_id: 'leg-add' },
+        { key: 'multiplication', label: 'Multiplication', position: 4, legacy_category_id: null },
+      ],
+      jmcwc_targets: [
+        { group_key: 'junior1', category_key: 'addition', target_seconds: 90, updated_at: '2026-11-03T10:00:00Z' },
+      ],
+      jmcwc_assignments: [
+        { student_id: 'stu-restore-1', group_key: 'junior1', updated_at: '2026-11-03T10:00:00Z' },
+      ],
+      jmcwc_attempts: [
+        {
+          id: 'att-unfinished-1',
+          student_id: 'stu-restore-1',
+          request_id: 'req-unfinished-1',
+          paper_id: 'paper-j1-uuid',
+          group_key: 'junior1',
+          mode: 'flat',
+          category_key: null,
+          target_seconds: null,
+          status: 'paused',
+          active_ms: 420000,
+          lease_id: null,
+          save_seq: 4,
+          revision: 5,
+          answers: unfinishedAnswers,
+          created_at: '2026-11-03T10:05:00Z',
+          last_seen_at: null,
+          finished_at: null,
+          submitted_reason: null,
+        },
+      ],
+      jmcwc_payloads: [
+        {
+          attempt_id: 'att-unfinished-1',
+          questions: privateQuestions,
+        },
+      ],
+      jmcwc_scores: [],
+    };
+
+    const mockSupabaseForExport = {
+      from(tableName) {
+        return {
+          select() {
+            return {
+              order() {
+                return this;
+              },
+              range: async () => ({
+                data: liveDbState[tableName] ? JSON.parse(JSON.stringify(liveDbState[tableName])) : [],
+                error: null,
+              }),
+            };
+          },
+        };
+      },
+    };
+
+    // 1. Export private server backup
+    const backupRes = await handlePrivateJmcwcBackup({ supabase: mockSupabaseForExport });
+    assert.equal(backupRes.httpStatus, 200);
+    assert.equal(backupRes.body.private_server_only, true);
+    assert.equal(backupRes.body.tables.jmcwc_payloads.length, 1);
+    assert.deepEqual(
+      backupRes.body.tables.jmcwc_payloads[0].questions[0].answer_key,
+      privateQuestions[0].answer_key
+    );
+
+    // 2. Public/Mirror sanitizer strips jmcwc_payloads (so public exports cannot leak answer keys,
+    //    and also demonstrating why excluding private payloads from every backup would lose saved papers)
+    const publicSanitized = sanitizeTablesForPublicBackupOrMirror(backupRes.body.tables);
+    assert.equal('jmcwc_payloads' in publicSanitized, false);
+    assert.throws(
+      () => restoreJmcwcTablesFromPrivateBackup(publicSanitized),
+      /Incomplete JMCWC backup: missing table "jmcwc_payloads"/
+    );
+
+    // 3. Restore from the private server backup into a clean store in FK order
+    const restored = restoreJmcwcTablesFromPrivateBackup(backupRes.body);
+    assert.equal(restored.ok, true);
+    assert.deepEqual(restored.restored_order, [
+      'jmcwc_papers',
+      'jmcwc_categories',
+      'jmcwc_targets',
+      'jmcwc_assignments',
+      'jmcwc_attempts',
+      'jmcwc_payloads',
+      'jmcwc_scores',
+    ]);
+
+    // 4. Verify the restored unfinished attempt can be resumed, answered, and graded accurately
+    const restoredAttempt = restored.tables.jmcwc_attempts[0];
+    const restoredPayload = restored.tables.jmcwc_payloads[0];
+    assert.equal(restoredAttempt.id, 'att-unfinished-1');
+    assert.equal(restoredAttempt.status, 'paused');
+    assert.equal(restoredAttempt.active_ms, 420000);
+    assert.deepEqual(restoredAttempt.answers, unfinishedAnswers);
+
+    // Student resumes after restore and answers question 1 before submitting
+    const correctAns1 = String(restoredPayload.questions[1].answer_key.value);
+    const completedAnswers = {
+      ...restoredAttempt.answers,
+      [restoredPayload.questions[1].id]: correctAns1,
+    };
+    const graded = gradeAttempt(restoredPayload.questions, completedAnswers);
+    const expectedMaxMarks =
+      restoredPayload.questions[0].max_marks + restoredPayload.questions[1].max_marks;
+    assert.equal(graded.marks, expectedMaxMarks);
+    assert.equal(graded.max_marks, expectedMaxMarks);
+    assert.equal(graded.correct, 2);
+    assert.equal(graded.wrong, 0);
+    assert.equal(graded.skipped, 0);
+  });
 });
+

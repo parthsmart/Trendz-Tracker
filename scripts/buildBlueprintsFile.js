@@ -1,6 +1,25 @@
 import fs from 'node:fs';
 import { extractAllSectionsForGroup } from './extractJmcwcSections.js';
 
+// Read 2026.3 specs directly from docs/JMCWC_PAPERS_2026_3.sql
+const sqlContent = fs.readFileSync('docs/JMCWC_PAPERS_2026_3.sql', 'utf8');
+
+function extractSpecForGroup(sql, group) {
+  const marker = `'${group}',\n      '2026.3',\n      false,\n      '`;
+  const start = sql.indexOf(marker);
+  if (start === -1) throw new Error(`Could not find marker for ${group}`);
+  const jsonStart = start + marker.length;
+  const jsonEnd = sql.indexOf("'::jsonb", jsonStart);
+  if (jsonEnd === -1) throw new Error(`Could not find jsonb end for ${group}`);
+  const escaped = sql.slice(jsonStart, jsonEnd);
+  const unescaped = escaped.replace(/''/g, "'");
+  return JSON.parse(unescaped);
+}
+
+const j1_2026_3 = extractSpecForGroup(sqlContent, 'junior1');
+const j2_2026_3 = extractSpecForGroup(sqlContent, 'junior2');
+const sr_2026_3 = extractSpecForGroup(sqlContent, 'senior');
+
 const j1Sections = extractAllSectionsForGroup('j1', 'JMCWC-2026-Simulator-Juniors-1.xlsx');
 const j2Sections = extractAllSectionsForGroup('j2', 'JMCWC-2026-Simulator-Juniors-2.xlsx');
 const srSections = extractAllSectionsForGroup('sr', 'JMCWC-2026-Simulator-Seniors.xlsx');
@@ -12,16 +31,9 @@ const blueprintContent = `/**
  * validates \`jmcwc_papers\` blueprint objects (\`spec.sections[{ key, questions: [{ slot, max_marks, generator, parameters }] }]\`),
  * and provides source-verified versioned blueprints for \`junior1\`, \`junior2\`, and \`senior\`.
  *
- * SOURCE VERIFICATION RECORD:
- * - \`JMCWC-2026-Simulator-Juniors-1.xlsx\` (440 slots, verified against all 23 visible sheets)
- * - \`JMCWC-2026-Simulator-Juniors-2.xlsx\` (445 slots, verified against all 23 visible sheets)
- * - \`JMCWC-2026-Simulator-Seniors.xlsx\` (446 slots, verified against all 23 visible sheets)
- * - \`JMCWC Rules 2025.pdf\` (15 official contest rules and scoring examples)
- * - 4 broken cell investigations fully solved & documented:
- *   1. Int Mults H7/H12: 20 active questions in cols C:D and K:L; col G:H is unprinted remnant.
- *   2. Brackets B43 & CZ44: AC43=6 evaluates active branch DW43; CZ44 repaired to "("&DA43&" + "&DC43&DD43&DE43&" + "&DG43&")".
- *   3. Fraction Multiplications BD229: 17 printed questions; BD229..HT239 are orphaned 18th block helper cells.
- *   4. Cube Roots - Exact S51: S51 repaired to S49 + 1 (= 23); question, answer, and mark cells are 100% intact.
+ * PRESERVED VERSIONS:
+ * - \`2026.3\` (historical published/staged version, preserved strictly immutable)
+ * - \`2026.4\` (source-faithful unpublished version with active dependency chains)
  */
 
 import { JMCWC_CATEGORY_KEYS, JMCWC_GROUPS } from './_jmcwcMath.js';
@@ -87,11 +99,34 @@ export const VERIFIED_BROKEN_WORKBOOK_REPAIRS = Object.freeze([
   },
 ]);
 
-export const JMCWC_PAPERS = Object.freeze({
+// Preserved historical 2026.3 blueprints
+export const JMCWC_PAPERS_2026_3 = Object.freeze({
   junior1: {
     group_key: 'junior1',
-    version: '2026.1',
-    published: true,
+    version: '2026.3',
+    published: false,
+    spec: ${JSON.stringify(j1_2026_3, null, 2)},
+  },
+  junior2: {
+    group_key: 'junior2',
+    version: '2026.3',
+    published: false,
+    spec: ${JSON.stringify(j2_2026_3, null, 2)},
+  },
+  senior: {
+    group_key: 'senior',
+    version: '2026.3',
+    published: false,
+    spec: ${JSON.stringify(sr_2026_3, null, 2)},
+  },
+});
+
+// New source-faithful 2026.4 blueprints (unpublished)
+export const JMCWC_PAPERS_2026_4 = Object.freeze({
+  junior1: {
+    group_key: 'junior1',
+    version: '2026.4',
+    published: false,
     spec: {
       schema_version: '17a.1',
       source_workbook: 'JMCWC-2026-Simulator-Juniors-1.xlsx',
@@ -105,8 +140,8 @@ export const JMCWC_PAPERS = Object.freeze({
   },
   junior2: {
     group_key: 'junior2',
-    version: '2026.1',
-    published: true,
+    version: '2026.4',
+    published: false,
     spec: {
       schema_version: '17a.1',
       source_workbook: 'JMCWC-2026-Simulator-Juniors-2.xlsx',
@@ -120,8 +155,8 @@ export const JMCWC_PAPERS = Object.freeze({
   },
   senior: {
     group_key: 'senior',
-    version: '2026.1',
-    published: true,
+    version: '2026.4',
+    published: false,
     spec: {
       schema_version: '17a.1',
       source_workbook: 'JMCWC-2026-Simulator-Seniors.xlsx',
@@ -135,8 +170,11 @@ export const JMCWC_PAPERS = Object.freeze({
   },
 });
 
-// Backward-compatibility alias
-export const JMCWC_DRAFT_PAPERS = JMCWC_PAPERS;
+// Default active paper blueprints point to 2026.4
+export const JMCWC_PAPERS = JMCWC_PAPERS_2026_4;
+
+// Backward-compatibility alias for 2026.3 tests
+export const JMCWC_DRAFT_PAPERS = JMCWC_PAPERS_2026_3;
 
 /**
  * Validate a \`jmcwc_papers\` record structure and check whether it is safe to publish.
@@ -194,7 +232,7 @@ export function validatePaperBlueprint(paperRow) {
       }
       seenSlots.add(q.slot);
 
-      if (!Number.isFinite(q.max_marks) || q.max_marks <= 0) {
+      if (!Number.isInteger(q.max_marks) || q.max_marks <= 0) {
         errors.push(\`Invalid max_marks in section '\${sec.key}' slot \${q.slot}: \${q.max_marks}\`);
       }
       if (typeof q.generator !== 'string' || !q.generator.trim()) {
@@ -202,6 +240,52 @@ export function validatePaperBlueprint(paperRow) {
       }
       if (!q.parameters || typeof q.parameters !== 'object') {
         errors.push(\`Missing parameters object in section '\${sec.key}' slot \${q.slot}\`);
+        continue;
+      }
+
+      // Contract check: scoring metadata belongs inside parameters, NOT at slot level
+      if ('scoring_mode' in q) {
+        errors.push(\`Slot \${q.slot} in '\${sec.key}' has forbidden slot-level scoring_mode; must be inside parameters.\`);
+      }
+      if ('mark_rule' in q || 'mark_range' in q) {
+        errors.push(\`Slot \${q.slot} in '\${sec.key}' has forbidden slot-level mark_rule/mark_range; must be inside parameters.\`);
+      }
+
+      const p = q.parameters;
+      const scoringMode = p.scoring_mode || 'fixed';
+
+      if (scoringMode === 'dynamic') {
+        const validRules = {
+          multiplication: ['multiplication_digits_product'],
+          prime_factors: ['prime_factors_target_scale'],
+          approximation: ['approximation_product_digits'],
+          sum_squares: ['sum_squares_j1_decomposition', 'sum_squares_j2_target', 'sum_squares_sr_target'],
+        };
+        const allowed = validRules[sec.key];
+        if (!allowed) {
+          errors.push(\`Category '\${sec.key}' does not support dynamic scoring.\`);
+        } else if (!allowed.includes(p.mark_rule)) {
+          errors.push(\`Invalid mark_rule '\${p.mark_rule}' for category '\${sec.key}' in slot \${q.slot}.\`);
+        }
+        if (!Array.isArray(p.mark_range) || p.mark_range.length !== 2) {
+          errors.push(\`Dynamic slot \${q.slot} in '\${sec.key}' missing ordered 2-element mark_range array.\`);
+        } else {
+          const [minM, maxM] = p.mark_range;
+          if (!Number.isInteger(minM) || minM <= 0 || !Number.isInteger(maxM) || maxM <= 0 || minM > maxM) {
+            errors.push(\`Dynamic slot \${q.slot} in '\${sec.key}' invalid mark_range [\${minM}, \${maxM}]: must be positive ordered integers.\`);
+          } else if (q.max_marks < minM || q.max_marks > maxM) {
+            errors.push(\`Baseline max_marks \${q.max_marks} outside mark_range [\${minM}, \${maxM}] for slot \${q.slot} in '\${sec.key}'.\`);
+          }
+        }
+      } else if (scoringMode === 'fixed') {
+        if ('mark_rule' in p) {
+          errors.push(\`Fixed slot \${q.slot} in '\${sec.key}' must not declare mark_rule.\`);
+        }
+        if ('mark_range' in p) {
+          errors.push(\`Fixed slot \${q.slot} in '\${sec.key}' must not declare mark_range.\`);
+        }
+      } else {
+        errors.push(\`Invalid scoring_mode '\${scoringMode}' for slot \${q.slot} in '\${sec.key}'.\`);
       }
     }
   }
@@ -233,4 +317,4 @@ export function validatePaperBlueprint(paperRow) {
 `;
 
 fs.writeFileSync('api/_jmcwcBlueprints.js', blueprintContent);
-console.log('Successfully wrote api/_jmcwcBlueprints.js');
+console.log('Successfully wrote api/_jmcwcBlueprints.js with both 2026.3 and 2026.4');

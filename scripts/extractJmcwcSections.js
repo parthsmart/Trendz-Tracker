@@ -1,49 +1,46 @@
 /**
- * Trendz Tracker — Phase 17a: JMCWC Source Matrix & Blueprint Finalizer (scripts/buildSourceMatrixAndBlueprints.js)
+ * Trendz Tracker — Phase 17a: JMCWC Source Matrix & Blueprint Finalizer (scripts/extractJmcwcSections.js)
  *
- * Reads parsed sheet dumps from `/tmp/jmcwc_dump/` (extracted from the authentic workbooks),
- * builds `docs/JMCWC_SOURCE_MATRIX.md`, updates `api/_jmcwcBlueprints.js`,
- * and outputs `docs/JMCWC_PHASE17A.sql`.
+ * Reads directly from authentic workbooks via inspectJmcwcWorkbooks.js (zero-dependency .xlsx parser),
+ * extracting faithful parameters, source references, and verified mark formulas.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { inspectWorkbookFile } from './inspectJmcwcWorkbooks.js';
 
-function parseSheet(g, fname) {
-  let targetPath = `/tmp/jmcwc_dump/${g}_${fname}.txt`;
-  if (!fs.existsSync(targetPath)) {
-    const prefix = fname.slice(0, 3);
-    const found = fs.readdirSync('/tmp/jmcwc_dump').find((f) => f.startsWith(`${g}_${prefix}`));
-    if (found) {
-      targetPath = `/tmp/jmcwc_dump/${found}`;
-    }
+const workbookFileMap = {
+  j1: 'docs/sources/JMCWC-2026-Simulator-Juniors-1.xlsx',
+  junior1: 'docs/sources/JMCWC-2026-Simulator-Juniors-1.xlsx',
+  j2: 'docs/sources/JMCWC-2026-Simulator-Juniors-2.xlsx',
+  junior2: 'docs/sources/JMCWC-2026-Simulator-Juniors-2.xlsx',
+  sr: 'docs/sources/JMCWC-2026-Simulator-Seniors.xlsx',
+  senior: 'docs/sources/JMCWC-2026-Simulator-Seniors.xlsx',
+};
+
+const parsedWbCache = new Map();
+
+function getCachedWb(g) {
+  if (!parsedWbCache.has(g)) {
+    const file = workbookFileMap[g];
+    parsedWbCache.set(g, inspectWorkbookFile(file));
   }
-  const txt = fs.readFileSync(targetPath, 'utf8');
-  const rows = {};
-  for (const line of txt.split('\n')) {
-    const m = line.match(/^R(\d+):\s*(.*)$/);
-    if (!m) continue;
-    const r = Number(m[1]);
-    rows[r] = {};
-    for (const part of m[2].split(' | ')) {
-      const cm = part.match(/^([A-Z]+)\d+:(.*)$/);
-      if (cm) {
-        const raw = cm[2];
-        const fm = raw.match(/^\[(.*)\]=(.*)$/);
-        if (fm) {
-          rows[r][cm[1]] = { formula: fm[1], val: fm[2].replace(/^"|"$/g, '') };
-        } else {
-          rows[r][cm[1]] = { formula: null, val: raw.replace(/^"|"$/g, '') };
-        }
-      }
-    }
-  }
-  return rows;
+  return parsedWbCache.get(g);
 }
 
-const val = (rows, r, c) => rows[r]?.[c]?.val ?? null;
-const num = (rows, r, c, def = 0) => {
-  const v = val(rows, r, c);
+function parseSheet(g, fname, sheetName) {
+  const wb = getCachedWb(g);
+  const targetName = sheetName || fname.replace(/^\d+_/, '').replace(/_/g, ' ');
+  let sheet = wb.sheets.find((s) => s.name === targetName || s.name === sheetName);
+  if (!sheet) {
+    sheet = wb.sheets.find((s) => s.name.toLowerCase().includes(targetName.toLowerCase()));
+  }
+  return sheet;
+}
+
+const val = (sheet, r, c) => sheet?.cells?.[`${c}${r}`]?.value ?? null;
+const num = (sheet, r, c, def = 0) => {
+  const v = val(sheet, r, c);
   return v !== null && v !== '' && !Number.isNaN(Number(v)) ? Number(v) : def;
 };
 
@@ -59,36 +56,43 @@ export function extractAllSectionsForGroup(g, wbName) {
 
   // 1. addition (01_Int_Adds) — 18 slots
   {
-    const rows = parseSheet(g, '01_Int_Adds');
+    const rows = parseSheet(g, '01_Int_Adds', 'Int Adds');
     const questions = [];
+    const cols3Data = ['C', 'H', 'M'];
+    const cols3Mark = ['E', 'J', 'O'];
     for (let s = 1; s <= 18; s++) {
       const genR = 4 + 2 * s;
       const colIdx = (s - 1) % 3;
       const rowIdx = Math.floor((s - 1) / 3);
-      const c = cols3[colIdx];
-      const dispR = 9 + rowIdx * 9;
-      const markR = dispR + 3;
-      const level = num(rows, genR, 'AO');
+      const cData = cols3Data[colIdx];
+      const cMark = cols3Mark[colIdx];
+      const ansR = 12 + rowIdx * 9;
+
+      const isSenior = g === 'sr' || g === 'senior';
+      const level = isSenior ? num(rows, genR, 'AO') : num(rows, genR, 'AT');
+      const terms = isSenior ? num(rows, genR, 'BV') : num(rows, genR, 'CA');
+      const digits = isSenior ? num(rows, genR, 'BU') : num(rows, genR, 'BZ');
       const adj = num(rows, genR, 'AF', 0);
-      const m = num(rows, markR, c);
+      const m = num(rows, ansR, cMark);
+
       questions.push({
         slot: s,
         max_marks: m,
         generator: 'addition',
         parameters: {
           subtype: 'standard',
-          terms: 3,
+          terms,
+          digits,
           level,
           adjustment: adj,
-          total_digits: level + 2,
-          d1_range: [num(rows, genR, 'AP'), num(rows, genR, 'AQ')],
+          total_digits: terms * digits,
         },
         source_ref: {
           workbook: wbName,
           sheet: 'Int Adds',
-          printed_cells: `${c}${dispR}:${c}${dispR + 2}`,
-          answer_cell: `${c}${dispR + 4}`,
-          mark_cell: `${c}${markR}`,
+          printed_cells: `${cData}${ansR - terms}:${cData}${ansR - 1}`,
+          answer_cell: `${cData}${ansR}`,
+          mark_cell: `${cMark}${ansR}`,
           generator_row: `R${genR}`,
         },
       });
@@ -98,7 +102,7 @@ export function extractAllSectionsForGroup(g, wbName) {
 
   // 2. subtraction (02_Int_Subs) — 18 slots
   {
-    const rows = parseSheet(g, '02_Int_Subs');
+    const rows = parseSheet(g, '02_Int_Subs', 'Int Subs');
     const questions = [];
     for (let s = 1; s <= 18; s++) {
       const r = 3 + 2 * s;
@@ -130,45 +134,54 @@ export function extractAllSectionsForGroup(g, wbName) {
 
   // 3. mixed (03_Mixed_adds_subs) — 14 slots
   {
-    const rows = parseSheet(g, '03_Mixed_adds_subs');
-    const genRows = g === 'j1'
+    const rows = parseSheet(g, '03_Mixed_adds_subs', 'Mixed adds+subs');
+    const genRows = (g === 'j1' || g === 'junior1')
       ? [8,10,12,14,16,18,20,22,24,26,28,30,32,34]
-      : g === 'j2'
+      : (g === 'j2' || g === 'junior2')
       ? [5,8,10,12,14,16,18,20,22,24,26,28,30,32]
       : [5,7,9,11,13,15,17,19,21,23,25,27,29,31];
+    const cols3Data = ['C', 'H', 'M'];
+    const cols3Mark = ['E', 'J', 'O'];
     const questions = [];
     for (let s = 1; s <= 14; s++) {
       const genR = genRows[s - 1];
       const colIdx = (s - 1) % 3;
       const rowIdx = Math.floor((s - 1) / 3);
-      const c = cols3[colIdx];
-      const dispR = 7 + rowIdx * 9;
-      const markR = dispR + 6;
-      const level = g === 'sr' ? num(rows, genR, 'AQ') : g === 'j2' ? num(rows, genR, 'AP') : num(rows, genR, 'AN');
-      const adj = g === 'sr' ? num(rows, genR, 'AH', 0) : g === 'j2' ? num(rows, genR, 'AG', 0) : num(rows, genR, 'AE', 0);
-      const m = num(rows, markR, c);
+      const cData = cols3Data[colIdx];
+      const cMark = cols3Mark[colIdx];
+      const ansR = 13 + rowIdx * 9;
+
+      const isSenior = g === 'sr' || g === 'senior';
+      const isJunior2 = g === 'j2' || g === 'junior2';
+      const level = isSenior ? num(rows, genR, 'AQ') : isJunior2 ? num(rows, genR, 'AP') : num(rows, genR, 'AN');
+      const terms = isSenior ? num(rows, genR, 'BX') : isJunior2 ? num(rows, genR, 'BW') : num(rows, genR, 'BU');
+      const digits = isSenior ? num(rows, genR, 'BW') : isJunior2 ? num(rows, genR, 'BV') : num(rows, genR, 'BT');
+      const adj = isSenior ? num(rows, genR, 'AH', 0) : isJunior2 ? num(rows, genR, 'AG', 0) : num(rows, genR, 'AE', 0);
+      const m = num(rows, ansR, cMark);
+
       questions.push({
         slot: s,
         max_marks: m,
         generator: 'mixed',
         parameters: {
-          terms: 4,
+          terms,
+          digits,
           level,
           adjustment: adj,
-          total_digits: level + 2,
+          total_digits: terms * digits,
           allow_negative: false,
         },
         source_ref: {
           workbook: wbName,
           sheet: 'Mixed adds+subs',
-          printed_cells: `${c}${dispR}:${c}${dispR + 3}`,
-          answer_cell: `${c}${dispR + 5}`,
-          mark_cell: `${c}${markR}`,
+          printed_cells: `${cData}${(isSenior && s === 1) ? 9 : (8 + rowIdx * 9)}:${cData}${((isSenior && s === 1) ? 9 : (8 + rowIdx * 9)) + terms - 1}`,
+          answer_cell: `${cData}${ansR}`,
+          mark_cell: `${cMark}${ansR}`,
           generator_row: `R${genR}`,
         },
       });
     }
-    const totR = g === 'j1' ? 54 : 53;
+    const totR = (g === 'j1' || g === 'junior1') ? 54 : 53;
     sections.push({ key: 'mixed', workbook_sheet: 'Mixed adds+subs', questions, expectedTotal: num(rows, totR, 'O') });
   }
 
@@ -188,13 +201,22 @@ export function extractAllSectionsForGroup(g, wbName) {
       const xLevel = num(rows, paramR, 'X');
       const yMin = num(rows, paramR, 'Y');
       const zMax = num(rows, paramR, 'Z');
+      const lo = Math.min(yMin, zMax);
+      const hi = Math.max(yMin, zMax);
       const m = num(rows, markR, cMark);
       let minM = Infinity, maxM = -Infinity;
-      for (let d2 = yMin; d2 <= zMax; d2++) {
-        const d1 = xLevel + 1 - d2;
-        const mk = Math.floor(Math.pow(d1 * d2, 0.75) + 0.35);
-        if (mk < minM) minM = mk;
-        if (mk > maxM) maxM = mk;
+      if (zMax + 1 - yMin <= 0) {
+        const d1 = xLevel + 1 - yMin;
+        const mk = Math.floor(Math.pow(d1 * yMin, 0.75) + 0.35);
+        minM = mk;
+        maxM = mk;
+      } else {
+        for (let d2 = lo; d2 <= hi; d2++) {
+          const d1 = xLevel + 1 - d2;
+          const mk = Math.floor(Math.pow(d1 * d2, 0.75) + 0.35);
+          if (mk < minM) minM = mk;
+          if (mk > maxM) maxM = mk;
+        }
       }
       questions.push({
         slot: s,
@@ -226,15 +248,16 @@ export function extractAllSectionsForGroup(g, wbName) {
 
   // 5. division (05_Int_Divs) — 17 slots
   {
-    const rows = parseSheet(g, '05_Int_Divs');
+    const rows = parseSheet(g, '05_Int_Divs', 'Int Divs');
     const questions = [];
     for (let s = 1; s <= 17; s++) {
       const r = 2 + 2 * s;
       const vLevel = num(rows, r, 'V');
       const adj = num(rows, r, 'M', 0);
       const m = num(rows, r, 'K');
-      const d2Min = num(rows, r, 'W');
-      const d2Max = num(rows, r, 'X');
+      const d2Min = num(rows, r, 'X');
+      const d2Max = num(rows, r, 'Y');
+      const dividendDigits = num(rows, r, 'AB');
       questions.push({
         slot: s,
         max_marks: m,
@@ -244,6 +267,7 @@ export function extractAllSectionsForGroup(g, wbName) {
           v_level: vLevel,
           adjustment: adj,
           divisor_digits: [d2Min, d2Max],
+          dividend_digits: dividendDigits,
         },
         source_ref: {
           workbook: wbName,
@@ -297,13 +321,13 @@ export function extractAllSectionsForGroup(g, wbName) {
     const rows = parseSheet(g, '07_Primes');
     const questions = [];
     const levelRanges = {
-      1: [[12, 49], [6, 16], [1, 1]],
-      2: [[12, 49], [6, 16], [2, 9]],
-      3: [[24, 97], [6, 16], [2, 9]],
-      4: [[24, 97], [18, 37], [1, 1]],
-      5: [[24, 97], [22, 49], [2, 9]],
-      6: [[54, 97], [22, 97], [2, 9]],
-      7: [[102, 199], [18, 37], [18, 37]],
+      1: [[6, 49], [2, 16], [1, 1]],
+      2: [[6, 49], [3, 16], [1, 9]],
+      3: [[6, 97], [3, 16], [1, 9]],
+      4: [[18, 97], [2, 37], [1, 1]],
+      5: [[22, 97], [3, 49], [1, 9]],
+      6: [[22, 97], [3, 97], [1, 9]],
+      7: [[18, 199], [18, 37], [1, 37]],
     };
     for (let s = 1; s <= 19; s++) {
       const dispR = 7 + 2 * s;
@@ -340,6 +364,7 @@ export function extractAllSectionsForGroup(g, wbName) {
     for (let s = 1; s <= 20; s++) {
       const isHcf = s <= 10;
       const r = isHcf ? 9 + 2 * s : 14 + 2 * s;
+      const mLevel = num(rows, r, 'M');
       const uLevel = num(rows, r, 'U');
       const adj = isHcf ? num(rows, r, 'J', 0) : num(rows, r, 'K', 0);
       const m = num(rows, r, 'H');
@@ -349,6 +374,7 @@ export function extractAllSectionsForGroup(g, wbName) {
         generator: 'hcf_lcm',
         parameters: {
           subtype: isHcf ? 'hcf_2' : 'lcm_2',
+          m_level: mLevel,
           u_level: uLevel,
           adjustment: adj,
         },
@@ -367,7 +393,7 @@ export function extractAllSectionsForGroup(g, wbName) {
 
   // 9. fraction_add (09_Fraction_Additions) — 18 in j1, 20 in j2/sr
   {
-    const rows = parseSheet(g, '09_Fraction_Additions');
+    const rows = parseSheet(g, '09_Fraction_Additions', 'Fraction Additions');
     const count = g === 'j1' ? 18 : 20;
     const questions = [];
     for (let s = 1; s <= count; s++) {
@@ -387,7 +413,7 @@ export function extractAllSectionsForGroup(g, wbName) {
           workbook: wbName,
           sheet: 'Fraction Additions',
           printed_cells: `B${r}:E${r}`,
-          answer_cell: `G${r}:H${r}`,
+          answer_cell: `F${r}`,
           mark_cell: `J${r}`,
           generator_rows: `R${r}:R${r + 15}`,
         },
@@ -399,7 +425,7 @@ export function extractAllSectionsForGroup(g, wbName) {
 
   // 10. fraction_sub (10_Fraction_Subtractions) — 18 in j1, 20 in j2/sr
   {
-    const rows = parseSheet(g, '10_Fraction_Subtractions');
+    const rows = parseSheet(g, '10_Fraction_Subtractions', 'Fraction Subtractions');
     const count = g === 'j1' ? 18 : 20;
     const questions = [];
     for (let s = 1; s <= count; s++) {
@@ -420,7 +446,7 @@ export function extractAllSectionsForGroup(g, wbName) {
           workbook: wbName,
           sheet: 'Fraction Subtractions',
           printed_cells: `B${r}:D${r}`,
-          answer_cell: `F${r}:G${r}`,
+          answer_cell: `F${r}`,
           mark_cell: `I${r}`,
           generator_rows: `R${r}:R${r + 11}`,
         },
@@ -432,7 +458,7 @@ export function extractAllSectionsForGroup(g, wbName) {
 
   // 11. fraction_mul (11_Fraction_Multiplications) — 17 slots
   {
-    const rows = parseSheet(g, '11_Fraction_Multiplications');
+    const rows = parseSheet(g, '11_Fraction_Multiplications', 'Fraction Multiplications');
     const questions = [];
     for (let s = 1; s <= 17; s++) {
       const r = 9 + 13 * (s - 1);
@@ -451,7 +477,7 @@ export function extractAllSectionsForGroup(g, wbName) {
           workbook: wbName,
           sheet: 'Fraction Multiplications',
           printed_cells: `B${r}:P${r}`,
-          answer_cell: `T${r}:X${r}`,
+          answer_cell: `T${r}`,
           mark_cell: `Z${r}`,
           generator_rows: `R${r}:R${r + 10}`,
           ...(s === 17 ? {
@@ -465,7 +491,7 @@ export function extractAllSectionsForGroup(g, wbName) {
 
   // 12. fraction_div (12_Fraction_Divisions) — 20 slots
   {
-    const rows = parseSheet(g, '12_Fraction_Divisions');
+    const rows = parseSheet(g, '12_Fraction_Divisions', 'Fraction Divisions');
     const questions = [];
     for (let s = 1; s <= 20; s++) {
       const r = 10 + 13 * (s - 1);
@@ -484,7 +510,7 @@ export function extractAllSectionsForGroup(g, wbName) {
           workbook: wbName,
           sheet: 'Fraction Divisions',
           printed_cells: `B${r}:P${r}`,
-          answer_cell: `T${r}:X${r}`,
+          answer_cell: `W${r}`,
           mark_cell: `Z${r}`,
           generator_rows: `R${r}:R${r + 10}`,
         },
@@ -880,6 +906,7 @@ export function extractAllSectionsForGroup(g, wbName) {
         parameters: {
           format: 'seconds',
           aa_level: aa,
+          show_dates: g === 'j1' ? false : (m > 3 || aa > 3),
           ...(g === 'j1' ? { min_seconds: 4000, max_seconds: 17999 } : {}),
         },
         source_ref: {
@@ -927,6 +954,70 @@ export function extractAllSectionsForGroup(g, wbName) {
       });
     }
     sections.push({ key: 'sum_squares', workbook_sheet: 'Sums of Squares', questions, expectedTotal: num(rows, 57, 'G') });
+  }
+
+  // Align every slot strictly with the database contract:
+  // - Scoring metadata belongs inside parameters, NOT at slot level.
+  // - Fixed slots: parameters.scoring_mode = 'fixed'. NO mark_rule or mark_range.
+  // - Dynamic slots: parameters.scoring_mode = 'dynamic', parameters.mark_rule, parameters.mark_range = [min, max].
+  for (const sec of sections) {
+    for (const q of sec.questions) {
+      delete q.scoring_mode;
+      delete q.parameters.mark_formula;
+
+      if (sec.key === 'multiplication') {
+        const lo = q.parameters.d2_range[0];
+        const hi = q.parameters.d2_range[1];
+        const xLevel = q.parameters.x_level;
+        let minM = Infinity, maxM = -Infinity;
+        if (hi + 1 - lo <= 0) {
+          const d1 = xLevel + 1 - lo;
+          const mk = Math.floor(Math.pow(d1 * lo, 0.75) + 0.35);
+          minM = mk;
+          maxM = mk;
+        } else {
+          const minD = Math.min(lo, hi);
+          const maxD = Math.max(lo, hi);
+          for (let d2 = minD; d2 <= maxD; d2++) {
+            const d1 = xLevel + 1 - d2;
+            const mk = Math.floor(Math.pow(d1 * d2, 0.75) + 0.35);
+            if (mk < minM) minM = mk;
+            if (mk > maxM) maxM = mk;
+          }
+        }
+        q.parameters.scoring_mode = 'dynamic';
+        q.parameters.mark_rule = 'multiplication_digits_product';
+        q.parameters.mark_range = [minM, maxM];
+      } else if (sec.key === 'prime_factors') {
+        q.parameters.scoring_mode = 'dynamic';
+        q.parameters.mark_rule = 'prime_factors_target_scale';
+        q.parameters.mark_range = [3, 10];
+      } else if (sec.key === 'approximation') {
+        if ((q.slot >= 1 && q.slot <= 6) || (q.slot >= 11 && q.slot <= 16)) {
+          q.parameters.scoring_mode = 'dynamic';
+          q.parameters.mark_rule = 'approximation_product_digits';
+          q.parameters.mark_range = [2, 16];
+        } else {
+          // Fixed slots: 7..10 and 17..20
+          q.parameters.scoring_mode = 'fixed';
+          delete q.parameters.mark_rule;
+          delete q.parameters.mark_range;
+        }
+      } else if (sec.key === 'sum_squares') {
+        q.parameters.scoring_mode = 'dynamic';
+        q.parameters.mark_rule =
+          g === 'j1'
+            ? 'sum_squares_j1_decomposition'
+            : g === 'j2'
+            ? 'sum_squares_j2_target'
+            : 'sum_squares_sr_target';
+        q.parameters.mark_range = g === 'j1' ? [2, 6] : [2, 10];
+      } else {
+        q.parameters.scoring_mode = 'fixed';
+        delete q.parameters.mark_rule;
+        delete q.parameters.mark_range;
+      }
+    }
   }
 
   return sections;
