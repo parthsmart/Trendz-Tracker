@@ -15,6 +15,19 @@
  * - Pagination / browsing support for arbitrary history lengths (no silent 20 or 200 cap)
  */
 
+import './infoTooltip.js';
+
+/** Source, teacher review and edit restrictions describe different things. */
+export function practiceRecordStatus(row, { readOnly = false } = {}) {
+  const corrected = Boolean(row.corrected_at || row.corrected_by);
+  const teacherVerified = Boolean(row.verified_by);
+  const verified = row.verified === true || Boolean(row.verified_at || row.verified_by);
+  const source = resolveEntrySource(row);
+  const review = corrected ? 'Corrected by teacher' : teacherVerified ? 'Verified by teacher' : verified ? 'Verified' : 'Verification not recorded';
+  const restriction = readOnly ? 'Read-only practice record' : source === 'site' ? 'Online session, locked against editing' : corrected || verified ? 'Locked against editing' : 'Typed entries may be edited within the allowed date range';
+  return `${escapeHtml(review)}<br><span class="history-lock-explanation">${escapeHtml(restriction)}</span>`;
+}
+
 /**
  * Normalizes a record's date to a YYYY-MM-DD string in Asia/Kolkata (IST).
  *
@@ -162,6 +175,208 @@ export function computeAccuracyPct(correctVal, totalVal) {
     return 0;
   }
   return Math.min(100, Math.max(0, (c / t) * 100));
+}
+
+/**
+ * Formats a date into a human-friendly IST label:
+ * - 'Today' if matching today's date in Asia/Kolkata
+ * - 'Yesterday' if matching yesterday's date in Asia/Kolkata
+ * - 'D Mon YYYY' (e.g. '5 Nov 2026') for other dates
+ *
+ * @param {string|Date|number|null|undefined} dateVal
+ * @returns {string}
+ */
+export function formatFriendlyDateIST(dateVal) {
+  const istDateStr = toISTDateString(dateVal);
+  if (!istDateStr) return '';
+
+  const todayIST = toISTDateString(new Date());
+  if (istDateStr === todayIST) {
+    return 'Today';
+  }
+
+  const [ty, tm, td] = todayIST.split('-').map(Number);
+  const yesterdayDate = new Date(Date.UTC(ty, tm - 1, td - 1, 12, 0, 0));
+  const yesterdayIST = toISTDateString(yesterdayDate);
+  if (istDateStr === yesterdayIST) {
+    return 'Yesterday';
+  }
+
+  try {
+    const [y, m, d] = istDateStr.split('-').map(Number);
+    const dateObj = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kolkata',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    }).format(dateObj);
+  } catch {
+    return istDateStr;
+  }
+}
+
+/**
+ * Formats accuracy percentage cleanly for display:
+ * - '95.2%' for fractional percentages
+ * - '100%' or '95%' for whole percentages
+ * - '0%' for zero total
+ *
+ * @param {number|string|null|undefined} correct
+ * @param {number|string|null|undefined} total
+ * @returns {string}
+ */
+export function formatAccuracyDisplay(correct, total) {
+  const t = Number(total) || 0;
+  if (!Number.isFinite(t) || t <= 0) {
+    return '0%';
+  }
+  const pct = computeAccuracyPct(correct, total);
+  if (pct % 1 === 0) {
+    return `${Math.round(pct)}%`;
+  }
+  return `${pct.toFixed(1)}%`;
+}
+
+/**
+ * Renders a standardized, accessible compact score history row pair (main row + expandable details row).
+ *
+ * Columns:
+ * 1. Category (with attention flag if flagged)
+ * 2. Score
+ * 3. Accuracy
+ * 4. Time
+ * 5. Date (Today, Yesterday, or D Mon YYYY)
+ * 6. Details (expandable toggle)
+ *
+ * @param {Object} params
+ * @param {string} params.rowId
+ * @param {string} params.category
+ * @param {string} [params.categorySub]
+ * @param {number|string} params.correct
+ * @param {number|string} params.total
+ * @param {string} [params.timeFormatted]
+ * @param {string|Date|number} params.dateVal
+ * @param {boolean} [params.isFlagged]
+ * @param {string} [params.flagNote]
+ * @param {string} [params.statusBadgeHtml]
+ * @param {Array<{ label: string, valueHtml: string }>} [params.detailsMeta]
+ * @param {string} [params.actionsHtml]
+ * @param {string} [params.mainRowAttrs]
+ * @param {string} [params.mainRowClass]
+ * @returns {string}
+ */
+export function renderCompactHistoryRowHtml({
+  rowId,
+  category,
+  categorySub = '',
+  correct = 0,
+  total = 0,
+  timeFormatted = '—',
+  dateVal,
+  isFlagged = false,
+  flagNote = '',
+  statusBadgeHtml = '',
+  detailsMeta = [],
+  actionsHtml = '',
+  mainRowAttrs = '',
+  mainRowClass = '',
+}) {
+  const cleanId = String(rowId || 'row').replace(/[^a-zA-Z0-9_-]/g, '-');
+  const detailsId = `details-${cleanId}`;
+  const c = Number(correct) || 0;
+  const t = Number(total) || 0;
+  const accText = formatAccuracyDisplay(c, t);
+  const friendlyDate = formatFriendlyDateIST(dateVal) || '—';
+  const cleanTime = timeFormatted || '—';
+
+  return `
+    <tr class="history-main-row ${mainRowClass}" ${mainRowAttrs}>
+      <!-- 1. Category -->
+      <td class="cell-category">
+        <div class="cell-header-mobile">
+          <div class="cell-category-title">
+            <span>${escapeHtml(category)}</span>
+            ${isFlagged ? `
+              <span class="status-chip chip-flagged" style="font-size: 11px; padding: 2px 6px;" title="Your teacher asked you to check this entry">
+                ⚠️ Needs attention
+              </span>
+            ` : ''}
+            ${statusBadgeHtml}
+          </div>
+          ${categorySub ? `
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+              ${escapeHtml(categorySub)}
+            </div>
+          ` : ''}
+        </div>
+      </td>
+
+      <!-- 2. Score -->
+      <td class="cell-score num" data-label="Score">
+        <strong>${c} / ${t}</strong>
+      </td>
+
+      <!-- 3. Accuracy -->
+      <td class="cell-accuracy num" data-label="Accuracy">
+        <span>${accText}</span>
+      </td>
+
+      <!-- 4. Time -->
+      <td class="cell-time num" data-label="Time">
+        <span>${escapeHtml(cleanTime)}</span>
+      </td>
+
+      <!-- 5. Date -->
+      <td class="cell-date" data-label="Date">
+        <span>${escapeHtml(friendlyDate)}</span>
+      </td>
+
+      <!-- 6. Details Button -->
+      <td class="cell-details" data-label="Details">
+        <button
+          type="button"
+          class="btn btn-outline btn-sm btn-history-details"
+          aria-expanded="false"
+          aria-controls="${detailsId}"
+          data-details-toggle="${detailsId}"
+          aria-label="Toggle details for ${escapeHtml(category)}"
+        >
+          Details <span class="details-chevron" aria-hidden="true">▾</span>
+        </button>
+      </td>
+    </tr>
+    <tr id="${detailsId}" class="history-details-row" hidden>
+      <td colspan="6" class="history-details-cell">
+        <div class="history-details-panel">
+          ${isFlagged ? `
+            <div class="attention-explanation-box">
+              <div style="font-weight: 700; color: #92400E; display: flex; align-items: center; gap: 6px;">
+                ⚠️ Teacher review requested
+              </div>
+              <div style="color: #78350F; margin-top: 4px; font-size: var(--text-sm);">
+                Your teacher asked you to check this score entry.
+                ${flagNote ? `<br><strong>Teacher Note:</strong> ${escapeHtml(flagNote)}` : ''}
+              </div>
+            </div>
+          ` : ''}
+          <div class="history-meta-grid">
+            ${detailsMeta.map(item => `
+              <div class="meta-item">
+                <span class="meta-label">${escapeHtml(item.label)}</span>
+                <span class="meta-value">${item.valueHtml}</span>
+              </div>
+            `).join('')}
+          </div>
+          ${actionsHtml ? `
+            <div class="history-actions-row">
+              ${actionsHtml}
+            </div>
+          ` : ''}
+        </div>
+      </td>
+    </tr>
+  `;
 }
 
 /**

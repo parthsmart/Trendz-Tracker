@@ -44,12 +44,28 @@
           <div id="config-banner-placeholder"></div>
 
           <!-- Page Heading -->
-          <div class="section-header-row" style="margin-bottom: var(--space-6);">
+          <div class="section-header-row" style="margin-bottom: var(--space-4);">
             <div>
               <h1>Basics Speed Drills</h1>
               <p style="font-size: var(--text-sm);">Log daily mental calculation speed drills (digits & rows). Multiple entries allowed per day.</p>
             </div>
           </div>
+
+          <!-- "How it works" Disclosure -->
+          <details class="how-it-works-disclosure" style="margin-bottom: var(--space-5);">
+            <summary>
+              <span class="how-it-works-icon" aria-hidden="true">💡</span>
+              <span>How Basics Practice works</span>
+            </summary>
+            <div class="how-it-works-content">
+              <p>Practice mental calculation speed drills with digits and rows. You can solve questions online with automatic site grading, or practice on paper and record your results below.</p>
+              <ul>
+                <li><strong>Target time:</strong> A suggested goal to benchmark your speed, not a timer that stops your practice.</li>
+                <li><strong>Accuracy:</strong> Percentage of attempted questions solved correctly.</li>
+                <li><strong>Lock status:</strong> Online drills are automatically verified and locked. Teacher-verified scores cannot be edited.</li>
+              </ul>
+            </div>
+          </details>
 
           <!-- Online Practice Quick-Launch Bar (Phase 9a) -->
           <div id="online-practice-categories-card" class="card" style="display: none; margin-bottom: var(--space-5); padding: var(--space-4) var(--space-5);">
@@ -90,8 +106,16 @@
                       <option value="">Loading categories...</option>
                     </select>
                     <!-- Student Target Benchmark Display (Phase 4b) -->
-                    <div id="category-target-display" style="display: none; margin-top: var(--space-2); font-size: var(--text-xs); font-weight: 600; color: var(--color-primary); background: var(--color-primary-subtle); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); border-left: 3px solid var(--color-primary);">
-                      🎯 <span id="category-target-text"></span>
+                    <div id="category-target-display" style="display: none; margin-top: var(--space-2); font-size: var(--text-xs); font-weight: 600; color: var(--color-primary); background: var(--color-primary-subtle); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); border-left: 3px solid var(--color-primary); align-items: center; justify-content: space-between;">
+                      <span>🎯 <span id="category-target-text"></span></span>
+                      <span class="info-tip-wrapper">
+                        <button type="button" class="info-tip-trigger" id="btn-tip-target-time" aria-label="About target time" aria-expanded="false" aria-describedby="tip-target-time">
+                          <span class="info-tip-symbol" aria-hidden="true">i</span>
+                        </button>
+                        <span id="tip-target-time" class="info-tip-content" role="tooltip">
+                          Target time is a suggested goal to benchmark your speed, not a timer that stops your practice.
+                        </span>
+                      </span>
                     </div>
                   </div>
 
@@ -150,7 +174,17 @@
 
                   <!-- Live Accuracy Preview -->
                   <div class="form-group" style="justify-content: flex-end;">
-                    <label class="form-label">Accuracy Preview</label>
+                    <label class="form-label" style="display: flex; align-items: center; gap: 6px;">
+                      <span>Accuracy Preview</span>
+                      <span class="info-tip-wrapper">
+                        <button type="button" class="info-tip-trigger" id="btn-tip-accuracy-preview" aria-label="How accuracy is calculated" aria-expanded="false" aria-describedby="tip-accuracy-preview">
+                          <span class="info-tip-symbol" aria-hidden="true">i</span>
+                        </button>
+                        <span id="tip-accuracy-preview" class="info-tip-content" role="tooltip">
+                          Accuracy = (Correct ÷ Attempted) × 100%. Unattempted questions are not counted as wrong.
+                        </span>
+                      </span>
+                    </label>
                     <div style="min-height: 42px; display: flex; align-items: center;">
                       <span id="basics-live-feedback" class="score-tag score-tag-neutral">—</span>
                     </div>

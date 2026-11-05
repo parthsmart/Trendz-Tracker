@@ -24,6 +24,10 @@ import {
   toISTDateString,
   resolveEntrySource,
   renderSourceChipHtml,
+  renderCompactHistoryRowHtml,
+  practiceRecordStatus,
+  formatFriendlyDateIST,
+  formatAccuracyDisplay,
 } from './historyFilters.js';
 
 function escapeHtml(str) {
@@ -352,7 +356,7 @@ function renderMemoriadHistoryView() {
   }
 
   const rowsHtml = paged.items
-    .map((row) => {
+    .map((row, idx) => {
       const modKey = row.settings?.module || row.activity_name || 'Memoriad';
       const modTitle =
         modKey === 'calendar'
@@ -365,39 +369,64 @@ function renderMemoriadHistoryView() {
       const fb = getScoreFeedback(correct, total);
       const timeSec = Number(row.time_seconds) || 0;
       const timeStr = `${timeSec.toFixed(2)}s`;
-      const dateStr = toISTDateString(row.created_at);
+      const attemptedPerMinute = total > 0 && timeSec > 0
+        ? (Math.round((total / (timeSec / 60)) * 10) / 10).toFixed(1)
+        : null;
 
-      return `
-        <tr>
-          <td style="font-weight: 600; color: var(--text-main);">${escapeHtml(modTitle)}</td>
-          <td class="num">
-            <strong style="color: ${fb.colorVar};">${correct}/${total}</strong>
-            <span class="score-tag ${fb.badgeClass}" style="font-size: 11px; margin-left: 6px;">${escapeHtml(fb.wrongText)}</span>
-          </td>
-          <td class="num" style="color: var(--text-muted);">${escapeHtml(timeStr)}</td>
-          <td>${renderSourceChipHtml(resolveEntrySource(row, 'memoriad'))}</td>
-          <td class="num" style="color: var(--text-muted); font-size: var(--text-xs);">${escapeHtml(dateStr)}</td>
-        </tr>
-      `;
+      const isFlagged = row.flagged === true;
+      const flagNote = row.flag_note || '';
+
+      const entrySource = resolveEntrySource(row, 'memoriad');
+      const isVerified = row.verified === true || !!row.verified_at || !!row.verified_by;
+      const isCorrected = !!row.corrected_at || !!row.corrected_by;
+
+      const lockExplanation = practiceRecordStatus(row, { readOnly: true });
+
+      const detailsMeta = [
+        { label: 'Wrong answers', valueHtml: `<span class="score-tag ${fb.badgeClass}">${escapeHtml(fb.wrongText)}</span>` },
+        { label: 'Speed / rate', valueHtml: attemptedPerMinute ? `${attemptedPerMinute} / min` : '—' },
+        { label: 'Module discipline', valueHtml: escapeHtml(modTitle) },
+        { label: 'Entry source', valueHtml: renderSourceChipHtml(entrySource) },
+        { label: 'Status & lock', valueHtml: lockExplanation },
+      ];
+
+      return renderCompactHistoryRowHtml({
+        rowId: `memoriad-${row.id || idx}`,
+        category: modTitle,
+        categorySub: '',
+        correct: correct,
+        total: total,
+        timeFormatted: timeStr,
+        dateVal: row.created_at,
+        isFlagged: isFlagged,
+        flagNote: flagNote,
+        statusBadgeHtml: '',
+        detailsMeta: detailsMeta,
+        actionsHtml: '',
+        mainRowAttrs: row.id ? `data-memoriad-id="${row.id}"` : '',
+      });
     })
     .join('');
 
   tableContainer.innerHTML = `
-    <div class="table-wrap" style="border: none; border-radius: 0;">
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Module</th>
-            <th>Score</th>
-            <th>Time</th>
-            <th>Source</th>
-            <th>Date (IST)</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rowsHtml}
-        </tbody>
-      </table>
+    <div class="card history-compact-card" style="margin: 0; border: none; border-radius: 0;">
+      <div class="table-container" style="border: none; border-radius: 0;">
+        <table class="history-compact-table" aria-label="Memoriad Practice History">
+          <thead>
+            <tr>
+              <th scope="col">Category</th>
+              <th scope="col" class="th-num">Score</th>
+              <th scope="col" class="th-num">Accuracy</th>
+              <th scope="col" class="th-num">Time</th>
+              <th scope="col">Date</th>
+              <th scope="col" class="th-action">Details</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </div>
     </div>
   `;
 

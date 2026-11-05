@@ -2,6 +2,7 @@
    1. CSS Variables & Design Tokens (Phase 14b Calmer UI — Imported from variables.css)
    ========================================================================== */
 @import './variables.css';
+@import './practiceUi.css';
 
 /* ==========================================================================
    2. Base Reset & Typography

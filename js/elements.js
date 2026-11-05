@@ -38,6 +38,10 @@ import {
   toISTDateString,
   resolveEntrySource,
   renderSourceChipHtml,
+  renderCompactHistoryRowHtml,
+  practiceRecordStatus,
+  formatFriendlyDateIST,
+  formatAccuracyDisplay,
 } from './historyFilters.js';
 
 function escapeHtml(str) {
@@ -212,45 +216,72 @@ function renderElementsHistoryView() {
   }
 
   const rowsHtml = paged.items
-    .map((row) => {
+    .map((row, idx) => {
       const displayName = formatDrillHistoryName(row);
       const correct = Number(row.correct) || 0;
       const total = Number(row.total ?? row.attempted) || 0;
       const fb = getScoreFeedback(correct, total);
-      const timeStr = formatSecondsToMMSS(Number(row.time_seconds) || 0);
-      const dateStr = toISTDateString(row.created_at);
+      const timeSec = Number(row.time_seconds) || 0;
+      const timeStr = formatSecondsToMMSS(timeSec);
+      const drillKey = row.settings?.drill || row.settings?.drill_key || row.activity_name || '';
+      const attemptedPerMinute = total > 0 && timeSec > 0
+        ? (Math.round((total / (timeSec / 60)) * 10) / 10).toFixed(1)
+        : null;
 
-      return `
-        <tr>
-          <td style="font-weight: 600; color: var(--text-main);">${escapeHtml(displayName)}</td>
-          <td class="num">
-            <strong style="color: ${fb.colorVar};">${correct}/${total}</strong>
-            <span class="score-tag ${fb.badgeClass}" style="font-size: 11px; margin-left: 6px;">${escapeHtml(fb.wrongText)}</span>
-          </td>
-          <td class="num" style="color: var(--text-muted);">${escapeHtml(timeStr)}</td>
-          <td>${renderSourceChipHtml(resolveEntrySource(row, 'elements'))}</td>
-          <td class="num" style="color: var(--text-muted); font-size: var(--text-xs);">${escapeHtml(dateStr)}</td>
-        </tr>
-      `;
+      const isFlagged = row.flagged === true;
+      const flagNote = row.flag_note || '';
+
+      const entrySource = resolveEntrySource(row, 'elements');
+      const isVerified = row.verified === true || !!row.verified_at || !!row.verified_by;
+      const isCorrected = !!row.corrected_at || !!row.corrected_by;
+
+      const lockExplanation = practiceRecordStatus(row, { readOnly: true });
+
+      const detailsMeta = [
+        { label: 'Wrong answers', valueHtml: `<span class="score-tag ${fb.badgeClass}">${escapeHtml(fb.wrongText)}</span>` },
+        { label: 'Speed / rate', valueHtml: attemptedPerMinute ? `${attemptedPerMinute} / min` : '—' },
+        { label: 'Drill key', valueHtml: `<code style="font-size: 11px;">${escapeHtml(drillKey)}</code>` },
+        { label: 'Entry source', valueHtml: renderSourceChipHtml(entrySource) },
+        { label: 'Status & lock', valueHtml: lockExplanation },
+      ];
+
+      return renderCompactHistoryRowHtml({
+        rowId: `elements-${row.id || idx}`,
+        category: displayName,
+        categorySub: '',
+        correct: correct,
+        total: total,
+        timeFormatted: timeStr,
+        dateVal: row.created_at,
+        isFlagged: isFlagged,
+        flagNote: flagNote,
+        statusBadgeHtml: '',
+        detailsMeta: detailsMeta,
+        actionsHtml: '',
+        mainRowAttrs: row.id ? `data-elements-id="${row.id}"` : '',
+      });
     })
     .join('');
 
   tableContainer.innerHTML = `
-    <div class="table-wrap">
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Drill</th>
-            <th>Score</th>
-            <th>Time</th>
-            <th>Source</th>
-            <th>Date (IST)</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rowsHtml}
-        </tbody>
-      </table>
+    <div class="card history-compact-card" style="margin-top: var(--space-4);">
+      <div class="table-container" style="border: none; border-radius: 0;">
+        <table class="history-compact-table" aria-label="Elements Practice History">
+          <thead>
+            <tr>
+              <th scope="col">Category</th>
+              <th scope="col" class="th-num">Score</th>
+              <th scope="col" class="th-num">Accuracy</th>
+              <th scope="col" class="th-num">Time</th>
+              <th scope="col">Date</th>
+              <th scope="col" class="th-action">Details</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </div>
     </div>
   `;
 

@@ -19,6 +19,7 @@ import {
   FLASH_LIMITS,
   clampFlashSettings,
   formatFlashSettingsSummary,
+  formatFlashCompactSummary,
   formatSpeedDisplay,
   friendlyFlashError,
   getExpectedDurationInfo,
@@ -56,6 +57,10 @@ import {
   fetchAllRowsBatched,
   resolveEntrySource,
   renderSourceChipHtml,
+  renderCompactHistoryRowHtml,
+  practiceRecordStatus,
+  formatFriendlyDateIST,
+  formatAccuracyDisplay,
 } from './historyFilters.js';
 
 let flashHistoryFilters = {
@@ -299,11 +304,11 @@ function syncSetupControlsUI() {
   const soundToggle = document.getElementById('flash-sound-toggle');
   if (soundToggle) soundToggle.checked = soundEnabled;
 
-  // 6. One-line summary ("Last used: ...") & expected duration
-  const summaryText = formatFlashSettingsSummary(currentSettings);
+  // 6. One-line summary & expected duration
+  const summaryText = formatFlashCompactSummary(currentSettings);
   const lastUsedEl = document.getElementById('flash-last-used-text');
   if (lastUsedEl) {
-    lastUsedEl.textContent = `Last used: ${summaryText}`;
+    lastUsedEl.textContent = summaryText;
   }
   const summaryLine = document.getElementById('flash-setup-summary-line');
   if (summaryLine) {
@@ -1234,7 +1239,7 @@ function renderFlashHistoryView() {
   if (cachedHistoryRows.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="5" style="text-align: center; padding: var(--space-6); color: var(--text-muted);">
+        <td colspan="6" style="text-align: center; padding: var(--space-6); color: var(--text-muted);">
           No Flash Anzan tries completed yet. Start your first try above!
         </td>
       </tr>
@@ -1255,7 +1260,7 @@ function renderFlashHistoryView() {
   if (paged.totalCount === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="5" style="text-align: center; padding: var(--space-6); color: var(--text-muted);">
+        <td colspan="6" style="text-align: center; padding: var(--space-6); color: var(--text-muted);">
           No Flash Anzan tries match the selected filters.
         </td>
       </tr>
@@ -1265,7 +1270,7 @@ function renderFlashHistoryView() {
   }
 
   tbody.innerHTML = paged.items
-    .map((row) => {
+    .map((row, idx) => {
       const correct = Number(row.correct) || 0;
       const total = Number(row.total) || 1;
       const fb = getScoreFeedback(correct, total);
@@ -1274,28 +1279,43 @@ function renderFlashHistoryView() {
       const count = row.settings?.count ?? 5;
       const speedMs = row.settings?.speed_ms ?? 1000;
       const speedSec = speedMsToSeconds(speedMs);
-      const summary = `${digits}D · ${count} numbers · ${speedSec}s`;
-      const dateIST = toISTDateString(row.created_at);
-      const outcomeText = isCorrect ? 'Correct' : 'Missed';
+      const mode = row.settings?.mode || 'add';
+      const modeText = mode === 'add_sub' ? 'Addition & Subtraction' : 'Addition';
+      const outcomeText = isCorrect ? '✅ Correct' : '❌ Missed';
+      const speedDisplay = formatSpeedDisplay(speedMs);
 
-      return `
-        <tr>
-          <td style="white-space: nowrap;">${escapeHtml(dateIST)}</td>
-          <td class="num">${escapeHtml(summary)}</td>
-          <td>
-            <span
-              class="badge"
-              style="background: ${fb.bgVar}; color: ${fb.colorVar}; font-weight: 700;"
-            >
-              ${escapeHtml(outcomeText)}
-            </span>
-          </td>
-          <td>${renderSourceChipHtml(resolveEntrySource(row, 'flash'))}</td>
-          <td class="num" style="text-align: right;">${escapeHtml(
-            formatSecondsToTime(row.time_seconds)
-          )}</td>
-        </tr>
-      `;
+      const isFlagged = row.flagged === true;
+      const flagNote = row.flag_note || '';
+
+      const entrySource = resolveEntrySource(row, 'flash');
+      const isVerified = row.verified === true || !!row.verified_at || !!row.verified_by;
+      const isCorrected = !!row.corrected_at || !!row.corrected_by;
+
+      const lockExplanation = practiceRecordStatus(row, { readOnly: true });
+
+      const detailsMeta = [
+        { label: 'Result outcome', valueHtml: `<strong style="color: ${fb.colorVar};">${outcomeText}</strong>` },
+        { label: 'Flash settings', valueHtml: `${digits} digits · ${count} numbers · ${speedSec}s · ${modeText}` },
+        { label: 'Speed / rate', valueHtml: `${speedSec}s per number (${speedDisplay.perSecondText})` },
+        { label: 'Entry source', valueHtml: renderSourceChipHtml(entrySource) },
+        { label: 'Status & lock', valueHtml: lockExplanation },
+      ];
+
+      return renderCompactHistoryRowHtml({
+        rowId: `flash-${row.id || idx}`,
+        category: `${digits}D Flash`,
+        categorySub: '',
+        correct: correct,
+        total: total,
+        timeFormatted: formatSecondsToTime(row.time_seconds),
+        dateVal: row.created_at,
+        isFlagged: isFlagged,
+        flagNote: flagNote,
+        statusBadgeHtml: '',
+        detailsMeta: detailsMeta,
+        actionsHtml: '',
+        mainRowAttrs: row.id ? `data-flash-id="${row.id}"` : '',
+      });
     })
     .join('');
 
@@ -1523,6 +1543,22 @@ function setupEventListeners() {
     await startTryExecution();
   });
 
+  // Toggle Settings Drawer
+  const toggleSettingsBtn = document.getElementById('btn-toggle-flash-settings');
+  const settingsDrawer = document.getElementById('flash-settings-drawer');
+  toggleSettingsBtn?.addEventListener('click', () => {
+    const isHidden = settingsDrawer?.hasAttribute('hidden');
+    if (isHidden) {
+      settingsDrawer?.removeAttribute('hidden');
+      toggleSettingsBtn.setAttribute('aria-expanded', 'true');
+      toggleSettingsBtn.classList.add('is-open');
+    } else {
+      settingsDrawer?.setAttribute('hidden', '');
+      toggleSettingsBtn.setAttribute('aria-expanded', 'false');
+      toggleSettingsBtn.classList.remove('is-open');
+    }
+  });
+
   // 7. Stop button with confirmation (abandons try and saves nothing)
   const stopConfirmBar = document.getElementById('flash-stop-confirm-bar');
   document.getElementById('btn-flash-stop')?.addEventListener('click', () => {
@@ -1628,6 +1664,13 @@ function setupEventListeners() {
   document.getElementById('btn-results-change-settings')?.addEventListener('click', () => {
     syncSetupControlsUI();
     showScreen('setup');
+    const drawer = document.getElementById('flash-settings-drawer');
+    const toggleBtn = document.getElementById('btn-toggle-flash-settings');
+    if (drawer && drawer.hasAttribute('hidden')) {
+      drawer.removeAttribute('hidden');
+      toggleBtn?.setAttribute('aria-expanded', 'true');
+      toggleBtn?.classList.add('is-open');
+    }
   });
 
   // Phase 14a: Restore task settings button

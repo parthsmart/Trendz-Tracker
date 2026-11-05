@@ -24,11 +24,13 @@
 
       @media (max-width: 640px) {
         .memoriad-modules-grid {
-          grid-template-columns: 1fr;
+          grid-template-columns: minmax(0, 1fr);
         }
       }
 
       .memoriad-module-card {
+        min-width: 0;
+        overflow-wrap: anywhere;
         display: flex;
         flex-direction: column;
         justify-content: space-between;
@@ -109,7 +111,7 @@
           <!-- Page Heading & Summary Pill -->
           <div
             class="section-header-row"
-            style="align-items: flex-end; flex-wrap: wrap; gap: var(--space-4); margin-bottom: var(--space-5);"
+            style="align-items: flex-end; flex-wrap: wrap; gap: var(--space-4); margin-bottom: var(--space-4);"
           >
             <div>
               <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: 4px;">
@@ -141,6 +143,22 @@
               </div>
             </div>
           </div>
+
+          <!-- "How it works" Disclosure -->
+          <details class="how-it-works-disclosure" style="margin-bottom: var(--space-5);">
+            <summary>
+              <span class="how-it-works-icon" aria-hidden="true">💡</span>
+              <span>How Memoriad Competition Practice works</span>
+            </summary>
+            <div class="how-it-works-content">
+              <p>Memoriad modules simulate world-standard mental calculation competition disciplines including Mental Calendar Dates and Mental Additions. Use desktop number pads or keyboard shortcuts for optimal speed.</p>
+              <ul>
+                <li><strong>Format:</strong> Strict time limits with automatic site timing and validation.</li>
+                <li><strong>Scoring:</strong> Solved attempts are recorded automatically and count toward your streak and practice history.</li>
+                <li><strong>Keyboard navigation:</strong> Full keyboard support for entering dates and numeric answers rapidly.</li>
+              </ul>
+            </div>
+          </details>
 
           <!-- 4 Module Cards Container -->
           <div id="memoriad-modules-container" class="memoriad-modules-grid">

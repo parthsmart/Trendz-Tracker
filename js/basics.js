@@ -22,6 +22,10 @@ import {
   fetchAllRowsBatched,
   resolveEntrySource,
   renderSourceChipHtml,
+  renderCompactHistoryRowHtml,
+  practiceRecordStatus,
+  formatFriendlyDateIST,
+  formatAccuracyDisplay,
 } from './historyFilters.js';
 
 let currentProfile = null;
@@ -379,8 +383,24 @@ function renderHistory() {
       `;
     } else {
       todayContainer.innerHTML = `
-        <div class="card">
-          ${todayItems.map(item => renderDrillRow(item)).join('')}
+        <div class="card history-compact-card">
+          <div class="table-container" style="border: none; border-radius: 0;">
+            <table class="history-compact-table" aria-label="Today's Basics Drills">
+              <thead>
+                <tr>
+                  <th scope="col">Category</th>
+                  <th scope="col" class="th-num">Score</th>
+                  <th scope="col" class="th-num">Accuracy</th>
+                  <th scope="col" class="th-num">Time</th>
+                  <th scope="col">Date</th>
+                  <th scope="col" class="th-action">Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${todayItems.map(item => renderDrillRow(item, 'today')).join('')}
+              </tbody>
+            </table>
+          </div>
         </div>
       `;
     }
@@ -426,8 +446,8 @@ function renderHistory() {
       let pastHtml = '';
       grouped.forEach((items, dateKey) => {
         pastHtml += `
-          <div class="card" style="margin-bottom: var(--space-4);">
-            <div class="card-header" style="padding: var(--space-3) var(--space-5); background-color: var(--bg-surface-subtle);">
+          <div class="card history-compact-card" style="margin-bottom: var(--space-4);">
+            <div class="card-header" style="padding: var(--space-3) var(--space-5); background-color: var(--bg-surface-subtle); display: flex; justify-content: space-between; align-items: center;">
               <span style="font-weight: 700; font-size: var(--text-sm); color: var(--text-main);">
                 📅 ${formatDateDisplay(dateKey)}
               </span>
@@ -435,8 +455,22 @@ function renderHistory() {
                 ${items.length} ${items.length === 1 ? 'drill' : 'drills'}
               </span>
             </div>
-            <div>
-              ${items.map(item => renderDrillRow(item)).join('')}
+            <div class="table-container" style="border: none; border-radius: 0;">
+              <table class="history-compact-table" aria-label="Drills for ${escapeHtml(dateKey)}">
+                <thead>
+                  <tr>
+                    <th scope="col">Category</th>
+                    <th scope="col" class="th-num">Score</th>
+                    <th scope="col" class="th-num">Accuracy</th>
+                    <th scope="col" class="th-num">Time</th>
+                    <th scope="col">Date</th>
+                    <th scope="col" class="th-action">Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${items.map(item => renderDrillRow(item, 'history')).join('')}
+                </tbody>
+              </table>
             </div>
           </div>
         `;
@@ -515,9 +549,12 @@ function wireBasicsFilterListeners() {
 }
 
 /**
- * Render single drill list row
+ * Render single drill list row (Compact 6-column format with expandable Details)
+ *
+ * @param {Record<string, any>} drill
+ * @param {'today'|'history'} [contextPrefix='history'] - Context prefix for distinct DOM IDs
  */
-function renderDrillRow(drill) {
+function renderDrillRow(drill, contextPrefix = 'history') {
   const catName = drill.categories?.name || basicsCategories.find(c => c.id === drill.category_id)?.name || 'Basics';
   const feedback = getScoreFeedback(drill.correct, drill.total);
   const timeFormatted = formatSecondsToMMSS(drill.time_seconds);
@@ -533,78 +570,79 @@ function renderDrillRow(drill) {
   const flagNote = drill.flag_note || '';
   const isLocked = isSite || isVerified || isCorrected;
 
-  return `
-    <div class="category-item ${isLocked ? 'row-verified' : ''}" style="margin-bottom: 0; border-radius: 0; border-bottom: 1px solid var(--border-hairline);" data-drill-id="${drill.id}">
-      <div style="display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;">
-        <span style="font-weight: 700; font-size: var(--text-sm); min-width: 70px;">
-          ${escapeHtml(catName)}
-        </span>
-        <span class="num" style="font-size: var(--text-sm); font-weight: 600;">
-          ${drill.correct} / ${drill.total}
-        </span>
-        <span class="score-tag ${feedback.badgeClass}">
-          ${feedback.wrongText}
-        </span>
-        ${timeFormatted ? `
-          <span class="num" style="font-size: var(--text-xs); color: var(--text-muted);">
-            ⏱️ ${timeFormatted}${attemptedPerMinute ? ` · ${attemptedPerMinute} / min` : ''}
-          </span>
-        ` : ''}
-        ${drill.meets_target === true ? `
-          <span class="status-chip chip-verified" title="Meets target benchmark">
-            🎯 Target met
-          </span>
-        ` : drill.meets_target === false ? `
-          <span class="status-chip" style="background-color: rgba(239, 68, 68, 0.12); color: #B91C1C; border: 1px solid rgba(239, 68, 68, 0.3);" title="Below target benchmark">
-            ⚠️ Below target
-          </span>
-        ` : ''}
-        ${renderSourceChipHtml(entrySource)}
-        ${practiceMode ? `<span class="status-chip chip-unverified">${practiceMode}</span>` : ''}
-        ${isVerified ? `
-          <span class="verified-lock-indicator" title="Verified by teacher (locked)">
-            🔒 Verified
-          </span>
-        ` : ''}
-        ${isCorrected ? `
-          <span class="status-chip chip-corrected" title="Corrected by teacher (locked)">
-            ✏️ Corrected by teacher
-          </span>
-        ` : ''}
-        ${isFlagged ? `
-          <div class="status-chip chip-flagged" style="display: inline-flex; flex-direction: column; align-items: flex-start; text-align: left; font-size: 11px; max-width: 260px; white-space: normal; line-height: 1.25; padding: 4px 6px;">
-            <span style="font-weight: 600;">⚠️ Your teacher asked you to check this entry</span>
-            ${flagNote ? `<span style="font-size: 10px; color: #78350F; margin-top: 2px;">Note: ${escapeHtml(flagNote)}</span>` : ''}
-          </div>
-        ` : ''}
-      </div>
+  const targetStatusHtml = drill.meets_target === true
+    ? '<span class="status-chip chip-verified" title="Meets target benchmark">🎯 Target met</span>'
+    : drill.meets_target === false
+    ? '<span class="status-chip" style="background-color: rgba(239, 68, 68, 0.12); color: #B91C1C; border: 1px solid rgba(239, 68, 68, 0.3);" title="Below target benchmark">⚠️ Below target</span>'
+    : '—';
 
-      <div class="category-actions">
-        ${!isLocked ? `
-          <button
-            type="button"
-            class="btn btn-outline btn-sm btn-edit-drill"
-            data-id="${drill.id}"
-            title="Edit drill"
-          >
-            Edit
-          </button>
-          <button
-            type="button"
-            class="btn btn-outline btn-sm btn-delete-drill"
-            data-id="${drill.id}"
-            title="Delete drill"
-          >
-            Delete
-          </button>
-        ` : `
-          <span style="font-size: 11px; color: var(--text-dim); padding-right: var(--space-2);">
-            Locked
-          </span>
-        `}
-      </div>
-    </div>
-  `;
+  // Authoritative derivation of status & lock:
+  // Online sessions are locked against modification, but only teacher review marks verified/corrected
+  const lockExplanation = practiceRecordStatus(drill, { readOnly: false });
+
+  // Authoritative note: database column is "note", with fallback to "notes"
+  const actualNote = drill.note ?? drill.notes ?? '';
+
+  // Sentence-case labels without tiny uppercase
+  const detailsMeta = [
+    { label: 'Wrong answers', valueHtml: `<span class="score-tag ${feedback.badgeClass}">${escapeHtml(feedback.wrongText)}</span>` },
+    { label: 'Speed / rate', valueHtml: attemptedPerMinute ? `${attemptedPerMinute} / min` : '—' },
+    { label: 'Entry source', valueHtml: renderSourceChipHtml(entrySource) },
+  ];
+
+  // Only include practice mode if defined; never invent "Standard"
+  if (practiceMode) {
+    detailsMeta.push({ label: 'Practice mode', valueHtml: `<span class="status-chip chip-unverified">${practiceMode}</span>` });
+  }
+
+  detailsMeta.push(
+    { label: 'Target benchmark', valueHtml: targetStatusHtml },
+    { label: 'Status & lock', valueHtml: lockExplanation },
+    { label: 'Notes', valueHtml: actualNote ? escapeHtml(actualNote) : '<span style="color: var(--text-dim);">None</span>' }
+  );
+
+  const actionsHtml = !isLocked
+    ? `
+      <button
+        type="button"
+        class="btn btn-outline btn-sm btn-edit-drill"
+        data-id="${drill.id}"
+        style="min-height: 44px; min-width: 80px;"
+        title="Edit drill"
+      >
+        Edit
+      </button>
+      <button
+        type="button"
+        class="btn btn-outline btn-sm btn-delete-drill"
+        data-id="${drill.id}"
+        style="min-height: 44px; min-width: 80px; color: #DC2626;"
+        title="Delete drill"
+      >
+        Delete
+      </button>
+    `
+    : `
+      <span style="font-size: 11px; color: var(--text-dim); padding-right: var(--space-2);">
+        🔒 Locked (editing and deletion disabled)
+      </span>
+    `;
+
+  return renderCompactHistoryRowHtml({
+    rowId: `${contextPrefix}-drill-${drill.id}`,
+    category: catName,
+    correct: drill.correct,
+    total: drill.total,
+    timeFormatted: timeFormatted,
+    dateVal: drill.entry_date,
+    isFlagged: isFlagged,
+    flagNote: flagNote,
+    statusBadgeHtml: '',
+    detailsMeta: detailsMeta,
+    actionsHtml: actionsHtml,
+    mainRowAttrs: `data-drill-id="${drill.id}"`,
+    mainRowClass: isLocked ? 'row-verified' : '',
+  });
 }
 
 /**
