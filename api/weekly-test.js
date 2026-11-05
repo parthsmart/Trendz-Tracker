@@ -11,7 +11,7 @@
  * Security & Data Isolation:
  * - Verifies active student caller via `verifyStudentCaller(req)`.
  * - Enforces rate limit of max 60 section starts per hour per student across `drill_sessions`.
- * - Calls `weekly_test_check_section(p_test, p_student, p_section)` with service role on `start`.
+ * - Coordinates with DB via `weekly_test_reserve_section_start(p_test, p_student, ...)` on `start`.
  * - Stores expected answers server-side only in `drill_sessions.expected`.
  * - Writes results ONLY to `weekly_test_scores` and `weekly_test_attempts`
  *   (NEVER writes to `activity_results` or `results`).
@@ -180,59 +180,50 @@ export async function handleStartWeeklyTestSection({
     }
   }
 
-  // 1. Authoritative DB check via weekly_test_check_section(p_test, p_student, p_section)
-  //    (with fallback to weekly_test_check if legacy mock only defines weekly_test_check)
-  let check = null;
-  if (sectionId) {
-    const { data: checkSecRaw, error: checkSecErr } = await adminSupabase.rpc(
-      'weekly_test_check_section',
-      {
-        p_test: testId,
-        p_student: student.id,
-        p_section: sectionId,
-      }
-    );
+  // 1. Authoritative DB reservation & row lock via weekly_test_reserve_section_start
+  //    Coordinates with save_weekly_test_sections_atomic to eliminate student-start / admin-edit race.
+  const { data: resData, error: resErr } = await adminSupabase.rpc(
+    'weekly_test_reserve_section_start',
+    {
+      p_test_id: testId,
+      p_student_id: student.id,
+      p_section_id: sectionId || null,
+      p_category_id: categoryIdArg || null,
+    }
+  );
 
-    if (checkSecErr && categoryIdArg) {
-      // Fallback for legacy mocks that only implement weekly_test_check
-      const { data: legacyRaw, error: legacyErr } = await adminSupabase.rpc('weekly_test_check', {
-        p_test: testId,
-        p_student: student.id,
-        p_category: categoryIdArg,
-      });
-      if (legacyErr) {
-        return {
-          statusCode: 400,
-          payload: {
-            error: checkSecErr.message || 'Unable to verify weekly test section eligibility.',
-          },
-        };
-      }
-      check = Array.isArray(legacyRaw) ? legacyRaw[0] : legacyRaw;
-    } else if (checkSecErr) {
+  if (resErr) {
+    const errCode = String(resErr?.code || '');
+    const errMsg = String(resErr?.message || '');
+
+    // Recognize missing RPC in Postgres/PostgREST explicitly: return MIGRATION_REQUIRED
+    // Never fall back to uncoordinated start flow
+    if (
+      errCode === 'PGRST202' ||
+      errCode === '42883' ||
+      errMsg.includes('does not exist') ||
+      errMsg.includes('function weekly_test_reserve_section_start')
+    ) {
       return {
-        statusCode: 400,
+        statusCode: 500,
         payload: {
-          error: checkSecErr.message || 'Unable to verify weekly test section eligibility.',
+          error:
+            'Atomic weekly test reservation migration required: function weekly_test_reserve_section_start is not installed in the database. Please have the database owner run migration 14_phase16d_atomic_weekly_test_reservation.sql before starting online sections.',
+          code: 'MIGRATION_REQUIRED',
         },
       };
-    } else {
-      check = Array.isArray(checkSecRaw) ? checkSecRaw[0] : checkSecRaw;
     }
-  } else {
-    const { data: legacyRaw, error: legacyErr } = await adminSupabase.rpc('weekly_test_check', {
-      p_test: testId,
-      p_student: student.id,
-      p_category: categoryIdArg,
-    });
-    if (legacyErr) {
-      return {
-        statusCode: 400,
-        payload: { error: legacyErr.message || 'Unable to verify weekly test section eligibility.' },
-      };
-    }
-    check = Array.isArray(legacyRaw) ? legacyRaw[0] : legacyRaw;
+
+    return {
+      statusCode: 400,
+      payload: {
+        error: errMsg || 'Unable to reserve weekly test section.',
+      },
+    };
   }
+
+  const reservation = Array.isArray(resData) ? resData[0] : resData;
+  const check = reservation;
 
   if (!check || check.ok !== true) {
     return {
@@ -248,7 +239,9 @@ export async function handleStartWeeklyTestSection({
   }
 
   const kind = String(check.kind || 'basics').trim().toLowerCase();
-  const testTitle = check.title || 'Weekly Test';
+  const testTitle = check.test_title || check.title || 'Weekly Test';
+  const claimToken = check.claim_token;
+  const attemptId = check.attempt_id;
 
   // ==========================================================================
   // KIND 1: BASICS
@@ -304,41 +297,15 @@ export async function handleStartWeeklyTestSection({
       nowMs + (seconds + BASICS_TIMED_GRACE_SECONDS) * 1000
     ).toISOString();
 
-    const attemptInsertPayload = {
-      test_id: testId,
-      student_id: student.id,
-      category_id: categoryId,
-      status: 'started',
-      started_at: startedAtIso,
-    };
-    if (sectionId) {
-      attemptInsertPayload.section_id = sectionId;
-    }
-
-    const { data: attemptRow, error: attemptErr } = await adminSupabase
-      .from('weekly_test_attempts')
-      .insert(attemptInsertPayload)
-      .select('id')
-      .single();
-
-    if (attemptErr || !attemptRow?.id) {
-      const errCode = String(attemptErr?.code || '');
-      const errMsg = String(attemptErr?.message || '').toLowerCase();
-      if (errCode === '23505' || errMsg.includes('duplicate') || errMsg.includes('unique')) {
-        return {
-          statusCode: 400,
-          payload: { error: 'You have already started this section.' },
-        };
-      }
-      return {
-        statusCode: 400,
-        payload: { error: attemptErr?.message || 'Could not start this test section.' },
-      };
-    }
-
     const rollbackAttempt = async () => {
       try {
-        await adminSupabase.from('weekly_test_attempts').delete().eq('id', attemptRow.id);
+        if (attemptId && claimToken) {
+          await adminSupabase.rpc('weekly_test_rollback_start_reservation', {
+            p_attempt_id: attemptId,
+            p_student_id: student.id,
+            p_claim_token: claimToken,
+          });
+        }
       } catch {
         // Best-effort cleanup
       }
@@ -387,12 +354,15 @@ export async function handleStartWeeklyTestSection({
         };
       }
 
-      const { error: linkErr } = await adminSupabase
+      const { data: updatedAtt, error: linkErr } = await adminSupabase
         .from('weekly_test_attempts')
         .update({ session_id: sessionRow.id })
-        .eq('id', attemptRow.id);
+        .eq('id', attemptId)
+        .eq('claim_token', claimToken)
+        .select('id');
 
-      if (linkErr) {
+      const linkedCount = Array.isArray(updatedAtt) ? updatedAtt.length : (updatedAtt ? 1 : 0);
+      if (linkErr || linkedCount !== 1) {
         await adminSupabase.from('drill_sessions').delete().eq('id', sessionRow.id);
         await rollbackAttempt();
         return {
@@ -442,36 +412,15 @@ export async function handleStartWeeklyTestSection({
       nowMs + (timeLimitSeconds + SECTION_GRACE_SECONDS) * 1000
     ).toISOString();
 
-    const { data: attemptRow, error: attemptErr } = await adminSupabase
-      .from('weekly_test_attempts')
-      .insert({
-        test_id: testId,
-        student_id: student.id,
-        section_id: sectionId,
-        status: 'started',
-        started_at: startedAtIso,
-      })
-      .select('id')
-      .single();
-
-    if (attemptErr || !attemptRow?.id) {
-      const errCode = String(attemptErr?.code || '');
-      const errMsg = String(attemptErr?.message || '').toLowerCase();
-      if (errCode === '23505' || errMsg.includes('duplicate') || errMsg.includes('unique')) {
-        return {
-          statusCode: 400,
-          payload: { error: 'You have already started this section.' },
-        };
-      }
-      return {
-        statusCode: 400,
-        payload: { error: attemptErr?.message || 'Could not start this test section.' },
-      };
-    }
-
     const rollbackAttempt = async () => {
       try {
-        await adminSupabase.from('weekly_test_attempts').delete().eq('id', attemptRow.id);
+        if (attemptId && claimToken) {
+          await adminSupabase.rpc('weekly_test_rollback_start_reservation', {
+            p_attempt_id: attemptId,
+            p_student_id: student.id,
+            p_claim_token: claimToken,
+          });
+        }
       } catch {
         // Best-effort cleanup
       }
@@ -521,12 +470,15 @@ export async function handleStartWeeklyTestSection({
         };
       }
 
-      const { error: linkErr } = await adminSupabase
+      const { data: updatedAtt, error: linkErr } = await adminSupabase
         .from('weekly_test_attempts')
         .update({ session_id: sessionRow.id })
-        .eq('id', attemptRow.id);
+        .eq('id', attemptId)
+        .eq('claim_token', claimToken)
+        .select('id');
 
-      if (linkErr) {
+      const linkedCount = Array.isArray(updatedAtt) ? updatedAtt.length : (updatedAtt ? 1 : 0);
+      if (linkErr || linkedCount !== 1) {
         await adminSupabase.from('drill_sessions').delete().eq('id', sessionRow.id);
         await rollbackAttempt();
         return {
@@ -580,36 +532,15 @@ export async function handleStartWeeklyTestSection({
       nowMs + (limitSec + concSec + SECTION_GRACE_SECONDS) * 1000
     ).toISOString();
 
-    const { data: attemptRow, error: attemptErr } = await adminSupabase
-      .from('weekly_test_attempts')
-      .insert({
-        test_id: testId,
-        student_id: student.id,
-        section_id: sectionId,
-        status: 'started',
-        started_at: startedAtIso,
-      })
-      .select('id')
-      .single();
-
-    if (attemptErr || !attemptRow?.id) {
-      const errCode = String(attemptErr?.code || '');
-      const errMsg = String(attemptErr?.message || '').toLowerCase();
-      if (errCode === '23505' || errMsg.includes('duplicate') || errMsg.includes('unique')) {
-        return {
-          statusCode: 400,
-          payload: { error: 'You have already started this section.' },
-        };
-      }
-      return {
-        statusCode: 400,
-        payload: { error: attemptErr?.message || 'Could not start this test section.' },
-      };
-    }
-
     const rollbackAttempt = async () => {
       try {
-        await adminSupabase.from('weekly_test_attempts').delete().eq('id', attemptRow.id);
+        if (attemptId && claimToken) {
+          await adminSupabase.rpc('weekly_test_rollback_start_reservation', {
+            p_attempt_id: attemptId,
+            p_student_id: student.id,
+            p_claim_token: claimToken,
+          });
+        }
       } catch {
         // Best-effort cleanup
       }
@@ -655,12 +586,15 @@ export async function handleStartWeeklyTestSection({
         };
       }
 
-      const { error: linkErr } = await adminSupabase
+      const { data: updatedAtt, error: linkErr } = await adminSupabase
         .from('weekly_test_attempts')
         .update({ session_id: sessionRow.id })
-        .eq('id', attemptRow.id);
+        .eq('id', attemptId)
+        .eq('claim_token', claimToken)
+        .select('id');
 
-      if (linkErr) {
+      const linkedCount = Array.isArray(updatedAtt) ? updatedAtt.length : (updatedAtt ? 1 : 0);
+      if (linkErr || linkedCount !== 1) {
         await adminSupabase.from('drill_sessions').delete().eq('id', sessionRow.id);
         await rollbackAttempt();
         return {
@@ -709,79 +643,21 @@ export async function handleStartWeeklyTestSection({
     const mode = check.flash_mode === 'add_sub' ? 'add_sub' : 'add';
     const questionCount = Math.max(1, Math.min(10, Number(check.question_count) || 5));
 
-    // Check existing attempt row
-    const { data: existingAttempt } = await adminSupabase
-      .from('weekly_test_attempts')
-      .select('id, status, tries_started, tries_correct, seconds_used')
-      .eq('test_id', testId)
-      .eq('student_id', student.id)
-      .eq('section_id', sectionId)
-      .maybeSingle();
+    const nextTryNo = Number(reservation?.next_try_no) || 1;
 
-    let attemptId = existingAttempt?.id || null;
-    let prevTriesStarted = Number(existingAttempt?.tries_started ?? check.tries_started) || 0;
-    let isFirstStart = false;
-
-    if (!attemptId) {
-      isFirstStart = true;
-      prevTriesStarted = 0;
-
-      // First call (no attempt row): insert the attempt (tries_started 0) and a weekly_test_scores row
-      const { data: insertedAtt, error: insAttErr } = await adminSupabase
-        .from('weekly_test_attempts')
-        .insert({
-          test_id: testId,
-          student_id: student.id,
-          section_id: sectionId,
-          status: 'started',
-          tries_started: 0,
-          tries_correct: 0,
-          seconds_used: 0,
-          started_at: startedAtIso,
-        })
-        .select('id, tries_started')
-        .single();
-
-      if (insAttErr || !insertedAtt?.id) {
-        return {
-          statusCode: 400,
-          payload: { error: insAttErr?.message || 'Could not start this Flash section.' },
-        };
+    const rollbackFlash = async () => {
+      try {
+        if (attemptId && claimToken) {
+          await adminSupabase.rpc('weekly_test_rollback_start_reservation', {
+            p_attempt_id: attemptId,
+            p_student_id: student.id,
+            p_claim_token: claimToken,
+          });
+        }
+      } catch {
+        // Best-effort cleanup
       }
-      attemptId = insertedAtt.id;
-
-      const { error: initScoreErr } = await adminSupabase
-        .from('weekly_test_scores')
-        .upsert(
-          {
-            test_id: testId,
-            student_id: student.id,
-            section_id: sectionId,
-            correct: 0,
-            total: questionCount,
-            time_seconds: 0,
-            source: 'online',
-          },
-          { onConflict: 'test_id,student_id,section_id' }
-        );
-
-      if (initScoreErr) {
-        await adminSupabase.from('weekly_test_attempts').delete().eq('id', attemptId);
-        return {
-          statusCode: 500,
-          payload: { error: 'Failed to initialize Flash section score. Please try again.' },
-        };
-      }
-    }
-
-    if (prevTriesStarted >= questionCount) {
-      return {
-        statusCode: 400,
-        payload: { error: 'You have already completed all tries for this section.' },
-      };
-    }
-
-    const nextTryNo = Math.min(questionCount, prevTriesStarted + 1);
+    };
 
     // Generate the Flash question numbers via service-role RPC flash_generate_question
     const { data: flashGenData, error: flashGenErr } = await adminSupabase.rpc(
@@ -795,9 +671,7 @@ export async function handleStartWeeklyTestSection({
 
     const numbers = extractFlashNumbers(flashGenData);
     if (flashGenErr || !Array.isArray(numbers) || numbers.length === 0) {
-      if (isFirstStart) {
-        await adminSupabase.from('weekly_test_attempts').delete().eq('id', attemptId);
-      }
+      await rollbackFlash();
       return {
         statusCode: 500,
         payload: {
@@ -843,26 +717,27 @@ export async function handleStartWeeklyTestSection({
       .single();
 
     if (sessionErr || !sessionRow?.id) {
-      if (isFirstStart) {
-        await adminSupabase.from('weekly_test_attempts').delete().eq('id', attemptId);
-      }
+      await rollbackFlash();
       return {
         statusCode: 500,
         payload: { error: 'Failed to create Flash try session. Please try again.' },
       };
     }
 
-    // Increment tries_started (never above question_count) and link session_id
-    const { error: updAttErr } = await adminSupabase
+    // Link session_id (tries_started was already incremented atomically in DB reservation)
+    const { data: updatedAtt, error: updAttErr } = await adminSupabase
       .from('weekly_test_attempts')
       .update({
-        tries_started: nextTryNo,
         session_id: sessionRow.id,
       })
-      .eq('id', attemptId);
+      .eq('id', attemptId)
+      .eq('claim_token', claimToken)
+      .select('id');
 
-    if (updAttErr) {
+    const linkedCount = Array.isArray(updatedAtt) ? updatedAtt.length : (updatedAtt ? 1 : 0);
+    if (updAttErr || linkedCount !== 1) {
       await adminSupabase.from('drill_sessions').delete().eq('id', sessionRow.id);
+      await rollbackFlash();
       return {
         statusCode: 500,
         payload: { error: 'Failed to record Flash try start. Please try again.' },
@@ -1530,6 +1405,7 @@ export async function handleSubmitWeeklyTestSection({
       tries_correct: nextState.tries_correct,
       seconds_used: nextState.seconds_used,
       status: nextState.status,
+      claim_token: null,
     };
     if (nextState.done) {
       attUpdatePayload.finished_at = nowIso;

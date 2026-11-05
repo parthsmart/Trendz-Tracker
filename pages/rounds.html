@@ -163,6 +163,227 @@
               <p class="empty-state-desc">Click "Add Next Round" above to create Round 1 for the selected student.</p>
             </div>
           </div>
+
+          <!-- ================================================================
+               PHASE 17c: JMCWC ONLINE SIMULATOR ADMINISTRATION
+               ================================================================ -->
+          <section id="admin-jmcwc-section" style="margin-top: var(--space-8);">
+            <div class="section-header-row" style="margin-bottom: var(--space-4);">
+              <div>
+                <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: 4px;">
+                  <h2 style="font-size: var(--text-xl); margin: 0;">JMCWC Online Simulator Administration</h2>
+                  <span class="badge badge-neutral">Simulator Configuration</span>
+                </div>
+                <p style="font-size: var(--text-sm); color: var(--text-muted); margin: 0;">
+                  Manage student competition group assignments, optional per-group category targets, legacy-category mappings, paper blueprints, and online attempts. Read-only blueprint view with no publication controls exposed in the UI.
+                </p>
+              </div>
+              <button type="button" id="btn-refresh-jmcwc-admin" class="btn btn-outline btn-sm">
+                Refresh Simulator Data
+              </button>
+            </div>
+
+            <!-- 1. Selected Student Group Assignment & Student Deletion Preview -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: var(--space-4); margin-bottom: var(--space-5);">
+              <!-- Group Assignment Card -->
+              <div class="card" style="padding: var(--space-5);">
+                <h3 style="font-size: var(--text-md); margin: 0 0 var(--space-1) 0;">Student JMCWC Group Assignment</h3>
+                <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 0 0 var(--space-3) 0;">
+                  Assigns the selected student (<strong id="admin-jmcwc-student-label" style="color: var(--text-main);">—</strong>) to a competition group. Group cannot be changed while the student has unfinished online attempts.
+                </p>
+
+                <div
+                  id="admin-jmcwc-assignment-error"
+                  class="banner banner-error"
+                  role="alert"
+                  style="display: none; margin-bottom: var(--space-3); font-size: var(--text-xs);"
+                ></div>
+
+                <div style="display: flex; gap: var(--space-3); align-items: flex-end; flex-wrap: wrap;">
+                  <div class="form-group" style="margin-bottom: 0; flex: 1; min-width: 180px;">
+                    <label for="select-admin-jmcwc-group" class="form-label" style="font-size: var(--text-xs);">Assigned Group</label>
+                    <select id="select-admin-jmcwc-group" class="form-select" style="min-height: 40px;">
+                      <option value="">Unassigned</option>
+                      <option value="junior1">Junior 1 (junior1)</option>
+                      <option value="junior2">Junior 2 (junior2)</option>
+                      <option value="senior">Senior (senior)</option>
+                    </select>
+                  </div>
+                  <button type="button" id="btn-save-jmcwc-assignment" class="btn btn-primary" style="min-height: 40px;">
+                    Save Group Assignment
+                  </button>
+                </div>
+              </div>
+
+              <!-- Student Deletion JMCWC Data Preview Card -->
+              <div class="card" style="padding: var(--space-5);">
+                <h3 style="font-size: var(--text-md); margin: 0 0 var(--space-1) 0;">Student Deletion JMCWC Impact Preview</h3>
+                <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 0 0 var(--space-3) 0;">
+                  Deleting a student removes their personal JMCWC records shown below. Shared <code>jmcwc_papers</code>, <code>jmcwc_categories</code>, and <code>jmcwc_targets</code> are never deleted.
+                </p>
+                <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr); gap: var(--space-2);">
+                  <div class="stat-card" style="padding: var(--space-2) var(--space-3);">
+                    <span class="stat-label" style="font-size: 10px;">Assignments</span>
+                    <span class="stat-value num" id="del-preview-assignments" style="font-size: var(--text-md);">0</span>
+                  </div>
+                  <div class="stat-card" style="padding: var(--space-2) var(--space-3);">
+                    <span class="stat-label" style="font-size: 10px;">Attempts</span>
+                    <span class="stat-value num" id="del-preview-attempts" style="font-size: var(--text-md);">0</span>
+                  </div>
+                  <div class="stat-card" style="padding: var(--space-2) var(--space-3);">
+                    <span class="stat-label" style="font-size: 10px;">Payloads</span>
+                    <span class="stat-value num" id="del-preview-payloads" style="font-size: var(--text-md);">0</span>
+                  </div>
+                  <div class="stat-card" style="padding: var(--space-2) var(--space-3);">
+                    <span class="stat-label" style="font-size: 10px;">Scores</span>
+                    <span class="stat-value num" id="del-preview-scores" style="font-size: var(--text-md);">0</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 2. Paper & Source Information (Read-only — No Publication Controls) -->
+            <div class="card" style="padding: var(--space-5); margin-bottom: var(--space-5);">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3);">
+                <div>
+                  <h3 style="font-size: var(--text-md); margin: 0;">Paper &amp; Source Information (Read-Only)</h3>
+                  <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 2px 0 0 0;">
+                    Competition paper blueprints and publication state as configured in the database. Read-only view with no publication controls exposed in the UI.
+                  </p>
+                </div>
+              </div>
+              <div class="table-wrapper">
+                <table class="table" id="admin-jmcwc-papers-table">
+                  <thead>
+                    <tr>
+                      <th>Group</th>
+                      <th>Version</th>
+                      <th>Title &amp; Source Workbook</th>
+                      <th style="text-align: right;">Sections</th>
+                      <th style="text-align: right;">Questions</th>
+                      <th style="text-align: right;">Baseline Marks</th>
+                      <th style="text-align: right;">Dynamic Slots</th>
+                      <th>Publication Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="admin-jmcwc-papers-tbody">
+                    <tr>
+                      <td colspan="8" style="font-size: var(--text-xs); color: var(--text-muted);">Loading paper blueprints...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- 3. Category Targets & Legacy-Category Mapping -->
+            <div class="card" style="padding: var(--space-5); margin-bottom: var(--space-5);">
+              <div style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: var(--space-3); margin-bottom: var(--space-3);">
+                <div>
+                  <h3 style="font-size: var(--text-md); margin: 0;">Category Targets &amp; Legacy-Category Mapping</h3>
+                  <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 2px 0 0 0;">
+                    Configure optional per-group category target times (mm:ss or seconds) and map JMCWC categories to legacy manual Round categories (<code>section = 'round'</code>).
+                  </p>
+                </div>
+                <div style="min-width: 200px;">
+                  <label for="select-admin-jmcwc-cat-group" class="form-label" style="font-size: var(--text-xs); margin-bottom: 4px; display: block;">Inspect Group Categories</label>
+                  <select id="select-admin-jmcwc-cat-group" class="form-select" style="min-height: 38px;">
+                    <option value="junior1">Junior 1 (junior1)</option>
+                    <option value="junior2">Junior 2 (junior2)</option>
+                    <option value="senior">Senior (senior)</option>
+                  </select>
+                </div>
+              </div>
+              <div class="table-wrapper">
+                <table class="table" id="admin-jmcwc-categories-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Category Display Name</th>
+                      <th>Slug</th>
+                      <th>Optional Target (mm:ss or sec)</th>
+                      <th>Legacy Round Category Mapping</th>
+                      <th style="text-align: right;">Save</th>
+                    </tr>
+                  </thead>
+                  <tbody id="admin-jmcwc-categories-tbody">
+                    <tr>
+                      <td colspan="6" style="font-size: var(--text-xs); color: var(--text-muted);">Loading categories...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- 4. Online Simulator Attempts & Completed Reviews (No Delete Shortcut) -->
+            <div class="card" style="padding: var(--space-5);">
+              <div style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: var(--space-3); margin-bottom: var(--space-4);">
+                <div>
+                  <h3 style="font-size: var(--text-md); margin: 0;">Online Simulator Attempts &amp; Completed Reviews</h3>
+                  <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 2px 0 0 0;">
+                    Filter student attempts across groups, modes, and statuses. Attempt deletion is not permitted so the 3-unfinished-flat-round cap cannot be bypassed.
+                  </p>
+                </div>
+                <div style="display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: flex-end;">
+                  <div>
+                    <label for="filter-jmcwc-attempt-student" class="form-label" style="font-size: 11px; margin-bottom: 2px; display: block;">Student Scope</label>
+                    <select id="filter-jmcwc-attempt-student" class="form-select" style="min-height: 36px; font-size: var(--text-xs);">
+                      <option value="selected">Selected Student Only</option>
+                      <option value="all">All Students</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label for="filter-jmcwc-attempt-group" class="form-label" style="font-size: 11px; margin-bottom: 2px; display: block;">Group</label>
+                    <select id="filter-jmcwc-attempt-group" class="form-select" style="min-height: 36px; font-size: var(--text-xs);">
+                      <option value="">All Groups</option>
+                      <option value="junior1">Junior 1</option>
+                      <option value="junior2">Junior 2</option>
+                      <option value="senior">Senior</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label for="filter-jmcwc-attempt-mode" class="form-label" style="font-size: 11px; margin-bottom: 2px; display: block;">Mode</label>
+                    <select id="filter-jmcwc-attempt-mode" class="form-select" style="min-height: 36px; font-size: var(--text-xs);">
+                      <option value="">All Modes</option>
+                      <option value="flat">Flat Round</option>
+                      <option value="category">Category-wise</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label for="filter-jmcwc-attempt-status" class="form-label" style="font-size: 11px; margin-bottom: 2px; display: block;">Status</label>
+                    <select id="filter-jmcwc-attempt-status" class="form-select" style="min-height: 36px; font-size: var(--text-xs);">
+                      <option value="">All Statuses</option>
+                      <option value="running">Running</option>
+                      <option value="paused">Paused</option>
+                      <option value="grading">Grading</option>
+                      <option value="submitted">Submitted</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div class="table-wrapper">
+                <table class="table" id="admin-jmcwc-attempts-table">
+                  <thead>
+                    <tr>
+                      <th>Student</th>
+                      <th>Group</th>
+                      <th>Mode</th>
+                      <th>Status</th>
+                      <th>Started</th>
+                      <th>Active Time</th>
+                      <th>Frozen Score</th>
+                      <th style="text-align: right;">Review</th>
+                    </tr>
+                  </thead>
+                  <tbody id="admin-jmcwc-attempts-tbody">
+                    <tr>
+                      <td colspan="8" style="font-size: var(--text-xs); color: var(--text-muted);">Loading attempts...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
         </div>
       </main>
     </div>
@@ -324,6 +545,55 @@
             </button>
           </footer>
         </form>
+      </div>
+    </div>
+
+    <!-- Modal 3: Admin Completed Attempt Review Modal -->
+    <div id="admin-jmcwc-review-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="admin-jmcwc-review-title">
+      <div class="modal-dialog" style="max-width: 920px;">
+        <header class="modal-header">
+          <div>
+            <h2 id="admin-jmcwc-review-title" class="modal-title">Completed JMCWC Attempt Review</h2>
+            <p id="admin-jmcwc-review-subtitle" class="modal-subtitle">Inspecting student answers, partial marks, and explanations.</p>
+          </div>
+          <button type="button" class="modal-close" data-close-modal="admin-jmcwc-review-modal" aria-label="Close modal">&times;</button>
+        </header>
+        <div class="modal-body" style="max-height: 75vh; overflow-y: auto;">
+          <div class="stats-grid" style="margin-bottom: var(--space-4);">
+            <div class="stat-card">
+              <span class="stat-label">Score (Frozen Attempt Max)</span>
+              <span class="stat-value num" id="admin-review-marks">0 / 0</span>
+              <span id="admin-review-partial-marks" class="num" style="font-size: var(--text-xs); color: var(--text-muted);">Partial marks: 0</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Question Breakdown</span>
+              <span class="stat-value num" id="admin-review-counts" style="font-size: var(--text-sm);">0 correct · 0 partial · 0 wrong · 0 skipped</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Active Time</span>
+              <span class="stat-value num" id="admin-review-active-time">0:00</span>
+            </div>
+          </div>
+          <div class="table-wrapper">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Category</th>
+                  <th>Question</th>
+                  <th>Student Answer</th>
+                  <th>Expected Answer</th>
+                  <th style="text-align: right;">Marks</th>
+                  <th>Verdict &amp; Explanation</th>
+                </tr>
+              </thead>
+              <tbody id="admin-review-questions-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <footer class="modal-footer">
+          <button type="button" class="btn btn-primary" data-close-modal="admin-jmcwc-review-modal">Close Review</button>
+        </footer>
       </div>
     </div>
 

@@ -293,6 +293,140 @@ async function loadReportLogs() {
 }
 
 /**
+ * Subtracts calendar days from a YYYY-MM-DD date string.
+ */
+function subtractDaysIST(dateStr, days) {
+  if (!dateStr) return '';
+  const [y, m, d] = String(dateStr).split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d - days));
+  return dt.toISOString().slice(0, 10);
+}
+
+/**
+ * Enriches admin_overview rows with recent activity_results (Elements, Flash Anzan, Memoriad)
+ * and 7-day results so last_entry_date, entered_today, entries_7d, and accuracy_7d reflect all practice.
+ */
+function enrichOverviewRows(overviewRows, activityRows, resultRows, currentTodayIST) {
+  if (!Array.isArray(overviewRows)) return [];
+  const sevenDaysAgoIST = subtractDaysIST(currentTodayIST, 6);
+
+  const actByStudent = new Map();
+  if (Array.isArray(activityRows)) {
+    for (const r of activityRows) {
+      if (!r || !r.student_id) continue;
+      if (!actByStudent.has(r.student_id)) actByStudent.set(r.student_id, []);
+      actByStudent.get(r.student_id).push(r);
+    }
+  }
+
+  const resByStudent = new Map();
+  if (Array.isArray(resultRows)) {
+    for (const r of resultRows) {
+      if (!r || !r.student_id) continue;
+      if (!resByStudent.has(r.student_id)) resByStudent.set(r.student_id, []);
+      resByStudent.get(r.student_id).push(r);
+    }
+  }
+
+  return overviewRows.map((student) => {
+    const stuId = student.student_id;
+    const stuActs = actByStudent.get(stuId) || [];
+    const stuRes = resByStudent.get(stuId) || [];
+
+    let latestActDate = null;
+    const acts7d = [];
+    for (const a of stuActs) {
+      const dStr = a.created_at ? getISTDateString(a.created_at) : null;
+      if (!dStr) continue;
+      if (!latestActDate || dStr > latestActDate) {
+        latestActDate = dStr;
+      }
+      if (dStr >= sevenDaysAgoIST && dStr <= currentTodayIST) {
+        acts7d.push(a);
+      }
+    }
+
+    let latestResDate = student.last_entry_date || null;
+    const res7d = [];
+    for (const r of stuRes) {
+      const dStr = r.entry_date ? String(r.entry_date).slice(0, 10) : null;
+      if (!dStr) continue;
+      if (!latestResDate || dStr > latestResDate) {
+        latestResDate = dStr;
+      }
+      if (dStr >= sevenDaysAgoIST && dStr <= currentTodayIST) {
+        res7d.push(r);
+      }
+    }
+
+    const effectiveLastDate =
+      [latestResDate, latestActDate].filter(Boolean).sort().pop() || null;
+
+    const baseEntries7d = Array.isArray(resultRows)
+      ? Math.max(Number(student.entries_7d) || 0, res7d.length)
+      : Number(student.entries_7d) || 0;
+    const effectiveEntries7d = baseEntries7d + acts7d.length;
+
+    let effectiveAccuracy7d = student.accuracy_7d;
+    if (acts7d.length > 0) {
+      let totalCorrect = 0;
+      let totalAttempted = 0;
+      for (const r of res7d) {
+        totalCorrect += Math.max(0, Number(r.correct) || 0);
+        totalAttempted += Math.max(0, Number(r.total) || 0);
+      }
+      for (const a of acts7d) {
+        totalCorrect += Math.max(0, Number(a.correct) || 0);
+        totalAttempted += Math.max(0, Number(a.total) || 0);
+      }
+      if (totalAttempted > 0) {
+        effectiveAccuracy7d = Number(((totalCorrect / totalAttempted) * 100).toFixed(1));
+      }
+    }
+
+    const effectiveEnteredToday = Boolean(
+      student.entered_today || (effectiveLastDate && effectiveLastDate === currentTodayIST)
+    );
+
+    return {
+      ...student,
+      last_entry_date: effectiveLastDate,
+      entered_today: effectiveEnteredToday,
+      entries_7d: effectiveEntries7d,
+      accuracy_7d: effectiveAccuracy7d,
+    };
+  });
+}
+
+/**
+ * Syncs #filter-overview-level dropdown options with levels present on student profiles.
+ */
+function syncOverviewLevelFilterOptions() {
+  const selectEl = document.getElementById('filter-overview-level');
+  if (!selectEl) return;
+  const currentVal = selectEl.value;
+  const seen = new Map();
+  const defaults = ['Junior 1', 'Junior 2', 'Level 1', 'Level 2', 'Level 3', 'Level 4', 'Level 5', 'Master'];
+  for (const lvl of defaults) {
+    seen.set(lvl.toLowerCase(), lvl);
+  }
+  for (const s of allOverviewData) {
+    const raw = typeof s.level === 'string' ? s.level.trim() : '';
+    if (raw && !seen.has(raw.toLowerCase())) {
+      seen.set(raw.toLowerCase(), raw);
+    }
+  }
+  const levels = Array.from(seen.values());
+  selectEl.innerHTML = [
+    '<option value="">All Levels</option>',
+    ...levels.map((lvl) => `<option value="${escapeHtml(lvl)}">${escapeHtml(lvl)}</option>`),
+  ].join('');
+  if (currentVal && seen.has(currentVal.toLowerCase())) {
+    selectEl.value = seen.get(currentVal.toLowerCase());
+  }
+}
+
+/**
  * Fetches overview data from RPC admin_overview() once per page load
  */
 async function loadOverviewData() {
@@ -309,10 +443,38 @@ async function loadOverviewData() {
     if (isSupabaseConfigured()) {
       const supabase = await getSupabase();
       if (supabase) {
-        // Resolve authoritative Indian time and admin_overview RPC in parallel
-        const [istRes, overviewRes] = await Promise.all([
-          supabase.rpc('today_ist').catch(() => ({ data: null })),
+        // Resolve authoritative Indian time, admin_overview RPC, and recent activity_results in parallel
+        const [istRes, overviewRes, actRes, resRes] = await Promise.all([
+          (async () => {
+            try {
+              return await supabase.rpc('today_ist');
+            } catch {
+              return { data: null };
+            }
+          })(),
           supabase.rpc('admin_overview'),
+          (async () => {
+            try {
+              return await supabase
+                .from('activity_results')
+                .select('student_id, correct, total, created_at')
+                .order('created_at', { ascending: false })
+                .limit(2000);
+            } catch {
+              return { data: null };
+            }
+          })(),
+          (async () => {
+            try {
+              return await supabase
+                .from('results')
+                .select('student_id, correct, total, entry_date')
+                .order('entry_date', { ascending: false })
+                .limit(2000);
+            } catch {
+              return { data: null };
+            }
+          })(),
         ]);
 
         todayIST = istRes?.data
@@ -321,23 +483,35 @@ async function loadOverviewData() {
 
         const { data, error } = overviewRes || {};
         if (!error && Array.isArray(data)) {
-          allOverviewData = data;
+          allOverviewData = enrichOverviewRows(
+            data,
+            actRes?.data || null,
+            resRes?.data || null,
+            todayIST
+          );
           updateDashboard();
           return;
         } else if (error) {
-          console.warn('RPC admin_overview error, falling back:', error.message);
+          console.warn('RPC admin_overview error:', error.message);
+          allOverviewData = [];
+          updateDashboard();
+          return;
         }
       }
+      todayIST = getISTDateString(new Date());
+      allOverviewData = [];
+      updateDashboard();
+      return;
     }
 
-    // Demo Mode fallback
+    // Demo Mode fallback (only when Supabase is not configured)
     todayIST = getISTDateString(new Date());
     allOverviewData = DemoDB.getAdminOverview();
     updateDashboard();
   } catch (err) {
     console.warn('Failed to load admin overview:', err);
     todayIST = getISTDateString(new Date());
-    allOverviewData = DemoDB.getAdminOverview();
+    allOverviewData = isSupabaseConfigured() ? [] : DemoDB.getAdminOverview();
     updateDashboard();
   }
 }
@@ -350,6 +524,8 @@ function updateDashboard() {
   if (todayEl) {
     todayEl.textContent = formatDisplayDateIST(todayIST);
   }
+
+  syncOverviewLevelFilterOptions();
 
   // 1. Calculate top summary metrics
   const activeStudents = allOverviewData.filter(s => !!s.active);
@@ -486,7 +662,8 @@ function renderTable() {
 
     // Level filter
     if (currentLevelFilter) {
-      if (student.level !== currentLevelFilter) return false;
+      const stuLevel = String(student.level || '').trim().toLowerCase();
+      if (stuLevel !== currentLevelFilter.trim().toLowerCase()) return false;
     }
 
     // Status filter

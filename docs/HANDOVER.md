@@ -8,6 +8,48 @@
 
 ## Current Status Overview
 
+### Session: 2026-11-03 (Phase 17c — JMCWC Round Scores Interface, Online Simulator Runner, Admin JMCWC Panel, Private Backup & Student Deletion)
+
+#### 5-Line Session Summary
+- Extracted the pure, zero-dependency save-queue coordinator and keepalive builder into `shared/jmcwcSaveQueue.js` (re-exported by `api/_jmcwcSaveQueue.js`) with zero server imports, and created the browser controller module `js/jmcwcClient.js` (controllable clock `nowMs`, monotonic timer derived from `active_ms`, accessible inputs for all 14 answer types, `localStorage` unsent recovery scoped by `userId + attemptId`, and review/history formatters).
+- Integrated **Manual entry** and **Online practice** tabs into `/pages/round-scores.html` and `js/roundScores.js`, displaying the student's non-editable assigned group label (`"Ask your teacher to assign your JMCWC group."` when unassigned), keeping online practice unavailable to students while `published = false` in production, enforcing the 3-unfinished-flat-round cap with resume cards and disabled explanation, providing unrestricted category-wise practice with neutral target comparison, displaying configured targets beside manual category entry times, and adding a combined `Manual` / `Online` round history table without merging weighted JMCWC marks into legacy accuracy, Points leaderboard, or weekly-test scores.
+- Built the full JMCWC Runner & Review views on `/pages/round-scores.html` with responsive category/question navigation (no marked-for-review feature), immediate question/input hiding on explicit Pause, `pagehide`/`visibilitychange` (`keepalive: true` with `Authorization: Bearer` header and 48 KB patch fallback), lease loss (`409 LEASE_MISMATCH`), or 2-hour (`7,200,000 ms`) expiry, early/paused submission confirmation, takeover confirmation, and completed review using frozen attempt `max_marks` and `"One valid answer"` when alternatives exist.
+- Added the **JMCWC Online Simulator Administration** section to `/pages/rounds.html` (`js/rounds.js`) for student group assignment (surfacing `"Complete this student's unfinished simulator attempts before changing group."` on trigger errors), student deletion JMCWC preview counts, read-only paper/source status (no publication controls exposed), per-group category targets & legacy category mapping, and attempt filters + completed review modal (with no attempt-delete shortcut to bypass the 3-flat-round cap).
+- Extended private server backup/restore ordering (`api/_backupTables.js`, `api/backup.js`, `api/_mirror.js`, `docs/RESTORE.md`) for all 7 JMCWC tables while excluding `jmcwc_payloads` (answer keys) from public backups and Google Sheets mirrors, added `admin_get_student_deletion_preview` and `admin_delete_student_jmcwc_data` (`403 ATTEMPT_DELETE_SHORTCUT_FORBIDDEN` unless deleting student account), and added `tests/jmcwcPhase17c.test.js` and updated `tests/backup.test.js`.
+
+#### Verification Status & Production Gate (CRITICAL)
+1. **Local Unit & Mocked Controller Checks (Passed)**:
+   - `tests/jmcwcPhase17a.test.js`, `tests/jmcwcPhase17b.test.js`, `tests/jmcwcPhase17c.test.js`, and `tests/backup.test.js` pass under `node --test`.
+   - Note: Phase 17b and 17c automated tests run against an in-memory contract emulator and controllable-clock controller harness. They **do not** establish actual PostgreSQL transaction locking, advisory lock serialization (`pg_advisory_xact_lock`), trigger execution, or multi-connection concurrency correctness.
+2. **Compilation & Bundle Safety Checks (Passed)**:
+   - `npm run build` (`vite build`) compiles all HTML/JS entry points cleanly.
+   - Verified `shared/jmcwcSaveQueue.js`, `js/jmcwcClient.js`, `js/roundScores.js`, and `js/rounds.js` contain zero imports of server credentials, generators (`_jmcwcGenerate`), or graders (`_jmcwcGrade`), and never reference nonexistent columns such as `last_heartbeat_at`.
+3. **Real PostgreSQL / Live API Integration & Concurrency Testing (Pending — Feature Unavailable to Students)**:
+   - Live Supabase PostgreSQL integration and concurrency checks are **pending**.
+   - All three JMCWC papers (`junior1`, `junior2`, `senior`, `version = '2026.1'`) remain `published = false` in production, keeping online practice unavailable to students until the owner completes the live database integration checklist below.
+
+#### Owner Live PostgreSQL Integration & Concurrency Testing Checklist
+Before setting `published = true` on any row in `public.jmcwc_papers`, run the following checks against your staging/deployed Supabase PostgreSQL instance:
+1. **Unpublished Paper Gate (`jmcwc_create_attempt`)**: With `published = false`, verify `POST /api/jmcwc` `{ action: 'create', mode: 'flat' }` as an assigned student returns `409 Conflict` (`"Paper is not published for student attempts."`).
+2. **Staging Paper Publication & Group Guard (`jmcwc_assignment_guard`)**: In staging (or for a dedicated test paper), set `published = true`, assign a test student to `junior1`, create 1 unfinished flat attempt, then attempt to change the student's group to `junior2` in Admin Rounds -> verify PostgreSQL trigger `jmcwc_assignment_guard()` rejects the update with `"Complete this student's unfinished simulator attempts before changing group."`
+3. **Three-Unfinished-Flat-Round Cap**: Start 3 flat attempts for the test student without submitting -> verify the 4th flat `create` call is rejected by `jmcwc_create_attempt` (`"Complete an existing flat round before starting a new one (maximum 3 unfinished flat rounds)."`), while `mode = 'category'` attempts still succeed. Submit 1 flat round -> verify a new flat round can now be created.
+4. **Single Running Attempt Constraint (`jmcwc_one_running`) & Lease Rotation**: Resume Flat Round #1 (`status = 'running'`), then resume Flat Round #2 -> verify PostgreSQL `jmcwc_act` atomically pauses Flat Round #1, assigns a new `lease_id` to Flat Round #2, and returns `409 LEASE_MISMATCH` if the old lease from Flat Round #1 attempts a `save`.
+5. **Advisory Lock Concurrency & Monotonic `save_seq`**: Send two concurrent `save` requests for the same running attempt (`save_seq = 0` and `save_seq = 1`, plus a duplicate `save_seq = 0`) -> verify `pg_advisory_xact_lock` serializes them without deadlocks and rejects stale `save_seq <= current`.
+6. **Server Heartbeat Gap (`> 25,000 ms`) & 2-Hour Active Expiry (`jmcwc_tick`)**: Let a running attempt sit idle for `> 26s` without a heartbeat -> verify `jmcwc_list` / `jmcwc_act` transitions it to `status = 'paused'` without adding the idle gap to `active_ms`. Test `active_ms >= 7,200,000` on a flat attempt -> verify `jmcwc_tick` transitions it to `status = 'grading'` with `submitted_reason = 'time_limit'` and `/api/jmcwc` settles it to `status = 'submitted'` via `jmcwc_finalize`.
+
+---
+
+### Session: 2026-11-03 (Phase 17a & Phase 17b — JMCWC Dynamic Scoring Contract, Pure Generators/Graders, Save Queue & Authenticated Server APIs)
+
+#### 5-Line Session Summary
+- Saved the owner's deployed read-only Supabase database snapshot permanently at [`docs/JMCWC_DATABASE_CONTRACT.json`](./JMCWC_DATABASE_CONTRACT.json) (7 tables: `jmcwc_assignments`, `jmcwc_attempts`, `jmcwc_categories`, `jmcwc_papers`, `jmcwc_payloads`, `jmcwc_scores`, `jmcwc_targets`; 9 functions: `jmcwc_act`, `jmcwc_assignment_guard`, `jmcwc_check_student`, `jmcwc_create_attempt`, `jmcwc_finalize`, `jmcwc_list`, `jmcwc_paper_guard`, `jmcwc_tick`, `jmcwc_validate_marks`) and referenced it across project docs (`DATA.md`, `ARCHITECTURE.md`, `DECISIONS.md`, `THREAT.md`, `TESTING.md`, `HANDOVER.md`).
+- Completed Phase 17a pure JMCWC modules (`api/_jmcwcMath.js`, `api/_jmcwcBlueprints.js`, `api/_jmcwcGenerate.js`, `api/_jmcwcGrade.js`) and generated `supabase/jmcwc_2026_1_papers.sql` for `junior1`, `junior2`, and `senior` (`version = '2026.1'`, `published = false`, 23 sections each, inserted by owner into Supabase).
+- Hardened `api/_jmcwcGrade.js` so non-blank inputs (including punctuation-only strings like `","` or `"x"` in prime factorization) never return `verdict: 'skipped'`, matching `jmcwc_finalize`'s exact PostgreSQL `coalesce(btrim(a.answers->>(q->>'id')), '') = ''` blank check.
+- Built the pure client/shared save-queue coordinator `api/_jmcwcSaveQueue.js` (`createJmcwcSaveQueue`, `normalizeAnswerPatchValue`, `sanitizeAnswerPatchObject`) and the authenticated JMCWC server handler `api/_jmcwcServer.js` + `api/jmcwc.js` (mounted at `/api/jmcwc` in `server.ts`) implementing all student actions (`status`, `init`, `list`, `create`, `read`, `resume`, `save`, `heartbeat`, `pause`, `submit`) and admin actions (`admin_get_overview`, `admin_set_assignment`, `admin_set_target`, `admin_set_category_mapping`, `admin_get_papers`, `admin_list_attempts`, `admin_get_attempt_review`) with strict response whitelisting and automatic `status = 'grading' -> 'submitted'` settlement.
+- Added comprehensive automated test suites in `tests/jmcwcPhase17a.test.js` and `tests/jmcwcPhase17b.test.js` covering all 13 required lifecycle, authorization, concurrency, lease, sequence, timeout, abandonment, grading-retry, whitelisting, and admin scenarios.
+
+---
+
 ### Session: 2026-10-20 (Phase 9b-2 — Mental Multiplications, Mental Square Roots, Step Boxes & Exit Button Fix)
 
 #### 5-Line Session Summary

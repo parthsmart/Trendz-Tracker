@@ -893,3 +893,26 @@ Every meaningful technical and architectural decision made for **Trendz Tracker*
      - On the first `start` call, `/api/weekly-test` creates the `weekly_test_attempts` row (`status = 'started'`, `tries_started = 0`, `tries_correct = 0`) and initializes the `weekly_test_scores` row (`correct = 0`, `total = question_count`, `time_seconds = 0`, `source = 'online'`).
      - Each try increments `tries_started` (atomically, never exceeding `question_count`) and generates one stream via `flash_generate_question`. On `submit`, `applyFlashTry` increments `tries_correct` if the sum matches, accumulates `seconds_used`, and updates `weekly_test_scores` (`correct = tries_correct`, `total = question_count`, `time_seconds = seconds_used`).
      - During intermediate tries (`try_no < question_count`), the UI shows only **"Answer recorded"** and **"Next try"** (never revealing whether individual tries were right or wrong mid-section). When `tries_started === question_count` is submitted, `status` becomes `'submitted'` and the final score (`"<tries_correct> of <question_count> correct"`) is displayed. If a student leaves partway through, `total` remains `question_count` (unanswered tries count as wrong) and the student can resume remaining tries via **"Continue"** while the test is open.
+
+
+---
+
+### Decision 42: Phase 17a & 17b — JMCWC Simulator Dynamic Scoring Contract, Authoritative Database Snapshot (`docs/JMCWC_DATABASE_CONTRACT.json`), Server Lifecycle APIs (`/api/jmcwc`), and Save-Queue Coordinator (`api/_jmcwcSaveQueue.js`)
+- **Date**: 2026-11-03
+- **Status**: Accepted
+- **Context**:
+  - Phase 17a and Phase 17b implement the server-side mathematical generators, dynamic mark rules, grading engine, and authenticated session lifecycle APIs for the 23-category Junior Mental Calculation World Championship (JMCWC) simulator (`junior1`, `junior2`, `senior`, blueprint version `'2026.1'`), backed by the owner's deployed Supabase PostgreSQL schema and functions documented in [`docs/JMCWC_DATABASE_CONTRACT.json`](./JMCWC_DATABASE_CONTRACT.json).
+- **Decisions & Rationale**:
+  1. **Authoritative Deployed Database Contract (`docs/JMCWC_DATABASE_CONTRACT.json`) & Service-Role Isolation**:
+     - All 7 JMCWC tables and 9 PostgreSQL functions (`jmcwc_check_student`, `jmcwc_create_attempt`, `jmcwc_act`, `jmcwc_list`, `jmcwc_finalize`, `jmcwc_validate_marks`, `jmcwc_tick`, `jmcwc_assignment_guard`, `jmcwc_paper_guard`) restrict permissions to `postgres` and `service_role`.
+     - Every request to `POST /api/jmcwc` (`api/jmcwc.js` / `api/_jmcwcServer.js`) sets `Cache-Control: no-store`, rejects tokens in URL query parameters, verifies the caller's Bearer token via `supabase.auth.getUser(token)`, loads the active `public.profiles` row, enforces role separation (`role === 'student'` for student lifecycle actions; `role === 'admin'` for `admin_*` actions), and derives `student_id` strictly from the verified token.
+  2. **Unpublished Papers Guard in Production (`published = false`)**:
+     - The three inserted `'2026.1'` papers (`junior1`, `junior2`, `senior`) remain `published = false` in production during development. Both `handleStudentCreate` and `jmcwc_create_attempt` require `published = true`, rejecting attempts against unpublished papers with `409 NO_PUBLISHED_PAPER`. Automated lifecycle tests use a contract-accurate isolated staging harness without mutating or publishing production papers.
+  3. **Explicit Resume, Lease Rotation, and Strict Response Whitelisting**:
+     - Reading (`read`) or listing (`list`, `status`) attempts never resumes a round or pauses another running round.
+     - `resume` is an explicit action. If another round is currently `'running'` for the student (verified after ticking), `resume` returns `409 TAKEOVER_CONFIRMATION_REQUIRED` unless `confirm_takeover === true`, preventing accidental multi-tab takeovers.
+     - Private `answer_key` objects in `jmcwc_payloads.questions` are never returned to clients. List and paused responses omit `questions`, `answers`, and `lease_id`. `lease_id` is returned only to the active caller on `resume` or when the caller already proves possession of the active `lease_id`.
+  4. **Single-In-Flight Save Queue Coordinator (`api/_jmcwcSaveQueue.js`)**:
+     - `createJmcwcSaveQueue` enforces at most one save request in flight per attempt, coalesces dirty question edits while a request is in flight, retries the exact same patch and `save_seq` on transient failures before advancing to the next sequence number, and resets `save_seq` to `0` on each newly issued `lease_id`.
+  5. **Atomic Submission & Idempotent Grading Settlement (`settleGradingAttempt` -> `jmcwc_finalize`)**:
+     - When `submit` is called (or when `jmcwc_tick` transitions a 2-hour flat round to `'grading'` at `7,200,000 ms`, rejecting any post-expiry answer patch), the server grades the frozen database `answers` snapshot against persisted private `jmcwc_payloads.questions` using `gradeFrozenAttemptForFinalize` (which matches PostgreSQL `coalesce(btrim(a.answers->>(q->>'id')), '') = ''` blank semantics and `m / 2` partial awards) and calls `jmcwc_finalize(p_student, p_attempt, a.revision, items)`. If `jmcwc_finalize` fails transiently, the attempt remains safely in `'grading'` and settles idempotently on any subsequent `submit`, `read`, `list`, or `status` call.

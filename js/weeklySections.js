@@ -126,12 +126,14 @@ function resolveCategoryInfo(section, lookup = {}) {
   let catObj = null;
 
   if (catId) {
-    if (lookup?.categoriesById && typeof lookup.categoriesById === 'object') {
+    if (Array.isArray(lookup)) {
+      catObj = lookup.find((c) => String(c?.id) === catId) || null;
+    } else if (lookup?.categoriesById && typeof lookup.categoriesById === 'object') {
       catObj = lookup.categoriesById instanceof Map
         ? lookup.categoriesById.get(catId)
         : lookup.categoriesById[catId];
     } else if (Array.isArray(lookup?.categories)) {
-      catObj = lookup.categories.find((c) => String(c.id) === catId) || null;
+      catObj = lookup.categories.find((c) => String(c?.id) === catId) || null;
     }
   }
 
@@ -145,7 +147,7 @@ function resolveCategoryInfo(section, lookup = {}) {
 
   const group_name = catObj?.group_name
     ? String(catObj.group_name).trim().toLowerCase()
-    : null;
+    : (catObj?.section ? String(catObj.section).trim().toLowerCase() : null);
 
   return { id: catId, name, group_name };
 }
@@ -460,8 +462,12 @@ export function toSectionRow(section, position = 1, testId = undefined) {
     question_count: null
   };
 
-  if (testId !== undefined && testId !== null) {
-    row.test_id = testId;
+  if (section?.id) {
+    row.id = section.id;
+  }
+
+  if (typeof testId === 'string' && testId.trim() !== '') {
+    row.test_id = testId.trim();
   }
 
   if (kind === 'basics') {

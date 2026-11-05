@@ -23,6 +23,9 @@ import {
   BACKUP_TABLES,
   SNAPSHOT_TABLES,
   APPEND_TABLES,
+  JMCWC_BACKUP_TABLES,
+  FORBIDDEN_PUBLIC_OR_MIRROR_TABLES,
+  RESTORE_TABLE_ORDER,
   SNAPSHOT_MAX_ROWS,
   PAGE_SIZE,
   SHEETS_UPDATE_CHUNK_ROWS,
@@ -63,6 +66,10 @@ import { verifyCronAuthorizationHeader } from './weekly-report.js';
 export const TIME_BUDGET_MS = 8000;
 export const STALE_LOCK_MS = 3 * 60 * 1000; // 3 minutes
 export const SAFE_HORIZON_MS = 60 * 1000; // 1 minute
+export const TOTAL_CRON_TIMEOUT_MS = 60000; // 60s maxDuration configured in vercel.json
+export const CRON_RESERVED_MS = 8000; // 8s reserved for lock release, error handling & HTTP response
+export const CRON_MAX_RUNTIME_MS = TOTAL_CRON_TIMEOUT_MS - CRON_RESERVED_MS; // 52000 ms
+export const MIN_PASS_BUDGET_MS = 2000; // Minimum 2s required to start a meaningful backup pass
 
 /**
  * Extracts Authorization header from Node/Express or Fetch Request.
@@ -443,6 +450,32 @@ export async function executeBackupRunPass({
     lastRun.finished_at &&
     startMs - new Date(lastRun.finished_at).getTime() < STALE_LOCK_MS;
 
+  // Query for the most recent completed ('done') run to recognize the active cycle
+  let lastDoneAt = null;
+  try {
+    const { data: doneRuns } = await supabase
+      .from('backup_runs')
+      .select('id, finished_at, started_at')
+      .eq('status', 'done')
+      .order('finished_at', { ascending: false })
+      .limit(1);
+    if (Array.isArray(doneRuns) && doneRuns.length > 0) {
+      lastDoneAt = doneRuns[0].finished_at || doneRuns[0].started_at || null;
+    }
+  } catch {
+    lastDoneAt = null;
+  }
+
+  const isSnapshotCachedInCycle = (st) => {
+    if (!st || !st.last_run_at || st.last_error) return false;
+    const lastRunMs = new Date(st.last_run_at).getTime();
+    if (isNaN(lastRunMs)) return false;
+    if (lastDoneAt) {
+      return lastRunMs > new Date(lastDoneAt).getTime();
+    }
+    return isMultiPassContinuation || (startMs - lastRunMs < 24 * 60 * 60 * 1000);
+  };
+
   // 2. Insert a new 'running' row in backup_runs.
   // If the partial unique index rejects it, return { busy: true } without doing anything.
   const { data: runRow, error: lockError } = await supabase
@@ -558,17 +591,13 @@ export async function executeBackupRunPass({
       activeTableName = tableConfig.name;
       const st = stateMap.get(tableConfig.name) || {};
 
-      // If continuing an interrupted multi-pass run and this snapshot table already
-      // succeeded within the last 90 seconds, skip re-rewriting it so the budget advances
-      if (
-        isMultiPassContinuation &&
-        st.last_run_at &&
-        !st.last_error &&
-        startMs - new Date(st.last_run_at).getTime() < 90 * 1000
-      ) {
+      // If this snapshot table already succeeded in the current cycle without error,
+      // skip re-writing it so the budget advances to remaining snapshot and append tables
+      if (isSnapshotCachedInCycle(st)) {
         tablesSummary[tableConfig.name] = {
           mode: 'snapshot',
           rows: Number(st.rows_written) || 0,
+          cells: Number(st.cells_written) || 0,
           status: 'cached_in_pass',
         };
         continue;
@@ -1061,6 +1090,49 @@ export async function executeBackupRunPass({
   }
 }
 
+/**
+ * Exports all 7 JMCWC tables in strict foreign-key restore order for private server-side admin backup.
+ * Never writes `jmcwc_payloads` to Google Sheets or public backups.
+ */
+export async function handlePrivateJmcwcBackup({ supabase }) {
+  const tables = {};
+  const counts = {};
+
+  for (const spec of JMCWC_BACKUP_TABLES) {
+    let query = supabase.from(spec.name).select('*');
+    const orderCols = Array.isArray(spec.orderBy) ? spec.orderBy : [];
+    for (const ord of orderCols) {
+      query = query.order(ord.column, { ascending: ord.ascending !== false });
+    }
+    const execQuery =
+      typeof query.range === 'function' ? query.range(0, SNAPSHOT_MAX_ROWS - 1) : query;
+    const { data, error } = await execQuery;
+    if (error) {
+      throw new Error(`Failed reading ${spec.name}: ${error.message || 'database error'}`);
+    }
+    const rows = Array.isArray(data) ? data : [];
+    tables[spec.name] = rows;
+    counts[spec.name] = rows.length;
+  }
+
+  const body = {
+    ok: true,
+    private_server_only: true,
+    private_server_backup: true,
+    restore_order: JMCWC_BACKUP_TABLES.map((t) => t.name),
+    full_restore_order: RESTORE_TABLE_ORDER,
+    excluded_from_public_and_sheets: FORBIDDEN_PUBLIC_OR_MIRROR_TABLES,
+    counts,
+    tables,
+  };
+
+  return {
+    httpStatus: 200,
+    body,
+    ...body,
+  };
+}
+
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
 
@@ -1082,12 +1154,40 @@ export default async function handler(req, res) {
 
     try {
       const supabase = getAdminClient();
-      const result = await executeBackupRunPass({
-        supabase,
-        kind: 'cron',
-        createdBy: null,
-      });
-      return res.status(result.httpStatus).json(result.body);
+      const cronStartMs = Date.now();
+      let lastResult = null;
+      let passCount = 0;
+      const MAX_PASSES = 8;
+
+      while (passCount < MAX_PASSES) {
+        const elapsedMs = Date.now() - cronStartMs;
+        const remainingMs = CRON_MAX_RUNTIME_MS - elapsedMs;
+
+        // If remaining time is less than minimum budget to safely run and clean up, stop
+        if (remainingMs < MIN_PASS_BUDGET_MS) {
+          break;
+        }
+
+        // Calculate pass budget clamped to remaining time so the pass never overruns the deadline
+        const passBudgetMs = Math.min(TIME_BUDGET_MS, remainingMs);
+        passCount++;
+
+        lastResult = await executeBackupRunPass({
+          supabase,
+          kind: 'cron',
+          createdBy: null,
+          timeBudgetMs: passBudgetMs,
+        });
+
+        // If another run is busy or if this pass finished the cycle ('done') or failed, stop looping
+        if (!lastResult || lastResult.body?.busy || lastResult.body?.status !== 'partial') {
+          break;
+        }
+      }
+
+      return res.status(lastResult ? lastResult.httpStatus : 200).json(
+        lastResult ? lastResult.body : { ok: true, status: 'partial', error: 'more to do' }
+      );
     } catch (err) {
       const safeErr = sanitizeBackupError(err, [cronSecret]);
       return res.status(500).json({ ok: false, status: 'failed', error: safeErr });
@@ -1095,7 +1195,7 @@ export default async function handler(req, res) {
   }
 
   // =========================================================================
-  // 2. POST = Admin Action ({ action: 'status' | 'run' | 'rebuild_mirror' })
+  // 2. POST = Admin Action ({ action: 'status' | 'run' | 'rebuild_mirror' | 'private_jmcwc_backup' })
   // =========================================================================
   if (req.method === 'POST') {
     let adminProfile;
@@ -1110,10 +1210,15 @@ export default async function handler(req, res) {
     const body = req.body && typeof req.body === 'object' ? req.body : {};
     const action = body.action;
 
-    if (action !== 'status' && action !== 'run' && action !== 'rebuild_mirror') {
+    if (
+      action !== 'status' &&
+      action !== 'run' &&
+      action !== 'rebuild_mirror' &&
+      action !== 'private_jmcwc_backup'
+    ) {
       return res.status(400).json({
         error:
-          'Request body must specify { "action": "status" }, { "action": "run" }, or { "action": "rebuild_mirror" }.',
+          'Request body must specify { "action": "status" }, { "action": "run" }, { "action": "rebuild_mirror" }, or { "action": "private_jmcwc_backup" }.',
       });
     }
 
@@ -1132,6 +1237,12 @@ export default async function handler(req, res) {
         const adminSupabase = getAdminClient();
         const rebuildPayload = await handleRebuildMirror({ supabase: adminSupabase });
         return res.status(200).json(rebuildPayload);
+      }
+
+      if (action === 'private_jmcwc_backup') {
+        const adminSupabase = getAdminClient();
+        const privatePayload = await handlePrivateJmcwcBackup({ supabase: adminSupabase });
+        return res.status(privatePayload.httpStatus || 200).json(privatePayload.body || privatePayload);
       }
 
       // action === 'run' requires service role and Google config

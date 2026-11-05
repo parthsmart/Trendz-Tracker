@@ -8,6 +8,126 @@
     
     <!-- Design tokens & unified styles -->
     <link rel="stylesheet" href="/css/style.css" />
+    <style>
+      .jmcwc-worksheet-paper {
+        background: var(--bg-surface);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        padding: var(--space-5);
+        margin-bottom: var(--space-4);
+      }
+      .jmcwc-worksheet-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: var(--space-4);
+        margin-top: var(--space-4);
+      }
+      .jmcwc-worksheet-cell {
+        background: var(--bg-surface-subtle);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-md);
+        padding: var(--space-3) var(--space-4);
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+      }
+      .jmcwc-worksheet-cell:focus-within {
+        border-color: var(--color-primary);
+        box-shadow: 0 0 0 2px var(--color-primary-subtle, rgba(22, 101, 52, 0.15));
+      }
+      .jmcwc-worksheet-cell.is-answered {
+        border-left: 3px solid var(--color-success, #16a34a);
+      }
+      .jmcwc-missing-digit-box {
+        display: inline-block;
+        padding: 0 6px;
+        margin: 0 2px;
+        border: 1.5px dashed var(--color-primary);
+        border-radius: 4px;
+        background: #fff;
+        color: var(--color-primary);
+        font-weight: 800;
+        min-width: 20px;
+        text-align: center;
+      }
+      .jmcwc-frac {
+        display: inline-flex;
+        flex-direction: column;
+        vertical-align: middle;
+        text-align: center;
+        font-size: 0.9em;
+        line-height: 1;
+        margin: 0 2px;
+      }
+      .jmcwc-num {
+        border-bottom: 1.5px solid currentColor;
+        padding-bottom: 1px;
+      }
+      .jmcwc-den {
+        padding-top: 1px;
+      }
+      .jmcwc-root {
+        display: inline-flex;
+        align-items: center;
+      }
+      .jmcwc-radical {
+        font-size: 1.15em;
+        margin-right: 1px;
+      }
+      .jmcwc-radicand {
+        border-top: 1.5px solid currentColor;
+        padding-top: 1px;
+      }
+      .jmcwc-stacked-math {
+        display: inline-flex;
+        flex-direction: column;
+        align-items: flex-end;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 1.15rem;
+        line-height: 1.35;
+        margin: 4px 0 8px 0;
+      }
+      .jmcwc-stacked-row {
+        display: flex;
+        justify-content: flex-end;
+        align-items: baseline;
+        width: 100%;
+      }
+      .jmcwc-stacked-op {
+        width: 1.6ch;
+        text-align: left;
+        margin-right: 0.4ch;
+        color: var(--color-primary, #4361ee);
+        font-weight: 700;
+      }
+      .jmcwc-stacked-num {
+        text-align: right;
+        letter-spacing: 0.05em;
+        font-weight: 600;
+      }
+      .jmcwc-stacked-line {
+        width: 100%;
+        border-bottom: 2px solid currentColor;
+        margin-top: 2px;
+        margin-bottom: 4px;
+      }
+      .jmcwc-token-btn {
+        padding: 2px 8px;
+        font-size: 11px;
+        font-weight: 700;
+        border-radius: 4px;
+        border: 1px solid var(--border-subtle);
+        background: var(--bg-surface);
+        cursor: pointer;
+        color: var(--text-main);
+      }
+      .jmcwc-token-btn:hover {
+        background: var(--bg-surface-subtle);
+        border-color: var(--color-primary);
+      }
+    </style>
   </head>
   <body>
     <div class="app-shell">
@@ -43,143 +163,647 @@
           <!-- Demo Mode Banner Placeholder -->
           <div id="config-banner-placeholder"></div>
 
-          <!-- Page Heading & Round Picker Bar -->
+          <!-- Page Heading & Mode Switcher Bar -->
           <div class="section-header-row" style="align-items: flex-end; flex-wrap: wrap; gap: var(--space-4); margin-bottom: var(--space-4);">
             <div>
-              <h1>Championship Round Scores</h1>
-              <p style="font-size: var(--text-sm);">Select your practice round in the current simulator series and enter scores for each category.</p>
+              <div style="display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-bottom: 4px;">
+                <h1 style="margin-bottom: 0;">Championship Round Scores</h1>
+                <!-- Non-editable Assigned JMCWC Group Label (No group selector) -->
+                <span
+                  id="jmcwc-assigned-group-badge"
+                  class="badge badge-neutral"
+                  aria-label="Assigned JMCWC Group"
+                  style="font-size: var(--text-xs); font-weight: 700;"
+                >
+                  JMCWC Group: Checking...
+                </span>
+              </div>
+              <p style="font-size: var(--text-sm); margin-bottom: 0;">
+                Record manual competition scores or practice timed JMCWC rounds online.
+              </p>
             </div>
 
-            <!-- Round Selector Dropdown + Start Today's Round Action -->
-            <div style="display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;">
-              <div style="display: flex; align-items: center; gap: var(--space-2); min-width: 260px;">
-                <label for="select-round" class="form-label" style="margin-bottom: 0; white-space: nowrap;">Round:</label>
-                <select id="select-round" class="form-select" style="font-weight: 600; min-height: 42px;" aria-label="Select round">
-                  <option value="">Loading rounds...</option>
-                </select>
-              </div>
-              <button type="button" id="btn-start-today-round" class="btn btn-secondary" style="min-height: 42px; white-space: nowrap;">
-                <span id="btn-start-round-text">+ Start today's round</span>
+            <!-- Mode Tabs: Manual entry vs Online practice -->
+            <div role="tablist" aria-label="Round Scores Mode" style="display: inline-flex; gap: 4px; background: var(--bg-surface-subtle); padding: 4px; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+              <button
+                type="button"
+                role="tab"
+                id="btn-mode-manual"
+                aria-selected="true"
+                aria-controls="jmcwc-manual-entry-pane"
+                class="btn btn-primary btn-sm"
+                style="min-height: 36px; font-weight: 700;"
+              >
+                Manual entry
+              </button>
+              <button
+                type="button"
+                role="tab"
+                id="btn-mode-online"
+                aria-selected="false"
+                aria-controls="jmcwc-online-practice-pane"
+                class="btn btn-ghost btn-sm"
+                style="min-height: 36px; font-weight: 700;"
+              >
+                Online practice
               </button>
             </div>
           </div>
 
-          <!-- Selected Round Metadata Card: Round Type & Time Taken (Editable within last 7 days) -->
-          <section class="card" id="round-meta-card" style="display: none; margin-bottom: var(--space-4); padding: var(--space-4) var(--space-5);">
-            <div style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: var(--space-4);">
-              <div style="display: flex; gap: var(--space-4); flex-wrap: wrap; align-items: flex-end;">
-                <div>
-                  <label for="input-round-type" class="form-label" style="font-size: var(--text-xs); margin-bottom: 4px; display: block;">Round Type</label>
-                  <select id="input-round-type" class="form-select" style="min-width: 190px; min-height: 40px;">
-                    <option value="Category wise">Category wise</option>
-                    <option value="Flat Round">Flat Round</option>
-                    <option value="Mock Exam">Mock Exam</option>
-                    <option value="Timed Simulation">Timed Simulation</option>
+          <!-- ================================================================
+               PANE 1: MANUAL ENTRY (Preserves all existing manual-entry IDs)
+               ================================================================ -->
+          <div id="jmcwc-manual-entry-pane" role="tabpanel" aria-labelledby="btn-mode-manual">
+            <!-- Manual Round Picker Bar -->
+            <div class="section-header-row" style="align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3); margin-bottom: var(--space-4);">
+              <div style="display: flex; align-items: center; gap: var(--space-2);">
+                <span class="badge badge-neutral" style="font-size: 11px; font-weight: 700;">Manual</span>
+                <span style="font-size: var(--text-xs); color: var(--text-muted);">
+                  Select your manual practice round in the current simulator series and enter scores for each category.
+                </span>
+              </div>
+
+              <!-- Round Selector Dropdown + Start Today's Round Action -->
+              <div style="display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;">
+                <div style="display: flex; align-items: center; gap: var(--space-2); min-width: 260px;">
+                  <label for="select-round" class="form-label" style="margin-bottom: 0; white-space: nowrap;">Round:</label>
+                  <select id="select-round" class="form-select" style="font-weight: 600; min-height: 42px;" aria-label="Select round">
+                    <option value="">Loading rounds...</option>
                   </select>
                 </div>
+                <button type="button" id="btn-start-today-round" class="btn btn-secondary" style="min-height: 42px; white-space: nowrap;">
+                  <span id="btn-start-round-text">+ Start today's round</span>
+                </button>
+              </div>
+            </div>
 
-                <div>
-                  <label for="input-round-time-taken" class="form-label" style="font-size: var(--text-xs); margin-bottom: 4px; display: block;">
-                    Round Time Taken <span style="font-weight: normal; color: var(--text-muted);">(h:mm:ss or mm:ss, optional)</span>
-                  </label>
-                  <input
-                    type="text"
-                    id="input-round-time-taken"
-                    class="form-input num"
-                    placeholder="e.g. 1:08:37 or 45:00"
-                    style="max-width: 200px; min-height: 40px;"
-                  />
+            <!-- Selected Round Metadata Card: Round Type & Time Taken (Editable within last 7 days) -->
+            <section class="card" id="round-meta-card" style="display: none; margin-bottom: var(--space-4); padding: var(--space-4) var(--space-5);">
+              <div style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: var(--space-4);">
+                <div style="display: flex; gap: var(--space-4); flex-wrap: wrap; align-items: flex-end;">
+                  <div>
+                    <label for="input-round-type" class="form-label" style="font-size: var(--text-xs); margin-bottom: 4px; display: block;">Round Type</label>
+                    <select id="input-round-type" class="form-select" style="min-width: 190px; min-height: 40px;">
+                      <option value="Category wise">Category wise</option>
+                      <option value="Flat Round">Flat Round</option>
+                      <option value="Mock Exam">Mock Exam</option>
+                      <option value="Timed Simulation">Timed Simulation</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label for="input-round-time-taken" class="form-label" style="font-size: var(--text-xs); margin-bottom: 4px; display: block;">
+                      Round Time Taken <span style="font-weight: normal; color: var(--text-muted);">(h:mm:ss or mm:ss, optional)</span>
+                    </label>
+                    <input
+                      type="text"
+                      id="input-round-time-taken"
+                      class="form-input num"
+                      placeholder="e.g. 1:08:37 or 45:00"
+                      style="max-width: 200px; min-height: 40px;"
+                    />
+                  </div>
                 </div>
+
+                <div id="round-meta-lock-notice" class="badge badge-inactive num" style="font-size: var(--text-xs);"></div>
+              </div>
+              <p id="round-lock-explanation" style="font-size: var(--text-xs); color: var(--text-muted); margin: var(--space-3) 0 0 0; border-top: 1px solid var(--border-hairline); padding-top: var(--space-2);">
+                You can edit scores from the last 7 days until your teacher verifies or corrects them; older, verified, or teacher-corrected scores are locked.
+              </p>
+            </section>
+
+            <!-- Save Error Alert Banner with Try Again Action -->
+            <div
+              id="round-save-error-alert"
+              class="banner banner-error"
+              role="alert"
+              style="display: none; margin-bottom: var(--space-4); align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3);"
+            >
+              <div style="display: flex; align-items: center; gap: var(--space-2);">
+                <span class="banner-icon" aria-hidden="true">⚠️</span>
+                <span id="round-save-error-msg">Could not save your changes.</span>
+              </div>
+              <button type="button" id="btn-retry-save-round" class="btn btn-outline btn-sm" style="background: var(--bg-surface); font-weight: 700;">
+                Try again
+              </button>
+            </div>
+
+            <!-- Unsaved Navigation Confirmation Banner (in-page links / round switch) -->
+            <div
+              id="unsaved-leave-banner"
+              class="banner banner-warning"
+              role="alert"
+              style="display: none; margin-bottom: var(--space-4); align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3);"
+            >
+              <div style="font-size: var(--text-sm); font-weight: 600;">
+                You have unsaved changes on this page. Leave without saving?
+              </div>
+              <div style="display: flex; gap: var(--space-2);">
+                <button type="button" id="btn-leave-stay" class="btn btn-primary btn-sm">Stay on page</button>
+                <button type="button" id="btn-leave-discard" class="btn btn-outline btn-sm">Leave without saving</button>
+              </div>
+            </div>
+
+            <!-- Progress Bar & Save Controls -->
+            <div class="progress-header-box" id="round-progress-bar">
+              <div style="display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;">
+                <span class="progress-text-count" id="progress-display">Loading categories...</span>
+                <span id="unsaved-changes-badge" class="badge badge-inactive num" style="font-size: var(--text-xs); font-weight: 600;">
+                  0 unsaved changes
+                </span>
+                <span id="series-badge-display" class="badge badge-active" style="display: none; font-size: 11px;"></span>
+              </div>
+              <div>
+                <button type="button" id="btn-save-round" class="btn btn-primary" style="min-width: 140px; min-height: 40px;">
+                  <span id="save-btn-text">Save Changes</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Table Header & Rows Card -->
+            <div class="card" id="round-scores-table-card" style="margin-bottom: var(--space-6);">
+              <div class="score-entry-row" style="background-color: var(--bg-surface-subtle); font-weight: 600; font-size: var(--text-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em;">
+                <div class="cell-category">Category</div>
+                <div style="text-align: right; max-width: 96px;">Correct</div>
+                <div style="text-align: right; max-width: 96px;">Total</div>
+                <div class="cell-time" style="text-align: right; max-width: 120px;">Time / Target</div>
+                <div class="cell-feedback">Accuracy</div>
+                <div style="text-align: right;">Status</div>
               </div>
 
-              <div id="round-meta-lock-notice" class="badge badge-inactive num" style="font-size: var(--text-xs);"></div>
+              <!-- Category Entry Rows Container -->
+              <div id="score-rows-container">
+                <!-- Loading Skeleton -->
+                <div style="padding: var(--space-4);">
+                  <div class="skeleton-row"></div>
+                  <div class="skeleton-row"></div>
+                  <div class="skeleton-row"></div>
+                </div>
+              </div>
             </div>
-            <p id="round-lock-explanation" style="font-size: var(--text-xs); color: var(--text-muted); margin: var(--space-3) 0 0 0; border-top: 1px solid var(--border-hairline); padding-top: var(--space-2);">
-              You can edit scores from the last 7 days until your teacher verifies or corrects them; older, verified, or teacher-corrected scores are locked.
-            </p>
-          </section>
 
-          <!-- Save Error Alert Banner with Try Again Action -->
-          <div
-            id="round-save-error-alert"
-            class="banner banner-error"
-            role="alert"
-            style="display: none; margin-bottom: var(--space-4); align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3);"
-          >
-            <div style="display: flex; align-items: center; gap: var(--space-2);">
-              <span class="banner-icon" aria-hidden="true">⚠️</span>
-              <span id="round-save-error-msg">Could not save your changes.</span>
-            </div>
-            <button type="button" id="btn-retry-save-round" class="btn btn-outline btn-sm" style="background: var(--bg-surface); font-weight: 700;">
-              Try again
-            </button>
-          </div>
-
-          <!-- Unsaved Navigation Confirmation Banner (in-page links / round switch) -->
-          <div
-            id="unsaved-leave-banner"
-            class="banner banner-warning"
-            role="alert"
-            style="display: none; margin-bottom: var(--space-4); align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3);"
-          >
-            <div style="font-size: var(--text-sm); font-weight: 600;">
-              You have unsaved changes on this page. Leave without saving?
-            </div>
-            <div style="display: flex; gap: var(--space-2);">
-              <button type="button" id="btn-leave-stay" class="btn btn-primary btn-sm">Stay on page</button>
-              <button type="button" id="btn-leave-discard" class="btn btn-outline btn-sm">Leave without saving</button>
-            </div>
-          </div>
-
-          <!-- Progress Bar & Save Controls -->
-          <div class="progress-header-box" id="round-progress-bar">
-            <div style="display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;">
-              <span class="progress-text-count" id="progress-display">Loading categories...</span>
-              <span id="unsaved-changes-badge" class="badge badge-inactive num" style="font-size: var(--text-xs); font-weight: 600;">
+            <!-- Bottom Sticky Save Bar for Quick Saving After Scrolling -->
+            <div id="sticky-save-bar" style="position: sticky; bottom: var(--space-4); display: flex; justify-content: flex-end; align-items: center; gap: var(--space-3); z-index: 20;">
+              <span id="unsaved-changes-bottom" class="num" style="background: var(--bg-surface); padding: 8px 14px; border-radius: var(--radius-md); border: 1px solid var(--border-subtle); font-size: var(--text-xs); font-weight: 600; color: var(--text-muted); box-shadow: var(--shadow-sm);">
                 0 unsaved changes
               </span>
-              <span id="series-badge-display" class="badge badge-active" style="display: none; font-size: 11px;"></span>
-            </div>
-            <div>
-              <button type="button" id="btn-save-round" class="btn btn-primary" style="min-width: 140px; min-height: 40px;">
-                <span id="save-btn-text">Save Changes</span>
+              <button type="button" id="btn-save-round-bottom" class="btn btn-primary" style="box-shadow: var(--shadow-md); min-width: 150px; min-height: 42px;">
+                Save Changes
               </button>
             </div>
           </div>
 
-          <!-- Table Header & Rows Card -->
-          <div class="card" id="round-scores-table-card" style="margin-bottom: var(--space-6);">
-            <div class="score-entry-row" style="background-color: var(--bg-surface-subtle); font-weight: 600; font-size: var(--text-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em;">
-              <div class="cell-category">Category</div>
-              <div style="text-align: right; max-width: 96px;">Correct</div>
-              <div style="text-align: right; max-width: 96px;">Total</div>
-              <div class="cell-time" style="text-align: right; max-width: 96px;">Time (mm:ss)</div>
-              <div class="cell-feedback">Accuracy</div>
-              <div style="text-align: right;">Status</div>
-            </div>
+          <!-- ================================================================
+               PANE 2: ONLINE PRACTICE (Phase 17c JMCWC Simulator)
+               ================================================================ -->
+          <div id="jmcwc-online-practice-pane" role="tabpanel" aria-labelledby="btn-mode-online" style="display: none;">
+            <!-- Non-editable group header & status banners -->
+            <div class="card" style="padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4);">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3);">
+                <div>
+                  <div style="font-size: var(--text-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600;">
+                    Assigned JMCWC Competition Group
+                  </div>
+                  <div id="jmcwc-online-group-label" style="font-size: var(--text-lg); font-weight: 800; color: var(--text-main); margin-top: 2px;">
+                    Unassigned
+                  </div>
+                </div>
+                <div style="font-size: var(--text-xs); color: var(--text-muted); max-width: 480px;">
+                  Only one online attempt runs at a time. Switching tabs, minimizing the browser, or closing the page automatically saves and pauses your active timer.
+                </div>
+              </div>
 
-            <!-- Category Entry Rows Container -->
-            <div id="score-rows-container">
-              <!-- Loading Skeleton -->
-              <div style="padding: var(--space-4);">
-                <div class="skeleton-row"></div>
-                <div class="skeleton-row"></div>
-                <div class="skeleton-row"></div>
+              <!-- Unassigned Group Notice -->
+              <div
+                id="jmcwc-unassigned-banner"
+                class="banner banner-warning"
+                role="status"
+                style="display: none; margin-top: var(--space-3);"
+              >
+                <span class="banner-icon" aria-hidden="true">ℹ️</span>
+                <span id="jmcwc-unassigned-text" style="font-weight: 600;">Ask your teacher to assign your JMCWC group.</span>
+              </div>
+
+              <!-- Unpublished / Unavailable Notice (Kept unavailable until live DB integration checks pass) -->
+              <div
+                id="jmcwc-unavailable-banner"
+                class="banner banner-neutral"
+                role="status"
+                style="display: none; margin-top: var(--space-3);"
+              >
+                <span class="banner-icon" aria-hidden="true">🔒</span>
+                <span id="jmcwc-unavailable-text">Online practice paper for your group is not published yet.</span>
+              </div>
+
+              <!-- Online Action Error Banner -->
+              <div
+                id="jmcwc-online-error-banner"
+                class="banner banner-error"
+                role="alert"
+                style="display: none; margin-top: var(--space-3);"
+              >
+                <span class="banner-icon" aria-hidden="true">⚠️</span>
+                <span id="jmcwc-online-error-text"></span>
               </div>
             </div>
+
+            <!-- SUBVIEW A: LANDING VIEW (Flat Round + Category-wise + Unfinished Cards) -->
+            <div id="jmcwc-subview-landing">
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--space-4); margin-bottom: var(--space-5);">
+                <!-- Card 1: Flat Round (23 categories, 2h active time, max 3 unfinished) -->
+                <section class="card" style="padding: var(--space-5); display: flex; flex-direction: column; justify-content: space-between; gap: var(--space-4);">
+                  <div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2);">
+                      <h2 style="font-size: var(--text-md); margin: 0;">Flat Round (Full Paper)</h2>
+                      <span class="badge badge-primary num" id="jmcwc-flat-slots-badge">0 / 3 unfinished</span>
+                    </div>
+                    <p style="font-size: var(--text-xs); color: var(--text-muted); margin-bottom: var(--space-3);">
+                      Complete 23-category championship paper (<span id="jmcwc-landing-paper-qcount">all</span> questions) with <strong>2 hours (120:00) of ACTIVE time</strong>. Supports pausing, resuming, early submission, and automatic submission at expiry. Category and manual rounds do not occupy flat-round slots.
+                    </p>
+                    <div
+                      id="jmcwc-flat-cap-reason"
+                      class="banner banner-warning"
+                      style="display: none; font-size: var(--text-xs); margin-bottom: var(--space-3); padding: var(--space-2) var(--space-3);"
+                    ></div>
+                  </div>
+                  <div>
+                    <button type="button" id="btn-jmcwc-start-flat" class="btn btn-primary" style="width: 100%; min-height: 42px;" disabled>
+                      Start New Flat Round
+                    </button>
+                  </div>
+                </section>
+
+                <!-- Card 2: Category-wise Practice -->
+                <section class="card" style="padding: var(--space-5); display: flex; flex-direction: column; justify-content: space-between; gap: var(--space-4);">
+                  <div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2);">
+                      <h2 style="font-size: var(--text-md); margin: 0;">Category-wise Practice</h2>
+                      <span class="badge badge-neutral" id="jmcwc-landing-category-qcount">Category</span>
+                    </div>
+                    <p style="font-size: var(--text-xs); color: var(--text-muted); margin-bottom: var(--space-3);">
+                      Practice a single category within your assigned group. Tracks elapsed active time and compares neutrally against your optional target — targets never force stopping or create a penalty.
+                    </p>
+                    <div class="form-group" style="margin-bottom: var(--space-2);">
+                      <label for="select-jmcwc-category" class="form-label" style="font-size: var(--text-xs);">Category in assigned group</label>
+                      <select id="select-jmcwc-category" class="form-select" style="min-height: 40px;" disabled>
+                        <option value="">Select a category...</option>
+                      </select>
+                    </div>
+                    <div id="jmcwc-category-target-preview" class="num" style="font-size: var(--text-xs); color: var(--text-muted);">
+                      Optional target: No target configured
+                    </div>
+                  </div>
+                  <div>
+                    <button type="button" id="btn-jmcwc-start-category" class="btn btn-secondary" style="width: 100%; min-height: 42px;" disabled>
+                      Start Category Practice
+                    </button>
+                  </div>
+                </section>
+              </div>
+
+              <!-- Unfinished Flat Rounds Section (Up to 3 slots) -->
+              <section class="card" id="jmcwc-unfinished-flat-section" style="padding: var(--space-5); margin-bottom: var(--space-5);">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3);">
+                  <div>
+                    <h2 style="font-size: var(--text-md); margin: 0;">Unfinished Flat Rounds</h2>
+                    <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 2px 0 0 0;">
+                      You may hold up to 3 unfinished flat rounds at a time. Completing one frees a slot.
+                    </p>
+                  </div>
+                </div>
+                <div id="jmcwc-unfinished-flat-cards" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--space-3);">
+                  <div style="font-size: var(--text-xs); color: var(--text-muted);">No unfinished flat rounds.</div>
+                </div>
+              </section>
+
+              <!-- Unfinished Category Attempts Section (if any) -->
+              <section class="card" id="jmcwc-unfinished-cat-section" style="display: none; padding: var(--space-5); margin-bottom: var(--space-5);">
+                <h2 style="font-size: var(--text-md); margin: 0 0 var(--space-3) 0;">Unfinished Category Practice</h2>
+                <div id="jmcwc-unfinished-cat-cards" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--space-3);"></div>
+              </section>
+            </div>
+
+            <!-- SUBVIEW B: RUNNER VIEW (Active / Paused Attempt) -->
+            <section id="jmcwc-subview-runner" class="card" style="display: none; padding: var(--space-5); margin-bottom: var(--space-5);">
+              <!-- Runner Sticky Top Bar -->
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3); padding-bottom: var(--space-3); border-bottom: 1px solid var(--border-subtle); margin-bottom: var(--space-4);">
+                <div>
+                  <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
+                    <span class="badge badge-primary" id="jmcwc-runner-mode-badge">Flat Round</span>
+                    <h2 id="jmcwc-runner-title" style="font-size: var(--text-md); margin: 0;">JMCWC Practice</h2>
+                  </div>
+                  <div id="jmcwc-runner-progress-text" class="num" style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">
+                    0 / 0 answered
+                  </div>
+                </div>
+
+                <!-- Timer, Target & Save Status -->
+                <div style="display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;">
+                  <div style="text-align: right;">
+                    <div id="jmcwc-runner-timer-label" style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">
+                      Remaining Active Time
+                    </div>
+                    <div id="jmcwc-runner-timer-value" class="num" style="font-size: var(--text-lg); font-weight: 800; color: var(--text-main);">
+                      0:00
+                    </div>
+                    <div id="jmcwc-runner-target-comparison" class="num" style="display: none; font-size: 11px; color: var(--text-muted);"></div>
+                  </div>
+
+                  <!-- Save State Indicator: Saving / Saved / Offline—paused -->
+                  <span id="jmcwc-runner-save-badge" class="badge badge-active num" aria-live="polite" style="font-size: var(--text-xs); font-weight: 700;">
+                    Saved
+                  </span>
+
+                  <!-- Pause & Submit Controls -->
+                  <div style="display: flex; gap: var(--space-2); flex-wrap: wrap;">
+                    <button type="button" id="btn-jmcwc-runner-pause" class="btn btn-outline btn-sm" style="min-height: 38px; font-weight: 700;">
+                      Pause
+                    </button>
+                    <button type="button" id="btn-jmcwc-runner-submit" class="btn btn-primary btn-sm" style="min-height: 38px; font-weight: 700;">
+                      Submit
+                    </button>
+                    <button type="button" id="btn-jmcwc-runner-exit" class="btn btn-ghost btn-sm" style="min-height: 38px;">
+                      Back to overview
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Local Unsent Recovery Conflict Prompt -->
+              <div
+                id="jmcwc-recovery-conflict-banner"
+                class="banner banner-warning"
+                role="alert"
+                style="display: none; margin-bottom: var(--space-4); align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3);"
+              >
+                <div>
+                  <strong style="font-size: var(--text-sm);">Unsent answers found on this device</strong>
+                  <p id="jmcwc-recovery-conflict-desc" style="font-size: var(--text-xs); margin: 2px 0 0 0;">
+                    We found unsent answers saved locally on this device before your last pause or disconnect. Would you like to recover them or discard them?
+                  </p>
+                </div>
+                <div style="display: flex; gap: var(--space-2);">
+                  <button type="button" id="btn-jmcwc-recover-local" class="btn btn-primary btn-sm">Recover answers</button>
+                  <button type="button" id="btn-jmcwc-discard-local" class="btn btn-outline btn-sm">Discard local copy</button>
+                </div>
+              </div>
+
+              <!-- Paused / Lease-Lost / Expired Veil (Hides all questions & inputs immediately) -->
+              <div id="jmcwc-runner-hidden-veil" style="display: none; padding: var(--space-8) var(--space-4); text-align: center; background: var(--bg-surface-subtle); border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+                <div style="font-size: 2rem; margin-bottom: var(--space-2);" aria-hidden="true">⏸️</div>
+                <h3 id="jmcwc-veil-title" style="font-size: var(--text-md); margin-bottom: var(--space-2);">Attempt Paused</h3>
+                <p id="jmcwc-veil-desc" style="font-size: var(--text-sm); color: var(--text-muted); max-width: 480px; margin: 0 auto var(--space-4) auto;">
+                  Questions and answer inputs are hidden while paused. Click Resume when you are ready to continue.
+                </p>
+                <div style="display: inline-flex; gap: var(--space-3); flex-wrap: wrap; justify-content: center;">
+                  <button type="button" id="btn-jmcwc-veil-resume" class="btn btn-primary" style="min-height: 42px; min-width: 150px;">
+                    Resume Attempt
+                  </button>
+                  <button type="button" id="btn-jmcwc-veil-submit-paused" class="btn btn-outline" style="min-height: 42px;">
+                    Resume &amp; Submit...
+                  </button>
+                  <button type="button" id="btn-jmcwc-veil-back" class="btn btn-ghost" style="min-height: 42px;">
+                    Back to overview
+                  </button>
+                </div>
+              </div>
+
+              <!-- Active Question Workspace (Only visible while status === 'running' and not expired) -->
+              <div id="jmcwc-runner-active-workspace">
+                <!-- Category Navigation Bar (for Flat Round 23 categories) -->
+                <div id="jmcwc-runner-category-nav-wrap" style="margin-bottom: var(--space-4);">
+                  <div style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: var(--space-2); margin-bottom: 4px;">
+                    <label for="select-jmcwc-runner-section" class="form-label" style="font-size: var(--text-xs); margin: 0; display: block;">
+                      Jump to Category Section
+                    </label>
+                    <div style="display: flex; align-items: center; gap: var(--space-2);">
+                      <button type="button" id="btn-jmcwc-view-worksheet" class="btn btn-primary btn-sm" style="font-size: 11px;">
+                        📄 Worksheet View
+                      </button>
+                      <button type="button" id="btn-jmcwc-view-single" class="btn btn-ghost btn-sm" style="font-size: 11px;">
+                        🔍 Single Card View
+                      </button>
+                    </div>
+                  </div>
+                  <select id="select-jmcwc-runner-section" class="form-select" style="min-height: 38px; font-weight: 600;"></select>
+                </div>
+
+                <!-- Question Number Pills (Answered / Unanswered indicators — NO marked-for-review feature) -->
+                <nav aria-label="Question Navigation" id="jmcwc-runner-question-pills" style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: var(--space-4);"></nav>
+
+                <!-- 1. MULTI-QUESTION WORKSHEET PAPER VIEW (Default) -->
+                <div id="jmcwc-runner-worksheet-view" class="jmcwc-worksheet-paper">
+                  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2); padding-bottom: var(--space-3); border-bottom: 1px solid var(--border-subtle); margin-bottom: var(--space-4);">
+                    <div>
+                      <span id="jmcwc-sheet-section-title" style="font-size: var(--text-md); font-weight: 800; color: var(--text-main);">
+                        Section 1: Addition
+                      </span>
+                      <div id="jmcwc-sheet-section-subtitle" style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">
+                        Worksheet format · Use Enter or Arrow keys to move between questions
+                      </div>
+                    </div>
+                    <span id="jmcwc-sheet-answered-badge" class="badge badge-neutral num" style="font-weight: 700;">
+                      0 / 0 answered
+                    </span>
+                  </div>
+
+                  <!-- Multi-question worksheet grid -->
+                  <div id="jmcwc-worksheet-grid" class="jmcwc-worksheet-grid"></div>
+                </div>
+
+                <!-- 2. SINGLE CARD VIEW -->
+                <div id="jmcwc-runner-single-card-view" style="display: none;">
+                  <div class="card" style="padding: var(--space-5); background: var(--bg-surface); border: 1px solid var(--border-subtle); margin-bottom: var(--space-4);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3);">
+                      <div>
+                        <span id="jmcwc-q-section-label" style="font-size: var(--text-xs); font-weight: 700; color: var(--color-primary); text-transform: uppercase;">
+                          Category
+                        </span>
+                        <div id="jmcwc-q-number-label" class="num" style="font-size: var(--text-sm); font-weight: 700; color: var(--text-main);">
+                          Question 1
+                        </div>
+                      </div>
+                      <div style="display: flex; align-items: center; gap: var(--space-2);">
+                        <span id="jmcwc-q-answered-chip" class="status-chip chip-unverified">Unanswered</span>
+                        <span id="jmcwc-q-marks-badge" class="badge badge-neutral num">1 mark</span>
+                      </div>
+                    </div>
+
+                    <!-- Question Prompt -->
+                    <div
+                      id="jmcwc-q-prompt"
+                      class="num"
+                      style="font-size: var(--text-xl); font-weight: 700; color: var(--text-main); padding: var(--space-4); background: var(--bg-surface-subtle); border-radius: var(--radius-md); margin-bottom: var(--space-4); white-space: pre-wrap; word-break: break-word;"
+                    ></div>
+
+                    <!-- Accessible Answer Input Area (adapts to answer_type, preserves raw text & decimal precision) -->
+                    <div id="jmcwc-q-input-container" style="margin-bottom: var(--space-3);"></div>
+                    <div id="jmcwc-q-input-hint" style="font-size: var(--text-xs); color: var(--text-muted);"></div>
+                  </div>
+
+                  <!-- Previous / Skip / Next Navigation Bar -->
+                  <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); flex-wrap: wrap;">
+                    <button type="button" id="btn-jmcwc-q-prev" class="btn btn-outline" style="min-height: 42px; min-width: 120px;">
+                      &larr; Previous
+                    </button>
+                    <span style="font-size: var(--text-xs); color: var(--text-muted);">
+                      Tip: You can skip, revisit, and change any answer until you submit.
+                    </span>
+                    <button type="button" id="btn-jmcwc-q-next" class="btn btn-secondary" style="min-height: 42px; min-width: 120px;">
+                      Next &rarr;
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- SUBVIEW C: COMPLETED REVIEW VIEW (Earned/Max frozen marks, partial marks, explanations, "One valid answer") -->
+            <section id="jmcwc-subview-review" class="card" style="display: none; padding: var(--space-5); margin-bottom: var(--space-5);">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: var(--space-3); margin-bottom: var(--space-4); padding-bottom: var(--space-3); border-bottom: 1px solid var(--border-subtle);">
+                <div>
+                  <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: 4px;">
+                    <span class="badge badge-active">Online Review</span>
+                    <span id="jmcwc-review-mode-label" class="badge badge-neutral">Flat Round</span>
+                  </div>
+                  <h2 id="jmcwc-review-title" style="font-size: var(--text-lg); margin: 0;">Completed Attempt Review</h2>
+                </div>
+                <button type="button" id="btn-jmcwc-close-review" class="btn btn-outline btn-sm">
+                  &larr; Back to Online Practice
+                </button>
+              </div>
+
+              <!-- Summary Metrics Grid (Frozen attempt max_marks, partial marks, counts, active time) -->
+              <div class="stats-grid" style="margin-bottom: var(--space-4);">
+                <div class="stat-card">
+                  <span class="stat-label">Score (Frozen Attempt Max)</span>
+                  <span class="stat-value num" id="jmcwc-review-marks">0 / 0</span>
+                  <span id="jmcwc-review-partial-note" class="num" style="font-size: var(--text-xs); color: var(--text-muted);">Partial marks: 0</span>
+                </div>
+                <div class="stat-card">
+                  <span class="stat-label">Question Breakdown</span>
+                  <span class="stat-value num" id="jmcwc-review-counts" style="font-size: var(--text-sm);">0 correct · 0 partial · 0 wrong · 0 skipped</span>
+                </div>
+                <div class="stat-card">
+                  <span class="stat-label">Active Time</span>
+                  <span class="stat-value num" id="jmcwc-review-active-time">0:00</span>
+                  <span id="jmcwc-review-target-comparison" class="num" style="font-size: var(--text-xs); color: var(--text-muted);"></span>
+                </div>
+              </div>
+
+              <!-- Review Questions Table -->
+              <div class="table-wrapper">
+                <table class="table" id="jmcwc-review-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Category</th>
+                      <th>Question</th>
+                      <th>Your Answer</th>
+                      <th>Expected Answer</th>
+                      <th style="text-align: right;">Marks</th>
+                      <th>Result &amp; Explanation</th>
+                    </tr>
+                  </thead>
+                  <tbody id="jmcwc-review-tbody"></tbody>
+                </table>
+              </div>
+            </section>
           </div>
 
-          <!-- Bottom Sticky Save Bar for Quick Saving After Scrolling -->
-          <div id="sticky-save-bar" style="position: sticky; bottom: var(--space-4); display: flex; justify-content: flex-end; align-items: center; gap: var(--space-3); z-index: 20;">
-            <span id="unsaved-changes-bottom" class="num" style="background: var(--bg-surface); padding: 8px 14px; border-radius: var(--radius-md); border: 1px solid var(--border-subtle); font-size: var(--text-xs); font-weight: 600; color: var(--text-muted); box-shadow: var(--shadow-sm);">
-              0 unsaved changes
-            </span>
-            <button type="button" id="btn-save-round-bottom" class="btn btn-primary" style="box-shadow: var(--shadow-md); min-width: 150px; min-height: 42px;">
-              Save Changes
-            </button>
-          </div>
+          <!-- ================================================================
+               ROUND SCORES HISTORY (Integrates Manual & Online attempts with labels)
+               ================================================================ -->
+          <section class="card" id="jmcwc-combined-history-card" style="padding: var(--space-5); margin-top: var(--space-6); margin-bottom: var(--space-6);">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3);">
+              <div>
+                <h2 style="font-size: var(--text-md); margin: 0;">Round Scores History</h2>
+                <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 2px 0 0 0;">
+                  Manual rounds preserve series numbering and teacher verification rules. Online JMCWC attempts use frozen attempt marks and are never merged into legacy accuracy, Points leaderboard, or weekly-test scores.
+                </p>
+              </div>
+            </div>
+            <div class="table-wrapper">
+              <table class="table" id="round-history-table">
+                <thead>
+                  <tr>
+                    <th>Source</th>
+                    <th>Round / Attempt</th>
+                    <th>Date</th>
+                    <th>Mode / Type</th>
+                    <th>Time / Active Time</th>
+                    <th>Summary</th>
+                    <th style="text-align: right;">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="round-history-tbody">
+                  <tr>
+                    <td colspan="7" style="font-size: var(--text-xs); color: var(--text-muted);">Loading history...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
         </div>
       </main>
+    </div>
+
+    <!-- Modal: Early / Paused Submission Confirmation -->
+    <div id="jmcwc-submit-confirm-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="jmcwc-submit-modal-title">
+      <div class="modal-dialog" style="max-width: 480px;">
+        <header class="modal-header">
+          <div>
+            <h2 id="jmcwc-submit-modal-title" class="modal-title">Submit JMCWC Attempt?</h2>
+            <p id="jmcwc-submit-modal-subtitle" class="modal-subtitle">Confirm final submission of your practice attempt.</p>
+          </div>
+          <button type="button" class="modal-close" id="btn-jmcwc-close-submit-modal" aria-label="Close modal">&times;</button>
+        </header>
+        <div class="modal-body">
+          <div id="jmcwc-submit-paused-notice" class="banner banner-warning" style="display: none; margin-bottom: var(--space-3); font-size: var(--text-xs);">
+            This attempt is currently <strong>paused</strong>. Confirming below will explicitly <strong>resume and immediately submit</strong> your saved answers for final grading.
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); margin-bottom: var(--space-3);">
+            <div class="stat-card" style="padding: var(--space-3);">
+              <span class="stat-label">Answered</span>
+              <span class="stat-value num" id="jmcwc-submit-answered-count">0</span>
+            </div>
+            <div class="stat-card" style="padding: var(--space-3);">
+              <span class="stat-label">Unanswered</span>
+              <span class="stat-value num" id="jmcwc-submit-unanswered-count">0</span>
+            </div>
+          </div>
+          <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 0;">
+            Once submitted, answers are locked and graded on the server. You cannot change answers after submission.
+          </p>
+        </div>
+        <footer class="modal-footer">
+          <button type="button" class="btn btn-ghost" id="btn-jmcwc-cancel-submit">Keep practicing</button>
+          <button type="button" class="btn btn-primary" id="btn-jmcwc-confirm-submit">
+            <span id="btn-jmcwc-confirm-submit-text">Submit Now</span>
+          </button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Modal: Active Lease Takeover Confirmation -->
+    <div id="jmcwc-takeover-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="jmcwc-takeover-modal-title">
+      <div class="modal-dialog" style="max-width: 480px;">
+        <header class="modal-header">
+          <div>
+            <h2 id="jmcwc-takeover-modal-title" class="modal-title">Take Over Active Attempt?</h2>
+            <p class="modal-subtitle">This attempt is currently open in another tab or device.</p>
+          </div>
+          <button type="button" class="modal-close" id="btn-jmcwc-close-takeover-modal" aria-label="Close modal">&times;</button>
+        </header>
+        <div class="modal-body">
+          <p style="font-size: var(--text-sm); color: var(--text-main); margin: 0;">
+            Only one tab or device can run an attempt at a time. Taking over here will immediately stop the other tab from displaying questions and transfer the active timer to this window.
+          </p>
+        </div>
+        <footer class="modal-footer">
+          <button type="button" class="btn btn-ghost" id="btn-jmcwc-cancel-takeover">Cancel</button>
+          <button type="button" class="btn btn-primary" id="btn-jmcwc-confirm-takeover">Take Over Here</button>
+        </footer>
+      </div>
     </div>
 
     <!-- Toast Notifications Container -->

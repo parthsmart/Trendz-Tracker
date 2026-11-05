@@ -19,6 +19,20 @@ import { isFlatRound } from '../js/roundType.js';
 export const MIRROR_FROZEN_ROWS = 4;
 export const MIRROR_FROZEN_COLUMNS = 3;
 
+/**
+ * Security boundary: `jmcwc_payloads` contains generated question `answer_key` values
+ * and must never be included in Google Sheets mirrors or public backups.
+ */
+export const MIRROR_FORBIDDEN_TABLES = Object.freeze(['jmcwc_payloads']);
+
+export function assertMirrorExcludesPayloads(data) {
+  if (!data || typeof data !== 'object') return true;
+  if (Object.prototype.hasOwnProperty.call(data, 'jmcwc_payloads')) {
+    throw new Error('Security violation: jmcwc_payloads must never be passed to Google Sheets mirror.');
+  }
+  return true;
+}
+
 export const MIRROR_COL_WIDTHS = Object.freeze({
   index: 45,
   category: 150,
