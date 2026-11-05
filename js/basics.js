@@ -5,6 +5,7 @@
  */
 
 import { isSupabaseConfigured } from './config.js';
+import { isDemoMode } from './demoDb.js';
 import { requireAuth } from './guard.js';
 import { getScoreFeedback } from './scoreColors.js';
 import { DemoDB, getSupabase } from './supabaseClient.js';
@@ -12,12 +13,36 @@ import { formatSecondsToMMSS, parseTimeToSeconds } from './timeUtils.js';
 import { formatSecondsToTime } from './stats.js';
 import { isBasicsOnlineAvailable } from './practiceStats.js';
 import { showToast } from './toast.js';
+import {
+  toISTDateString,
+  filterAndSortHistory,
+  paginateHistory,
+  renderHistoryFilterToolbarHtml,
+  renderHistoryPaginationHtml,
+  fetchAllRowsBatched,
+  resolveEntrySource,
+  renderSourceChipHtml,
+  renderCompactHistoryRowHtml,
+  practiceRecordStatus,
+  formatFriendlyDateIST,
+  formatAccuracyDisplay,
+} from './historyFilters.js';
 
 let currentProfile = null;
 let basicsCategories = [];
 let allBasicsResults = [];
 let activeThresholds = [];
 let editingDrillId = null;
+
+let basicsHistoryFilters = {
+  dateFrom: '',
+  dateTo: '',
+  category: 'all',
+  source: 'all',
+  sort: 'newest',
+};
+let basicsHistoryPage = 1;
+const BASICS_PAGE_SIZE = 20;
 
 /**
  * Format date into "3 Oct 2026"
@@ -249,50 +274,52 @@ async function loadBasicsHistory() {
         return;
       }
 
-      if (supabase) {
+      if (supabase && categoryIds.length > 0) {
         // Read entries from results_with_target view for authoritative meets_target calculation
-        const { data, error } = await supabase
-          .from('results_with_target')
-          .select(`
-            id,
-            student_id,
-            category_id,
-            correct,
-            total,
-            time_seconds,
-            note,
-            entry_date,
-            source,
-            practice_mode,
-            verified,
-            verified_at,
-            verified_by,
-            corrected_at,
-            corrected_by,
-            flagged,
-            flag_note,
-            created_at,
-            min_accuracy,
-            min_questions_per_minute,
-            max_time_seconds,
-            meets_target,
-            categories (
-              name,
-              sort_order
-            )
-          `)
-          .eq('student_id', currentProfile.id)
-          .in('category_id', categoryIds)
-          .order('entry_date', { ascending: false })
-          .order('created_at', { ascending: false })
-          .limit(200);
+        allBasicsResults = await fetchAllRowsBatched(async (from, to) => {
+          const { data, error } = await supabase
+            .from('results_with_target')
+            .select(`
+              id,
+              student_id,
+              category_id,
+              correct,
+              total,
+              time_seconds,
+              note,
+              entry_date,
+              source,
+              practice_mode,
+              verified,
+              verified_at,
+              verified_by,
+              corrected_at,
+              corrected_by,
+              flagged,
+              flag_note,
+              created_at,
+              min_accuracy,
+              min_questions_per_minute,
+              max_time_seconds,
+              meets_target,
+              categories (
+                name,
+                sort_order
+              )
+            `)
+            .eq('student_id', currentProfile.id)
+            .in('category_id', categoryIds)
+            .order('entry_date', { ascending: false })
+            .order('created_at', { ascending: false })
+            .order('id', { ascending: false })
+            .range(from, to);
 
-        if (error) {
-          console.warn('Could not fetch basics results_with_target from Supabase:', error.message);
-          allBasicsResults = [];
-        } else {
-          allBasicsResults = data || [];
-        }
+          if (error) {
+            console.warn('Could not fetch basics results_with_target batch:', error.message);
+            return [];
+          }
+          return data || [];
+        }, { batchSize: 1000 });
       } else {
         allBasicsResults = [];
       }
@@ -322,89 +349,217 @@ function renderHistory() {
   const todayContainer = document.getElementById('today-drills-container');
   const pastContainer = document.getElementById('past-drills-container');
   const todayBadge = document.getElementById('today-count-badge');
+  const toolbarContainer = document.getElementById('basics-history-toolbar-container');
+  const paginationContainer = document.getElementById('basics-history-pagination-container');
 
   if (allBasicsResults.length === 0) {
-    todayContainer.innerHTML = `
-      <div class="card" style="padding: var(--space-6); text-align: center; color: var(--text-dim); font-size: var(--text-sm);">
-        No basics speed drills logged yet. Record your first drill above!
-      </div>
-    `;
-    pastContainer.innerHTML = '';
-    todayBadge.textContent = '(0)';
+    if (todayContainer) {
+      todayContainer.innerHTML = `
+        <div class="card" style="padding: var(--space-6); text-align: center; color: var(--text-dim); font-size: var(--text-sm);">
+          No basics speed drills logged yet. Record your first drill above!
+        </div>
+      `;
+    }
+    if (pastContainer) pastContainer.innerHTML = '';
+    if (toolbarContainer) toolbarContainer.innerHTML = '';
+    if (paginationContainer) paginationContainer.innerHTML = '';
+    if (todayBadge) todayBadge.textContent = '(0)';
     return;
   }
 
   // Determine latest date in the dataset to act as "today" or use standard ISO comparison
   const latestDate = allBasicsResults[0]?.entry_date;
-
   const todayItems = allBasicsResults.filter(r => r.entry_date === latestDate);
-  const pastItems = allBasicsResults.filter(r => r.entry_date !== latestDate);
 
-  todayBadge.textContent = `(${todayItems.length})`;
+  if (todayBadge) todayBadge.textContent = `(${todayItems.length})`;
 
   // Render Today's items
-  if (todayItems.length === 0) {
-    todayContainer.innerHTML = `
-      <div class="card" style="padding: var(--space-4); text-align: center; color: var(--text-dim); font-size: var(--text-sm);">
-        No speed drills logged yet for today.
-      </div>
-    `;
-  } else {
-    todayContainer.innerHTML = `
-      <div class="card">
-        ${todayItems.map(item => renderDrillRow(item)).join('')}
-      </div>
-    `;
-  }
-
-  // Render Past 7 days grouped by date
-  if (pastItems.length === 0) {
-    pastContainer.innerHTML = `
-      <div class="card" style="padding: var(--space-4); text-align: center; color: var(--text-dim); font-size: var(--text-sm);">
-        No earlier entries in the past 7 days.
-      </div>
-    `;
-  } else {
-    // Group by entry_date
-    const grouped = new Map();
-    pastItems.forEach(item => {
-      const dateKey = item.entry_date;
-      if (!grouped.has(dateKey)) grouped.set(dateKey, []);
-      grouped.get(dateKey).push(item);
-    });
-
-    let pastHtml = '';
-    grouped.forEach((items, dateKey) => {
-      pastHtml += `
-        <div class="card" style="margin-bottom: var(--space-4);">
-          <div class="card-header" style="padding: var(--space-3) var(--space-5); background-color: var(--bg-surface-subtle);">
-            <span style="font-weight: 700; font-size: var(--text-sm); color: var(--text-main);">
-              📅 ${formatDateDisplay(dateKey)}
-            </span>
-            <span class="num" style="font-size: var(--text-xs); color: var(--text-dim);">
-              ${items.length} ${items.length === 1 ? 'drill' : 'drills'}
-            </span>
-          </div>
-          <div>
-            ${items.map(item => renderDrillRow(item)).join('')}
+  if (todayContainer) {
+    if (todayItems.length === 0) {
+      todayContainer.innerHTML = `
+        <div class="card" style="padding: var(--space-4); text-align: center; color: var(--text-dim); font-size: var(--text-sm);">
+          No speed drills logged yet for today.
+        </div>
+      `;
+    } else {
+      todayContainer.innerHTML = `
+        <div class="card history-compact-card">
+          <div class="table-container" style="border: none; border-radius: 0;">
+            <table class="history-compact-table" aria-label="Today's Basics Drills">
+              <thead>
+                <tr>
+                  <th scope="col">Category</th>
+                  <th scope="col" class="th-num">Score</th>
+                  <th scope="col" class="th-num">Accuracy</th>
+                  <th scope="col" class="th-num">Time</th>
+                  <th scope="col">Date</th>
+                  <th scope="col" class="th-action">Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${todayItems.map(item => renderDrillRow(item, 'today')).join('')}
+              </tbody>
+            </table>
           </div>
         </div>
       `;
+    }
+  }
+
+  // Render Filter Toolbar
+  if (toolbarContainer) {
+    toolbarContainer.innerHTML = renderHistoryFilterToolbarHtml({
+      idPrefix: 'basics',
+      categories: basicsCategories.map(c => ({ id: c.id, name: c.name })),
+      currentFilters: basicsHistoryFilters,
+      hasTyped: true,
     });
-    pastContainer.innerHTML = pastHtml;
+    wireBasicsFilterListeners();
+  }
+
+  // Filter & Sort all results across full history
+  const filtered = filterAndSortHistory(allBasicsResults, basicsHistoryFilters, {
+    sectionKind: 'basics',
+  });
+
+  const paged = paginateHistory(filtered, {
+    page: basicsHistoryPage,
+    pageSize: BASICS_PAGE_SIZE,
+  });
+
+  if (pastContainer) {
+    if (paged.totalCount === 0) {
+      pastContainer.innerHTML = `
+        <div class="card" style="padding: var(--space-6); text-align: center; color: var(--text-dim); font-size: var(--text-sm);">
+          No basics practice history matching the selected filters. Try clearing or adjusting your filters.
+        </div>
+      `;
+    } else {
+      // Group paged items by entry_date
+      const grouped = new Map();
+      paged.items.forEach(item => {
+        const dateKey = item.entry_date || 'Earlier';
+        if (!grouped.has(dateKey)) grouped.set(dateKey, []);
+        grouped.get(dateKey).push(item);
+      });
+
+      let pastHtml = '';
+      grouped.forEach((items, dateKey) => {
+        pastHtml += `
+          <div class="card history-compact-card" style="margin-bottom: var(--space-4);">
+            <div class="card-header" style="padding: var(--space-3) var(--space-5); background-color: var(--bg-surface-subtle); display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-weight: 700; font-size: var(--text-sm); color: var(--text-main);">
+                📅 ${formatDateDisplay(dateKey)}
+              </span>
+              <span class="num" style="font-size: var(--text-xs); color: var(--text-dim);">
+                ${items.length} ${items.length === 1 ? 'drill' : 'drills'}
+              </span>
+            </div>
+            <div class="table-container" style="border: none; border-radius: 0;">
+              <table class="history-compact-table" aria-label="Drills for ${escapeHtml(dateKey)}">
+                <thead>
+                  <tr>
+                    <th scope="col">Category</th>
+                    <th scope="col" class="th-num">Score</th>
+                    <th scope="col" class="th-num">Accuracy</th>
+                    <th scope="col" class="th-num">Time</th>
+                    <th scope="col">Date</th>
+                    <th scope="col" class="th-action">Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${items.map(item => renderDrillRow(item, 'history')).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `;
+      });
+      pastContainer.innerHTML = pastHtml;
+    }
+  }
+
+  // Render Pagination
+  if (paginationContainer) {
+    paginationContainer.innerHTML = renderHistoryPaginationHtml({
+      idPrefix: 'basics',
+      page: paged.page,
+      totalPages: paged.totalPages,
+      totalCount: paged.totalCount,
+    });
+
+    const prevBtn = document.getElementById('basics-btn-prev-page');
+    const nextBtn = document.getElementById('basics-btn-next-page');
+    if (prevBtn) {
+      prevBtn.addEventListener('click', () => {
+        if (basicsHistoryPage > 1) {
+          basicsHistoryPage--;
+          renderHistory();
+        }
+      });
+    }
+    if (nextBtn) {
+      nextBtn.addEventListener('click', () => {
+        if (basicsHistoryPage < paged.totalPages) {
+          basicsHistoryPage++;
+          renderHistory();
+        }
+      });
+    }
   }
 
   attachDrillActionListeners();
 }
 
+function wireBasicsFilterListeners() {
+  const fromInput = document.getElementById('basics-filter-from');
+  const toInput = document.getElementById('basics-filter-to');
+  const catSelect = document.getElementById('basics-filter-cat');
+  const sourceSelect = document.getElementById('basics-filter-source');
+  const sortSelect = document.getElementById('basics-filter-sort');
+  const clearBtn = document.getElementById('basics-btn-clear-filters');
+
+  const onFilterChange = () => {
+    basicsHistoryFilters.dateFrom = fromInput?.value || '';
+    basicsHistoryFilters.dateTo = toInput?.value || '';
+    basicsHistoryFilters.category = catSelect?.value || 'all';
+    basicsHistoryFilters.source = sourceSelect?.value || 'all';
+    basicsHistoryFilters.sort = sortSelect?.value || 'newest';
+    basicsHistoryPage = 1;
+    renderHistory();
+  };
+
+  fromInput?.addEventListener('change', onFilterChange);
+  toInput?.addEventListener('change', onFilterChange);
+  catSelect?.addEventListener('change', onFilterChange);
+  sourceSelect?.addEventListener('change', onFilterChange);
+  sortSelect?.addEventListener('change', onFilterChange);
+
+  clearBtn?.addEventListener('click', () => {
+    basicsHistoryFilters = {
+      dateFrom: '',
+      dateTo: '',
+      category: 'all',
+      source: 'all',
+      sort: 'newest',
+    };
+    basicsHistoryPage = 1;
+    renderHistory();
+  });
+}
+
 /**
- * Render single drill list row
+ * Render single drill list row (Compact 6-column format with expandable Details)
+ *
+ * @param {Record<string, any>} drill
+ * @param {'today'|'history'} [contextPrefix='history'] - Context prefix for distinct DOM IDs
  */
-function renderDrillRow(drill) {
+function renderDrillRow(drill, contextPrefix = 'history') {
   const catName = drill.categories?.name || basicsCategories.find(c => c.id === drill.category_id)?.name || 'Basics';
   const feedback = getScoreFeedback(drill.correct, drill.total);
   const timeFormatted = formatSecondsToMMSS(drill.time_seconds);
-  const isSite = drill.source === 'site';
+  const entrySource = resolveEntrySource(drill, 'basics');
+  const isSite = entrySource === 'site';
   const practiceMode = drill.practice_mode === 'timed' ? 'Timed' : (drill.practice_mode === 'unlimited' ? 'Unlimited' : null);
   const attemptedPerMinute = practiceMode && Number(drill.total) > 0 && Number(drill.time_seconds) > 0
     ? (Math.round((Number(drill.total) / (Number(drill.time_seconds) / 60)) * 10) / 10).toFixed(1)
@@ -415,87 +570,79 @@ function renderDrillRow(drill) {
   const flagNote = drill.flag_note || '';
   const isLocked = isSite || isVerified || isCorrected;
 
-  return `
-    <div class="category-item ${isLocked ? 'row-verified' : ''}" style="margin-bottom: 0; border-radius: 0; border-bottom: 1px solid var(--border-hairline);" data-drill-id="${drill.id}">
-      <div style="display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;">
-        <span style="font-weight: 700; font-size: var(--text-sm); min-width: 70px;">
-          ${escapeHtml(catName)}
-        </span>
-        <span class="num" style="font-size: var(--text-sm); font-weight: 600;">
-          ${drill.correct} / ${drill.total}
-        </span>
-        <span class="score-tag ${feedback.badgeClass}">
-          ${feedback.wrongText}
-        </span>
-        ${timeFormatted ? `
-          <span class="num" style="font-size: var(--text-xs); color: var(--text-muted);">
-            ⏱️ ${timeFormatted}${attemptedPerMinute ? ` · ${attemptedPerMinute} / min` : ''}
-          </span>
-        ` : ''}
-        ${drill.meets_target === true ? `
-          <span class="status-chip chip-verified" title="Meets target benchmark">
-            🎯 Target met
-          </span>
-        ` : drill.meets_target === false ? `
-          <span class="status-chip" style="background-color: rgba(239, 68, 68, 0.12); color: #B91C1C; border: 1px solid rgba(239, 68, 68, 0.3);" title="Below target benchmark">
-            ⚠️ Below target
-          </span>
-        ` : ''}
-        ${isSite ? `
-          <span class="status-chip chip-verified" title="Completed online and recorded by the site (locked)">
-            Recorded by the site
-          </span>
-          ${practiceMode ? `<span class="status-chip chip-unverified">${practiceMode}</span>` : ''}
-        ` : `
-          <span class="status-chip chip-unverified" title="Manually typed score entry">
-            Typed
-          </span>
-          ${practiceMode ? `<span class="status-chip chip-unverified">${practiceMode}</span>` : ''}
-          ${isVerified ? `
-            <span class="verified-lock-indicator" title="Verified by teacher (locked)">
-              🔒 Verified
-            </span>
-          ` : ''}
-        `}
-        ${isCorrected ? `
-          <span class="status-chip chip-corrected" title="Corrected by teacher (locked)">
-            ✏️ Corrected by teacher
-          </span>
-        ` : ''}
-        ${isFlagged ? `
-          <div class="status-chip chip-flagged" style="display: inline-flex; flex-direction: column; align-items: flex-start; text-align: left; font-size: 11px; max-width: 260px; white-space: normal; line-height: 1.25; padding: 4px 6px;">
-            <span style="font-weight: 600;">⚠️ Your teacher asked you to check this entry</span>
-            ${flagNote ? `<span style="font-size: 10px; color: #78350F; margin-top: 2px;">Note: ${escapeHtml(flagNote)}</span>` : ''}
-          </div>
-        ` : ''}
-      </div>
+  const targetStatusHtml = drill.meets_target === true
+    ? '<span class="status-chip chip-verified" title="Meets target benchmark">🎯 Target met</span>'
+    : drill.meets_target === false
+    ? '<span class="status-chip" style="background-color: rgba(239, 68, 68, 0.12); color: #B91C1C; border: 1px solid rgba(239, 68, 68, 0.3);" title="Below target benchmark">⚠️ Below target</span>'
+    : '—';
 
-      <div class="category-actions">
-        ${!isLocked ? `
-          <button
-            type="button"
-            class="btn btn-outline btn-sm btn-edit-drill"
-            data-id="${drill.id}"
-            title="Edit drill"
-          >
-            Edit
-          </button>
-          <button
-            type="button"
-            class="btn btn-outline btn-sm btn-delete-drill"
-            data-id="${drill.id}"
-            title="Delete drill"
-          >
-            Delete
-          </button>
-        ` : `
-          <span style="font-size: 11px; color: var(--text-dim); padding-right: var(--space-2);">
-            Locked
-          </span>
-        `}
-      </div>
-    </div>
-  `;
+  // Authoritative derivation of status & lock:
+  // Online sessions are locked against modification, but only teacher review marks verified/corrected
+  const lockExplanation = practiceRecordStatus(drill, { readOnly: false });
+
+  // Authoritative note: database column is "note", with fallback to "notes"
+  const actualNote = drill.note ?? drill.notes ?? '';
+
+  // Sentence-case labels without tiny uppercase
+  const detailsMeta = [
+    { label: 'Wrong answers', valueHtml: `<span class="score-tag ${feedback.badgeClass}">${escapeHtml(feedback.wrongText)}</span>` },
+    { label: 'Speed / rate', valueHtml: attemptedPerMinute ? `${attemptedPerMinute} / min` : '—' },
+    { label: 'Entry source', valueHtml: renderSourceChipHtml(entrySource) },
+  ];
+
+  // Only include practice mode if defined; never invent "Standard"
+  if (practiceMode) {
+    detailsMeta.push({ label: 'Practice mode', valueHtml: `<span class="status-chip chip-unverified">${practiceMode}</span>` });
+  }
+
+  detailsMeta.push(
+    { label: 'Target benchmark', valueHtml: targetStatusHtml },
+    { label: 'Status & lock', valueHtml: lockExplanation },
+    { label: 'Notes', valueHtml: actualNote ? escapeHtml(actualNote) : '<span style="color: var(--text-dim);">None</span>' }
+  );
+
+  const actionsHtml = !isLocked
+    ? `
+      <button
+        type="button"
+        class="btn btn-outline btn-sm btn-edit-drill"
+        data-id="${drill.id}"
+        style="min-height: 44px; min-width: 80px;"
+        title="Edit drill"
+      >
+        Edit
+      </button>
+      <button
+        type="button"
+        class="btn btn-outline btn-sm btn-delete-drill"
+        data-id="${drill.id}"
+        style="min-height: 44px; min-width: 80px; color: #DC2626;"
+        title="Delete drill"
+      >
+        Delete
+      </button>
+    `
+    : `
+      <span style="font-size: 11px; color: var(--text-dim); padding-right: var(--space-2);">
+        🔒 Locked (editing and deletion disabled)
+      </span>
+    `;
+
+  return renderCompactHistoryRowHtml({
+    rowId: `${contextPrefix}-drill-${drill.id}`,
+    category: catName,
+    correct: drill.correct,
+    total: drill.total,
+    timeFormatted: timeFormatted,
+    dateVal: drill.entry_date,
+    isFlagged: isFlagged,
+    flagNote: flagNote,
+    statusBadgeHtml: '',
+    detailsMeta: detailsMeta,
+    actionsHtml: actionsHtml,
+    mainRowAttrs: `data-drill-id="${drill.id}"`,
+    mainRowClass: isLocked ? 'row-verified' : '',
+  });
 }
 
 /**
@@ -782,6 +929,149 @@ async function initBasics() {
   await Promise.all([loadBasicsCategories(), loadActiveThresholds()]);
   updateCategoryTargetDisplay(document.getElementById('basics-category-select')?.value);
   await loadBasicsHistory();
+  await handleBasicsUrlParams();
+}
+
+/**
+ * Handles incoming URL query parameter for result linking:
+ * - ?resultId=<uuid>
+ * - Verifies recipient ownership and record existence
+ * - Selects the required category/date filters and pagination page
+ * - Scrolls to and highlights the referenced row
+ */
+export async function handleBasicsUrlParams() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const resultId = urlParams.get('resultId');
+  if (!resultId) return;
+
+  let targetRow = allBasicsResults.find((r) => String(r.id) === String(resultId));
+
+  if (!targetRow && isSupabaseConfigured()) {
+    try {
+      const supabase = await getSupabase();
+      if (supabase) {
+        const { data, error } = await supabase
+          .from('results_with_target')
+          .select(`
+            id,
+            student_id,
+            category_id,
+            correct,
+            total,
+            time_seconds,
+            note,
+            entry_date,
+            source,
+            practice_mode,
+            verified,
+            verified_at,
+            verified_by,
+            corrected_at,
+            corrected_by,
+            flagged,
+            flag_note,
+            created_at,
+            min_accuracy,
+            min_questions_per_minute,
+            max_time_seconds,
+            meets_target,
+            categories (
+              name,
+              sort_order
+            )
+          `)
+          .eq('id', resultId)
+          .maybeSingle();
+
+        if (error || !data) {
+          showToast('error', 'The referenced practice score could not be found.');
+          return;
+        }
+
+        if (currentProfile?.role !== 'admin' && data.student_id !== currentProfile?.id) {
+          showToast('error', 'You do not have permission to view this practice score.');
+          return;
+        }
+
+        targetRow = data;
+        allBasicsResults.unshift(targetRow);
+      }
+    } catch {
+      showToast('error', 'The referenced practice score could not be found.');
+      return;
+    }
+  }
+
+  const activeProfile = currentProfile || (isDemoMode() ? (JSON.parse(localStorage.getItem('trendz_current_user') || 'null') || { id: 'usr-101', role: 'student' }) : null);
+
+  if (!targetRow && !isSupabaseConfigured() && isDemoMode() && DemoDB) {
+    try {
+      const demoList = typeof DemoDB.getResults === 'function'
+        ? DemoDB.getResults()
+        : DemoDB.results || JSON.parse(localStorage.getItem('trendz_demo_results_v3') || localStorage.getItem('tt_results') || '[]');
+      const found = demoList.find((r) => String(r.id) === String(resultId)) || null;
+      if (found) {
+        targetRow = found;
+        allBasicsResults.unshift(targetRow);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (!targetRow) {
+    showToast('error', 'The referenced practice score could not be found.');
+    return;
+  }
+
+  if (activeProfile?.role !== 'admin' && targetRow.student_id && targetRow.student_id !== activeProfile?.id) {
+    showToast('error', 'You do not have permission to view this practice score.');
+    return;
+  }
+
+  // Adjust filters so targetRow is not excluded
+  if (basicsHistoryFilters.category !== 'all' && basicsHistoryFilters.category !== String(targetRow.category_id)) {
+    basicsHistoryFilters.category = 'all';
+  }
+  if (basicsHistoryFilters.source !== 'all') {
+    const rowSource = resolveEntrySource(targetRow, 'basics');
+    if (basicsHistoryFilters.source !== rowSource) {
+      basicsHistoryFilters.source = 'all';
+    }
+  }
+  const rowDateIST = toISTDateString(targetRow.entry_date || targetRow.created_at);
+  if (basicsHistoryFilters.dateFrom && rowDateIST && rowDateIST < basicsHistoryFilters.dateFrom) {
+    basicsHistoryFilters.dateFrom = '';
+  }
+  if (basicsHistoryFilters.dateTo && rowDateIST && rowDateIST > basicsHistoryFilters.dateTo) {
+    basicsHistoryFilters.dateTo = '';
+  }
+
+  const filtered = filterAndSortHistory(allBasicsResults, basicsHistoryFilters, {
+    sectionKind: 'basics',
+  });
+  const targetIdx = filtered.findIndex((r) => String(r.id) === String(resultId));
+  if (targetIdx !== -1) {
+    basicsHistoryPage = Math.floor(targetIdx / BASICS_PAGE_SIZE) + 1;
+  }
+
+  renderHistory();
+
+  // Scroll and highlight
+  setTimeout(() => {
+    const rowEl = document.querySelector(`[data-drill-id="${resultId}"]`);
+    if (rowEl) {
+      rowEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      rowEl.classList.add('row-linked-highlight');
+      rowEl.style.outline = '2px solid var(--color-primary, #4338CA)';
+      rowEl.style.backgroundColor = 'var(--bg-highlight, rgba(99, 102, 241, 0.12))';
+      setTimeout(() => {
+        rowEl.style.transition = 'background-color 2s ease, outline 2s ease';
+        rowEl.style.backgroundColor = '';
+        rowEl.style.outline = '';
+      }, 3500);
+    }
+  }, 100);
 }
 
 document.addEventListener('DOMContentLoaded', initBasics);

@@ -750,7 +750,7 @@ async function initCategories() {
   });
 
   setupModalListeners();
-  setupAdminNav();
+  setupAdminNav(profile);
   renderDemoBanner();
 
   // Add Category modal trigger

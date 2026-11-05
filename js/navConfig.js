@@ -12,12 +12,26 @@
 
 export const NAV_MOBILE_BREAKPOINT_PX = 1024;
 
+export const SETTINGS_SUBPAGE_PATHS = Object.freeze([
+  '/pages/todos.html',
+  '/pages/resources.html',
+  '/pages/categories.html',
+  '/pages/rounds.html',
+  '/pages/targets.html',
+  '/pages/competition.html',
+  '/pages/announcements.html',
+  '/pages/import.html',
+  '/pages/backup.html',
+]);
+
 export const NAV_STAGE_AND_PUBLIC_ALLOWLIST = Object.freeze([
   '/index.html',
   '/pages/basics-practice.html',
   '/pages/element-drill.html',
   '/pages/memoriad-play.html',
   '/pages/student-detail.html',
+  '/pages/report.html',
+  ...SETTINGS_SUBPAGE_PATHS,
 ]);
 
 export const NAV_CONFIG = Object.freeze({
@@ -190,95 +204,15 @@ export const NAV_CONFIG = Object.freeze({
       desktopPlacement: 'inline',
     }),
 
-    // Settings Hub + All Admin Setup Pages (rendered under "Setup ▾" on desktop and "Settings" group on mobile)
+    // Settings Hub: direct top-level link (replaces Setup dropdown)
     Object.freeze({
-      id: 'admin-settings-hub',
-      label: 'Settings hub',
+      id: 'admin-settings',
+      label: 'Settings',
       href: '/pages/settings.html',
       group: 'Settings',
-      inline: false,
-      desktopPlacement: 'setup-dropdown',
+      inline: true,
+      desktopPlacement: 'inline',
       isHub: true,
-    }),
-    Object.freeze({
-      id: 'admin-todos',
-      label: 'Daily To-Do',
-      href: '/pages/todos.html',
-      group: 'Settings',
-      inline: false,
-      desktopPlacement: 'setup-dropdown',
-    }),
-    Object.freeze({
-      id: 'admin-resources',
-      label: 'Resources',
-      href: '/pages/resources.html',
-      group: 'Settings',
-      inline: false,
-      desktopPlacement: 'setup-dropdown',
-    }),
-    Object.freeze({
-      id: 'admin-categories',
-      label: 'Categories',
-      href: '/pages/categories.html',
-      group: 'Settings',
-      inline: false,
-      desktopPlacement: 'setup-dropdown',
-    }),
-    Object.freeze({
-      id: 'admin-rounds',
-      label: 'Rounds',
-      href: '/pages/rounds.html',
-      group: 'Settings',
-      inline: false,
-      desktopPlacement: 'setup-dropdown',
-    }),
-    Object.freeze({
-      id: 'admin-targets',
-      label: 'Targets',
-      href: '/pages/targets.html',
-      group: 'Settings',
-      inline: false,
-      desktopPlacement: 'setup-dropdown',
-    }),
-    Object.freeze({
-      id: 'admin-competition',
-      label: 'Competition settings',
-      href: '/pages/competition.html',
-      group: 'Settings',
-      inline: false,
-      desktopPlacement: 'setup-dropdown',
-    }),
-    Object.freeze({
-      id: 'admin-announcements',
-      label: 'Announcements',
-      href: '/pages/announcements.html',
-      group: 'Settings',
-      inline: false,
-      desktopPlacement: 'setup-dropdown',
-    }),
-    Object.freeze({
-      id: 'admin-reports',
-      label: 'Reports',
-      href: '/pages/report.html',
-      group: 'Settings',
-      inline: false,
-      desktopPlacement: 'setup-dropdown',
-    }),
-    Object.freeze({
-      id: 'admin-import',
-      label: 'Import',
-      href: '/pages/import.html',
-      group: 'Settings',
-      inline: false,
-      desktopPlacement: 'setup-dropdown',
-    }),
-    Object.freeze({
-      id: 'admin-backup',
-      label: 'Backup',
-      href: '/pages/backup.html',
-      group: 'Settings',
-      inline: false,
-      desktopPlacement: 'setup-dropdown',
     }),
 
     // Account & Sign out
@@ -314,7 +248,7 @@ export function getRoleNavItems(role) {
 /**
  * Returns the top-level inline navigation links shown on desktop (>= 1024px).
  * Student: Today, Round scores, Weekly Test, Leaderboard, Monthly Report
- * Admin: Overview, Review, Students, Attendance, Weekly Tests, Leaderboard, Monthly Report
+ * Admin: Overview, Review, Students, Attendance, Weekly Tests, Leaderboard, Monthly Report, Settings
  * @param {'student' | 'admin'} role
  */
 export function getInlineNavItems(role) {
@@ -330,9 +264,7 @@ export function getInlineNavItems(role) {
  *   Weekly Test, Leaderboard, Monthly Report, Notifications bell
  *
  * Admin desktop layout:
- *   Overview, Review, Students, Attendance, Weekly Tests, Leaderboard, Monthly Report,
- *   Setup ▾ (Settings hub, Daily To-Do, Resources, Categories, Rounds, Targets,
- *            Competition settings, Announcements, Reports, Import, Backup)
+ *   Overview, Review, Students, Attendance, Weekly Tests, Leaderboard, Monthly Report, Settings
  *
  * @param {'student' | 'admin'} role
  * @returns {Array<
@@ -424,6 +356,13 @@ export function isNavItemCurrent(item, pathname) {
   }
   // Treat student-detail.html as active under Students in the inline bar
   if (item.href === '/pages/students.html' && cleanPath.endsWith('/student-detail.html')) {
+    return true;
+  }
+  // Treat Settings subpages as active under Settings in both desktop and mobile nav
+  if (
+    item.href === '/pages/settings.html' &&
+    SETTINGS_SUBPAGE_PATHS.some((subPath) => cleanPath === subPath || cleanPath.endsWith(subPath))
+  ) {
     return true;
   }
   return false;

@@ -11,6 +11,7 @@
  */
 
 import { requireAuth } from './guard.js';
+import './infoTooltip.js';
 import { getSupabase, DemoDB } from './supabaseClient.js';
 import { isSupabaseConfigured } from './config.js';
 import { isDemoMode } from './demoDb.js';

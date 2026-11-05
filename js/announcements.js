@@ -143,7 +143,7 @@ async function initAnnouncementsPage() {
   const pillContainer = document.getElementById('user-pill-container');
   if (pillContainer) pillContainer.style.display = 'flex';
 
-  setupAdminNav();
+  setupAdminNav(currentProfile);
   setupModalListeners();
 
   resetComposeForm();

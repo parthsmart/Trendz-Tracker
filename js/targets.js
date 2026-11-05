@@ -32,7 +32,7 @@ async function initTargetsPage() {
   if (!currentProfile) return;
 
   renderHeaderUser(currentProfile);
-  setupAdminNav();
+  setupAdminNav(currentProfile);
   setupModalListeners();
 
   if (isDemoMode()) {

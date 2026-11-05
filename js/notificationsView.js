@@ -64,9 +64,10 @@ export function stageLabel(days_left) {
 export function groupNotifications(items) {
   const tests = [];
   const announcements = [];
+  const messages = [];
 
   if (!Array.isArray(items)) {
-    return { tests, weeklyTests: tests, announcements };
+    return { tests, weeklyTests: tests, announcements, messages };
   }
 
   for (const item of items) {
@@ -76,6 +77,8 @@ export function groupNotifications(items) {
       tests.push(item);
     } else if (kind === 'announcement') {
       announcements.push(item);
+    } else if (kind === 'private_message' || kind === 'message' || kind === 'trainer_note' || kind === 'student_message') {
+      messages.push(item);
     }
   }
 
@@ -83,7 +86,34 @@ export function groupNotifications(items) {
     tests,
     weeklyTests: tests,
     announcements,
+    messages,
   };
+}
+
+/**
+ * Counts the active unread notifications for bell badge and count indicators:
+ * - Private messages: counted only if unread (`!item.read_at`).
+ * - Weekly test reminders and announcements: all active items count towards the badge.
+ *
+ * @param {Array<Record<string, any>>} items
+ * @returns {number}
+ */
+export function countActiveUnreadNotifications(items) {
+  if (!Array.isArray(items)) return 0;
+  return items.filter((item) => {
+    if (!item || typeof item !== 'object') return false;
+    const kind = String(item.kind || '').toLowerCase();
+    const ref = String(item.ref || '');
+    if (
+      kind === 'private_message' ||
+      kind === 'student_message' ||
+      kind === 'trainer_note' ||
+      ref.startsWith('msg:')
+    ) {
+      return !item.read_at;
+    }
+    return true;
+  }).length;
 }
 
 /**

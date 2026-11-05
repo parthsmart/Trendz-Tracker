@@ -133,9 +133,16 @@ export function setupModalListeners() {
 /**
  * Normalizes the Admin Navigation bar (via Phase 14d single-source headerNav),
  * Settings breadcrumb, and table Compact density toggle across all admin pages.
+ * Strictly requires a verified, active admin profile passed by an authorized controller.
+ * Never guesses or falls back to unverified cached admin profiles from storage.
  */
-export function setupAdminNav() {
+export function setupAdminNav(profile = null) {
   if (typeof document === 'undefined' || typeof window === 'undefined') return;
+
+  // Strictly require an authenticated, active admin profile passed directly from caller
+  if (!profile || profile.role !== 'admin' || profile.active === false) {
+    return;
+  }
 
   const pathname = window.location.pathname || '';
   const breadcrumbMeta = getSettingsBreadcrumb(pathname);
@@ -143,7 +150,7 @@ export function setupAdminNav() {
   // 1. Mount Phase 14e unified header & mobile menu for admin role if not already set to admin
   const header = document.querySelector('.app-header');
   if (!document.getElementById('btn-header-nav-menu') || header?.getAttribute('data-nav-role') !== 'admin') {
-    setupHeaderNavigation({ role: 'admin' });
+    setupHeaderNavigation(profile);
   }
 
   // 2. Inject "Settings > <Page>" breadcrumb on Settings sub-pages if not already present

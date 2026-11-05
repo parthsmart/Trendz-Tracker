@@ -61,7 +61,7 @@ import {
 } from './periods.js';
 import { createDrillPlayer, computeRemainingSeconds } from './drillPlayer.js';
 import { formatDisplayDateIST, formatSecondsToTime } from './stats.js';
-import { openModal, closeModal, setupModalListeners, setupAdminNav } from './modal.js';
+import { openModal, closeModal, setupModalListeners } from './modal.js';
 
 const WT_SCOPE_STORAGE_KEY = 'trendz_wt_leaderboard_scope_v1';
 
@@ -138,7 +138,6 @@ async function initStudentWeeklyTestPage() {
   wtScope = readStoredWtScope();
 
   renderHeaderUser(currentProfile);
-  setupAdminNav();
   setupModalListeners();
 
   if (isDemoMode()) {
@@ -162,6 +161,7 @@ async function initStudentWeeklyTestPage() {
     writeStoredWtScope('level');
   }
   syncWtScopeUI();
+  await handleWeeklyTestUrlParams();
 }
 
 function setupBeforeUnloadGuard() {
@@ -675,7 +675,7 @@ function renderTestCard(test, groupKind) {
         : '';
 
     return `
-      <article class="card" style="padding: var(--space-5); ${borderStyle}">
+      <article class="card" data-test-card-id="${escapeHtml(test.id)}" style="padding: var(--space-5); ${borderStyle}">
         <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3);">
           <div>
             <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
@@ -771,7 +771,7 @@ function renderTestCard(test, groupKind) {
               }
 
               return `
-                <div style="padding: var(--space-3) var(--space-4); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-surface-subtle); display: flex; flex-direction: column; justify-content: space-between; gap: var(--space-3);">
+                <div data-section-item="true" data-section-id="${escapeHtml(sec.section_id || sec.id || '')}" data-category-id="${escapeHtml(sec.category_id || '')}" style="padding: var(--space-3) var(--space-4); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-surface-subtle); display: flex; flex-direction: column; justify-content: space-between; gap: var(--space-3);">
                   <div>
                     <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2);">
                       <span class="status-chip chip-unverified" style="font-size: 10px; padding: 1px 6px;">
@@ -807,7 +807,7 @@ function renderTestCard(test, groupKind) {
   const scores = Array.isArray(test.scores) ? test.scores : [];
 
   return `
-    <article class="card" style="padding: var(--space-5);">
+    <article class="card" data-test-card-id="${escapeHtml(test.id)}" style="padding: var(--space-5);">
       <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: var(--space-2);">
         <div>
           <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
@@ -846,7 +846,7 @@ function renderTestCard(test, groupKind) {
                   const fb = hasScore ? getScoreFeedback(sec.correct, sec.total) : null;
 
                   return `
-                    <div style="padding: var(--space-3) var(--space-4); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-surface-subtle);">
+                    <div data-section-item="true" data-section-id="${escapeHtml(sec.section_id || sec.id || '')}" data-category-id="${escapeHtml(sec.category_id || '')}" style="padding: var(--space-3) var(--space-4); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-surface-subtle);">
                       <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2);">
                         <span class="status-chip chip-unverified" style="font-size: 10px; padding: 1px 6px;">
                           ${escapeHtml(kindLabel)}
@@ -898,7 +898,7 @@ function renderTestCard(test, groupKind) {
                     const labelText =
                       sc.category || sectionKindLabel(sc.kind) || 'Section';
                     return `
-                      <div style="padding: var(--space-3) var(--space-4); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-surface-subtle);">
+                      <div data-section-item="true" data-section-id="${escapeHtml(sec.section_id || sec.id || '')}" data-category-id="${escapeHtml(sec.category_id || '')}" style="padding: var(--space-3) var(--space-4); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-surface-subtle);">
                         <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2);">
                           <span style="font-weight: 700; font-size: var(--text-sm); color: var(--text-main);">
                             ${escapeHtml(labelText)}
@@ -1461,6 +1461,179 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+/**
+ * Handles incoming URL query parameters for weekly test linking:
+ * - ?testId=<uuid>
+ * - ?attemptId=<uuid>
+ * - Verifies recipient ownership and record existence
+ * - Locates and highlights the referenced weekly test card and attempt section
+ * - Strictly NEVER starts, resumes, or counts down the section automatically
+ * - Shows a user-facing toast error for missing or unauthorized records
+ */
+export async function handleWeeklyTestUrlParams() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const testId = urlParams.get('testId');
+  const attemptId = urlParams.get('attemptId');
+  if (!testId && !attemptId) return;
+
+  let targetTestId = testId || null;
+  let targetSectionId = null;
+  let targetCategoryId = null;
+
+  const activeProfile = currentProfile || (isDemoMode() ? (JSON.parse(localStorage.getItem('trendz_current_user') || 'null') || { id: 'usr-101', role: 'student' }) : null);
+
+  // 1. If attemptId is provided, verify attempt existence and recipient ownership
+  if (attemptId) {
+    let attRow = null;
+    if (isSupabaseConfigured()) {
+      try {
+        const supabase = await getSupabase();
+        if (supabase) {
+          const { data, error } = await supabase
+            .from('weekly_test_attempts')
+            .select('id, test_id, student_id, section_id, category_id')
+            .eq('id', attemptId)
+            .maybeSingle();
+
+          if (error || !data) {
+            showToast('error', 'The referenced weekly test attempt could not be found.');
+            return;
+          }
+          attRow = data;
+        }
+      } catch {
+        showToast('error', 'The referenced weekly test attempt could not be found.');
+        return;
+      }
+    } else if (isDemoMode()) {
+      try {
+        const attempts = JSON.parse(
+          localStorage.getItem('trendz_demo_weekly_attempts_v1') ||
+          localStorage.getItem('tt_weekly_attempts') ||
+          '[]'
+        );
+        attRow = attempts.find((a) => String(a.id) === String(attemptId)) || null;
+      } catch {
+        attRow = null;
+      }
+    }
+
+    if (!attRow) {
+      showToast('error', 'The referenced weekly test attempt could not be found.');
+      return;
+    }
+
+    if (activeProfile?.role !== 'admin' && attRow.student_id && attRow.student_id !== activeProfile?.id) {
+      showToast('error', 'You do not have permission to view this weekly test attempt.');
+      return;
+    }
+
+    targetTestId = targetTestId || attRow.test_id;
+    targetSectionId = attRow.section_id || null;
+    targetCategoryId = attRow.category_id || null;
+  }
+
+  // 2. Verify test existence and student eligibility
+  if (targetTestId) {
+    let targetTest = myTests.find((t) => String(t.id) === String(targetTestId));
+
+    if (!targetTest) {
+      if (isSupabaseConfigured()) {
+        try {
+          const supabase = await getSupabase();
+          if (supabase) {
+            const { data, error } = await supabase
+              .from('weekly_tests')
+              .select('id, audience_level')
+              .eq('id', targetTestId)
+              .maybeSingle();
+
+            if (error || !data) {
+              showToast('error', 'The referenced weekly test could not be found.');
+              return;
+            }
+
+            if (
+              activeProfile?.role !== 'admin' &&
+              data.audience_level &&
+              activeProfile?.level &&
+              String(data.audience_level).trim().toLowerCase() !== String(activeProfile.level).trim().toLowerCase()
+            ) {
+              showToast('error', 'You do not have permission to view this weekly test.');
+              return;
+            }
+          }
+        } catch {
+          showToast('error', 'The referenced weekly test could not be found.');
+          return;
+        }
+      } else if (isDemoMode()) {
+        try {
+          const allTests = JSON.parse(
+            localStorage.getItem('trendz_demo_weekly_tests_v3') ||
+            localStorage.getItem('tt_weekly_tests') ||
+            '[]'
+          );
+          const tData = allTests.find((t) => String(t.id) === String(targetTestId));
+          if (!tData) {
+            showToast('error', 'The referenced weekly test could not be found.');
+            return;
+          }
+          if (
+            activeProfile?.role !== 'admin' &&
+            tData.audience_level &&
+            activeProfile?.level &&
+            String(tData.audience_level).trim().toLowerCase() !== String(activeProfile.level).trim().toLowerCase()
+          ) {
+            showToast('error', 'You do not have permission to view this weekly test.');
+            return;
+          }
+        } catch {
+          showToast('error', 'The referenced weekly test could not be found.');
+          return;
+        }
+      }
+    }
+
+    // 3. Locate and highlight card and section in DOM without starting or resuming
+    setTimeout(() => {
+      const cardEl = document.querySelector(`[data-test-card-id="${targetTestId}"]`);
+      if (cardEl) {
+        cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        cardEl.classList.add('card-linked-highlight');
+        cardEl.style.outline = '2px solid var(--color-primary, #4338CA)';
+        cardEl.style.boxShadow = '0 0 0 4px rgba(99, 102, 241, 0.2)';
+
+        let secEl = null;
+        if (targetSectionId) {
+          secEl = cardEl.querySelector(`[data-section-id="${targetSectionId}"]`);
+        }
+        if (!secEl && targetCategoryId) {
+          secEl = cardEl.querySelector(`[data-category-id="${targetCategoryId}"]`);
+        }
+
+        if (secEl) {
+          secEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          secEl.classList.add('section-linked-highlight');
+          secEl.style.outline = '2px solid var(--color-primary, #4338CA)';
+          secEl.style.backgroundColor = 'var(--bg-highlight, rgba(99, 102, 241, 0.12))';
+          setTimeout(() => {
+            secEl.style.transition = 'background-color 2s ease, outline 2s ease';
+            secEl.style.backgroundColor = '';
+            secEl.style.outline = '';
+          }, 3500);
+        }
+
+        setTimeout(() => {
+          cardEl.style.transition = 'box-shadow 2s ease, outline 2s ease';
+          cardEl.style.outline = '';
+          cardEl.style.boxShadow = '';
+        }, 3500);
+      }
+    }, 150);
+  }
 }
 
 document.addEventListener('DOMContentLoaded', initStudentWeeklyTestPage);

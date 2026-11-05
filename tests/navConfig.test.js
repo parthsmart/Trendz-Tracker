@@ -14,6 +14,7 @@ import {
   NAV_MOBILE_BREAKPOINT_PX,
   NAV_CONFIG,
   NAV_STAGE_AND_PUBLIC_ALLOWLIST,
+  SETTINGS_SUBPAGE_PATHS,
   getRoleNavItems,
   getInlineNavItems,
   getDesktopNavEntries,
@@ -21,6 +22,7 @@ import {
   isNavItemCurrent,
   formatShortFirstName,
 } from '../js/navConfig.js';
+import { SETTINGS_ENTRIES } from '../js/settingsHub.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -168,6 +170,7 @@ test('desktop navigation structure matches Phase 14e pre-14d restoration for stu
     'Weekly Tests',
     'Leaderboard',
     'Monthly Report',
+    'Settings',
   ]);
 
   const adminDesktopEntries = getDesktopNavEntries('admin');
@@ -181,13 +184,12 @@ test('desktop navigation structure matches Phase 14e pre-14d restoration for stu
       'Weekly Tests',
       'Leaderboard',
       'Monthly Report',
-      'Setup ▾',
+      'Settings',
     ]
   );
 
   const setupDropdown = adminDesktopEntries.find((e) => e.type === 'dropdown');
-  assert.equal(setupDropdown.items.length, 11);
-  assert.equal(setupDropdown.items[0].href, '/pages/settings.html');
+  assert.equal(setupDropdown, undefined, 'Admin desktop navigation should have zero dropdowns');
 });
 
 test('student config includes Practice group, Notifications badge key, Account, and Sign out', () => {
@@ -211,32 +213,25 @@ test('student config includes Practice group, Notifications badge key, Account, 
   );
 });
 
-test('admin config links the Settings hub page and lists all admin settings pages under Settings', () => {
+test('admin config has exactly one Settings entry linking to /pages/settings.html and exactly one Monthly Report entry', () => {
   const groups = getGroupedNavItems('admin');
   const settingsGroup = groups.find((g) => g.group === 'Settings');
   assert.ok(settingsGroup, 'Expected Settings group in admin nav');
+  assert.equal(settingsGroup.items.length, 1);
+  assert.equal(settingsGroup.items[0].href, '/pages/settings.html');
+  assert.equal(settingsGroup.items[0].label, 'Settings');
 
-  const hrefs = settingsGroup.items.map((i) => i.href);
-  assert.equal(hrefs[0], '/pages/settings.html', 'Settings hub page should be linked first in Settings group');
+  const overviewGroup = groups.find((g) => g.group === 'Overview');
+  assert.ok(overviewGroup, 'Expected Overview group in admin nav');
+  const monthlyReportItems = overviewGroup.items.filter((i) => i.href === '/pages/monthly-report.html');
+  assert.equal(monthlyReportItems.length, 1, 'Expected exactly one Monthly Report item in admin nav');
 
-  const expectedSettingsPages = [
-    '/pages/settings.html',
-    '/pages/todos.html',
-    '/pages/resources.html',
-    '/pages/categories.html',
-    '/pages/rounds.html',
-    '/pages/targets.html',
-    '/pages/competition.html',
-    '/pages/announcements.html',
-    '/pages/report.html',
-    '/pages/import.html',
-    '/pages/backup.html',
-  ];
-
-  for (const expectedHref of expectedSettingsPages) {
+  // Verify all setup tools are in SETTINGS_SUBPAGE_PATHS and reachable
+  assert.equal(SETTINGS_SUBPAGE_PATHS.length, 9);
+  for (const subPath of SETTINGS_SUBPAGE_PATHS) {
     assert.ok(
-      hrefs.includes(expectedHref),
-      `Expected admin Settings group to include ${expectedHref}`
+      SETTINGS_ENTRIES.some((e) => e.href === subPath),
+      `Expected ${subPath} to be reachable via SETTINGS_ENTRIES in settings hub`
     );
   }
 });
@@ -248,6 +243,40 @@ test('isNavItemCurrent and formatShortFirstName behave accurately', () => {
 
   const signoutItem = NAV_CONFIG.student.find((i) => i.action === 'signout');
   assert.equal(isNavItemCurrent(signoutItem, '/pages/student.html'), false);
+
+  // Settings item highlights for settings hub and all 9 subpages
+  const settingsItem = NAV_CONFIG.admin.find((i) => i.href === '/pages/settings.html');
+  assert.ok(settingsItem, 'Expected admin Settings nav item');
+  assert.equal(isNavItemCurrent(settingsItem, '/pages/settings.html'), true);
+  assert.equal(isNavItemCurrent(settingsItem, '/pages/settings.html?group=all'), true);
+
+  for (const subPath of SETTINGS_SUBPAGE_PATHS) {
+    assert.equal(
+      isNavItemCurrent(settingsItem, subPath),
+      true,
+      `Expected Settings nav item to be highlighted on subpage ${subPath}`
+    );
+    assert.equal(
+      isNavItemCurrent(settingsItem, `${subPath}?tab=edit&id=1`),
+      true,
+      `Expected Settings nav item to be highlighted on subpage ${subPath} with query params`
+    );
+  }
+
+  // Settings item does NOT highlight for other admin pages
+  assert.equal(isNavItemCurrent(settingsItem, '/pages/monthly-report.html'), false);
+  assert.equal(isNavItemCurrent(settingsItem, '/pages/admin.html'), false);
+  assert.equal(isNavItemCurrent(settingsItem, '/pages/students.html'), false);
+  assert.equal(isNavItemCurrent(settingsItem, '/pages/attendance.html'), false);
+  assert.equal(isNavItemCurrent(settingsItem, '/pages/weekly-tests.html'), false);
+  assert.equal(isNavItemCurrent(settingsItem, '/pages/leaderboard.html'), false);
+
+  // Monthly Report item highlights for monthly-report.html only
+  const monthlyReportItem = NAV_CONFIG.admin.find((i) => i.href === '/pages/monthly-report.html');
+  assert.ok(monthlyReportItem);
+  assert.equal(isNavItemCurrent(monthlyReportItem, '/pages/monthly-report.html'), true);
+  assert.equal(isNavItemCurrent(monthlyReportItem, '/pages/monthly-report.html?id=STU1&month=2026-10'), true);
+  assert.equal(isNavItemCurrent(monthlyReportItem, '/pages/settings.html'), false);
 
   assert.equal(formatShortFirstName('Aarav Sharma'), 'Aarav');
   assert.equal(formatShortFirstName('   Priya   '), 'Priya');

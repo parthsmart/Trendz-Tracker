@@ -90,6 +90,18 @@
 
           <!-- Content Groups Container -->
           <div id="notifications-groups-wrapper" style="display: none; flex-direction: column; gap: var(--space-5);">
+            <!-- Group 0: Trainer notes / Private messages -->
+            <section class="card" id="group-messages-card" aria-labelledby="group-messages-heading">
+              <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <h2 id="group-messages-heading" class="card-title" style="display: flex; align-items: center; gap: 6px;">
+                  <span>✉️</span>
+                  <span>Trainer Notes &amp; Flags</span>
+                </h2>
+                <span id="group-messages-count" class="num" style="font-size: var(--text-xs); font-weight: 700; color: var(--text-muted);">0</span>
+              </div>
+              <div class="card-body" id="group-messages-list" style="display: flex; flex-direction: column; gap: var(--space-3);"></div>
+            </section>
+
             <!-- Group 1: Weekly tests -->
             <section class="card" id="group-weekly-tests-card" aria-labelledby="group-weekly-tests-heading">
               <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">

@@ -216,6 +216,27 @@ export function formatFlashSettingsSummary(settings = {}) {
 }
 
 /**
+ * Formats a clean, readable compact settings summary:
+ * e.g. "1 digit · 10 numbers · 1 second · Addition" or "2 digits · 20 numbers · 1.5 seconds · Addition & Subtraction"
+ *
+ * @param {Object} settings
+ * @returns {string}
+ */
+export function formatFlashCompactSummary(settings = {}) {
+  if (!settings || typeof settings !== 'object') return 'Flash Anzan';
+  const digits = Number(settings.digits) || 1;
+  const count = Number(settings.count) || 2;
+  const speedMs = Number(settings.speed_ms) || 1000;
+  const speedSec = speedMs / 1000;
+  const digitsText = `${digits} ${digits === 1 ? 'digit' : 'digits'}`;
+  const countText = `${count} ${count === 1 ? 'number' : 'numbers'}`;
+  const speedText = speedSec === 1 ? '1 second' : `${Number.isInteger(speedSec) ? speedSec : speedSec.toFixed(1)} seconds`;
+  const modeText = settings.mode === 'add_sub' ? 'Addition & Subtraction' : 'Addition';
+
+  return `${digitsText} · ${countText} · ${speedText} · ${modeText}`;
+}
+
+/**
  * Computes the expected duration (`count * speed_ms`) and whether it exceeds 5 minutes.
  */
 export function getExpectedDurationInfo(settings = {}) {

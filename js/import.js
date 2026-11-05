@@ -120,7 +120,7 @@ async function initImportPage() {
   if (!currentAdmin) return;
 
   renderHeaderUser(currentAdmin);
-  setupAdminNav();
+  setupAdminNav(currentAdmin);
   setupModalListeners();
 
   if (isDemoMode()) {

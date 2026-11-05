@@ -879,7 +879,7 @@ async function initBackupPage() {
   const profile = await requireAuth(['admin']);
   if (!profile) return;
 
-  setupAdminNav();
+  setupAdminNav(profile);
   setupModalListeners();
 
   // Populate Header User Info

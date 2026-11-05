@@ -45,19 +45,23 @@ export async function requireAuth(allowedRoles = ['student', 'admin']) {
     return null;
   }
 
-  // Synchronously pre-render the header navigation from navConfig.js before awaiting network
+  // Synchronously pre-render student navigation ONLY when a cached student profile is present.
+  // Privileged admin navigation is NEVER inferred or pre-rendered from unverified cache, page URLs, or allowedRoles.
   const earlyCachedProfile = readProfileCache();
-  if (earlyCachedProfile && allowedRoles.includes(earlyCachedProfile.role)) {
+  if (earlyCachedProfile && earlyCachedProfile.role === 'student' && allowedRoles.includes('student')) {
     setupHeaderNavigation(earlyCachedProfile);
     setupHeaderUserUI(earlyCachedProfile);
-  } else if (Array.isArray(allowedRoles) && allowedRoles.length === 1) {
-    setupHeaderNavigation({ role: allowedRoles[0] });
   } else {
     setupHeaderNavigation(null);
   }
 
+  // Fresh authorization is strictly required for admin privileges.
+  // Cached profiles are NEVER trusted to authorize admin-only routes or admin controls on shared routes.
+  const requiresAdminOnly = allowedRoles.includes('admin') && !allowedRoles.includes('student');
+  const allowCached = !requiresAdminOnly && earlyCachedProfile?.role === 'student';
+
   const profile = await getCurrentProfile({
-    allowCached: true,
+    allowCached,
     onRevalidated: (freshProfile) => {
       if (!freshProfile || !allowedRoles.includes(freshProfile.role)) {
         if (freshProfile?.role === 'student') {

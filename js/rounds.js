@@ -562,7 +562,7 @@ async function initRounds() {
   });
 
   setupModalListeners();
-  setupAdminNav();
+  setupAdminNav(profile);
   renderDemoBanner();
 
   await loadInitialMetadata();

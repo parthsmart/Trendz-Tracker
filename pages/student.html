@@ -61,8 +61,16 @@
             <div id="today-summary-metrics" class="student-kpi-strip" aria-label="Practice streak and last 7 days summary">
               <!-- Metric 1: Practice Streak -->
               <div class="student-kpi-item">
-                <div class="student-kpi-label" id="streak-heading">
-                  Practice Streak
+                <div class="student-kpi-label" id="streak-heading" style="display: flex; align-items: center; justify-content: center; gap: 6px;">
+                  <span>Practice Streak</span>
+                  <span class="info-tip-wrapper">
+                    <button type="button" class="info-tip-trigger" id="btn-tip-streak" aria-label="About streak rules" aria-expanded="false" aria-describedby="tip-streak">
+                      <span class="info-tip-symbol" aria-hidden="true">i</span>
+                    </button>
+                    <span id="tip-streak" class="info-tip-content" role="tooltip">
+                      A day counts toward your streak when all assigned tasks for that day are completed. If no tasks are assigned, any completed practice session counts.
+                    </span>
+                  </span>
                 </div>
                 <div class="student-kpi-value num">
                   <span id="stat-current-streak">0</span> <span style="font-size: var(--text-sm); font-weight: 600; color: var(--text-muted);">days</span>
@@ -76,7 +84,17 @@
 
               <!-- Metric 2: 7-Day Accuracy -->
               <div class="student-kpi-item">
-                <div class="student-kpi-label">Accuracy (7d)</div>
+                <div class="student-kpi-label" style="display: flex; align-items: center; justify-content: center; gap: 6px;">
+                  <span>Accuracy (7d)</span>
+                  <span class="info-tip-wrapper">
+                    <button type="button" class="info-tip-trigger" id="btn-tip-accuracy-7d" aria-label="How accuracy is calculated" aria-expanded="false" aria-describedby="tip-accuracy-7d">
+                      <span class="info-tip-symbol" aria-hidden="true">i</span>
+                    </button>
+                    <span id="tip-accuracy-7d" class="info-tip-content" role="tooltip">
+                      Accuracy = (Correct ÷ Attempted) × 100%. Unattempted questions are not counted as wrong.
+                    </span>
+                  </span>
+                </div>
                 <div id="metric-7d-accuracy" class="student-kpi-value num">—</div>
                 <div id="metric-7d-accuracy-range" class="student-kpi-sub">Last 7 days</div>
               </div>

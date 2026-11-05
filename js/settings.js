@@ -145,7 +145,7 @@ async function initSettingsPage() {
   }
 
   setupModalListeners();
-  setupAdminNav();
+  setupAdminNav(profile);
 
   renderGroupNavigation();
   renderSettingsEntries();

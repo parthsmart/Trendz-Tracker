@@ -16,6 +16,19 @@ import { isDemoMode } from './demoDb.js';
 import { fetchStudentMemoriadResults } from './memoriadCard.js';
 import { MEMORIAD_MODULE_CATALOG, summarizeAllMemoriad } from './memoriadStats.js';
 import { getScoreFeedback } from './scoreColors.js';
+import {
+  filterAndSortHistory,
+  paginateHistory,
+  renderHistoryFilterToolbarHtml,
+  renderHistoryPaginationHtml,
+  toISTDateString,
+  resolveEntrySource,
+  renderSourceChipHtml,
+  renderCompactHistoryRowHtml,
+  practiceRecordStatus,
+  formatFriendlyDateIST,
+  formatAccuracyDisplay,
+} from './historyFilters.js';
 
 function escapeHtml(str) {
   if (str === null || str === undefined) return '';
@@ -26,6 +39,22 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
+
+let cachedMemoriadRows = [];
+let memoriadHistoryFilters = {
+  dateFrom: '',
+  dateTo: '',
+  category: 'all',
+  source: 'all',
+  sort: 'newest',
+};
+let memoriadHistoryPage = 1;
+const MEMORIAD_PAGE_SIZE = 20;
+
+const MEMORIAD_CATEGORIES = [
+  { id: 'calendar', name: 'Mental Calendar Dates' },
+  { id: 'addition', name: 'Mental Additions' },
+];
 
 async function initMemoriadHub() {
   const profile = await requireAuth(['student', 'admin']);
@@ -42,6 +71,7 @@ async function initMemoriadHub() {
 
   try {
     const rows = await fetchStudentMemoriadResults(profile.id);
+    cachedMemoriadRows = rows || [];
     const summary = summarizeAllMemoriad(rows, new Date());
 
     if (weekEl) {
@@ -53,6 +83,8 @@ async function initMemoriadHub() {
         renderModuleCard(mod, summary.modules[mod.key])
       ).join('');
     }
+
+    renderMemoriadHistoryView();
   } catch (err) {
     console.error('Failed to load Memoriad hub:', err);
     if (container) {
@@ -270,6 +302,193 @@ function renderDemoBanner() {
       </div>
     </div>
   `;
+}
+
+function renderMemoriadHistoryView() {
+  const toolbarContainer = document.getElementById('memoriad-history-toolbar-container');
+  const tableContainer = document.getElementById('memoriad-history-table-container');
+  const paginationContainer = document.getElementById('memoriad-history-pagination-container');
+  const countBadge = document.getElementById('memoriad-history-count-badge');
+
+  if (countBadge) {
+    countBadge.textContent = `${cachedMemoriadRows.length} total ${cachedMemoriadRows.length === 1 ? 'try' : 'tries'}`;
+  }
+
+  if (toolbarContainer) {
+    toolbarContainer.innerHTML = renderHistoryFilterToolbarHtml({
+      idPrefix: 'memoriad',
+      categories: MEMORIAD_CATEGORIES,
+      currentFilters: memoriadHistoryFilters,
+      hasTyped: false,
+    });
+    wireMemoriadFilterListeners();
+  }
+
+  if (!tableContainer) return;
+
+  if (cachedMemoriadRows.length === 0) {
+    tableContainer.innerHTML = `
+      <div style="padding: var(--space-6); text-align: center; color: var(--text-muted); font-size: var(--text-sm);">
+        No Memoriad tries completed yet. Start your first practice try above!
+      </div>
+    `;
+    if (paginationContainer) paginationContainer.innerHTML = '';
+    return;
+  }
+
+  const filtered = filterAndSortHistory(cachedMemoriadRows, memoriadHistoryFilters, {
+    sectionKind: 'memoriad',
+  });
+
+  const paged = paginateHistory(filtered, {
+    page: memoriadHistoryPage,
+    pageSize: MEMORIAD_PAGE_SIZE,
+  });
+
+  if (paged.totalCount === 0) {
+    tableContainer.innerHTML = `
+      <div style="padding: var(--space-6); text-align: center; color: var(--text-muted); font-size: var(--text-sm);">
+        No Memoriad practice history matches the selected filters. (Memoriad tries are recorded automatically by the site).
+      </div>
+    `;
+    if (paginationContainer) paginationContainer.innerHTML = '';
+    return;
+  }
+
+  const rowsHtml = paged.items
+    .map((row, idx) => {
+      const modKey = row.settings?.module || row.activity_name || 'Memoriad';
+      const modTitle =
+        modKey === 'calendar'
+          ? 'Mental Calendar Dates'
+          : modKey === 'addition'
+            ? 'Mental Additions'
+            : row.activity_name || modKey;
+      const correct = Number(row.correct) || 0;
+      const total = Number(row.total ?? row.attempted) || 0;
+      const fb = getScoreFeedback(correct, total);
+      const timeSec = Number(row.time_seconds) || 0;
+      const timeStr = `${timeSec.toFixed(2)}s`;
+      const attemptedPerMinute = total > 0 && timeSec > 0
+        ? (Math.round((total / (timeSec / 60)) * 10) / 10).toFixed(1)
+        : null;
+
+      const isFlagged = row.flagged === true;
+      const flagNote = row.flag_note || '';
+
+      const entrySource = resolveEntrySource(row, 'memoriad');
+      const isVerified = row.verified === true || !!row.verified_at || !!row.verified_by;
+      const isCorrected = !!row.corrected_at || !!row.corrected_by;
+
+      const lockExplanation = practiceRecordStatus(row, { readOnly: true });
+
+      const detailsMeta = [
+        { label: 'Wrong answers', valueHtml: `<span class="score-tag ${fb.badgeClass}">${escapeHtml(fb.wrongText)}</span>` },
+        { label: 'Speed / rate', valueHtml: attemptedPerMinute ? `${attemptedPerMinute} / min` : '—' },
+        { label: 'Module discipline', valueHtml: escapeHtml(modTitle) },
+        { label: 'Entry source', valueHtml: renderSourceChipHtml(entrySource) },
+        { label: 'Status & lock', valueHtml: lockExplanation },
+      ];
+
+      return renderCompactHistoryRowHtml({
+        rowId: `memoriad-${row.id || idx}`,
+        category: modTitle,
+        categorySub: '',
+        correct: correct,
+        total: total,
+        timeFormatted: timeStr,
+        dateVal: row.created_at,
+        isFlagged: isFlagged,
+        flagNote: flagNote,
+        statusBadgeHtml: '',
+        detailsMeta: detailsMeta,
+        actionsHtml: '',
+        mainRowAttrs: row.id ? `data-memoriad-id="${row.id}"` : '',
+      });
+    })
+    .join('');
+
+  tableContainer.innerHTML = `
+    <div class="card history-compact-card" style="margin: 0; border: none; border-radius: 0;">
+      <div class="table-container" style="border: none; border-radius: 0;">
+        <table class="history-compact-table" aria-label="Memoriad Practice History">
+          <thead>
+            <tr>
+              <th scope="col">Category</th>
+              <th scope="col" class="th-num">Score</th>
+              <th scope="col" class="th-num">Accuracy</th>
+              <th scope="col" class="th-num">Time</th>
+              <th scope="col">Date</th>
+              <th scope="col" class="th-action">Details</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  if (paginationContainer) {
+    paginationContainer.innerHTML = renderHistoryPaginationHtml({
+      idPrefix: 'memoriad',
+      page: paged.page,
+      totalPages: paged.totalPages,
+      totalCount: paged.totalCount,
+    });
+
+    document.getElementById('memoriad-btn-prev-page')?.addEventListener('click', () => {
+      if (memoriadHistoryPage > 1) {
+        memoriadHistoryPage--;
+        renderMemoriadHistoryView();
+      }
+    });
+
+    document.getElementById('memoriad-btn-next-page')?.addEventListener('click', () => {
+      if (memoriadHistoryPage < paged.totalPages) {
+        memoriadHistoryPage++;
+        renderMemoriadHistoryView();
+      }
+    });
+  }
+}
+
+function wireMemoriadFilterListeners() {
+  const fromInput = document.getElementById('memoriad-filter-from');
+  const toInput = document.getElementById('memoriad-filter-to');
+  const catSelect = document.getElementById('memoriad-filter-cat');
+  const sourceSelect = document.getElementById('memoriad-filter-source');
+  const sortSelect = document.getElementById('memoriad-filter-sort');
+  const clearBtn = document.getElementById('memoriad-btn-clear-filters');
+
+  const onFilterChange = () => {
+    memoriadHistoryFilters.dateFrom = fromInput?.value || '';
+    memoriadHistoryFilters.dateTo = toInput?.value || '';
+    memoriadHistoryFilters.category = catSelect?.value || 'all';
+    memoriadHistoryFilters.source = sourceSelect?.value || 'all';
+    memoriadHistoryFilters.sort = sortSelect?.value || 'newest';
+    memoriadHistoryPage = 1;
+    renderMemoriadHistoryView();
+  };
+
+  fromInput?.addEventListener('change', onFilterChange);
+  toInput?.addEventListener('change', onFilterChange);
+  catSelect?.addEventListener('change', onFilterChange);
+  sourceSelect?.addEventListener('change', onFilterChange);
+  sortSelect?.addEventListener('change', onFilterChange);
+
+  clearBtn?.addEventListener('click', () => {
+    memoriadHistoryFilters = {
+      dateFrom: '',
+      dateTo: '',
+      category: 'all',
+      source: 'all',
+      sort: 'newest',
+    };
+    memoriadHistoryPage = 1;
+    renderMemoriadHistoryView();
+  });
 }
 
 document.addEventListener('DOMContentLoaded', initMemoriadHub);

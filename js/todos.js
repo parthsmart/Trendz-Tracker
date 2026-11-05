@@ -815,7 +815,7 @@ async function initTodosPage() {
   if (pillContainer) pillContainer.style.display = 'flex';
 
   setupModalListeners();
-  setupAdminNav();
+  setupAdminNav(profile);
 
   document.getElementById('btn-open-add-todo')?.addEventListener('click', openAddModal);
   document.getElementById('form-todo')?.addEventListener('submit', handleFormSubmit);

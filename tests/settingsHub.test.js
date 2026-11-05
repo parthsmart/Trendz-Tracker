@@ -54,4 +54,5 @@ test('getSettingsBreadcrumb resolves matching entry by path', () => {
   assert.equal(compCrumb.breadcrumbTitle, 'Competition settings');
 
   assert.equal(getSettingsBreadcrumb('/pages/admin.html'), null);
+  assert.equal(getSettingsBreadcrumb('/pages/monthly-report.html'), null);
 });

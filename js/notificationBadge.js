@@ -15,7 +15,7 @@
 import { isSupabaseConfigured } from './config.js';
 import { isDemoMode } from './demoDb.js';
 import { getSupabase, DemoDB } from './supabaseClient.js';
-import { badgeText } from './notificationsView.js';
+import { badgeText, countActiveUnreadNotifications } from './notificationsView.js';
 import { syncHeaderMenuNotificationBadge, setupHeaderNavigation } from './headerNav.js';
 
 const CACHE_KEY = 'tt_student_notifications_cache_v1';
@@ -54,20 +54,21 @@ export function readNotificationsCache(studentId) {
  */
 export function writeNotificationsCache(studentId, items) {
   const safeItems = Array.isArray(items) ? items : [];
+  const unreadCount = countActiveUnreadNotifications(safeItems);
   try {
     window.sessionStorage.setItem(
       CACHE_KEY,
       JSON.stringify({
         studentId: studentId || null,
         ts: Date.now(),
-        count: safeItems.length,
+        count: unreadCount,
         items: safeItems,
       })
     );
   } catch {
     // Ignore sessionStorage quota / privacy errors
   }
-  updateBellBadgeDOM(safeItems.length);
+  updateBellBadgeDOM(unreadCount);
 }
 
 let inFlightNotificationsPromise = null;
@@ -95,7 +96,7 @@ export async function fetchMyNotificationsCached({ studentId = null, forceRefres
   if (!forceRefresh) {
     const cached = readNotificationsCache(studentId);
     if (cached !== null) {
-      updateBellBadgeDOM(cached.length);
+      updateBellBadgeDOM(countActiveUnreadNotifications(cached));
       return cached;
     }
     if (inFlightNotificationsPromise) {
@@ -108,9 +109,49 @@ export async function fetchMyNotificationsCached({ studentId = null, forceRefres
       let items = [];
       if (isSupabaseConfigured()) {
         const supabase = await getSupabase();
-        const { data, error } = await supabase.rpc('my_notifications');
-        if (error) throw error;
-        items = Array.isArray(data) ? data : [];
+        if (supabase) {
+          const { data, error } = await supabase.rpc('my_notifications');
+          if (!error && Array.isArray(data)) {
+            items = data;
+          }
+          // Merge private messages from student_messages table if not already present
+          try {
+            const currentUserId = studentId || (await supabase.auth.getSession())?.data?.session?.user?.id;
+            if (currentUserId) {
+              const { data: msgRows } = await supabase
+                .from('student_messages')
+                .select('id, title, body, needs_attention, attention_reason, linked_type, linked_id, link, read_at, created_at')
+                .eq('student_id', currentUserId)
+                .is('dismissed_at', null)
+                .order('created_at', { ascending: false });
+
+              if (Array.isArray(msgRows) && msgRows.length > 0) {
+                const existingRefs = new Set(items.map((i) => i.ref));
+                msgRows.forEach((m) => {
+                  const ref = `msg:${m.id}`;
+                  if (!existingRefs.has(ref)) {
+                    items.unshift({
+                      ref,
+                      id: m.id,
+                      kind: 'private_message',
+                      title: m.title,
+                      body: m.body,
+                      link: m.link || '/pages/student.html',
+                      event_date: m.created_at,
+                      days_left: 0,
+                      created_at: m.created_at,
+                      needs_attention: Boolean(m.needs_attention),
+                      attention_reason: m.attention_reason || null,
+                      read_at: m.read_at || null,
+                    });
+                  }
+                });
+              }
+            }
+          } catch {
+            // student_messages table may not yet be migrated
+          }
+        }
       } else if (isDemoMode() && DemoDB && typeof DemoDB.mockMyNotifications === 'function') {
         items = DemoDB.mockMyNotifications(studentId);
       }
@@ -161,7 +202,7 @@ export async function initStudentNotificationBell(profile) {
   // Immediately apply cached count if available before any async call
   const cached = readNotificationsCache(profile.id);
   if (cached !== null) {
-    updateBellBadgeDOM(cached.length);
+    updateBellBadgeDOM(countActiveUnreadNotifications(cached));
     return;
   }
 

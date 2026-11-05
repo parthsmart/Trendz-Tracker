@@ -76,7 +76,7 @@ async function initAdminOverview() {
   const profile = await requireAuth(['admin']);
   if (!profile) return;
 
-  setupAdminNav();
+  setupAdminNav(profile);
   setupModalListeners();
   renderDemoBanner();
 

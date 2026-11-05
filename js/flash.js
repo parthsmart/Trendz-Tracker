@@ -19,6 +19,7 @@ import {
   FLASH_LIMITS,
   clampFlashSettings,
   formatFlashSettingsSummary,
+  formatFlashCompactSummary,
   formatSpeedDisplay,
   friendlyFlashError,
   getExpectedDurationInfo,
@@ -47,6 +48,38 @@ import {
   flashProgressText,
   RUNNER_EXIT_CONFIRM_TEXT,
 } from './weeklyTestRunner.js';
+import {
+  filterAndSortHistory,
+  paginateHistory,
+  renderHistoryFilterToolbarHtml,
+  renderHistoryPaginationHtml,
+  toISTDateString,
+  fetchAllRowsBatched,
+  resolveEntrySource,
+  renderSourceChipHtml,
+  renderCompactHistoryRowHtml,
+  practiceRecordStatus,
+  formatFriendlyDateIST,
+  formatAccuracyDisplay,
+} from './historyFilters.js';
+
+let flashHistoryFilters = {
+  dateFrom: '',
+  dateTo: '',
+  category: 'all',
+  source: 'all',
+  sort: 'newest',
+};
+let flashHistoryPage = 1;
+const FLASH_PAGE_SIZE = 20;
+
+const FLASH_DIGIT_CATEGORIES = [
+  { id: '1', name: '1 Digit' },
+  { id: '2', name: '2 Digits' },
+  { id: '3', name: '3 Digits' },
+  { id: '4', name: '4 Digits' },
+  { id: '5', name: '5 Digits' },
+];
 
 const STORAGE_KEY_SETTINGS = 'trendz_flash_settings_v2';
 const STORAGE_KEY_SOUND = 'trendz_flash_sound_v1';
@@ -271,11 +304,11 @@ function syncSetupControlsUI() {
   const soundToggle = document.getElementById('flash-sound-toggle');
   if (soundToggle) soundToggle.checked = soundEnabled;
 
-  // 6. One-line summary ("Last used: ...") & expected duration
-  const summaryText = formatFlashSettingsSummary(currentSettings);
+  // 6. One-line summary & expected duration
+  const summaryText = formatFlashCompactSummary(currentSettings);
   const lastUsedEl = document.getElementById('flash-last-used-text');
   if (lastUsedEl) {
-    lastUsedEl.textContent = `Last used: ${summaryText}`;
+    lastUsedEl.textContent = summaryText;
   }
   const summaryLine = document.getElementById('flash-setup-summary-line');
   if (summaryLine) {
@@ -1153,70 +1186,198 @@ async function loadFlashHistory() {
     } else {
       const supabase = await getSupabase();
       if (supabase && currentProfile?.id) {
-        const { data, error } = await supabase
-          .from('activity_results')
-          .select('id, activity_type, activity_name, correct, total, time_seconds, settings, created_at')
-          .eq('student_id', currentProfile.id)
-          .eq('activity_type', 'flash_anzan')
-          .order('created_at', { ascending: false })
-          .limit(200);
+        rows = await fetchAllRowsBatched(async (from, to) => {
+          const { data, error } = await supabase
+            .from('activity_results')
+            .select('id, activity_type, activity_name, correct, total, time_seconds, settings, created_at')
+            .eq('student_id', currentProfile.id)
+            .eq('activity_type', 'flash_anzan')
+            .order('created_at', { ascending: false })
+            .order('id', { ascending: false })
+            .range(from, to);
 
-        if (error) throw error;
-        rows = data || [];
+          if (error) throw error;
+          return data || [];
+        }, { batchSize: 1000 });
       }
     }
 
     cachedHistoryRows = rows;
     renderSetupStatsTables();
-
-    if (!tbody) return;
-    const last20 = recentTries(rows, 20);
-
-    if (last20.length === 0) {
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="4" style="text-align: center; padding: var(--space-6); color: var(--text-muted);">
-            No Flash Anzan tries completed yet. Start your first try above!
-          </td>
-        </tr>
-      `;
-      return;
-    }
-
-    tbody.innerHTML = last20
-      .map((item) => {
-        const fb = getScoreFeedback(item.correct, item.total);
-        return `
-          <tr>
-            <td style="white-space: nowrap;">${escapeHtml(item.dateIST)}</td>
-            <td class="num">${escapeHtml(item.summary)}</td>
-            <td>
-              <span
-                class="badge"
-                style="background: ${fb.bgVar}; color: ${fb.colorVar}; font-weight: 700;"
-              >
-                ${escapeHtml(item.outcomeText)}
-              </span>
-            </td>
-            <td class="num" style="text-align: right;">${escapeHtml(
-              formatSecondsToTime(item.time_seconds)
-            )}</td>
-          </tr>
-        `;
-      })
-      .join('');
+    renderFlashHistoryView();
   } catch (err) {
     console.error('Failed to load Flash Anzan history:', err);
     if (tbody) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="4" style="text-align: center; padding: var(--space-4); color: var(--color-score-danger);">
+          <td colspan="5" style="text-align: center; padding: var(--space-4); color: var(--color-score-danger);">
             Could not load recent Flash Anzan history.
           </td>
         </tr>
       `;
     }
   }
+}
+
+function renderFlashHistoryView() {
+  const tbody = document.getElementById('flash-history-tbody');
+  const toolbarContainer = document.getElementById('flash-history-toolbar-container');
+  const paginationContainer = document.getElementById('flash-history-pagination-container');
+
+  if (toolbarContainer) {
+    toolbarContainer.innerHTML = renderHistoryFilterToolbarHtml({
+      idPrefix: 'flash',
+      categories: FLASH_DIGIT_CATEGORIES,
+      currentFilters: flashHistoryFilters,
+      hasTyped: false,
+    });
+    wireFlashFilterListeners();
+  }
+
+  if (!tbody) return;
+
+  if (cachedHistoryRows.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" style="text-align: center; padding: var(--space-6); color: var(--text-muted);">
+          No Flash Anzan tries completed yet. Start your first try above!
+        </td>
+      </tr>
+    `;
+    if (paginationContainer) paginationContainer.innerHTML = '';
+    return;
+  }
+
+  const filtered = filterAndSortHistory(cachedHistoryRows, flashHistoryFilters, {
+    sectionKind: 'flash',
+  });
+
+  const paged = paginateHistory(filtered, {
+    page: flashHistoryPage,
+    pageSize: FLASH_PAGE_SIZE,
+  });
+
+  if (paged.totalCount === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" style="text-align: center; padding: var(--space-6); color: var(--text-muted);">
+          No Flash Anzan tries match the selected filters.
+        </td>
+      </tr>
+    `;
+    if (paginationContainer) paginationContainer.innerHTML = '';
+    return;
+  }
+
+  tbody.innerHTML = paged.items
+    .map((row, idx) => {
+      const correct = Number(row.correct) || 0;
+      const total = Number(row.total) || 1;
+      const fb = getScoreFeedback(correct, total);
+      const isCorrect = correct >= total;
+      const digits = row.settings?.digits ?? 1;
+      const count = row.settings?.count ?? 5;
+      const speedMs = row.settings?.speed_ms ?? 1000;
+      const speedSec = speedMsToSeconds(speedMs);
+      const mode = row.settings?.mode || 'add';
+      const modeText = mode === 'add_sub' ? 'Addition & Subtraction' : 'Addition';
+      const outcomeText = isCorrect ? '✅ Correct' : '❌ Missed';
+      const speedDisplay = formatSpeedDisplay(speedMs);
+
+      const isFlagged = row.flagged === true;
+      const flagNote = row.flag_note || '';
+
+      const entrySource = resolveEntrySource(row, 'flash');
+      const isVerified = row.verified === true || !!row.verified_at || !!row.verified_by;
+      const isCorrected = !!row.corrected_at || !!row.corrected_by;
+
+      const lockExplanation = practiceRecordStatus(row, { readOnly: true });
+
+      const detailsMeta = [
+        { label: 'Result outcome', valueHtml: `<strong style="color: ${fb.colorVar};">${outcomeText}</strong>` },
+        { label: 'Flash settings', valueHtml: `${digits} digits · ${count} numbers · ${speedSec}s · ${modeText}` },
+        { label: 'Speed / rate', valueHtml: `${speedSec}s per number (${speedDisplay.perSecondText})` },
+        { label: 'Entry source', valueHtml: renderSourceChipHtml(entrySource) },
+        { label: 'Status & lock', valueHtml: lockExplanation },
+      ];
+
+      return renderCompactHistoryRowHtml({
+        rowId: `flash-${row.id || idx}`,
+        category: `${digits}D Flash`,
+        categorySub: '',
+        correct: correct,
+        total: total,
+        timeFormatted: formatSecondsToTime(row.time_seconds),
+        dateVal: row.created_at,
+        isFlagged: isFlagged,
+        flagNote: flagNote,
+        statusBadgeHtml: '',
+        detailsMeta: detailsMeta,
+        actionsHtml: '',
+        mainRowAttrs: row.id ? `data-flash-id="${row.id}"` : '',
+      });
+    })
+    .join('');
+
+  if (paginationContainer) {
+    paginationContainer.innerHTML = renderHistoryPaginationHtml({
+      idPrefix: 'flash',
+      page: paged.page,
+      totalPages: paged.totalPages,
+      totalCount: paged.totalCount,
+    });
+
+    document.getElementById('flash-btn-prev-page')?.addEventListener('click', () => {
+      if (flashHistoryPage > 1) {
+        flashHistoryPage--;
+        renderFlashHistoryView();
+      }
+    });
+
+    document.getElementById('flash-btn-next-page')?.addEventListener('click', () => {
+      if (flashHistoryPage < paged.totalPages) {
+        flashHistoryPage++;
+        renderFlashHistoryView();
+      }
+    });
+  }
+}
+
+function wireFlashFilterListeners() {
+  const fromInput = document.getElementById('flash-filter-from');
+  const toInput = document.getElementById('flash-filter-to');
+  const catSelect = document.getElementById('flash-filter-cat');
+  const sourceSelect = document.getElementById('flash-filter-source');
+  const sortSelect = document.getElementById('flash-filter-sort');
+  const clearBtn = document.getElementById('flash-btn-clear-filters');
+
+  const onFilterChange = () => {
+    flashHistoryFilters.dateFrom = fromInput?.value || '';
+    flashHistoryFilters.dateTo = toInput?.value || '';
+    flashHistoryFilters.category = catSelect?.value || 'all';
+    flashHistoryFilters.source = sourceSelect?.value || 'all';
+    flashHistoryFilters.sort = sortSelect?.value || 'newest';
+    flashHistoryPage = 1;
+    renderFlashHistoryView();
+  };
+
+  fromInput?.addEventListener('change', onFilterChange);
+  toInput?.addEventListener('change', onFilterChange);
+  catSelect?.addEventListener('change', onFilterChange);
+  sourceSelect?.addEventListener('change', onFilterChange);
+  sortSelect?.addEventListener('change', onFilterChange);
+
+  clearBtn?.addEventListener('click', () => {
+    flashHistoryFilters = {
+      dateFrom: '',
+      dateTo: '',
+      category: 'all',
+      source: 'all',
+      sort: 'newest',
+    };
+    flashHistoryPage = 1;
+    renderFlashHistoryView();
+  });
 }
 
 /**
@@ -1382,6 +1543,22 @@ function setupEventListeners() {
     await startTryExecution();
   });
 
+  // Toggle Settings Drawer
+  const toggleSettingsBtn = document.getElementById('btn-toggle-flash-settings');
+  const settingsDrawer = document.getElementById('flash-settings-drawer');
+  toggleSettingsBtn?.addEventListener('click', () => {
+    const isHidden = settingsDrawer?.hasAttribute('hidden');
+    if (isHidden) {
+      settingsDrawer?.removeAttribute('hidden');
+      toggleSettingsBtn.setAttribute('aria-expanded', 'true');
+      toggleSettingsBtn.classList.add('is-open');
+    } else {
+      settingsDrawer?.setAttribute('hidden', '');
+      toggleSettingsBtn.setAttribute('aria-expanded', 'false');
+      toggleSettingsBtn.classList.remove('is-open');
+    }
+  });
+
   // 7. Stop button with confirmation (abandons try and saves nothing)
   const stopConfirmBar = document.getElementById('flash-stop-confirm-bar');
   document.getElementById('btn-flash-stop')?.addEventListener('click', () => {
@@ -1487,6 +1664,13 @@ function setupEventListeners() {
   document.getElementById('btn-results-change-settings')?.addEventListener('click', () => {
     syncSetupControlsUI();
     showScreen('setup');
+    const drawer = document.getElementById('flash-settings-drawer');
+    const toggleBtn = document.getElementById('btn-toggle-flash-settings');
+    if (drawer && drawer.hasAttribute('hidden')) {
+      drawer.removeAttribute('hidden');
+      toggleBtn?.setAttribute('aria-expanded', 'true');
+      toggleBtn?.classList.add('is-open');
+    }
   });
 
   // Phase 14a: Restore task settings button
