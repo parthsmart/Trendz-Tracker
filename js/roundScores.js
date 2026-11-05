@@ -605,6 +605,7 @@ function renderCategoryRows() {
       <div
         class="score-entry-row ${isLocked ? 'row-verified is-locked' : ''}"
         data-category-id="${escapeHtml(cat.id)}"
+        ${existing?.id ? `data-result-id="${escapeHtml(existing.id)}"` : ''}
         ${lockReasonTooltip ? `title="${escapeHtml(lockReasonTooltip)}"` : ''}
       >
         <!-- Category Name & Series Order -->
@@ -1374,6 +1375,156 @@ async function initRoundScores() {
   await loadStudentRounds();
   renderCombinedRoundHistory();
   setupJmcwcOnlinePracticeUI();
+  await handleRoundScoresUrlParams();
+}
+
+/**
+ * Handles incoming URL query parameters for round scores linking:
+ * - ?roundId=<uuid>
+ * - ?resultId=<uuid>
+ * - Verifies recipient ownership and record existence
+ * - Selects the referenced round in the UI
+ * - Highlights the referenced result or category row
+ * - Shows a user-facing toast error for missing or unauthorized records
+ */
+export async function handleRoundScoresUrlParams() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const resultId = urlParams.get('resultId');
+  const roundId = urlParams.get('roundId');
+  if (!resultId && !roundId) return;
+
+  const activeProfile = currentProfile || (isDemoMode() ? (JSON.parse(localStorage.getItem('trendz_current_user') || 'null') || { id: 'usr-101', role: 'student' }) : null);
+  let targetRoundId = roundId || null;
+  let targetCategoryId = null;
+
+  // If resultId is provided, look up the score row to verify ownership and find the round
+  if (resultId) {
+    let resRow = null;
+    if (isSupabaseConfigured()) {
+      try {
+        const supabase = await getSupabase();
+        if (supabase) {
+          const { data, error } = await supabase
+            .from('results')
+            .select('id, student_id, student_round_id, category_id')
+            .eq('id', resultId)
+            .maybeSingle();
+
+          if (error || !data) {
+            showToast('error', 'The referenced round score could not be found.');
+            return;
+          }
+          resRow = data;
+        }
+      } catch {
+        showToast('error', 'The referenced round score could not be found.');
+        return;
+      }
+    } else if (DemoDB) {
+      const allResults = typeof DemoDB.getResults === 'function'
+        ? DemoDB.getResults()
+        : DemoDB.results || JSON.parse(localStorage.getItem('trendz_demo_results_v3') || localStorage.getItem('tt_results') || '[]');
+      resRow = allResults.find((r) => String(r.id) === String(resultId)) || null;
+    }
+
+    if (!resRow) {
+      showToast('error', 'The referenced round score could not be found.');
+      return;
+    }
+
+    if (activeProfile?.role !== 'admin' && resRow.student_id && resRow.student_id !== activeProfile?.id) {
+      showToast('error', 'You do not have permission to view this round score.');
+      return;
+    }
+
+    targetRoundId = targetRoundId || resRow.student_round_id;
+    targetCategoryId = resRow.category_id;
+  }
+
+  // If we have a targetRoundId, verify its existence and ownership
+  if (targetRoundId) {
+    let roundRow = studentRounds.find((r) => String(r.id) === String(targetRoundId));
+
+    if (!roundRow) {
+      if (isSupabaseConfigured()) {
+        try {
+          const supabase = await getSupabase();
+          if (supabase) {
+            const { data, error } = await supabase
+              .from('student_rounds')
+              .select('id, student_id, round_number, round_date, series_id')
+              .eq('id', targetRoundId)
+              .maybeSingle();
+
+            if (error || !data) {
+              showToast('error', 'The referenced round could not be found.');
+              return;
+            }
+            roundRow = data;
+          }
+        } catch {
+          showToast('error', 'The referenced round could not be found.');
+          return;
+        }
+      } else if (DemoDB) {
+        const allRounds = typeof DemoDB.getAllStudentRounds === 'function'
+          ? DemoDB.getAllStudentRounds()
+          : DemoDB.student_rounds || JSON.parse(localStorage.getItem('trendz_demo_student_rounds_v1') || localStorage.getItem('tt_student_rounds') || '[]');
+        roundRow = allRounds.find((r) => String(r.id) === String(targetRoundId)) || null;
+      }
+    }
+
+    if (!roundRow) {
+      showToast('error', 'The referenced round could not be found.');
+      return;
+    }
+
+    if (activeProfile?.role !== 'admin' && roundRow.student_id && roundRow.student_id !== activeProfile?.id) {
+      showToast('error', 'You do not have permission to view this round.');
+      return;
+    }
+
+    // Switch to manual mode if in online mode
+    if (activeRoundScoresMode !== 'manual' && typeof switchRoundScoresMode === 'function') {
+      await switchRoundScoresMode('manual');
+    }
+
+    // If the round is in studentRounds, select it if not already selected
+    if (studentRounds.some((r) => String(r.id) === String(targetRoundId))) {
+      if (String(selectedRoundId) !== String(targetRoundId)) {
+        selectedRoundId = targetRoundId;
+        const selectRoundEl = document.getElementById('select-round');
+        if (selectRoundEl) selectRoundEl.value = targetRoundId;
+        renderSelectedRoundMeta();
+        await loadRoundResults();
+      }
+    } else {
+      // Round exists and belongs to student, but might belong to an archived series
+      showToast('info', 'The referenced round belongs to another simulator series.');
+    }
+  }
+
+  // Highlight the referenced result or category row
+  setTimeout(() => {
+    let rowEl = null;
+    if (resultId) {
+      rowEl = document.querySelector(`[data-result-id="${resultId}"]`);
+    }
+    if (!rowEl && targetCategoryId) {
+      rowEl = document.querySelector(`[data-category-id="${targetCategoryId}"]`);
+    }
+    if (rowEl) {
+      rowEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      rowEl.classList.add('row-linked-highlight');
+      rowEl.style.outline = '2px solid var(--color-primary, #4338CA)';
+      rowEl.style.backgroundColor = 'var(--bg-highlight, rgba(99, 102, 241, 0.12))';
+      setTimeout(() => {
+        rowEl.style.transition = 'background-color 2s ease, outline 2s ease';
+        rowEl.style.backgroundColor = '';
+        rowEl.style.outline = '';
+      }, 3500);
+    }
+  }, 150);
 }
 
 // ============================================================================

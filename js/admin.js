@@ -358,7 +358,7 @@ async function initAdmin() {
   if (pillContainer) pillContainer.style.display = 'flex';
 
   setupModalListeners();
-  setupAdminNav();
+  setupAdminNav(profile);
 
   initProfileEditor({
     getExistingLevels: () => collectExistingLevels(allStudents),

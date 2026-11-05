@@ -1143,7 +1143,7 @@ async function initLeaderboardPage() {
   if (isAdmin) {
     const adminControls = document.getElementById('admin-leaderboard-controls');
     if (adminControls) adminControls.style.display = 'flex';
-    setupAdminNav();
+    setupAdminNav(profile);
   } else {
     syncScopeControlsUI();
   }

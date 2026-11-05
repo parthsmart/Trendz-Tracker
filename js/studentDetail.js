@@ -10,10 +10,12 @@
 
 import { requireAuth } from './guard.js';
 import { isDemoMode } from './demoDb.js';
-import { setupAdminNav } from './modal.js';
+import { setupAdminNav, openModal, closeModal } from './modal.js';
 import { initProfileEditor, openEditProfileModal, openProfileAuditDrawer } from './profileEditor.js';
 import { formatDisplayDateIST } from './stats.js';
 import { fetchStudentDashboardData, resolveStudentProfile } from './dashboardData.js';
+import { sendStudentMessage } from './studentMessages.js';
+import { showToast } from './toast.js';
 import {
   escapeHtml,
   renderStreakCard,
@@ -30,6 +32,8 @@ import { renderElementsCard } from './elementsCard.js';
 import { renderMemoriadCard } from './memoriadCard.js';
 
 let currentStudentProfile = null;
+let lastDashboardData = null;
+let activeMessageNonce = null;
 
 async function initStudentDetail() {
   // 1. Guard check: Strictly admin-only.
@@ -39,7 +43,7 @@ async function initStudentDetail() {
 
   // Render header details & admin nav dropdown/hamburger
   renderHeaderUser(loggedInProfile);
-  setupAdminNav();
+  setupAdminNav(loggedInProfile);
 
   // Render demo banner if running on demo host
   if (isDemoMode()) {
@@ -81,6 +85,12 @@ async function initStudentDetail() {
     }
   });
 
+  document.getElementById('btn-send-student-message')?.addEventListener('click', () => {
+    if (currentStudentProfile) {
+      openSendMessageModal(currentStudentProfile, lastDashboardData);
+    }
+  });
+
   document.getElementById('btn-edit-student-profile')?.addEventListener('click', () => {
     if (currentStudentProfile) {
       openEditProfileModal(currentStudentProfile);
@@ -92,6 +102,8 @@ async function initStudentDetail() {
       openProfileAuditDrawer(currentStudentProfile);
     }
   });
+
+  setupSendMessageModalHandlers();
 
   // 4. Fetch and render dashboard data
   await loadAndRenderStudentDashboard(currentStudentProfile.id);
@@ -106,6 +118,7 @@ async function initStudentDetail() {
 async function loadAndRenderStudentDashboard(studentId) {
   try {
     const data = await fetchStudentDashboardData(studentId);
+    lastDashboardData = data;
 
     // Date
     const todayEl = document.getElementById('display-today-ist');
@@ -247,6 +260,176 @@ function renderDemoBanner() {
       </div>
     </div>
   `;
+}
+
+function openSendMessageModal(profile, dashboardData) {
+  const recipientEl = document.getElementById('modal-msg-recipient-text');
+  if (recipientEl) {
+    const fullName = profile.full_name || profile.name || 'Unnamed Student';
+    const code = profile.student_code || profile.id || '—';
+    const level = profile.level || '—';
+    recipientEl.textContent = `${fullName} (${code}) · Level: ${level}`;
+  }
+
+  // Reset form inputs
+  const linkTypeSelect = document.getElementById('modal-msg-link-type');
+  const scoreGroup = document.getElementById('modal-msg-score-group');
+  const scoreSelect = document.getElementById('modal-msg-score-select');
+  const testGroup = document.getElementById('modal-msg-test-group');
+  const testSelect = document.getElementById('modal-msg-test-select');
+  const needsAttentionCb = document.getElementById('modal-msg-needs-attention');
+  const attentionReasonWrap = document.getElementById('modal-msg-attention-reason-wrap');
+  const attentionReasonInput = document.getElementById('modal-msg-attention-reason');
+  const titleInput = document.getElementById('modal-msg-title');
+  const bodyInput = document.getElementById('modal-msg-body');
+
+  if (linkTypeSelect) linkTypeSelect.value = 'general';
+  if (scoreGroup) scoreGroup.style.display = 'none';
+  if (testGroup) testGroup.style.display = 'none';
+  if (needsAttentionCb) needsAttentionCb.checked = false;
+  if (attentionReasonWrap) attentionReasonWrap.style.display = 'none';
+  if (attentionReasonInput) attentionReasonInput.value = '';
+  if (titleInput) titleInput.value = '';
+  if (bodyInput) bodyInput.value = '';
+
+  // Populate scores select
+  if (scoreSelect) {
+    scoreSelect.innerHTML = '<option value="">Choose a recent score...</option>';
+    const results = dashboardData?.results || [];
+    results.slice(0, 30).forEach(r => {
+      const opt = document.createElement('option');
+      opt.value = r.id;
+      const catName = r.categories?.name || r.category_name || 'Practice';
+      const scoreStr = `${r.correct ?? 0}/${r.total ?? 0}`;
+      const dateStr = r.entry_date ? formatDisplayDateIST(r.entry_date) : '';
+      opt.textContent = `${dateStr} - ${catName} (Score: ${scoreStr})`;
+      scoreSelect.appendChild(opt);
+    });
+  }
+
+  // Populate weekly tests select
+  if (testSelect) {
+    testSelect.innerHTML = '<option value="">Choose a weekly test...</option>';
+    const tests = dashboardData?.weeklyTests || [];
+    tests.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.id;
+      const dateStr = t.test_date ? formatDisplayDateIST(t.test_date) : '';
+      opt.textContent = `${dateStr} - ${t.title || 'Weekly Test'}`;
+      testSelect.appendChild(opt);
+    });
+  }
+
+  activeMessageNonce = typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `nonce-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+  openModal('modal-send-student-message');
+}
+
+function setupSendMessageModalHandlers() {
+  const modalId = 'modal-send-student-message';
+  const linkTypeSelect = document.getElementById('modal-msg-link-type');
+  const scoreGroup = document.getElementById('modal-msg-score-group');
+  const testGroup = document.getElementById('modal-msg-test-group');
+  const needsAttentionCb = document.getElementById('modal-msg-needs-attention');
+  const attentionReasonWrap = document.getElementById('modal-msg-attention-reason-wrap');
+
+  if (linkTypeSelect) {
+    linkTypeSelect.addEventListener('change', () => {
+      const val = linkTypeSelect.value;
+      if (scoreGroup) scoreGroup.style.display = val === 'score' ? 'block' : 'none';
+      if (testGroup) testGroup.style.display = val === 'weekly_test' ? 'block' : 'none';
+    });
+  }
+
+  if (needsAttentionCb && attentionReasonWrap) {
+    needsAttentionCb.addEventListener('change', () => {
+      attentionReasonWrap.style.display = needsAttentionCb.checked ? 'block' : 'none';
+    });
+  }
+
+  const closeBtn = document.getElementById('btn-close-message-modal');
+  const cancelBtn = document.getElementById('btn-cancel-send-message');
+  closeBtn?.addEventListener('click', () => closeModal(modalId));
+  cancelBtn?.addEventListener('click', () => closeModal(modalId));
+
+  const form = document.getElementById('form-send-student-message');
+  if (form) {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!currentStudentProfile) return;
+
+      const titleInput = document.getElementById('modal-msg-title');
+      const bodyInput = document.getElementById('modal-msg-body');
+      const linkType = document.getElementById('modal-msg-link-type')?.value || 'general';
+      const scoreSelect = document.getElementById('modal-msg-score-select');
+      const testSelect = document.getElementById('modal-msg-test-select');
+      const needsAttention = document.getElementById('modal-msg-needs-attention')?.checked || false;
+      const attentionReason = document.getElementById('modal-msg-attention-reason')?.value?.trim() || null;
+      const submitBtn = document.getElementById('btn-submit-send-message');
+
+      const title = titleInput?.value?.trim() || '';
+      const body = bodyInput?.value?.trim() || '';
+
+      if (!title) {
+        showToast('error', 'Title is required.');
+        return;
+      }
+      if (!body) {
+        showToast('error', 'Message body is required.');
+        return;
+      }
+
+      let linkedType = null;
+      let linkedId = null;
+      if (linkType === 'score') {
+        linkedType = 'score';
+        linkedId = scoreSelect?.value || null;
+        if (!linkedId) {
+          showToast('error', 'Please choose a practice score to link.');
+          return;
+        }
+      } else if (linkType === 'weekly_test') {
+        linkedType = 'weekly_test';
+        linkedId = testSelect?.value || null;
+        if (!linkedId) {
+          showToast('error', 'Please choose a weekly test to link.');
+          return;
+        }
+      }
+
+      try {
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'Sending...';
+        }
+
+        await sendStudentMessage({
+          studentId: currentStudentProfile.id,
+          title,
+          body,
+          needsAttention,
+          attentionReason: needsAttention ? attentionReason : null,
+          linkedType,
+          linkedId,
+          clientNonce: activeMessageNonce,
+        });
+
+        showToast('success', 'Private message sent to student.');
+        activeMessageNonce = null;
+        closeModal(modalId);
+      } catch (err) {
+        console.error('Failed to send student message:', err);
+        showToast('error', err.message || 'Failed to send student message');
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Send Message';
+        }
+      }
+    });
+  }
 }
 
 document.addEventListener('DOMContentLoaded', initStudentDetail);

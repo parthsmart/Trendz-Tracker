@@ -34,6 +34,9 @@ const DEMO_STORAGE_KEY_CATEGORY_ALIASES = 'trendz_demo_category_aliases_v1';
 const DEMO_STORAGE_KEY_IMPORT_BATCHES = 'trendz_demo_import_batches_v1';
 const DEMO_STORAGE_KEY_COMPETITION_SETTINGS = 'trendz_demo_competition_settings_v1';
 const DEMO_STORAGE_KEY_REPORT_LOG = 'trendz_demo_report_log_v1';
+const DEMO_STORAGE_KEY_ANNOUNCEMENTS = 'trendz_demo_announcements_v1';
+const DEMO_STORAGE_KEY_STUDENT_MESSAGES = 'trendz_demo_student_messages_v1';
+const DEMO_STORAGE_KEY_DISMISSED_NOTIFICATIONS = 'trendz_demo_dismissed_notifications_v1';
 
 export const DEFAULT_ROUND_CATEGORIES = [
   'ADD', 'SUB', 'MIX', 'MULT', 'DIV', 'BRAC',
@@ -977,6 +980,38 @@ function initDemoStorage() {
     ];
     localStorage.setItem(DEMO_STORAGE_KEY_REPORT_LOG, JSON.stringify(initialReportLogs));
   }
+}
+
+function loadDB() {
+  initDemoStorage();
+  const profiles = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_STUDENTS) || '[]');
+  const weekly_tests = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_TESTS) || '[]');
+  const weekly_test_attempts = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_ATTEMPTS) || '[]');
+  const weekly_test_sections = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_SECTIONS) || '[]');
+  const announcements = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_ANNOUNCEMENTS) || 'null');
+  const student_messages = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_STUDENT_MESSAGES) || '[]');
+  const dismissed_notifications = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_DISMISSED_NOTIFICATIONS) || '{}');
+
+  return {
+    profiles,
+    weekly_tests,
+    weekly_test_attempts,
+    weekly_test_sections,
+    announcements,
+    student_messages,
+    dismissed_notifications,
+  };
+}
+
+function saveDB(db) {
+  if (!db || typeof localStorage === 'undefined') return;
+  if (db.profiles) localStorage.setItem(DEMO_STORAGE_KEY_STUDENTS, JSON.stringify(db.profiles));
+  if (db.weekly_tests) localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_TESTS, JSON.stringify(db.weekly_tests));
+  if (db.weekly_test_attempts) localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_ATTEMPTS, JSON.stringify(db.weekly_test_attempts));
+  if (db.weekly_test_sections) localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_SECTIONS, JSON.stringify(db.weekly_test_sections));
+  if (db.announcements) localStorage.setItem(DEMO_STORAGE_KEY_ANNOUNCEMENTS, JSON.stringify(db.announcements));
+  if (db.student_messages) localStorage.setItem(DEMO_STORAGE_KEY_STUDENT_MESSAGES, JSON.stringify(db.student_messages));
+  if (db.dismissed_notifications) localStorage.setItem(DEMO_STORAGE_KEY_DISMISSED_NOTIFICATIONS, JSON.stringify(db.dismissed_notifications));
 }
 
 /**
@@ -5400,10 +5435,39 @@ export const DemoDB = {
       });
     }
 
+    // 3. Private messages from trainer
+    const msgs = Array.isArray(db.student_messages) ? db.student_messages : [];
+    for (const m of msgs) {
+      if (m.student_id !== studentId) continue;
+      const ref = `msg:${m.id}`;
+      if (studentDismissed.includes(ref) || m.dismissed_at) continue;
+
+      items.unshift({
+        ref,
+        id: m.id,
+        kind: 'private_message',
+        title: m.title,
+        body: m.body,
+        link: m.link || '/pages/student.html',
+        event_date: m.created_at ? m.created_at.slice(0, 10) : todayStr,
+        days_left: 0,
+        created_at: m.created_at || new Date().toISOString(),
+        needs_attention: Boolean(m.needs_attention),
+        attention_reason: m.attention_reason || null,
+        read_at: m.read_at || null,
+      });
+    }
+
     return items;
   },
 
-  mockDismissNotification(studentId = 'usr-101', ref = '') {
+  mockDismissNotification(arg1 = 'usr-101', arg2 = '') {
+    let studentId = arg1;
+    let ref = arg2;
+    if (typeof arg1 === 'string' && (arg1.startsWith('msg:') || arg1.startsWith('ann:') || arg1.startsWith('test:'))) {
+      ref = arg1;
+      studentId = 'usr-101';
+    }
     if (!ref) return false;
     const db = loadDB();
     if (!db.dismissed_notifications) db.dismissed_notifications = {};
@@ -5414,8 +5478,161 @@ export const DemoDB = {
       current.push(ref);
     }
     db.dismissed_notifications[studentId] = current;
+
+    if (ref.startsWith('msg:')) {
+      const msgId = ref.slice(4);
+      const msgs = Array.isArray(db.student_messages) ? db.student_messages : [];
+      const msg = msgs.find((m) => m.id === msgId && (!studentId || m.student_id === studentId));
+      if (msg) {
+        msg.dismissed_at = new Date().toISOString();
+      }
+    }
+
     saveDB(db);
     return true;
+  },
+
+  getStudentMessages(studentId) {
+    const db = loadDB();
+    const msgs = Array.isArray(db.student_messages) ? db.student_messages : [];
+    if (!studentId) return msgs.filter((m) => !m.dismissed_at);
+    return msgs.filter((m) => m.student_id === studentId && !m.dismissed_at);
+  },
+
+  markStudentMessageRead(arg1, arg2) {
+    const messageId = arg2 || arg1;
+    const studentId = arg2 ? arg1 : null;
+    const db = loadDB();
+    const msgs = Array.isArray(db.student_messages) ? db.student_messages : [];
+    const msg = msgs.find((m) => m.id === messageId && (!studentId || m.student_id === studentId));
+    if (msg) {
+      msg.read_at = msg.read_at || new Date().toISOString();
+      saveDB(db);
+      return true;
+    }
+    return false;
+  },
+
+  sendStudentMessage({
+    studentId,
+    title,
+    body,
+    needsAttention = false,
+    attentionReason = null,
+    linkedType = null,
+    linkedId = null,
+    senderId = 'admin-demo-uuid',
+    clientNonce = null,
+  }) {
+    const db = loadDB();
+    if (!db.student_messages) db.student_messages = [];
+
+    // Check student existence
+    const student = (db.profiles || []).find((p) => p.id === studentId);
+    if (!student || student.role !== 'student' || student.active === false) {
+      throw new Error('Recipient student not found or deactivated');
+    }
+
+    const cleanTitle = String(title || '').trim();
+    const cleanBody = String(body || '').trim();
+    const cleanReason = attentionReason ? String(attentionReason).trim() : null;
+    if (!cleanTitle || cleanTitle.length > 120) {
+      throw new Error('Title must be between 1 and 120 characters');
+    }
+    if (!cleanBody || cleanBody.length > 2000) {
+      throw new Error('Body must be between 1 and 2000 characters');
+    }
+
+    // Idempotency & nonce reuse protection
+    if (clientNonce) {
+      const existing = db.student_messages.find(
+        (m) => m.sender_id === senderId && m.client_nonce === clientNonce
+      );
+      if (existing) {
+        if (
+          existing.student_id !== studentId ||
+          existing.title !== cleanTitle ||
+          existing.body !== cleanBody ||
+          Boolean(existing.needs_attention) !== Boolean(needsAttention) ||
+          (existing.attention_reason || null) !== (cleanReason || null) ||
+          (existing.linked_type || null) !== (linkedType || null) ||
+          (existing.linked_id || null) !== (linkedId || null)
+        ) {
+          throw new Error('Nonce reuse detected: client_nonce has already been used with different parameters');
+        }
+        return existing;
+      }
+    }
+
+    let link = '/pages/student.html';
+
+    // Linked record validation
+    if (linkedType === 'score') {
+      if (!linkedId) throw new Error('Missing linked score ID');
+      const results = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_RESULTS) || '[]');
+      const score = results.find((r) => r.id === linkedId);
+      if (!score) throw new Error('Linked score not found');
+      if (score.student_id !== studentId) {
+        throw new Error('Linked score does not belong to the recipient student');
+      }
+
+      const categories = this.getCategories();
+      const cat = categories.find((c) => c.id === score.category_id);
+      if (cat && cat.section === 'round') {
+        if (score.student_round_id) {
+          link = `/pages/round-scores.html?roundId=${score.student_round_id}&resultId=${score.id}`;
+        } else {
+          link = `/pages/round-scores.html?resultId=${score.id}`;
+        }
+      } else {
+        link = `/pages/basics.html?resultId=${score.id}`;
+      }
+
+      if (needsAttention) {
+        score.flagged = true;
+        score.flag_note = cleanReason || cleanTitle;
+        localStorage.setItem(DEMO_STORAGE_KEY_RESULTS, JSON.stringify(results));
+      }
+    } else if (linkedType === 'attempt') {
+      if (!linkedId) throw new Error('Missing linked attempt ID');
+      const attempts = Array.isArray(db.weekly_test_attempts) ? db.weekly_test_attempts : [];
+      const att = attempts.find((a) => a.id === linkedId);
+      if (!att) throw new Error('Linked weekly test attempt not found');
+      if (att.student_id !== studentId) {
+        throw new Error('Linked attempt does not belong to the recipient student');
+      }
+      link = `/pages/weekly-test.html?testId=${att.test_id}&attemptId=${att.id}`;
+    } else if (linkedType === 'weekly_test') {
+      if (!linkedId) throw new Error('Missing linked weekly test ID');
+      const tests = Array.isArray(db.weekly_tests) ? db.weekly_tests : [];
+      const test = tests.find((t) => t.id === linkedId);
+      if (!test) throw new Error('Linked weekly test not found');
+      if (test.audience_level && (!student.level || test.audience_level !== student.level)) {
+        throw new Error('Weekly test is not assigned to recipient student level');
+      }
+      link = `/pages/weekly-test.html?testId=${test.id}`;
+    }
+
+    const newMsg = {
+      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      student_id: studentId,
+      sender_id: senderId,
+      title: cleanTitle,
+      body: cleanBody,
+      needs_attention: Boolean(needsAttention),
+      attention_reason: attentionReason ? String(attentionReason).trim() : null,
+      linked_type: linkedType || null,
+      linked_id: linkedId || null,
+      link,
+      client_nonce: clientNonce || null,
+      read_at: null,
+      dismissed_at: null,
+      created_at: new Date().toISOString(),
+    };
+
+    db.student_messages.push(newMsg);
+    saveDB(db);
+    return newMsg;
   },
 };
 

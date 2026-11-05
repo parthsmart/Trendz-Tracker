@@ -655,13 +655,15 @@
             <div class="card-header">
               <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2);">
                 <div>
-                  <h2 class="card-title" id="history-card-title">Recent Flash Anzan History (Last 20 Tries)</h2>
+                  <h2 class="card-title" id="history-card-title">Flash Anzan Practice History</h2>
                   <p style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">
                     Date in India time, settings summary, outcome, and time taken.
                   </p>
                 </div>
               </div>
             </div>
+
+            <div style="padding: var(--space-3) var(--space-4) 0 var(--space-4);" id="flash-history-toolbar-container"></div>
 
             <div class="card-body" style="padding: 0;">
               <div class="table-container" style="border: none; border-radius: 0;">
@@ -671,18 +673,20 @@
                       <th>Date (IST)</th>
                       <th>Settings</th>
                       <th>Result</th>
+                      <th>Source</th>
                       <th style="text-align: right;">Time</th>
                     </tr>
                   </thead>
                   <tbody id="flash-history-tbody">
                     <tr>
-                      <td colspan="4" style="text-align: center; padding: var(--space-6); color: var(--text-muted);">
+                      <td colspan="5" style="text-align: center; padding: var(--space-6); color: var(--text-muted);">
                         Loading Flash Anzan history...
                       </td>
                     </tr>
                   </tbody>
                 </table>
               </div>
+              <div id="flash-history-pagination-container"></div>
             </div>
           </section>
         </div>

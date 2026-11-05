@@ -430,7 +430,7 @@ async function initCompetitionPage() {
   const pillContainer = document.getElementById('user-pill-container');
   if (pillContainer) pillContainer.style.display = 'flex';
 
-  setupAdminNav();
+  setupAdminNav(profile);
   attachListeners();
   await loadCompetitionSettings();
 }

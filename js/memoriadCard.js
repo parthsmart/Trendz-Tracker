@@ -15,6 +15,7 @@ import { isSupabaseConfigured } from './config.js';
 import { summarizeAllMemoriad, toIstDateString } from './memoriadStats.js';
 import { getScoreFeedback } from './scoreColors.js';
 import { getWeekBoundsIST } from './periods.js';
+import { fetchAllRowsBatched } from './historyFilters.js';
 
 function escapeHtml(str) {
   if (str === null || str === undefined) return '';
@@ -66,17 +67,23 @@ export async function fetchStudentMemoriadResults(studentId) {
     try {
       const supabase = await getSupabase();
       if (supabase) {
-        const { data, error } = await supabase
-          .from('activity_results')
-          .select(
-            'id, student_id, activity_type, activity_name, correct, total, time_seconds, settings, created_at'
-          )
-          .eq('student_id', studentId)
-          .eq('activity_type', 'memoriad')
-          .order('created_at', { ascending: false })
-          .limit(200);
-        if (!error && Array.isArray(data)) {
-          return mergeSessionPreviewMemoriadRows(studentId, data);
+        const rows = await fetchAllRowsBatched(async (from, to) => {
+          const { data, error } = await supabase
+            .from('activity_results')
+            .select(
+              'id, student_id, activity_type, activity_name, correct, total, time_seconds, settings, created_at'
+            )
+            .eq('student_id', studentId)
+            .eq('activity_type', 'memoriad')
+            .order('created_at', { ascending: false })
+            .order('id', { ascending: false })
+            .range(from, to);
+          if (error) throw error;
+          return data || [];
+        }, { batchSize: 1000 });
+
+        if (Array.isArray(rows) && rows.length > 0) {
+          return mergeSessionPreviewMemoriadRows(studentId, rows);
         }
       }
     } catch {

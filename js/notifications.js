@@ -28,6 +28,7 @@ import {
   formatEventDateChipIST,
   sanitizeNotificationLink,
 } from './notificationsView.js';
+import { markStudentMessageRead } from './studentMessages.js';
 import {
   fetchMyNotificationsCached,
   writeNotificationsCache,
@@ -55,7 +56,9 @@ async function initNotificationsPage() {
   const pillContainer = document.getElementById('user-pill-container');
   if (pillContainer) pillContainer.style.display = 'flex';
 
-  setupAdminNav();
+  if (currentProfile?.role === 'admin') {
+    setupAdminNav(currentProfile);
+  }
 
   const refreshBtn = document.getElementById('btn-refresh-notifications');
   if (refreshBtn) {
@@ -125,9 +128,9 @@ function renderNotifications() {
 
   if (loadingEl) loadingEl.style.display = 'none';
 
-  const { tests, announcements } = groupNotifications(allItems);
+  const { tests, announcements, messages = [] } = groupNotifications(allItems);
 
-  if (tests.length === 0 && announcements.length === 0) {
+  if (tests.length === 0 && announcements.length === 0 && messages.length === 0) {
     if (groupsWrapper) groupsWrapper.style.display = 'none';
     if (emptyEl) emptyEl.style.display = 'block';
     return;
@@ -135,6 +138,18 @@ function renderNotifications() {
 
   if (emptyEl) emptyEl.style.display = 'none';
   if (groupsWrapper) groupsWrapper.style.display = 'flex';
+
+  // 0. Trainer notes group
+  const msgCountEl = document.getElementById('group-messages-count');
+  const msgListEl = document.getElementById('group-messages-list');
+  const msgCard = document.getElementById('group-messages-card');
+  if (msgCountEl) msgCountEl.textContent = String(messages.length);
+  if (msgCard) {
+    msgCard.style.display = messages.length > 0 ? 'block' : 'none';
+  }
+  if (msgListEl && messages.length > 0) {
+    msgListEl.innerHTML = messages.map((item) => renderNotificationCardHtml(item)).join('');
+  }
 
   // 1. Weekly tests group
   const testsCountEl = document.getElementById('group-weekly-tests-count');
@@ -168,6 +183,16 @@ function renderNotifications() {
     }
   }
 
+  // Bind Open button handlers (marks message as read)
+  document.querySelectorAll('.btn-open-notification').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const msgId = btn.getAttribute('data-msg-id');
+      if (msgId) {
+        handleMarkMessageRead(msgId);
+      }
+    });
+  });
+
   // Bind Dismiss button handlers
   document.querySelectorAll('.btn-dismiss-notification').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -177,16 +202,57 @@ function renderNotifications() {
   });
 }
 
+/**
+ * Marks a student message as read, updates the local item, refreshes sessionStorage cache,
+ * syncs the nav bell badge DOM, and removes the visible Unread indicator.
+ *
+ * @param {string} msgId
+ */
+export async function handleMarkMessageRead(msgId) {
+  if (!msgId) return;
+  try {
+    const success = await markStudentMessageRead(msgId);
+    if (success) {
+      // 1. Update in-memory item
+      const item = allItems.find(
+        (i) => i && (i.id === msgId || (i.ref && i.ref === `msg:${msgId}`))
+      );
+      if (item) {
+        item.read_at = new Date().toISOString();
+      }
+
+      // 2. Update 60s sessionStorage cache and badge DOM
+      writeNotificationsCache(currentProfile?.id, allItems);
+
+      // 3. Update visible unread indicator in DOM
+      const card = document.querySelector(`article[data-ref="msg:${msgId}"]`);
+      if (card) {
+        const unreadBadge = card.querySelector('.badge-unread');
+        if (unreadBadge) {
+          unreadBadge.remove();
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Could not mark message as read:', err);
+  }
+}
+
 function renderNotificationCardHtml(item) {
   const ref = String(item.ref || '');
   const title = escapeHtml(item.title || 'Notification');
   const body = escapeHtml(item.body || '');
   const dateChip = formatEventDateChipIST(item.event_date || item.created_at);
   const stageText = stageLabel(item.days_left);
-  const safeLink = sanitizeNotificationLink(
-    item.link,
-    item.kind === 'announcement' ? '/pages/student.html' : '/pages/weekly-test.html'
-  );
+  const isMessage = item.kind === 'private_message';
+  const needsAttention = Boolean(item.needs_attention);
+  const isUnread = isMessage && !item.read_at;
+  const msgId = item.id || (ref.startsWith('msg:') ? ref.slice(4) : '');
+
+  const defaultLink = isMessage
+    ? (item.link || '/pages/student.html')
+    : (item.kind === 'announcement' ? '/pages/student.html' : '/pages/weekly-test.html');
+  const safeLink = sanitizeNotificationLink(item.link, defaultLink);
 
   // Semantic stage styling
   let stageStyle = 'background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE;';
@@ -208,6 +274,16 @@ function renderNotificationCardHtml(item) {
             ${title}
           </h3>
           ${
+            needsAttention
+              ? `<span class="badge" style="background: #FEF2F2; color: #B91C1C; border: 1px solid #FECACA; font-weight: 700;">⚠️ Needs attention</span>`
+              : ''
+          }
+          ${
+            isUnread
+              ? `<span class="badge badge-unread" style="background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; font-weight: 700;">Unread</span>`
+              : ''
+          }
+          ${
             dateChip
               ? `<span class="num" style="display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; background: var(--bg-surface-subtle); color: var(--text-muted); border: 1px solid var(--border-hairline);">${escapeHtml(dateChip)}</span>`
               : ''
@@ -223,10 +299,15 @@ function renderNotificationCardHtml(item) {
             ? `<p style="font-size: var(--text-sm); color: var(--text-muted); margin: 0; line-height: 1.5; white-space: pre-line;">${body}</p>`
             : ''
         }
+        ${
+          item.attention_reason
+            ? `<div style="font-size: 11px; color: #B91C1C; margin-top: 6px; font-weight: 600;">⚠️ Teacher note: ${escapeHtml(item.attention_reason)}</div>`
+            : ''
+        }
       </div>
 
       <div style="display: inline-flex; align-items: center; gap: var(--space-2); flex-shrink: 0;">
-        <a href="${escapeHtml(safeLink)}" class="btn btn-primary btn-sm" style="text-decoration: none;">
+        <a href="${escapeHtml(safeLink)}" class="btn btn-primary btn-sm btn-open-notification" data-msg-id="${escapeHtml(msgId)}" style="text-decoration: none;">
           Open
         </a>
         <button
@@ -298,8 +379,19 @@ async function commitDismissNotification(ref) {
   try {
     if (isSupabaseConfigured()) {
       const supabase = await getSupabase();
-      const { error } = await supabase.rpc('dismiss_notification', { p_ref: ref });
-      if (error) throw error;
+      if (ref.startsWith('msg:')) {
+        const msgId = ref.slice(4);
+        const { error } = await supabase
+          .from('student_messages')
+          .update({ dismissed_at: new Date().toISOString() })
+          .eq('id', msgId);
+        if (error) {
+          await supabase.rpc('dismiss_notification', { p_ref: ref });
+        }
+      } else {
+        const { error } = await supabase.rpc('dismiss_notification', { p_ref: ref });
+        if (error) throw error;
+      }
     } else if (isDemoMode() && DemoDB && typeof DemoDB.mockDismissNotification === 'function') {
       DemoDB.mockDismissNotification(currentProfile?.id, ref);
     }

@@ -350,6 +350,62 @@
       </div>
     </div>
 
+    <!-- MODAL: Send Private Message to Student on Score -->
+    <div id="modal-send-review-message" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="modal-review-msg-title">
+      <div class="modal-dialog" style="max-width: 520px;">
+        <header class="modal-header">
+          <h2 class="modal-title" id="modal-review-msg-title" style="display: flex; align-items: center; gap: 6px;">
+            <span>✉️</span>
+            <span>Send Private Note to Student</span>
+          </h2>
+          <button type="button" class="modal-close" data-close-modal="modal-send-review-message" aria-label="Close dialog">&times;</button>
+        </header>
+        <form id="form-send-review-message">
+          <div class="modal-body" style="display: flex; flex-direction: column; gap: var(--space-4);">
+            <!-- Recipient & Score Context Summary -->
+            <div style="background: var(--bg-surface-subtle); padding: var(--space-3); border-radius: var(--radius-sm); border: 1px solid var(--border-hairline); font-size: var(--text-xs);">
+              <div style="margin-bottom: 4px;">
+                <span style="color: var(--text-muted); font-weight: 600;">Student:</span>
+                <strong id="modal-review-msg-student" style="color: var(--text-main);">—</strong>
+              </div>
+              <div>
+                <span style="color: var(--text-muted); font-weight: 600;">Linked Score:</span>
+                <span id="modal-review-msg-score-summary" style="color: var(--text-main); font-weight: 600;">—</span>
+              </div>
+            </div>
+
+            <!-- Needs Attention Checkbox & Reason -->
+            <div style="background: var(--bg-surface-subtle); padding: var(--space-3); border-radius: var(--radius-sm); border: 1px solid var(--border-hairline);">
+              <label style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer; font-weight: 700; font-size: var(--text-sm);">
+                <input type="checkbox" id="modal-review-msg-needs-attention" />
+                <span>⚠️ Flag "Needs attention" for student</span>
+              </label>
+              <div id="modal-review-msg-attention-reason-wrap" style="display: none; margin-top: var(--space-2);">
+                <label for="modal-review-msg-attention-reason" class="form-label" style="font-size: 11px;">Attention reason / instruction</label>
+                <input type="text" id="modal-review-msg-attention-reason" class="form-input" maxlength="200" placeholder="e.g. Please re-check row 3 or review accuracy" />
+              </div>
+            </div>
+
+            <!-- Title -->
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="modal-review-msg-title-input" class="form-label">Subject / Title *</label>
+              <input type="text" id="modal-review-msg-title-input" class="form-input" required maxlength="120" placeholder="e.g. Feedback on today's practice" />
+            </div>
+
+            <!-- Body -->
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="modal-review-msg-body-input" class="form-label">Message *</label>
+              <textarea id="modal-review-msg-body-input" class="form-input" rows="4" required maxlength="2000" placeholder="Write your private feedback or instruction for this student..."></textarea>
+            </div>
+          </div>
+          <footer class="modal-footer">
+            <button type="button" class="btn btn-ghost" data-close-modal="modal-send-review-message">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="btn-submit-review-message">Send Message</button>
+          </footer>
+        </form>
+      </div>
+    </div>
+
     <!-- DRAWER: Audit History Slide-Over -->
     <div id="audit-drawer-overlay" class="audit-drawer-overlay" style="display: none;">
       <div class="audit-drawer">

@@ -6,6 +6,7 @@ import {
   badgeText,
   formatEventDateChipIST,
   sanitizeNotificationLink,
+  countActiveUnreadNotifications,
 } from '../js/notificationsView.js';
 
 describe('notificationsView pure helpers (Phase 13b)', () => {
@@ -83,12 +84,36 @@ describe('notificationsView pure helpers (Phase 13b)', () => {
         tests: [],
         weeklyTests: [],
         announcements: [],
+        messages: [],
       });
       assert.deepEqual(groupNotifications(null), {
         tests: [],
         weeklyTests: [],
         announcements: [],
+        messages: [],
       });
+    });
+
+    it('groups student_message items into messages array', () => {
+      const items = [
+        {
+          ref: 'msg:m1',
+          kind: 'student_message',
+          title: 'Review Note',
+          needs_attention: true,
+          attention_reason: 'Check row 2',
+        },
+        {
+          ref: 'ann:1',
+          kind: 'announcement',
+          title: 'Holiday',
+        },
+      ];
+      const grouped = groupNotifications(items);
+      assert.equal(grouped.messages.length, 1);
+      assert.equal(grouped.messages[0].ref, 'msg:m1');
+      assert.equal(grouped.messages[0].needs_attention, true);
+      assert.equal(grouped.announcements.length, 1);
     });
   });
 
@@ -135,6 +160,35 @@ describe('notificationsView pure helpers (Phase 13b)', () => {
         sanitizeNotificationLink('javascript:alert(1)'),
         '/pages/student.html'
       );
+    });
+  });
+
+  describe('countActiveUnreadNotifications', () => {
+    it('counts test reminders, announcements, and ONLY unread private messages', () => {
+      const items = [
+        { ref: 'test:1', kind: 'test_today' },
+        { ref: 'ann:1', kind: 'announcement' },
+        { ref: 'msg:1', kind: 'private_message', read_at: null }, // unread
+        { ref: 'msg:2', kind: 'private_message', read_at: '2026-11-05T10:00:00Z' }, // read
+        { ref: 'msg:3', kind: 'student_message', read_at: null }, // unread
+      ];
+
+      // 1 test + 1 announcement + 2 unread messages = 4
+      assert.equal(countActiveUnreadNotifications(items), 4);
+    });
+
+    it('returns 0 when all private messages are read and no other alerts exist', () => {
+      const items = [
+        { ref: 'msg:1', kind: 'private_message', read_at: '2026-11-05T09:00:00Z' },
+        { ref: 'msg:2', kind: 'student_message', read_at: '2026-11-05T10:00:00Z' },
+      ];
+      assert.equal(countActiveUnreadNotifications(items), 0);
+    });
+
+    it('handles empty or non-array inputs safely', () => {
+      assert.equal(countActiveUnreadNotifications([]), 0);
+      assert.equal(countActiveUnreadNotifications(null), 0);
+      assert.equal(countActiveUnreadNotifications(undefined), 0);
     });
   });
 });

@@ -396,7 +396,7 @@ async function initResourcesPage() {
   if (pillContainer) pillContainer.style.display = 'flex';
 
   setupModalListeners();
-  setupAdminNav();
+  setupAdminNav(profile);
 
   document.getElementById('btn-open-add-resource')?.addEventListener('click', openAddModal);
   document.getElementById('form-resource')?.addEventListener('submit', handleFormSubmit);

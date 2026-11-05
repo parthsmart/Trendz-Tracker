@@ -115,7 +115,7 @@ function configureHeaderNavigation(profile) {
   }
 
   if (isAdmin) {
-    setupAdminNav();
+    setupAdminNav(profile);
   }
 }
 

@@ -106,6 +106,9 @@
                 </div>
               </div>
               <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
+                <button type="button" id="btn-send-student-message" class="btn btn-secondary btn-sm">
+                  ✉ Send message
+                </button>
                 <button type="button" id="btn-edit-student-profile" class="btn btn-primary btn-sm">
                   Edit profile
                 </button>
@@ -393,6 +396,84 @@
 
         </div> <!-- /container -->
       </main>
+    </div>
+
+    <!-- Modal: Send Private Message to Student -->
+    <div id="modal-send-student-message" class="modal-backdrop" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-send-message-title" style="max-width: 540px;">
+        <div class="modal-header">
+          <h2 id="modal-send-message-title" class="modal-title" style="display: flex; align-items: center; gap: 6px;">
+            <span>✉️</span>
+            <span>Send Private Message to Student</span>
+          </h2>
+          <button type="button" class="modal-close-btn" id="btn-close-message-modal" aria-label="Close dialog">&times;</button>
+        </div>
+        <form id="form-send-student-message">
+          <div class="modal-body" style="display: flex; flex-direction: column; gap: var(--space-4);">
+            <!-- Recipient display -->
+            <div>
+              <label style="font-size: var(--text-xs); font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Recipient</label>
+              <div id="modal-msg-recipient-text" style="font-size: var(--text-sm); font-weight: 700; color: var(--text-main); margin-top: 2px;">
+                Loading...
+              </div>
+            </div>
+
+            <!-- Message Link Target -->
+            <div>
+              <label for="modal-msg-link-type" style="font-size: var(--text-xs); font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Reference / Link</label>
+              <select id="modal-msg-link-type" class="input" style="width: 100%; margin-top: 4px;">
+                <option value="general">General Message (No linked record)</option>
+                <option value="score">Link to a Practice Score</option>
+                <option value="weekly_test">Link to a Weekly Test</option>
+              </select>
+            </div>
+
+            <!-- Linked Score Selector (dynamic) -->
+            <div id="modal-msg-score-group" style="display: none;">
+              <label for="modal-msg-score-select" style="font-size: var(--text-xs); font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Select Practice Score</label>
+              <select id="modal-msg-score-select" class="input" style="width: 100%; margin-top: 4px;">
+                <option value="">Choose a recent score...</option>
+              </select>
+            </div>
+
+            <!-- Linked Weekly Test Selector (dynamic) -->
+            <div id="modal-msg-test-group" style="display: none;">
+              <label for="modal-msg-test-select" style="font-size: var(--text-xs); font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Select Weekly Test</label>
+              <select id="modal-msg-test-select" class="input" style="width: 100%; margin-top: 4px;">
+                <option value="">Choose a weekly test...</option>
+              </select>
+            </div>
+
+            <!-- Needs Attention Checkbox & Note -->
+            <div style="background: var(--bg-surface-subtle); padding: var(--space-3); border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
+              <label style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer; font-weight: 700; font-size: var(--text-sm);">
+                <input type="checkbox" id="modal-msg-needs-attention" />
+                <span>⚠️ Flag "Needs attention" for student</span>
+              </label>
+              <div id="modal-msg-attention-reason-wrap" style="display: none; margin-top: var(--space-2);">
+                <label for="modal-msg-attention-reason" style="font-size: 11px; font-weight: 600; color: var(--text-muted);">Attention reason / instruction</label>
+                <input type="text" id="modal-msg-attention-reason" class="input" maxlength="200" placeholder="e.g. Please re-check row 3 addition or verify timesheet" style="width: 100%; margin-top: 2px;" />
+              </div>
+            </div>
+
+            <!-- Subject / Title -->
+            <div>
+              <label for="modal-msg-title" style="font-size: var(--text-xs); font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Title / Subject *</label>
+              <input type="text" id="modal-msg-title" class="input" required maxlength="120" placeholder="e.g. Great practice session! or Check your recent score" style="width: 100%; margin-top: 4px;" />
+            </div>
+
+            <!-- Body -->
+            <div>
+              <label for="modal-msg-body" style="font-size: var(--text-xs); font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Message Body *</label>
+              <textarea id="modal-msg-body" class="input" rows="4" required maxlength="2000" placeholder="Write your private message to the student..." style="width: 100%; margin-top: 4px; resize: vertical;"></textarea>
+            </div>
+          </div>
+          <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: var(--space-2);">
+            <button type="button" class="btn btn-outline" id="btn-cancel-send-message">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="btn-submit-send-message">Send Message</button>
+          </div>
+        </form>
+      </div>
     </div>
 
     <!-- Toast Notifications Container -->

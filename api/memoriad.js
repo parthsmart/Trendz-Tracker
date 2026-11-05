@@ -273,6 +273,7 @@ async function handleSubmit(body, student, adminClient, res) {
   }
 
   const resultSettings = {
+    session_id: session.id,
     module: moduleKey,
     questions: evaluation.questions_total,
     attempted: evaluation.attempted,

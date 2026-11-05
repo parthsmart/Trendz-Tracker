@@ -22,6 +22,7 @@ import { showToast } from './toast.js';
 import { getScoreFeedback } from './scoreColors.js';
 import { formatSecondsToTime, getISTDateString, formatDisplayDateIST } from './stats.js';
 import { openModal, closeModal, setupModalListeners, setupAdminNav } from './modal.js';
+import { sendStudentMessage } from './studentMessages.js';
 
 let currentProfile = null;
 let allCategories = [];
@@ -46,7 +47,7 @@ async function initReviewPage() {
   if (!currentProfile) return;
 
   renderHeaderUser(currentProfile);
-  setupAdminNav();
+  setupAdminNav(currentProfile);
   setupModalListeners();
 
   if (isDemoMode()) {
@@ -114,11 +115,83 @@ function populateCategorySelect() {
 /**
  * Sets up filter inputs and listeners
  */
+export function buildReviewCategoryEmbed(section) {
+  if (section && section !== 'all') {
+    return 'category:categories!results_category_id_fkey!inner(id, name, section, sort_order)';
+  }
+  return 'category:categories!results_category_id_fkey(id, name, section, sort_order)';
+}
+
+export function buildReviewSelectColumns({ section, includeTargetFields = true } = {}) {
+  const targetCols = includeTargetFields ? 'min_accuracy, min_questions_per_minute, max_time_seconds, meets_target,' : '';
+  const categoryEmbed = buildReviewCategoryEmbed(section);
+  return `
+    id,
+    student_id,
+    student_round_id,
+    category_id,
+    correct,
+    total,
+    time_seconds,
+    note,
+    entry_date,
+    created_at,
+    source,
+    practice_mode,
+    verified,
+    verified_by,
+    verified_at,
+    corrected_by,
+    corrected_at,
+    flagged,
+    flag_note,
+    ${targetCols}
+    ${categoryEmbed},
+    student:profiles!results_student_id_fkey(id, full_name, student_code, level)
+  `;
+}
+
 function setupFilterControls() {
   const sectionSelect = document.getElementById('filter-section');
   if (sectionSelect) {
     sectionSelect.addEventListener('change', () => {
       populateCategorySelect();
+      currentPage = 1;
+    });
+  }
+
+  const catSelect = document.getElementById('filter-category');
+  if (catSelect) {
+    catSelect.addEventListener('change', () => {
+      currentPage = 1;
+    });
+  }
+
+  const statusSelect = document.getElementById('filter-status');
+  if (statusSelect) {
+    statusSelect.addEventListener('change', () => {
+      currentPage = 1;
+    });
+  }
+
+  const dateFrom = document.getElementById('filter-date-from');
+  if (dateFrom) {
+    dateFrom.addEventListener('change', () => {
+      currentPage = 1;
+    });
+  }
+
+  const dateTo = document.getElementById('filter-date-to');
+  if (dateTo) {
+    dateTo.addEventListener('change', () => {
+      currentPage = 1;
+    });
+  }
+
+  const studentInput = document.getElementById('filter-student');
+  if (studentInput) {
+    studentInput.addEventListener('input', () => {
+      currentPage = 1;
     });
   }
 
@@ -220,33 +293,13 @@ async function loadReviewEntries() {
       const supabase = await getSupabase();
 
       const buildReviewQuery = (tableName, includeTargetFields) => {
-        const targetCols = includeTargetFields ? 'min_accuracy, min_questions_per_minute, max_time_seconds, meets_target,' : '';
+        const selectCols = buildReviewSelectColumns({
+          section: activeFilters.section,
+          includeTargetFields,
+        });
         let q = supabase
           .from(tableName)
-          .select(`
-            id,
-            student_id,
-            student_round_id,
-            category_id,
-            correct,
-            total,
-            time_seconds,
-            note,
-            entry_date,
-            created_at,
-            source,
-            practice_mode,
-            verified,
-            verified_by,
-            verified_at,
-            corrected_by,
-            corrected_at,
-            flagged,
-            flag_note,
-            ${targetCols}
-            category:categories!results_category_id_fkey(id, name, section, sort_order),
-            student:profiles!results_student_id_fkey(id, full_name, student_code, level)
-          `, { count: 'exact' });
+          .select(selectCols, { count: 'exact' });
 
         if (activeFilters.dateFrom) {
           q = q.gte('entry_date', activeFilters.dateFrom);
@@ -556,6 +609,24 @@ function renderReviewTable(entries) {
               </button>
             `}
 
+            <!-- Send Note to Student -->
+            <button
+              type="button"
+              class="btn btn-outline btn-sm btn-action-message"
+              data-id="${entry.id}"
+              data-student-id="${entry.student_id}"
+              data-student-name="${escapeHtml(student.full_name)}"
+              data-student-code="${escapeHtml(student.student_code)}"
+              data-category-name="${escapeHtml(category.name)}"
+              data-correct="${correct}"
+              data-total="${total}"
+              data-entry-date="${escapeHtml(entryDateIST)}"
+              style="padding: 2px 6px; font-size: 11px;"
+              title="Send private note to student about this score"
+            >
+              ✉ Note
+            </button>
+
             <!-- History -->
             <button
               type="button"
@@ -692,6 +763,31 @@ function attachRowActionListeners() {
       const meta = `${btn.getAttribute('data-student')} · ${btn.getAttribute('data-cat')} (${btn.getAttribute('data-round')})`;
 
       openCorrectModal(id, correct, total, timeSec, note, meta);
+    });
+  });
+
+  // Row Action: Send Note to Student
+  document.querySelectorAll('.btn-action-message').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const entryId = btn.getAttribute('data-id');
+      const studentId = btn.getAttribute('data-student-id');
+      const studentName = btn.getAttribute('data-student-name') || 'Student';
+      const studentCode = btn.getAttribute('data-student-code') || '—';
+      const categoryName = btn.getAttribute('data-category-name') || 'Practice';
+      const correct = btn.getAttribute('data-correct') || '0';
+      const total = btn.getAttribute('data-total') || '0';
+      const entryDate = btn.getAttribute('data-entry-date') || '—';
+
+      openReviewMessageModal({
+        id: entryId,
+        studentId,
+        studentName,
+        studentCode,
+        categoryName,
+        correct,
+        total,
+        entryDate
+      });
     });
   });
 
@@ -938,6 +1034,102 @@ function setupModalHandlers() {
       if (e.target === auditDrawer) auditDrawer.style.display = 'none';
     };
   }
+
+  // Review Message Modal
+  const needsAttentionCb = document.getElementById('modal-review-msg-needs-attention');
+  const attentionReasonWrap = document.getElementById('modal-review-msg-attention-reason-wrap');
+  if (needsAttentionCb && attentionReasonWrap) {
+    needsAttentionCb.addEventListener('change', () => {
+      attentionReasonWrap.style.display = needsAttentionCb.checked ? 'block' : 'none';
+    });
+  }
+
+  const reviewMsgForm = document.getElementById('form-send-review-message');
+  if (reviewMsgForm) {
+    reviewMsgForm.onsubmit = async (e) => {
+      e.preventDefault();
+      if (!activeReviewMessageEntry) return;
+
+      const titleInput = document.getElementById('modal-review-msg-title-input');
+      const bodyInput = document.getElementById('modal-review-msg-body-input');
+      const attentionReasonInput = document.getElementById('modal-review-msg-attention-reason');
+      const submitBtn = document.getElementById('btn-submit-review-message');
+
+      const title = titleInput?.value?.trim() || '';
+      const body = bodyInput?.value?.trim() || '';
+      const needsAttention = needsAttentionCb?.checked || false;
+      const attentionReason = needsAttention ? (attentionReasonInput?.value?.trim() || null) : null;
+
+      if (!title) {
+        showToast('error', 'Subject is required.');
+        return;
+      }
+      if (!body) {
+        showToast('error', 'Message body is required.');
+        return;
+      }
+
+      try {
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'Sending...';
+        }
+
+        await sendStudentMessage({
+          studentId: activeReviewMessageEntry.studentId,
+          title,
+          body,
+          needsAttention,
+          attentionReason,
+          linkedType: 'score',
+          linkedId: activeReviewMessageEntry.id,
+          clientNonce: activeReviewMessageNonce,
+        });
+
+        showToast('success', 'Private note sent to student.');
+        activeReviewMessageNonce = null;
+        closeModal('modal-send-review-message');
+        if (needsAttention) {
+          await loadReviewEntries();
+        }
+      } catch (err) {
+        console.error('Failed to send review message:', err);
+        showToast('error', err.message || 'Failed to send note');
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Send Message';
+        }
+      }
+    };
+  }
+}
+
+let activeReviewMessageEntry = null;
+let activeReviewMessageNonce = null;
+
+function openReviewMessageModal(entry) {
+  activeReviewMessageEntry = entry;
+  activeReviewMessageNonce = typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `nonce-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  const studentEl = document.getElementById('modal-review-msg-student');
+  const summaryEl = document.getElementById('modal-review-msg-score-summary');
+  const titleInput = document.getElementById('modal-review-msg-title-input');
+  const bodyInput = document.getElementById('modal-review-msg-body-input');
+  const needsAttentionCb = document.getElementById('modal-review-msg-needs-attention');
+  const reasonWrap = document.getElementById('modal-review-msg-attention-reason-wrap');
+  const reasonInput = document.getElementById('modal-review-msg-attention-reason');
+
+  if (studentEl) studentEl.textContent = `${entry.studentName} (${entry.studentCode})`;
+  if (summaryEl) summaryEl.textContent = `${entry.categoryName} · Score: ${entry.correct}/${entry.total} · ${entry.entryDate}`;
+  if (titleInput) titleInput.value = `Feedback: ${entry.categoryName}`;
+  if (bodyInput) bodyInput.value = '';
+  if (needsAttentionCb) needsAttentionCb.checked = false;
+  if (reasonWrap) reasonWrap.style.display = 'none';
+  if (reasonInput) reasonInput.value = '';
+
+  openModal('modal-send-review-message');
 }
 
 function openConfirmModal({ title, body, defaultReason, onProceed }) {
@@ -1164,4 +1356,6 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
-document.addEventListener('DOMContentLoaded', initReviewPage);
+if (typeof document !== 'undefined') {
+  document.addEventListener('DOMContentLoaded', initReviewPage);
+}

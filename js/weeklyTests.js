@@ -100,7 +100,7 @@ async function initWeeklyTestsPage() {
   if (!currentProfile) return;
 
   renderHeaderUser(currentProfile);
-  setupAdminNav();
+  setupAdminNav(currentProfile);
   setupModalListeners();
 
   if (isDemoMode()) {
