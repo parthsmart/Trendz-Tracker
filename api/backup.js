@@ -66,6 +66,10 @@ import { verifyCronAuthorizationHeader } from './weekly-report.js';
 export const TIME_BUDGET_MS = 8000;
 export const STALE_LOCK_MS = 3 * 60 * 1000; // 3 minutes
 export const SAFE_HORIZON_MS = 60 * 1000; // 1 minute
+export const TOTAL_CRON_TIMEOUT_MS = 60000; // 60s maxDuration configured in vercel.json
+export const CRON_RESERVED_MS = 8000; // 8s reserved for lock release, error handling & HTTP response
+export const CRON_MAX_RUNTIME_MS = TOTAL_CRON_TIMEOUT_MS - CRON_RESERVED_MS; // 52000 ms
+export const MIN_PASS_BUDGET_MS = 2000; // Minimum 2s required to start a meaningful backup pass
 
 /**
  * Extracts Authorization header from Node/Express or Fetch Request.
@@ -446,6 +450,32 @@ export async function executeBackupRunPass({
     lastRun.finished_at &&
     startMs - new Date(lastRun.finished_at).getTime() < STALE_LOCK_MS;
 
+  // Query for the most recent completed ('done') run to recognize the active cycle
+  let lastDoneAt = null;
+  try {
+    const { data: doneRuns } = await supabase
+      .from('backup_runs')
+      .select('id, finished_at, started_at')
+      .eq('status', 'done')
+      .order('finished_at', { ascending: false })
+      .limit(1);
+    if (Array.isArray(doneRuns) && doneRuns.length > 0) {
+      lastDoneAt = doneRuns[0].finished_at || doneRuns[0].started_at || null;
+    }
+  } catch {
+    lastDoneAt = null;
+  }
+
+  const isSnapshotCachedInCycle = (st) => {
+    if (!st || !st.last_run_at || st.last_error) return false;
+    const lastRunMs = new Date(st.last_run_at).getTime();
+    if (isNaN(lastRunMs)) return false;
+    if (lastDoneAt) {
+      return lastRunMs > new Date(lastDoneAt).getTime();
+    }
+    return isMultiPassContinuation || (startMs - lastRunMs < 24 * 60 * 60 * 1000);
+  };
+
   // 2. Insert a new 'running' row in backup_runs.
   // If the partial unique index rejects it, return { busy: true } without doing anything.
   const { data: runRow, error: lockError } = await supabase
@@ -561,17 +591,13 @@ export async function executeBackupRunPass({
       activeTableName = tableConfig.name;
       const st = stateMap.get(tableConfig.name) || {};
 
-      // If continuing an interrupted multi-pass run and this snapshot table already
-      // succeeded within the last 90 seconds, skip re-rewriting it so the budget advances
-      if (
-        isMultiPassContinuation &&
-        st.last_run_at &&
-        !st.last_error &&
-        startMs - new Date(st.last_run_at).getTime() < 90 * 1000
-      ) {
+      // If this snapshot table already succeeded in the current cycle without error,
+      // skip re-writing it so the budget advances to remaining snapshot and append tables
+      if (isSnapshotCachedInCycle(st)) {
         tablesSummary[tableConfig.name] = {
           mode: 'snapshot',
           rows: Number(st.rows_written) || 0,
+          cells: Number(st.cells_written) || 0,
           status: 'cached_in_pass',
         };
         continue;
@@ -1128,12 +1154,40 @@ export default async function handler(req, res) {
 
     try {
       const supabase = getAdminClient();
-      const result = await executeBackupRunPass({
-        supabase,
-        kind: 'cron',
-        createdBy: null,
-      });
-      return res.status(result.httpStatus).json(result.body);
+      const cronStartMs = Date.now();
+      let lastResult = null;
+      let passCount = 0;
+      const MAX_PASSES = 8;
+
+      while (passCount < MAX_PASSES) {
+        const elapsedMs = Date.now() - cronStartMs;
+        const remainingMs = CRON_MAX_RUNTIME_MS - elapsedMs;
+
+        // If remaining time is less than minimum budget to safely run and clean up, stop
+        if (remainingMs < MIN_PASS_BUDGET_MS) {
+          break;
+        }
+
+        // Calculate pass budget clamped to remaining time so the pass never overruns the deadline
+        const passBudgetMs = Math.min(TIME_BUDGET_MS, remainingMs);
+        passCount++;
+
+        lastResult = await executeBackupRunPass({
+          supabase,
+          kind: 'cron',
+          createdBy: null,
+          timeBudgetMs: passBudgetMs,
+        });
+
+        // If another run is busy or if this pass finished the cycle ('done') or failed, stop looping
+        if (!lastResult || lastResult.body?.busy || lastResult.body?.status !== 'partial') {
+          break;
+        }
+      }
+
+      return res.status(lastResult ? lastResult.httpStatus : 200).json(
+        lastResult ? lastResult.body : { ok: true, status: 'partial', error: 'more to do' }
+      );
     } catch (err) {
       const safeErr = sanitizeBackupError(err, [cronSecret]);
       return res.status(500).json({ ok: false, status: 'failed', error: safeErr });

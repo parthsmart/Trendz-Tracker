@@ -236,3 +236,95 @@ test('toRows shapes clean database payloads per section kind', () => {
   assert.equal(rows[4].category_id, 'cat-r1');
   assert.equal(rows[4].seconds, null);
 });
+
+test('toRows and toSectionRow preserve existing section id and ignore non-string testId', () => {
+  const sectionsWithId = [
+    { id: 'sec-1', kind: 'basics', category_id: 'cat-b1', seconds: 60 },
+    { id: 'sec-2', kind: 'flash', flash_digits: 1, flash_count: 20, flash_speed_ms: 800, flash_mode: 'add', question_count: 5 },
+    { kind: 'elements', activity_key: 'day_codes' } // new section without id
+  ];
+
+  // When passing allCategories array accidentally as 2nd param, test_id must NOT be set to an array
+  const rowsBadParam = toRows(sectionsWithId, mockCategories);
+  assert.equal(rowsBadParam[0].id, 'sec-1');
+  assert.equal(rowsBadParam[0].test_id, undefined);
+  assert.equal(rowsBadParam[1].id, 'sec-2');
+  assert.equal(rowsBadParam[2].id, undefined);
+
+  // When passing valid string testId, test_id is attached and ids are preserved
+  const rowsGood = toRows(sectionsWithId, 'test-xyz');
+  assert.equal(rowsGood[0].id, 'sec-1');
+  assert.equal(rowsGood[0].test_id, 'test-xyz');
+  assert.equal(rowsGood[1].id, 'sec-2');
+  assert.equal(rowsGood[1].test_id, 'test-xyz');
+  assert.equal(rowsGood[2].id, undefined);
+  assert.equal(rowsGood[2].test_id, 'test-xyz');
+});
+
+test('validateSections accepts raw category array and categories with .section property', () => {
+  const appCategories = [
+    { id: 'cat-app-1', name: '1D 4R', section: 'basics' },
+    { id: 'cat-app-round', name: 'ADD', section: 'round' }
+  ];
+
+  const onlineSections = [
+    { kind: 'basics', category_id: 'cat-app-1', seconds: 60 }
+  ];
+
+  // Passed as raw array
+  const resArray = validateSections(onlineSections, 'online', appCategories);
+  assert.equal(resArray.valid, true);
+  assert.equal(resArray.error, null);
+
+  // Passed as Map lookup
+  const resMap = validateSections(onlineSections, 'online', {
+    categories: appCategories,
+    categoriesById: new Map(appCategories.map((c) => [c.id, c]))
+  });
+  assert.equal(resMap.valid, true);
+
+  // Rejects mismatching section/group_name
+  const badSection = [
+    { kind: 'basics', category_id: 'cat-app-round', seconds: 60 }
+  ];
+  const resBad = validateSections(badSection, 'online', appCategories);
+  assert.equal(resBad.valid, false);
+  assert.match(resBad.error, /must belong to Basics/);
+});
+
+test('dropdown rendering contracts map valid keys and labels without blank or undefined entries', () => {
+  // SECTION_KINDS (strings)
+  const kindOptions = SECTION_KINDS.map((k) => {
+    const kKey = typeof k === 'string' ? k : k.key;
+    const kLabel = typeof k === 'string' ? sectionKindLabel(k) : (k.label || sectionKindLabel(kKey));
+    return { key: kKey, label: kLabel };
+  });
+  for (const opt of kindOptions) {
+    assert.ok(opt.key && opt.key !== 'undefined');
+    assert.ok(opt.label && opt.label !== 'undefined');
+  }
+
+  // FLASH_MODES (strings)
+  const FLASH_MODES = ['add', 'add_sub'];
+  const modeOptions = FLASH_MODES.map((m) => {
+    const mKey = typeof m === 'string' ? m : m.key;
+    const mLabel = typeof m === 'string'
+      ? (m === 'add_sub' ? 'Add & Subtract' : 'Add only')
+      : (m.label || (mKey === 'add_sub' ? 'Add & Subtract' : 'Add only'));
+    return { key: mKey, label: mLabel };
+  });
+  assert.deepEqual(modeOptions, [
+    { key: 'add', label: 'Add only' },
+    { key: 'add_sub', label: 'Add & Subtract' }
+  ]);
+
+  // MEMORIAD_MODULES (objects with key, title)
+  const memOptions = MEMORIAD_MODULES.map((m) => {
+    const label = m.title || m.label || m.key;
+    return { key: m.key, label };
+  });
+  for (const opt of memOptions) {
+    assert.ok(opt.key && opt.key !== 'undefined');
+    assert.ok(opt.label && opt.label !== 'undefined');
+  }
+});

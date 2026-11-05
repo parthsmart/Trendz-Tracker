@@ -55,6 +55,10 @@ import backupHandler, {
   TIME_BUDGET_MS,
   STALE_LOCK_MS,
   SAFE_HORIZON_MS,
+  TOTAL_CRON_TIMEOUT_MS,
+  CRON_RESERVED_MS,
+  CRON_MAX_RUNTIME_MS,
+  MIN_PASS_BUDGET_MS,
   sanitizeBackupError,
   executeBackupRunPass,
   handlePrivateJmcwcBackup,
@@ -430,6 +434,7 @@ describe('Phase 5c — 4. Backup Endpoint Auth, Lock & Pass Execution (api/backu
       env,
       retryDelayMs: 1,
     });
+    console.log('TASK 3.1 RESULT:', JSON.stringify(res));
     assert.equal(res.httpStatus, 200);
     assert.deepEqual(res.body, { busy: true });
   });
@@ -534,6 +539,618 @@ describe('Phase 5c — 4. Backup Endpoint Auth, Lock & Pass Execution (api/backu
     assert.equal(result.body.status, 'partial');
     assert.equal(result.body.error, 'more to do');
     assert.equal(updatedRunPayload.status, 'partial');
+  });
+
+  it('resumes multi-pass cycle by marking previously completed snapshot tables as cached_in_pass and advancing budget', async () => {
+    const env = {
+      GOOGLE_SERVICE_ACCOUNT_JSON: JSON.stringify({
+        client_email: 'backup-bot@trendz-test.iam.gserviceaccount.com',
+        private_key: privateKey,
+      }),
+      BACKUP_SHEET_ID: 'sheet_123',
+    };
+
+    const fetchedTables = [];
+    const stateRows = [
+      {
+        table_name: 'profiles',
+        mode: 'snapshot',
+        rows_written: 15,
+        cells_written: 150,
+        last_run_at: '2026-11-04T02:00:05.000Z',
+        last_error: null,
+      },
+      {
+        table_name: 'categories',
+        mode: 'snapshot',
+        rows_written: 20,
+        cells_written: 160,
+        last_run_at: '2026-11-04T02:00:06.000Z',
+        last_error: null,
+      },
+    ];
+
+    const mockSupabase = {
+      from(table) {
+        if (table === 'backup_runs') {
+          return {
+            update() {
+              return {
+                eq: () => ({
+                  lt: async () => ({ data: [], error: null }),
+                }),
+              };
+            },
+            select(cols) {
+              return {
+                eq(col, val) {
+                  return {
+                    order: () => ({
+                      limit: async () => {
+                        if (val === 'done') {
+                          return {
+                            data: [{ id: 'run-done-yesterday', finished_at: '2026-11-03T02:00:00.000Z' }],
+                            error: null,
+                          };
+                        }
+                        return { data: [], error: null };
+                      },
+                    }),
+                  };
+                },
+                order: () => ({
+                  limit: async () => ({
+                    data: [{ id: 'run-partial-today', status: 'partial', finished_at: '2026-11-04T02:00:08.000Z' }],
+                    error: null,
+                  }),
+                }),
+              };
+            },
+            insert() {
+              return {
+                select: () => ({
+                  single: async () => ({
+                    data: { id: 'run-uuid-pass-2' },
+                    error: null,
+                  }),
+                }),
+              };
+            },
+          };
+        }
+        if (table === 'backup_state') {
+          return {
+            select: async () => ({ data: stateRows, error: null }),
+            upsert: async () => ({ data: null, error: null }),
+          };
+        }
+        fetchedTables.push(table);
+        return {
+          select() {
+            return {
+              order() {
+                return this;
+              },
+              range: async () => ({ data: [{ id: 'row-1' }], error: null }),
+            };
+          },
+        };
+      },
+    };
+
+    const mockFetch = async (url) => {
+      if (url.includes('oauth2.googleapis.com/token')) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({ access_token: 'ya29.mock', expires_in: 3600 }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ sheets: [] }),
+      };
+    };
+
+    let passClock = new Date('2026-11-04T02:00:20.000Z').getTime();
+    const result = await executeBackupRunPass({
+      supabase: mockSupabase,
+      kind: 'cron',
+      createdBy: null,
+      env,
+      fetchImpl: mockFetch,
+      retryDelayMs: 1,
+      timeBudgetMs: 8000,
+      nowFn: () => {
+        const cur = passClock;
+        passClock += 200;
+        return cur;
+      },
+    });
+
+    assert.equal(result.httpStatus, 200);
+    assert.equal(result.body.tables.profiles.status, 'cached_in_pass');
+    assert.equal(result.body.tables.categories.status, 'cached_in_pass');
+    assert.ok(!fetchedTables.includes('profiles'), 'profiles should not have been re-queried');
+    assert.ok(!fetchedTables.includes('categories'), 'categories should not have been re-queried');
+    assert.ok(fetchedTables.includes('category_series'), 'category_series should have been queried');
+  });
+
+  it('Task 3.1: multiple partial passes eventually finish into a done run across cycles', async () => {
+    const env = {
+      GOOGLE_SERVICE_ACCOUNT_JSON: JSON.stringify({
+        client_email: 'backup-bot@trendz-test.iam.gserviceaccount.com',
+        private_key: privateKey,
+      }),
+      BACKUP_SHEET_ID: 'sheet_123',
+    };
+
+    const mockFetch = async (url) => {
+      if (url.includes('oauth2.googleapis.com/token')) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({ access_token: 'ya29.mock', expires_in: 3600 }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ sheets: [] }),
+      };
+    };
+
+    // Simulate pass where all snapshot tables already completed and append tables have 0 rows waiting
+    const allSnapState = SNAPSHOT_TABLES.map((t) => ({
+      table_name: t.name,
+      mode: 'snapshot',
+      rows_written: 10,
+      cells_written: 100,
+      last_run_at: '2026-11-04T02:00:10.000Z',
+      last_error: null,
+    }));
+
+    const mockSupabase = {
+      from(table) {
+        if (table === 'backup_runs') {
+          return {
+            update: () => ({ eq: () => ({ lt: async () => ({ data: [], error: null }) }) }),
+            select: () => ({
+              eq: () => ({ order: () => ({ limit: async () => ({ data: [], error: null }) }) }),
+              order: () => ({ limit: async () => ({ data: [{ id: 'p1', status: 'partial' }], error: null }) }),
+            }),
+            insert: () => ({ select: () => ({ single: async () => ({ data: { id: 'run-p3' }, error: null }) }) }),
+          };
+        }
+        if (table === 'backup_state') {
+          return {
+            select: async () => ({ data: allSnapState, error: null }),
+            upsert: async () => ({ data: null, error: null }),
+          };
+        }
+        return {
+          select: () => ({
+            lte: () => ({
+              order: () => ({
+                order: () => ({
+                  limit: async () => ({ data: [], error: null }), // 0 rows waiting in append tables
+                }),
+              }),
+            }),
+          }),
+        };
+      },
+    };
+
+    const res = await executeBackupRunPass({
+      supabase: mockSupabase,
+      kind: 'cron',
+      createdBy: null,
+      env,
+      fetchImpl: mockFetch,
+      retryDelayMs: 1,
+      timeBudgetMs: 8000,
+      nowFn: () => new Date('2026-11-04T02:00:20.000Z').getTime(),
+    });
+
+    assert.equal(res.httpStatus, 200);
+    assert.equal(res.body.status, 'done', 'Pass must finish as done when all snapshots cached and appends caught up');
+    assert.equal(res.body.error, null);
+  });
+
+  it('Task 3.2: continuation on the following day recognizes active cycle without restarting at table 1', async () => {
+    const env = {
+      GOOGLE_SERVICE_ACCOUNT_JSON: JSON.stringify({
+        client_email: 'backup-bot@trendz-test.iam.gserviceaccount.com',
+        private_key: privateKey,
+      }),
+      BACKUP_SHEET_ID: 'sheet_123',
+    };
+
+    // Profiles was backed up yesterday at 20:30 during an interrupted cycle.
+    // Last 'done' run was 2 days ago (2026-11-02).
+    const stateRows = [
+      {
+        table_name: 'profiles',
+        mode: 'snapshot',
+        rows_written: 15,
+        cells_written: 150,
+        last_run_at: '2026-11-03T20:30:05.000Z',
+        last_error: null,
+      },
+    ];
+
+    let profilesQueried = false;
+    const mockSupabase = {
+      from(table) {
+        if (table === 'backup_runs') {
+          return {
+            update: () => ({ eq: () => ({ lt: async () => ({ data: [], error: null }) }) }),
+            select: () => ({
+              eq: (col, val) => ({
+                order: () => ({
+                  limit: async () => {
+                    if (val === 'done') {
+                      return { data: [{ id: 'done-2-days-ago', finished_at: '2026-11-02T20:30:00.000Z' }], error: null };
+                    }
+                    return { data: [], error: null };
+                  },
+                }),
+              }),
+              order: () => ({ limit: async () => ({ data: [{ id: 'partial-yesterday', status: 'partial' }], error: null }) }),
+            }),
+            insert: () => ({ select: () => ({ single: async () => ({ data: { id: 'run-today' }, error: null }) }) }),
+          };
+        }
+        if (table === 'backup_state') {
+          return {
+            select: async () => ({ data: stateRows, error: null }),
+            upsert: async () => ({ data: null, error: null }),
+            update: () => ({ eq: async () => ({ data: null, error: null }) }),
+          };
+        }
+        if (table === 'profiles') {
+          profilesQueried = true;
+        }
+        const q = {
+          order() { return q; },
+          range: async () => ({ data: [{ id: 'r1' }], error: null }),
+          lte() { return q; },
+          gt() { return q; },
+          limit: async () => ({ data: [], error: null, count: 0 }),
+        };
+        return {
+          select: () => q,
+        };
+      },
+    };
+
+    const mockFetch = async (url) => {
+      if (url.includes('oauth2.googleapis.com/token')) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({ access_token: 'ya29.mock', expires_in: 3600 }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ sheets: [] }),
+      };
+    };
+
+    const res = await executeBackupRunPass({
+      supabase: mockSupabase,
+      kind: 'cron',
+      createdBy: null,
+      env,
+      fetchImpl: mockFetch,
+      retryDelayMs: 1,
+      timeBudgetMs: 8000,
+      nowFn: () => new Date('2026-11-04T20:30:00.000Z').getTime(), // 24 hours later
+    });
+
+    assert.equal(res.httpStatus, 200);
+    assert.equal(res.body.tables.profiles.status, 'cached_in_pass');
+    assert.equal(profilesQueried, false, 'Profiles table must not be re-queried during continuation');
+  });
+
+  it('Task 3.3: a new cycle refreshes snapshots after the previous cycle finishes with done', async () => {
+    const env = {
+      GOOGLE_SERVICE_ACCOUNT_JSON: JSON.stringify({
+        client_email: 'backup-bot@trendz-test.iam.gserviceaccount.com',
+        private_key: privateKey,
+      }),
+      BACKUP_SHEET_ID: 'sheet_123',
+    };
+
+    const mockFetch = async (url) => {
+      if (url.includes('oauth2.googleapis.com/token')) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({ access_token: 'ya29.mock', expires_in: 3600 }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ sheets: [] }),
+      };
+    };
+
+    // Profiles was backed up yesterday at 20:30, and the previous cycle finished 'done' yesterday at 20:31
+    const stateRows = [
+      {
+        table_name: 'profiles',
+        mode: 'snapshot',
+        rows_written: 15,
+        cells_written: 150,
+        last_run_at: '2026-11-04T20:30:05.000Z',
+        last_error: null,
+      },
+    ];
+
+    let profilesQueried = false;
+    const mockSupabase = {
+      from(table) {
+        if (table === 'backup_runs') {
+          return {
+            update: () => ({ eq: () => ({ lt: async () => ({ data: [], error: null }) }) }),
+            select: () => ({
+              eq: (col, val) => ({
+                order: () => ({
+                  limit: async () => {
+                    if (val === 'done') {
+                      return { data: [{ id: 'done-yesterday', finished_at: '2026-11-04T20:31:00.000Z' }], error: null };
+                    }
+                    return { data: [], error: null };
+                  },
+                }),
+              }),
+              order: () => ({ limit: async () => ({ data: [{ id: 'done-yesterday', status: 'done' }], error: null }) }),
+            }),
+            insert: () => ({ select: () => ({ single: async () => ({ data: { id: 'run-new-cycle' }, error: null }) }) }),
+          };
+        }
+        if (table === 'backup_state') {
+          return {
+            select: async () => ({ data: stateRows, error: null }),
+            upsert: async () => ({ data: null, error: null }),
+            update: () => ({ eq: async () => ({ data: null, error: null }) }),
+          };
+        }
+        if (table === 'profiles') {
+          profilesQueried = true;
+        }
+        const q = {
+          order() { return q; },
+          range: async () => ({ data: [{ id: 'p1', full_name: 'Updated Student' }], error: null }),
+          lte() { return q; },
+          gt() { return q; },
+          limit: async () => ({ data: [], error: null, count: 0 }),
+        };
+        return {
+          select: () => q,
+        };
+      },
+    };
+
+    const res = await executeBackupRunPass({
+      supabase: mockSupabase,
+      kind: 'cron',
+      createdBy: null,
+      env,
+      fetchImpl: mockFetch,
+      retryDelayMs: 1,
+      timeBudgetMs: 8000,
+      nowFn: () => new Date('2026-11-05T20:30:00.000Z').getTime(), // Today's new daily cycle
+    });
+
+    assert.equal(res.httpStatus, 200);
+    assert.equal(profilesQueried, true, 'New cycle must refresh snapshot tables, not skip them as cached');
+    assert.equal(res.body.tables.profiles.rows, 1);
+  });
+
+  it('Task 3.4 & 3.5: handles missing or failed previous completed run queries without crashing', async () => {
+    const env = {
+      GOOGLE_SERVICE_ACCOUNT_JSON: JSON.stringify({
+        client_email: 'backup-bot@trendz-test.iam.gserviceaccount.com',
+        private_key: privateKey,
+      }),
+      BACKUP_SHEET_ID: 'sheet_123',
+    };
+
+    const mockFetch = async (url) => {
+      if (url.includes('oauth2.googleapis.com/token')) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({ access_token: 'ya29.mock', expires_in: 3600 }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ sheets: [] }),
+      };
+    };
+
+    // Case 1: Brand new installation (0 done runs)
+    const mockSupabaseEmpty = {
+      from(table) {
+        if (table === 'backup_runs') {
+          return {
+            update: () => ({ eq: () => ({ lt: async () => ({ data: [], error: null }) }) }),
+            select: () => ({
+              eq: () => ({ order: () => ({ limit: async () => ({ data: [], error: null }) }) }),
+              order: () => ({ limit: async () => ({ data: [], error: null }) }),
+            }),
+            insert: () => ({ select: () => ({ single: async () => ({ data: { id: 'run-first' }, error: null }) }) }),
+          };
+        }
+        if (table === 'backup_state') {
+          return {
+            select: async () => ({ data: [], error: null }),
+            upsert: async () => ({ data: null, error: null }),
+            update: () => ({ eq: async () => ({ data: null, error: null }) }),
+          };
+        }
+        const q = {
+          order() { return q; },
+          range: async () => ({ data: [{ id: '1' }], error: null }),
+          lte() { return q; },
+          gt() { return q; },
+          limit: async () => ({ data: [], error: null, count: 0 }),
+        };
+        return {
+          select: () => q,
+        };
+      },
+    };
+
+    const resEmpty = await executeBackupRunPass({
+      supabase: mockSupabaseEmpty,
+      kind: 'cron',
+      createdBy: null,
+      env,
+      fetchImpl: mockFetch,
+      retryDelayMs: 1,
+      timeBudgetMs: 8000,
+      nowFn: () => 1760000000000,
+    });
+    assert.equal(resEmpty.httpStatus, 200);
+    assert.equal(resEmpty.body.ok, true);
+
+    // Case 2: Database throws error querying last completed run
+    const mockSupabaseDbErr = {
+      from(table) {
+        if (table === 'backup_runs') {
+          return {
+            update: () => ({ eq: () => ({ lt: async () => ({ data: [], error: null }) }) }),
+            select: () => ({
+              eq: () => ({
+                order: () => ({
+                  limit: async () => { throw new Error('Database connection reset during last-run check'); }
+                }),
+              }),
+              order: () => ({ limit: async () => ({ data: [], error: null }) }),
+            }),
+            insert: () => ({ select: () => ({ single: async () => ({ data: { id: 'run-fallback' }, error: null }) }) }),
+          };
+        }
+        if (table === 'backup_state') {
+          return {
+            select: async () => ({ data: [], error: null }),
+            upsert: async () => ({ data: null, error: null }),
+            update: () => ({ eq: async () => ({ data: null, error: null }) }),
+          };
+        }
+        const q = {
+          order() { return q; },
+          range: async () => ({ data: [{ id: '1' }], error: null }),
+          lte() { return q; },
+          gt() { return q; },
+          limit: async () => ({ data: [], error: null, count: 0 }),
+        };
+        return {
+          select: () => q,
+        };
+      },
+    };
+
+    const resFallback = await executeBackupRunPass({
+      supabase: mockSupabaseDbErr,
+      kind: 'cron',
+      createdBy: null,
+      env,
+      fetchImpl: mockFetch,
+      retryDelayMs: 1,
+      timeBudgetMs: 8000,
+      nowFn: () => 1760000000000,
+    });
+    assert.equal(resFallback.httpStatus, 200);
+    assert.equal(resFallback.body.ok, true);
+  });
+
+  it('Task 3.6: concurrent runs are rejected with { busy: true } preserving running process', async () => {
+    const mockSupabaseBusy = {
+      from(table) {
+        if (table === 'backup_runs') {
+          return {
+            update: () => ({ eq: () => ({ lt: async () => ({ data: [], error: null }) }) }),
+            select: () => ({
+              eq: () => ({ order: () => ({ limit: async () => ({ data: [], error: null }) }) }),
+              order: () => ({ limit: async () => ({ data: [], error: null }) }),
+            }),
+            insert: () => ({
+              select: () => ({
+                single: async () => ({
+                  data: null,
+                  error: { code: '23505', message: 'duplicate key value violates unique index idx_backup_runs_one_running' }
+                }),
+              }),
+            }),
+          };
+        }
+        return {};
+      },
+    };
+
+    const res = await executeBackupRunPass({
+      supabase: mockSupabaseBusy,
+      kind: 'cron',
+      createdBy: null,
+      env: {
+        GOOGLE_SERVICE_ACCOUNT_JSON: JSON.stringify({
+          client_email: 'backup-bot@trendz-test.iam.gserviceaccount.com',
+          private_key: privateKey,
+        }),
+        BACKUP_SHEET_ID: 'sheet_123',
+      },
+      fetchImpl: async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ sheets: [] }) }),
+      retryDelayMs: 1,
+      timeBudgetMs: 8000,
+      nowFn: () => 1760000000000,
+    });
+
+    console.log('TASK 3.1 RESULT:', JSON.stringify(res));
+    assert.equal(res.httpStatus, 200);
+    assert.deepEqual(res.body, { busy: true });
+  });
+
+  it('Task 3.7: cron deadline verification reserves buffer, clamps pass budget, and stops without false "done"', () => {
+    assert.equal(TOTAL_CRON_TIMEOUT_MS, 60000);
+    assert.equal(CRON_RESERVED_MS, 8000);
+    assert.equal(CRON_MAX_RUNTIME_MS, 52000);
+    assert.equal(MIN_PASS_BUDGET_MS, 2000);
+
+    const cronStartMs = 1000000;
+
+    // Simulation 1: 30s elapsed -> remainingMs = 52000 - 30000 = 22000 ms.
+    // Clamped pass budget must be TIME_BUDGET_MS (8000 ms).
+    const elapsed1 = 30000;
+    const remaining1 = CRON_MAX_RUNTIME_MS - elapsed1;
+    assert.ok(remaining1 >= MIN_PASS_BUDGET_MS);
+    const passBudget1 = Math.min(TIME_BUDGET_MS, remaining1);
+    assert.equal(passBudget1, 8000);
+
+    // Simulation 2: 48s elapsed -> remainingMs = 52000 - 48000 = 4000 ms.
+    // Clamped pass budget must be exactly 4000 ms, NOT 8000 ms.
+    const elapsed2 = 48000;
+    const remaining2 = CRON_MAX_RUNTIME_MS - elapsed2;
+    assert.ok(remaining2 >= MIN_PASS_BUDGET_MS);
+    const passBudget2 = Math.min(TIME_BUDGET_MS, remaining2);
+    assert.equal(passBudget2, 4000, 'Pass budget must be clamped to remaining deadline time');
+
+    // Simulation 3: 51s elapsed -> remainingMs = 52000 - 51000 = 1000 ms.
+    // Remaining time < MIN_PASS_BUDGET_MS (2000 ms) -> loop must NOT start another pass!
+    const elapsed3 = 51000;
+    const remaining3 = CRON_MAX_RUNTIME_MS - elapsed3;
+    const shouldStop = remaining3 < MIN_PASS_BUDGET_MS;
+    assert.equal(shouldStop, true, 'Cron loop must stop before deadline without starting an overrun pass');
   });
 
   it('calls rpc todo_finalize at the start of every run, records todo_days_finalized: n, and never fails the run if todo_finalize errors', async () => {

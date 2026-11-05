@@ -36,6 +36,7 @@ import {
   SECTION_KINDS,
   FLASH_MODES,
   MEMORIAD_MODULES,
+  sectionKindLabel,
   sectionSummary,
   speedMsToSecondsText,
   validateSections,
@@ -1938,6 +1939,180 @@ function createDefaultSectionDraft(kind = 'basics', isOnline = false) {
   }
 }
 
+/**
+ * Renders the options for the section kind dropdown.
+ * @param {string} kind
+ * @param {boolean} isOnline
+ * @returns {string} HTML string of <option> tags
+ */
+export function renderKindOptionsHtml(kind = 'basics', isOnline = false) {
+  const currentKind = String(kind || 'basics').toLowerCase();
+  return SECTION_KINDS.map((k) => {
+    const kKey = typeof k === 'string' ? k : k.key;
+    const kLabel = typeof k === 'string' ? sectionKindLabel(k) : (k.label || sectionKindLabel(kKey));
+    const isRoundOnline = isOnline && kKey === 'round';
+    const selected = kKey === currentKind ? 'selected' : '';
+    const disabledAttr = isRoundOnline ? 'disabled' : '';
+    const label = isRoundOnline
+      ? `${kLabel} (Round scores are available for offline tests only for now)`
+      : kLabel;
+    return `<option value="${escapeHtml(kKey)}" ${selected} ${disabledAttr}>${escapeHtml(label)}</option>`;
+  }).join('');
+}
+
+/**
+ * Renders the specific parameter controls for a section kind.
+ * @param {object} sec
+ * @param {number} idx
+ * @param {object} options
+ * @returns {string} HTML string
+ */
+export function renderSectionFieldsHtml(sec = {}, idx = 0, options = {}) {
+  const isOnline = Boolean(options.isOnline);
+  const isLocked = Boolean(options.isLocked);
+  const basicsCats = options.basicsCats || [];
+  const roundCats = options.roundCats || [];
+  const enabledDrills = options.enabledDrills || [];
+  const kind = String(sec?.kind || 'basics').toLowerCase();
+
+  if (kind === 'basics') {
+    const catOptionsHtml = basicsCats
+      .map((c) => {
+        const supported = isBasicsOnlineAvailable(c.name);
+        const selected = c.id === sec.category_id ? 'selected' : '';
+        const disabledAttr = isOnline && !supported ? 'disabled' : '';
+        const suffix = isOnline && !supported ? ' (Not available online)' : '';
+        return `<option value="${escapeHtml(c.id)}" ${selected} ${disabledAttr}>${escapeHtml(c.name)}${suffix}</option>`;
+      })
+      .join('');
+
+    const noTimeOpt = !isOnline
+      ? `<option value="" ${!sec.seconds ? 'selected' : ''}>No time limit</option>`
+      : '';
+    const durOptionsHtml =
+      noTimeOpt +
+      WEEKLY_TEST_DURATION_OPTIONS.map((opt) => {
+        const selected = Number(sec.seconds) === opt.seconds ? 'selected' : '';
+        return `<option value="${opt.seconds}" ${selected}>${escapeHtml(opt.label)}</option>`;
+      }).join('');
+
+    return `
+      <div style="display: grid; grid-template-columns: 1fr 140px; gap: var(--space-2); flex: 1;">
+        <select class="form-select sec-basics-cat" data-index="${idx}" style="min-height: 34px; font-size: var(--text-xs);" ${isLocked ? 'disabled' : ''}>
+          <option value="">Select Basics category...</option>
+          ${catOptionsHtml}
+        </select>
+        <select class="form-select sec-basics-sec" data-index="${idx}" style="min-height: 34px; font-size: var(--text-xs);" ${isLocked ? 'disabled' : ''}>
+          ${durOptionsHtml}
+        </select>
+      </div>
+    `;
+  }
+
+  if (kind === 'round') {
+    const roundOptionsHtml = roundCats
+      .map((c) => {
+        const selected = c.id === sec.category_id ? 'selected' : '';
+        return `<option value="${escapeHtml(c.id)}" ${selected}>${escapeHtml(c.name)}</option>`;
+      })
+      .join('');
+
+    return `
+      <div style="flex: 1;">
+        <select class="form-select sec-round-cat" data-index="${idx}" style="min-height: 34px; font-size: var(--text-xs);" ${isLocked ? 'disabled' : ''}>
+          <option value="">Select Round category...</option>
+          ${roundOptionsHtml}
+        </select>
+      </div>
+    `;
+  }
+
+  if (kind === 'elements') {
+    const drillOptsHtml = enabledDrills
+      .map((d) => {
+        const selected = d.key === sec.activity_key ? 'selected' : '';
+        const label = d.title || d.label || d.key;
+        return `<option value="${escapeHtml(d.key)}" ${selected}>${escapeHtml(label)}</option>`;
+      })
+      .join('');
+
+    return `
+      <div style="flex: 1;">
+        <select class="form-select sec-elements-key" data-index="${idx}" style="min-height: 34px; font-size: var(--text-xs);" ${isLocked ? 'disabled' : ''}>
+          <option value="">Select Elements drill...</option>
+          ${drillOptsHtml}
+        </select>
+      </div>
+    `;
+  }
+
+  if (kind === 'memoriad') {
+    const modOptsHtml = MEMORIAD_MODULES.map((m) => {
+      const selected = m.key === sec.activity_key ? 'selected' : '';
+      const label = m.title || m.label || m.key;
+      return `<option value="${escapeHtml(m.key)}" ${selected}>${escapeHtml(label)}</option>`;
+    }).join('');
+
+    return `
+      <div style="flex: 1;">
+        <select class="form-select sec-memoriad-key" data-index="${idx}" style="min-height: 34px; font-size: var(--text-xs);" ${isLocked ? 'disabled' : ''}>
+          <option value="">Select Memoriad module...</option>
+          ${modOptsHtml}
+        </select>
+      </div>
+    `;
+  }
+
+  if (kind === 'flash') {
+    const digitsVal = Number(sec.flash_digits) || 1;
+    const countVal = Number(sec.flash_count) || 20;
+    const speedSecVal =
+      sec.flash_speed_seconds !== undefined && sec.flash_speed_seconds !== null
+        ? sec.flash_speed_seconds
+        : speedMsToSecondsText(sec.flash_speed_ms || 800);
+    const modeVal = sec.flash_mode === 'add_sub' ? 'add_sub' : 'add';
+    const triesVal = Number(sec.question_count) || 5;
+
+    const modeOptsHtml = FLASH_MODES.map((m) => {
+      const mKey = typeof m === 'string' ? m : m.key;
+      const mLabel = typeof m === 'string'
+        ? (m === 'add_sub' ? 'Add & Subtract' : 'Add only')
+        : (m.label || (mKey === 'add_sub' ? 'Add & Subtract' : 'Add only'));
+      const selected = mKey === modeVal ? 'selected' : '';
+      return `<option value="${escapeHtml(mKey)}" ${selected}>${escapeHtml(mLabel)}</option>`;
+    }).join('');
+
+    return `
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 6px; flex: 1;">
+        <div>
+          <label style="font-size: 10px; color: var(--text-muted); display: block;">Digits (1–5)</label>
+          <input type="number" class="form-input num sec-flash-digits" data-index="${idx}" min="1" max="5" step="1" value="${digitsVal}" style="min-height: 32px; font-size: var(--text-xs); padding: 2px 6px;" ${isLocked ? 'disabled' : ''} />
+        </div>
+        <div>
+          <label style="font-size: 10px; color: var(--text-muted); display: block;">Numbers (2–1000)</label>
+          <input type="number" class="form-input num sec-flash-count" data-index="${idx}" min="2" max="1000" step="1" value="${countVal}" style="min-height: 32px; font-size: var(--text-xs); padding: 2px 6px;" ${isLocked ? 'disabled' : ''} />
+        </div>
+        <div>
+          <label style="font-size: 10px; color: var(--text-muted); display: block;">Speed s (0.2–5.0)</label>
+          <input type="number" class="form-input num sec-flash-speed" data-index="${idx}" min="0.2" max="5.0" step="0.1" value="${escapeHtml(speedSecVal)}" style="min-height: 32px; font-size: var(--text-xs); padding: 2px 6px;" ${isLocked ? 'disabled' : ''} />
+        </div>
+        <div>
+          <label style="font-size: 10px; color: var(--text-muted); display: block;">Mode</label>
+          <select class="form-select sec-flash-mode" data-index="${idx}" style="min-height: 32px; font-size: var(--text-xs); padding: 2px 6px;" ${isLocked ? 'disabled' : ''}>
+            ${modeOptsHtml}
+          </select>
+        </div>
+        <div>
+          <label style="font-size: 10px; color: var(--text-muted); display: block;">Tries (1–10)</label>
+          <input type="number" class="form-input num sec-flash-tries" data-index="${idx}" min="1" max="10" step="1" value="${triesVal}" style="min-height: 32px; font-size: var(--text-xs); padding: 2px 6px;" ${isLocked ? 'disabled' : ''} />
+        </div>
+      </div>
+    `;
+  }
+
+  return '';
+}
+
 function renderSectionsBuilder() {
   const listEl = document.getElementById('sections-builder-list');
   const addBtn = document.getElementById('btn-add-section-row');
@@ -1957,7 +2132,7 @@ function renderSectionsBuilder() {
   }
   if (hintEl) {
     hintEl.textContent = isOnline
-      ? 'Choose Basics, Flash Anzan, Elements, or Memoriad sections in order. Students can start Basics sections online now; Flash, Elements, and Memoriad show "Available soon".'
+      ? 'Choose Basics, Flash Anzan, Elements, or Memoriad sections in order. All online sections are playable in the student portal; Round scores remain offline-only.'
       : 'Define ordered sections of any kind (Basics, Flash Anzan, Elements, Memoriad, or Round scores) for structured trainer score entry, or leave empty to enter scores by category.';
   }
 
@@ -1983,137 +2158,14 @@ function renderSectionsBuilder() {
     const isLocked = Boolean(sec.id && modalLockedSectionIds.has(sec.id));
     const kind = String(sec.kind || 'basics').toLowerCase();
 
-    const kindOptionsHtml = SECTION_KINDS.map((k) => {
-      const isRoundOnline = isOnline && k.key === 'round';
-      const selected = k.key === kind ? 'selected' : '';
-      const disabledAttr = isRoundOnline ? 'disabled' : '';
-      const label = isRoundOnline
-        ? `${k.label} (Round scores are available for offline tests only for now)`
-        : k.label;
-      return `<option value="${escapeHtml(k.key)}" ${selected} ${disabledAttr}>${escapeHtml(label)}</option>`;
-    }).join('');
-
-    let fieldsHtml = '';
-    if (kind === 'basics') {
-      const catOptionsHtml = basicsCats
-        .map((c) => {
-          const supported = isBasicsOnlineAvailable(c.name);
-          const selected = c.id === sec.category_id ? 'selected' : '';
-          const disabledAttr = isOnline && !supported ? 'disabled' : '';
-          const suffix = isOnline && !supported ? ' (Not available online)' : '';
-          return `<option value="${escapeHtml(c.id)}" ${selected} ${disabledAttr}>${escapeHtml(c.name)}${suffix}</option>`;
-        })
-        .join('');
-
-      const noTimeOpt = !isOnline
-        ? `<option value="" ${!sec.seconds ? 'selected' : ''}>No time limit</option>`
-        : '';
-      const durOptionsHtml =
-        noTimeOpt +
-        WEEKLY_TEST_DURATION_OPTIONS.map((opt) => {
-          const selected = Number(sec.seconds) === opt.seconds ? 'selected' : '';
-          return `<option value="${opt.seconds}" ${selected}>${escapeHtml(opt.label)}</option>`;
-        }).join('');
-
-      fieldsHtml = `
-        <div style="display: grid; grid-template-columns: 1fr 140px; gap: var(--space-2); flex: 1;">
-          <select class="form-select sec-basics-cat" data-index="${idx}" style="min-height: 34px; font-size: var(--text-xs);" ${isLocked ? 'disabled' : ''}>
-            <option value="">Select Basics category...</option>
-            ${catOptionsHtml}
-          </select>
-          <select class="form-select sec-basics-sec" data-index="${idx}" style="min-height: 34px; font-size: var(--text-xs);" ${isLocked ? 'disabled' : ''}>
-            ${durOptionsHtml}
-          </select>
-        </div>
-      `;
-    } else if (kind === 'round') {
-      const roundOptionsHtml = roundCats
-        .map((c) => {
-          const selected = c.id === sec.category_id ? 'selected' : '';
-          return `<option value="${escapeHtml(c.id)}" ${selected}>${escapeHtml(c.name)}</option>`;
-        })
-        .join('');
-
-      fieldsHtml = `
-        <div style="flex: 1;">
-          <select class="form-select sec-round-cat" data-index="${idx}" style="min-height: 34px; font-size: var(--text-xs);" ${isLocked ? 'disabled' : ''}>
-            <option value="">Select Round category...</option>
-            ${roundOptionsHtml}
-          </select>
-        </div>
-      `;
-    } else if (kind === 'elements') {
-      const drillOptsHtml = enabledDrills
-        .map((d) => {
-          const selected = d.key === sec.activity_key ? 'selected' : '';
-          return `<option value="${escapeHtml(d.key)}" ${selected}>${escapeHtml(d.code)} &mdash; ${escapeHtml(d.label)}</option>`;
-        })
-        .join('');
-
-      fieldsHtml = `
-        <div style="flex: 1;">
-          <select class="form-select sec-elements-key" data-index="${idx}" style="min-height: 34px; font-size: var(--text-xs);" ${isLocked ? 'disabled' : ''}>
-            <option value="">Select Elements drill...</option>
-            ${drillOptsHtml}
-          </select>
-        </div>
-      `;
-    } else if (kind === 'memoriad') {
-      const modOptsHtml = MEMORIAD_MODULES.map((m) => {
-        const selected = m.key === sec.activity_key ? 'selected' : '';
-        return `<option value="${escapeHtml(m.key)}" ${selected}>${escapeHtml(m.label)}</option>`;
-      }).join('');
-
-      fieldsHtml = `
-        <div style="flex: 1;">
-          <select class="form-select sec-memoriad-key" data-index="${idx}" style="min-height: 34px; font-size: var(--text-xs);" ${isLocked ? 'disabled' : ''}>
-            <option value="">Select Memoriad module...</option>
-            ${modOptsHtml}
-          </select>
-        </div>
-      `;
-    } else if (kind === 'flash') {
-      const digitsVal = Number(sec.flash_digits) || 1;
-      const countVal = Number(sec.flash_count) || 20;
-      const speedSecVal =
-        sec.flash_speed_seconds !== undefined && sec.flash_speed_seconds !== null
-          ? sec.flash_speed_seconds
-          : speedMsToSecondsText(sec.flash_speed_ms || 800);
-      const modeVal = sec.flash_mode === 'add_sub' ? 'add_sub' : 'add';
-      const triesVal = Number(sec.question_count) || 5;
-
-      const modeOptsHtml = FLASH_MODES.map((m) => {
-        const selected = m.key === modeVal ? 'selected' : '';
-        return `<option value="${escapeHtml(m.key)}" ${selected}>${escapeHtml(m.label)}</option>`;
-      }).join('');
-
-      fieldsHtml = `
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 6px; flex: 1;">
-          <div>
-            <label style="font-size: 10px; color: var(--text-muted); display: block;">Digits (1–5)</label>
-            <input type="number" class="form-input num sec-flash-digits" data-index="${idx}" min="1" max="5" step="1" value="${digitsVal}" style="min-height: 32px; font-size: var(--text-xs); padding: 2px 6px;" ${isLocked ? 'disabled' : ''} />
-          </div>
-          <div>
-            <label style="font-size: 10px; color: var(--text-muted); display: block;">Numbers (2–1000)</label>
-            <input type="number" class="form-input num sec-flash-count" data-index="${idx}" min="2" max="1000" step="1" value="${countVal}" style="min-height: 32px; font-size: var(--text-xs); padding: 2px 6px;" ${isLocked ? 'disabled' : ''} />
-          </div>
-          <div>
-            <label style="font-size: 10px; color: var(--text-muted); display: block;">Speed s (0.2–5.0)</label>
-            <input type="number" class="form-input num sec-flash-speed" data-index="${idx}" min="0.2" max="5.0" step="0.1" value="${escapeHtml(speedSecVal)}" style="min-height: 32px; font-size: var(--text-xs); padding: 2px 6px;" ${isLocked ? 'disabled' : ''} />
-          </div>
-          <div>
-            <label style="font-size: 10px; color: var(--text-muted); display: block;">Mode</label>
-            <select class="form-select sec-flash-mode" data-index="${idx}" style="min-height: 32px; font-size: var(--text-xs); padding: 2px 6px;" ${isLocked ? 'disabled' : ''}>
-              ${modeOptsHtml}
-            </select>
-          </div>
-          <div>
-            <label style="font-size: 10px; color: var(--text-muted); display: block;">Tries (1–10)</label>
-            <input type="number" class="form-input num sec-flash-tries" data-index="${idx}" min="1" max="10" step="1" value="${triesVal}" style="min-height: 32px; font-size: var(--text-xs); padding: 2px 6px;" ${isLocked ? 'disabled' : ''} />
-          </div>
-        </div>
-      `;
-    }
+    const kindOptionsHtml = renderKindOptionsHtml(kind, isOnline);
+    const fieldsHtml = renderSectionFieldsHtml(sec, idx, {
+      isOnline,
+      isLocked,
+      basicsCats,
+      roundCats,
+      enabledDrills,
+    });
 
     const minAllowed = isOnline ? 1 : 0;
     const canRemove = !isLocked && modalSectionsDraft.length > minAllowed;
@@ -2383,10 +2435,16 @@ let submitAndAddAnotherTest = false;
  * - Updates existing sections in place by id (handling position changes safely)
  * - Inserts newly added sections
  */
-async function saveTestSectionsInPlace(supabase, testId, normalizedRows) {
+export async function saveTestSectionsInPlace(
+  supabase,
+  testId,
+  normalizedRows,
+  existingSections = modalExistingSections,
+  lockedSectionIds = modalLockedSectionIds
+) {
   const draftIds = new Set(normalizedRows.filter((r) => r.id).map((r) => r.id));
-  const idsToDelete = modalExistingSections
-    .filter((oldSec) => oldSec.id && !draftIds.has(oldSec.id) && !modalLockedSectionIds.has(oldSec.id))
+  const idsToDelete = (existingSections || [])
+    .filter((oldSec) => oldSec.id && !draftIds.has(oldSec.id) && !lockedSectionIds.has(oldSec.id))
     .map((oldSec) => oldSec.id);
 
   if (idsToDelete.length > 0) {
@@ -2401,7 +2459,7 @@ async function saveTestSectionsInPlace(supabase, testId, normalizedRows) {
   const newToInsert = normalizedRows.filter((r) => !r.id);
 
   // Offset positions first if any existing row's position changed to avoid unique (test_id, position) collision
-  const oldPosMap = new Map(modalExistingSections.map((s) => [s.id, Number(s.position)]));
+  const oldPosMap = new Map((existingSections || []).map((s) => [s.id, Number(s.position)]));
   const needsPositionShift = existingToUpdate.some(
     (r) => oldPosMap.get(r.id) !== Number(r.position)
   );
@@ -2418,7 +2476,7 @@ async function saveTestSectionsInPlace(supabase, testId, normalizedRows) {
   }
 
   for (const row of existingToUpdate) {
-    const isLocked = modalLockedSectionIds.has(row.id);
+    const isLocked = lockedSectionIds.has(row.id);
     const updatePayload = isLocked
       ? { position: row.position }
       : {
@@ -2451,6 +2509,88 @@ async function saveTestSectionsInPlace(supabase, testId, normalizedRows) {
       .from('weekly_test_sections')
       .insert(insertRows);
     if (insErr) throw insErr;
+  }
+}
+
+/**
+ * Executes saving a weekly test (new or update) across Supabase or DemoDB.
+ * Enforces atomic transactional RPC save_weekly_test_sections_atomic when connected to Supabase.
+ * Does not fall back to partial REST writes; shows clear MIGRATION_REQUIRED error if RPC is missing.
+ */
+export async function executeSaveWeeklyTest({
+  supabase,
+  demoDb = DemoDB,
+  isConfigured = true,
+  idVal,
+  testPayload,
+  normalizedSectionRows = [],
+  existingSections = modalExistingSections,
+  lockedSectionIds = modalLockedSectionIds,
+}) {
+  if (isConfigured && supabase) {
+    if (typeof supabase.rpc !== 'function') {
+      const err = new Error(
+        'Supabase client does not support rpc: atomic weekly test save requires save_weekly_test_sections_atomic.'
+      );
+      err.code = 'MIGRATION_REQUIRED';
+      throw err;
+    }
+
+    const { data: rpcData, error: rpcErr } = await supabase.rpc(
+      'save_weekly_test_sections_atomic',
+      {
+        p_test_id: idVal || null,
+        p_test: testPayload,
+        p_sections: normalizedSectionRows,
+      }
+    );
+
+    if (rpcErr) {
+      const isMissingRpc =
+        rpcErr.code === 'PGRST202' ||
+        rpcErr.code === '42883' ||
+        String(rpcErr.message || '').includes('Could not find the function') ||
+        String(rpcErr.message || '').includes('does not exist');
+
+      if (isMissingRpc) {
+        const migrationErr = new Error(
+          'Atomic weekly test migration required: function save_weekly_test_sections_atomic is not installed in the database. Please have the database owner run migration 13_phase16c_atomic_weekly_test_sections.sql before saving weekly tests.'
+        );
+        migrationErr.code = 'MIGRATION_REQUIRED';
+        throw migrationErr;
+      }
+      throw rpcErr;
+    }
+
+    if (!rpcData || !rpcData.ok || !rpcData.test_id) {
+      throw new Error(rpcData?.error || 'Failed to save weekly test atomically');
+    }
+
+    return {
+      ok: true,
+      savedTestId: rpcData.test_id,
+      isNew: !idVal,
+    };
+  }
+
+  // Demo / local mode without Supabase connection
+  let savedTestId = null;
+  if (idVal) {
+    if (demoDb?.updateWeeklyTest) {
+      demoDb.updateWeeklyTest(idVal, testPayload);
+    }
+    if (demoDb?.saveWeeklyTestSections) {
+      demoDb.saveWeeklyTestSections(idVal, normalizedSectionRows);
+    }
+    savedTestId = idVal;
+    return { ok: true, savedTestId, isNew: false };
+  } else {
+    const created = demoDb.createWeeklyTest(testPayload);
+    savedTestId = created.id;
+    if (normalizedSectionRows.length > 0 && demoDb.saveWeeklyTestSections) {
+      demoDb.saveWeeklyTestSections(savedTestId, normalizedSectionRows);
+    }
+    return { ok: true, savedTestId, isNew: true };
   }
 }
 
@@ -2556,14 +2696,18 @@ function setupTestModalHandlers() {
         }
       }
 
-      // Validate sections via pure helper validateSections(sections, testType, categories)
-      const secValidation = validateSections(modalSectionsDraft, testType, allCategories);
-      if (!secValidation.ok) {
-        showModalError(secValidation.error);
+      // Validate sections via pure helper validateSections(sections, testType, lookup)
+      const categoriesLookup = {
+        categories: allCategories,
+        categoriesById: new Map(allCategories.map((c) => [String(c.id), c])),
+      };
+      const secValidation = validateSections(modalSectionsDraft, testType, categoriesLookup);
+      if (!secValidation.valid) {
+        showModalError(secValidation.error || secValidation.errors?.[0] || 'Please fix section validation errors.');
         return;
       }
 
-      const normalizedSectionRows = toRows(modalSectionsDraft, allCategories);
+      const normalizedSectionRows = toRows(modalSectionsDraft, idVal || undefined);
 
       btnSubmit.disabled = true;
       let newlyCreatedTestId = null;
@@ -2581,62 +2725,21 @@ function setupTestModalHandlers() {
           remind_days_before: remindDays,
         };
 
+        const saveResult = await executeSaveWeeklyTest({
+          supabase: isSupabaseConfigured() ? await getSupabase() : null,
+          demoDb: DemoDB,
+          isConfigured: isSupabaseConfigured(),
+          idVal,
+          testPayload,
+          normalizedSectionRows,
+          existingSections: modalExistingSections,
+          lockedSectionIds: modalLockedSectionIds,
+        });
+
+        savedTestId = saveResult.savedTestId;
         if (idVal) {
-          if (isSupabaseConfigured()) {
-            const supabase = await getSupabase();
-            const { error } = await supabase
-              .from('weekly_tests')
-              .update(testPayload)
-              .eq('id', idVal);
-
-            if (error) throw error;
-
-            await saveTestSectionsInPlace(supabase, idVal, normalizedSectionRows);
-          } else {
-            DemoDB.updateWeeklyTest(idVal, testPayload);
-            if (DemoDB.saveWeeklyTestSections) {
-              DemoDB.saveWeeklyTestSections(idVal, normalizedSectionRows);
-            }
-          }
-          savedTestId = idVal;
           showToast('success', 'Weekly test details updated.');
         } else {
-          if (isSupabaseConfigured()) {
-            const supabase = await getSupabase();
-            const { data, error } = await supabase
-              .from('weekly_tests')
-              .insert(testPayload)
-              .select('id')
-              .single();
-
-            if (error) throw error;
-            newlyCreatedTestId = data.id;
-            savedTestId = data.id;
-
-            if (normalizedSectionRows.length > 0) {
-              const sectionRows = normalizedSectionRows.map((r) => {
-                const copy = { ...r, test_id: savedTestId };
-                delete copy.id;
-                return copy;
-              });
-              const { error: secErr } = await supabase
-                .from('weekly_test_sections')
-                .insert(sectionRows);
-
-              if (secErr) {
-                await supabase.from('weekly_tests').delete().eq('id', newlyCreatedTestId);
-                newlyCreatedTestId = null;
-                throw secErr;
-              }
-            }
-          } else {
-            const created = DemoDB.createWeeklyTest(testPayload);
-            newlyCreatedTestId = created.id;
-            savedTestId = created.id;
-            if (normalizedSectionRows.length > 0 && DemoDB.saveWeeklyTestSections) {
-              DemoDB.saveWeeklyTestSections(savedTestId, normalizedSectionRows);
-            }
-          }
           showToast('success', 'New weekly test created.');
         }
 
@@ -3219,4 +3322,6 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
-document.addEventListener('DOMContentLoaded', initWeeklyTestsPage);
+if (typeof document !== 'undefined') {
+  document.addEventListener('DOMContentLoaded', initWeeklyTestsPage);
+}
