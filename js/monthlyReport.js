@@ -1,7 +1,7 @@
 /**
  * Trendz Tracker - Monthly Student Report Controller (js/monthlyReport.js)
  *
- * Serves both Students and Admins on /pages/monthly-report.html (and /pages/report.html):
+ * Serves both Students and Admins on canonical /pages/monthly-report.html:
  * - Guard: requireAuth(['student', 'admin'])
  * - Student view: strictly loads the logged-in student's own report (`p_student = profile.id`);
  *   never reads a student ID from URL query parameters.

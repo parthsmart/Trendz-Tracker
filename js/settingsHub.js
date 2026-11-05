@@ -152,6 +152,9 @@ export function getSettingsBreadcrumb(pathname) {
   if (typeof pathname !== 'string' || !pathname.trim()) return null;
   const cleanPath = pathname.split('?')[0].split('#')[0].trim();
 
+  // /pages/monthly-report.html is a top-level navigation item, not a Settings subpage
+  if (cleanPath.endsWith('/monthly-report.html')) return null;
+
   const match = SETTINGS_ENTRIES.find((entry) => cleanPath.endsWith(entry.href));
   return match || null;
 }
