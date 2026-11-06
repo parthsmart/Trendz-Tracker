@@ -194,13 +194,15 @@ export async function createTeacher(data) {
     throw new Error('Authentication required. Please sign in as an admin.');
   }
 
-  const response = await fetch('/api/create-teacher', {
+  const payload = { action: 'create', ...data };
+
+  const response = await fetch('/api/manage-teacher', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${session.access_token}`
     },
-    body: JSON.stringify(data)
+    body: JSON.stringify(payload)
   });
 
   let result = null;

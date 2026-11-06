@@ -21,8 +21,7 @@
 import assert from 'node:assert/strict';
 import { describe, it, before, after, beforeEach } from 'node:test';
 
-import createTeacherHandler from '../api/create-teacher.js';
-import manageTeacherHandler from '../api/manage-teacher.js';
+import manageTeacherHandler, { createTeacherHandler } from '../api/manage-teacher.js';
 import createStudentHandler from '../api/create-student.js';
 import resetPasswordHandler from '../api/reset-password.js';
 import backupHandler from '../api/backup.js';
@@ -453,6 +452,48 @@ describe('Phase 18 — Teacher API HTTP Handlers & Identity Enforcement', () => 
     // Verify compensating cleanup deleted the orphaned Auth user
     assert.equal(deletedAuthUserIds.length, 1, 'Compensating cleanup invoked deleteUser');
     assert.equal(deletedAuthUserIds[0], targetTeacherId, 'Deleted the created Auth user');
+  });
+
+  it('manage-teacher (combined endpoint): routes action "create" to teacher creation and compensating cleanup', async () => {
+    // 1. Success through unified manage-teacher endpoint
+    const res = createMockRes();
+    await manageTeacherHandler(
+      {
+        method: 'POST',
+        headers: { authorization: `Bearer ${validAdminToken}` },
+        body: {
+          action: 'create',
+          teacher_code: 'TCH03',
+          full_name: 'Teacher Three',
+          password: 'password123',
+          assigned_student_ids: [studentUserId],
+        },
+      },
+      res
+    );
+    assert.equal(res.getStatusCode(), 200);
+    assert.equal(res.getData().success, true);
+    assert.ok(res.getData().teacher);
+
+    // 2. Compensating cleanup through unified manage-teacher endpoint
+    simulateRpcFailure = true;
+    const resFail = createMockRes();
+    await manageTeacherHandler(
+      {
+        method: 'POST',
+        headers: { authorization: `Bearer ${validAdminToken}` },
+        body: {
+          action: 'create',
+          teacher_code: 'TCH04',
+          full_name: 'Teacher Four',
+          password: 'password123',
+        },
+      },
+      resFail
+    );
+    assert.equal(resFail.getStatusCode(), 400);
+    assert.match(resFail.getData().error, /Failed to initialize teacher in database/i);
+    assert.ok(deletedAuthUserIds.includes(targetTeacherId), 'Compensating cleanup executed on failure');
   });
 
   // ---------------------------------------------------------------------------

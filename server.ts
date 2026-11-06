@@ -8,7 +8,6 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import createStudentHandler from './api/create-student.js';
-import createTeacherHandler from './api/create-teacher.js';
 import manageTeacherHandler from './api/manage-teacher.js';
 import resetPasswordHandler from './api/reset-password.js';
 import supabaseProxyHandler from './api/supabase-proxy.js';
@@ -65,8 +64,7 @@ function safeHandler(fn: (req: express.Request, res: express.Response) => unknow
 
 // Mount the serverless API routes locally
 app.post('/api/create-student', safeHandler(createStudentHandler));
-app.post('/api/create-teacher', safeHandler(createTeacherHandler));
-app.post('/api/manage-teacher', safeHandler(manageTeacherHandler));
+app.post(['/api/manage-teacher', '/api/create-teacher'], safeHandler(manageTeacherHandler));
 app.post('/api/reset-password', safeHandler(resetPasswordHandler));
 app.all('/api/supabase-proxy', safeHandler(supabaseProxyHandler));
 app.all('/api/weekly-report', safeHandler(weeklyReportHandler));
