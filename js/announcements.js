@@ -32,6 +32,7 @@ let currentProfile = null;
 let announcements = [];
 let upcomingTests = [];
 let studentLevels = [];
+let teacherAssignedStudents = [];
 let isSavingAnnouncement = false;
 let pendingDeleteAnnouncementId = null;
 let submitAndAddAnotherAnn = false;
@@ -137,14 +138,46 @@ export function getAnnouncementStatus(ann, nowMs = Date.now()) {
 }
 
 async function initAnnouncementsPage() {
-  currentProfile = await requireAuth(['admin']);
+  currentProfile = await requireAuth(['teacher', 'admin']);
   if (!currentProfile) return;
+
+  if (currentProfile.role === 'teacher') {
+    if (currentProfile.permissions?.can_publish_announcements === false) {
+      window.location.href = '/pages/teacher.html';
+      return;
+    }
+  }
 
   const pillContainer = document.getElementById('user-pill-container');
   if (pillContainer) pillContainer.style.display = 'flex';
 
-  setupAdminNav(currentProfile);
+  if (currentProfile.role === 'admin') {
+    setupAdminNav(currentProfile);
+  }
   setupModalListeners();
+
+  if (currentProfile.role === 'teacher' && isSupabaseConfigured()) {
+    try {
+      const supabase = await getSupabase();
+      const { data: assignments } = await supabase
+        .from('teacher_student_assignments')
+        .select('student_id')
+        .eq('teacher_id', currentProfile.id);
+      const assignedIds = (assignments || []).map((a) => a.student_id);
+      if (assignedIds.length > 0) {
+        const { data: students } = await supabase
+          .from('profiles')
+          .select('id, full_name, student_code')
+          .in('id', assignedIds)
+          .eq('role', 'student')
+          .eq('active', true)
+          .order('student_code');
+        teacherAssignedStudents = students || [];
+      }
+    } catch (err) {
+      console.warn('Could not load teacher assigned students for announcements:', err);
+    }
+  }
 
   resetComposeForm();
   setupComposeFormListeners();
@@ -173,6 +206,27 @@ function resetComposeForm() {
   if (levelInput) levelInput.value = '';
   if (startsInput) startsInput.value = toIstDatetimeLocalValue(new Date());
   if (expiresInput) expiresInput.value = '';
+
+  const recWrapper = document.getElementById('ann-recipients-wrapper');
+  const recList = document.getElementById('ann-recipients-list');
+  if (recWrapper && recList) {
+    if (currentProfile?.role === 'teacher') {
+      recWrapper.style.display = 'block';
+      recList.innerHTML = teacherAssignedStudents.length === 0
+        ? '<div class="form-hint" style="padding: 4px;">No assigned students found.</div>'
+        : teacherAssignedStudents
+            .map((s) => `
+              <label style="display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; font-size: 0.9rem;">
+                <input type="checkbox" value="${s.id}" checked />
+                <span>${escapeHtml(s.full_name || 'Student')} (${escapeHtml(s.student_code || '')})</span>
+              </label>
+            `)
+            .join('');
+    } else {
+      recWrapper.style.display = 'none';
+      recList.innerHTML = '';
+    }
+  }
 
   setMoreOptionsOpen(document.getElementById('announcement-more-options'), false);
   showFormError('');
@@ -403,6 +457,19 @@ async function handleCreateAnnouncement() {
     }
   }
 
+  let selectedRecipients = null;
+  if (currentProfile?.role === 'teacher') {
+    const checkedBoxes = Array.from(
+      document.querySelectorAll('#ann-recipients-list input[type="checkbox"]:checked')
+    );
+    selectedRecipients = checkedBoxes.map((cb) => cb.value);
+    if (selectedRecipients.length === 0) {
+      showFormError('Please select at least one student recipient for this announcement.');
+      submitAndAddAnotherAnn = false;
+      return;
+    }
+  }
+
   isSavingAnnouncement = true;
   if (submitBtn) {
     submitBtn.disabled = true;
@@ -421,7 +488,17 @@ async function handleCreateAnnouncement() {
 
     if (isSupabaseConfigured()) {
       const supabase = await getSupabase();
-      const { error } = await supabase.from('announcements').insert(payload);
+      const { data: rpcData, error } = await supabase.rpc('save_announcement_atomic', {
+        p_announcement_id: null,
+        p_announcement: {
+          title,
+          body,
+          audience_level: audienceLevel || null,
+          starts_at: startsAtIso,
+          expires_at: expiresAtIso,
+        },
+        p_recipients: currentProfile?.role === 'teacher' ? (selectedRecipients || []) : null,
+      });
       if (error) throw error;
     } else if (isDemoMode() && DemoDB && typeof DemoDB.insertAnnouncement === 'function') {
       DemoDB.insertAnnouncement(payload);
@@ -525,15 +602,21 @@ function renderAnnouncementsList() {
           </div>
 
           <div style="flex-shrink: 0;">
-            <button
-              type="button"
-              class="btn btn-outline btn-sm btn-delete-announcement"
-              data-id="${escapeHtml(ann.id)}"
-              data-title="${escapeHtml(ann.title)}"
-              style="color: var(--color-danger-text);"
-            >
-              Delete
-            </button>
+            ${
+              currentProfile?.role === 'teacher' && ann.created_by !== currentProfile.id
+                ? ''
+                : `
+              <button
+                type="button"
+                class="btn btn-outline btn-sm btn-delete-announcement"
+                data-id="${escapeHtml(ann.id)}"
+                data-title="${escapeHtml(ann.title)}"
+                style="color: var(--color-danger-text);"
+              >
+                Delete
+              </button>
+              `
+            }
           </div>
         </article>
       `;
@@ -558,6 +641,15 @@ function setupDeleteConfirmationModal() {
   confirmBtn?.addEventListener('click', async () => {
     if (!pendingDeleteAnnouncementId) return;
     const idToDelete = pendingDeleteAnnouncementId;
+
+    if (currentProfile?.role === 'teacher') {
+      const ann = announcements.find((a) => a.id === idToDelete);
+      if (ann && ann.created_by && ann.created_by !== currentProfile.id) {
+        showToast('error', 'You can only delete announcements that you created.');
+        return;
+      }
+    }
+
     confirmBtn.disabled = true;
 
     try {

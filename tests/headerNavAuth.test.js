@@ -328,3 +328,44 @@ test('setupAdminNav bails out when called without arguments and no admin profile
   assert.equal(header.getAttribute('data-nav-role'), null);
   assert.equal(document.getElementById('admin-nav-zone'), null);
 });
+
+test('setupHeaderNavigation with teacher profile renders teacher nav and never admin nav', () => {
+  const { header, navZone } = setupMockDom('/pages/teacher.html');
+
+  const teacherProfile = {
+    id: 'tch-001',
+    role: 'teacher',
+    full_name: 'Anita Sharma',
+    student_code: 'TCH01',
+    level: 'Teacher',
+  };
+
+  setupHeaderNavigation(teacherProfile);
+
+  assert.equal(header.getAttribute('data-nav-role'), 'teacher');
+  assert.equal(navZone.id, 'teacher-nav-zone');
+  assert.ok(navZone.innerHTML.includes('/pages/teacher.html'), 'Teacher nav must link to /pages/teacher.html');
+  assert.ok(!navZone.innerHTML.includes('/pages/teachers.html'), 'Teacher nav must not link to teacher admin page');
+  assert.ok(!navZone.innerHTML.includes('/pages/settings.html'), 'Teacher nav must not link to settings hub');
+  assert.ok(!navZone.innerHTML.includes('/pages/backup.html'), 'Teacher nav must not link to backup');
+  assert.equal(document.getElementById('admin-nav-zone'), null);
+});
+
+test('setupAdminNav bails out when called with teacher profile', () => {
+  const { header } = setupMockDom('/pages/notifications.html');
+
+  const teacherProfile = {
+    id: 'tch-001',
+    role: 'teacher',
+    full_name: 'Teacher User',
+  };
+
+  setupHeaderNavigation(teacherProfile);
+  assert.equal(header.getAttribute('data-nav-role'), 'teacher');
+
+  setupAdminNav(teacherProfile);
+
+  // Role must remain 'teacher' and never elevate to 'admin'
+  assert.equal(header.getAttribute('data-nav-role'), 'teacher');
+  assert.equal(document.getElementById('admin-nav-zone'), null);
+});

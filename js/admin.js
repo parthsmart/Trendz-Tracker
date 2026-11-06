@@ -14,6 +14,7 @@ import { showToast } from './toast.js';
 import { buildModalLiveSummary, setMoreOptionsOpen } from './formPattern.js';
 
 let submitAndAddAnotherStudent = false;
+let currentLoggedInProfile = null;
 
 let allStudents = [];
 let currentFilter = {
@@ -46,6 +47,28 @@ async function loadStudents() {
       const supabase = await getSupabase();
       if (!supabase) {
         allStudents = DemoDB.getStudents();
+      } else if (currentLoggedInProfile?.role === 'teacher') {
+        const { data: assignments, error: assignErr } = await supabase
+          .from('teacher_student_assignments')
+          .select('student_id')
+          .eq('teacher_id', currentLoggedInProfile.id);
+
+        if (assignErr) throw assignErr;
+        const assignedIds = (assignments || []).map((a) => a.student_id);
+
+        if (assignedIds.length === 0) {
+          allStudents = [];
+        } else {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('id, student_code, full_name, level, role, active, leaderboard_visible, created_at')
+            .in('id', assignedIds)
+            .eq('role', 'student')
+            .order('created_at', { ascending: false });
+
+          if (error) throw error;
+          allStudents = data || [];
+        }
       } else {
         const { data, error } = await supabase
           .from('profiles')
@@ -192,7 +215,7 @@ function renderTable() {
       </td>
       <td>
         <label
-          style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: var(--text-xs); font-weight: 600; color: ${isVisible ? 'var(--color-accent-text)' : 'var(--text-dim)'};"
+          style="display: inline-flex; align-items: center; gap: 8px; cursor: ${currentLoggedInProfile?.role === 'teacher' ? 'default' : 'pointer'}; font-size: var(--text-xs); font-weight: 600; color: ${isVisible ? 'var(--color-accent-text)' : 'var(--text-dim)'};"
           title="Hidden students do not appear on any board."
         >
           <input
@@ -201,50 +224,57 @@ function renderTable() {
             data-id="${student.id}"
             data-visible="${isVisible}"
             ${isVisible ? 'checked' : ''}
+            ${currentLoggedInProfile?.role === 'teacher' ? 'disabled' : ''}
             aria-label="Show ${escapeHtml(student.full_name)} on leaderboards. Hidden students do not appear on any board."
-            style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;"
+            style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: ${currentLoggedInProfile?.role === 'teacher' ? 'default' : 'pointer'};"
           />
           <span>${isVisible ? 'Shown' : 'Hidden'}</span>
         </label>
       </td>
       <td style="text-align: right;">
-        <div style="display: inline-flex; gap: var(--space-2); flex-wrap: wrap; justify-content: flex-end;">
-          <button
-            type="button"
-            class="btn btn-outline btn-sm btn-edit-profile"
-            data-id="${student.id}"
-            title="Edit student profile"
-          >
-            Edit
-          </button>
-          <button
-            type="button"
-            class="btn btn-outline btn-sm btn-profile-history"
-            data-id="${student.id}"
-            title="View profile change history"
-          >
-            Change history
-          </button>
-          <button
-            type="button"
-            class="btn btn-outline btn-sm btn-reset-pwd"
-            data-id="${student.id}"
-            data-name="${escapeHtml(student.full_name)}"
-            data-code="${escapeHtml(student.student_code)}"
-            title="Reset student password"
-          >
-            Reset Pwd
-          </button>
-          <button
-            type="button"
-            class="btn ${student.active ? 'btn-outline' : 'btn-secondary'} btn-sm btn-toggle-active"
-            data-id="${student.id}"
-            data-active="${student.active}"
-            title="${student.active ? 'Deactivate student' : 'Activate student'}"
-          >
-            ${student.active ? 'Deactivate' : 'Activate'}
-          </button>
-        </div>
+        ${
+          currentLoggedInProfile?.role === 'teacher'
+            ? `<a href="/pages/student-detail.html?id=${encodeURIComponent(student.id)}" class="btn btn-outline btn-sm">View Profile</a>`
+            : `
+          <div style="display: inline-flex; gap: var(--space-2); flex-wrap: wrap; justify-content: flex-end;">
+            <button
+              type="button"
+              class="btn btn-outline btn-sm btn-edit-profile"
+              data-id="${student.id}"
+              title="Edit student profile"
+            >
+              Edit
+            </button>
+            <button
+              type="button"
+              class="btn btn-outline btn-sm btn-profile-history"
+              data-id="${student.id}"
+              title="View profile change history"
+            >
+              Change history
+            </button>
+            <button
+              type="button"
+              class="btn btn-outline btn-sm btn-reset-pwd"
+              data-id="${student.id}"
+              data-name="${escapeHtml(student.full_name)}"
+              data-code="${escapeHtml(student.student_code)}"
+              title="Reset student password"
+            >
+              Reset Pwd
+            </button>
+            <button
+              type="button"
+              class="btn ${student.active ? 'btn-outline' : 'btn-secondary'} btn-sm btn-toggle-active"
+              data-id="${student.id}"
+              data-active="${student.active}"
+              title="${student.active ? 'Deactivate student' : 'Activate student'}"
+            >
+              ${student.active ? 'Deactivate' : 'Activate'}
+            </button>
+          </div>
+          `
+        }
       </td>
     </tr>
   `;
@@ -351,14 +381,32 @@ function escapeHtml(str) {
  * Initialize Admin Page
  */
 async function initAdmin() {
-  const profile = await requireAuth(['admin']);
+  const profile = await requireAuth(['teacher', 'admin']);
   if (!profile) return;
+  currentLoggedInProfile = profile;
+
+  if (profile.role === 'teacher') {
+    if (profile.permissions?.can_view_students === false) {
+      window.location.href = '/pages/teacher.html';
+      return;
+    }
+    const addBtn = document.getElementById('btn-open-create-student');
+    if (addBtn) addBtn.style.display = 'none';
+    const importLink = document.querySelector('a[href*="import.html"]');
+    if (importLink) importLink.style.display = 'none';
+    const heading = document.querySelector('h1');
+    if (heading) {
+      heading.innerHTML = 'My Students <span class="badge badge-info" style="font-size: var(--text-xs); vertical-align: middle; margin-left: 8px;">Assigned students only</span>';
+    }
+  }
 
   const pillContainer = document.getElementById('user-pill-container');
   if (pillContainer) pillContainer.style.display = 'flex';
 
   setupModalListeners();
-  setupAdminNav(profile);
+  if (profile.role === 'admin') {
+    setupAdminNav(profile);
+  }
 
   initProfileEditor({
     getExistingLevels: () => collectExistingLevels(allStudents),

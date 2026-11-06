@@ -96,6 +96,17 @@ export const SETTINGS_ENTRIES = Object.freeze([
     description: 'Generate printable monthly student progress reports and WhatsApp summaries.',
   },
 
+  // Data & Administration
+  {
+    id: 'teachers',
+    group: 'data',
+    groupLabel: 'Data',
+    title: 'Teacher management',
+    breadcrumbTitle: 'Teachers',
+    href: '/pages/teachers.html',
+    description: 'Create teachers, assign students, and configure granular permissions.',
+  },
+
   // Data
   {
     id: 'import',

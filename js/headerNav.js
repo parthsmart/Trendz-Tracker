@@ -273,7 +273,7 @@ export function setupHeaderNavigation(profile = null) {
 
   // Determine role strictly from verified profile. Never infer 'admin' from page URL or markup.
   const resolvedRole = profile?.role;
-  if (!resolvedRole || (resolvedRole !== 'admin' && resolvedRole !== 'student')) {
+  if (!resolvedRole || (resolvedRole !== 'admin' && resolvedRole !== 'teacher' && resolvedRole !== 'student')) {
     // Unverified/unauthenticated state: ensure privileged content/actions remain hidden
     header.removeAttribute('data-nav-role');
     const existingNav = header.querySelector('#header-nav-zone') || header.querySelector('.nav-zone');
@@ -331,7 +331,9 @@ export function setupHeaderNavigation(profile = null) {
 
   const brandZone = brandCluster.querySelector('.brand-zone');
   if (brandZone) {
-    brandZone.href = resolvedRole === 'admin' ? '/pages/admin.html' : '/pages/student.html';
+    brandZone.href = resolvedRole === 'admin'
+      ? '/pages/admin.html'
+      : (resolvedRole === 'teacher' ? '/pages/teacher.html' : '/pages/student.html');
     brandZone.innerHTML = `
       <span class="brand-icon" aria-hidden="true">${BRAND_LOGO_SVG}</span>
       <span class="brand-title">Trendz Tracker</span>
@@ -353,7 +355,8 @@ export function setupHeaderNavigation(profile = null) {
   }
 
   // Render Mobile Menu Button + Menu Panel/Drawer from single NAV_CONFIG
-  const groups = getGroupedNavItems(resolvedRole);
+  const permissions = profile?.permissions || null;
+  const groups = getGroupedNavItems(resolvedRole, permissions);
   const groupsHtml = groups
     .map((groupEntry) => {
       const itemsHtml = groupEntry.items
@@ -413,7 +416,7 @@ export function setupHeaderNavigation(profile = null) {
     <nav
       id="header-nav-menu"
       class="header-nav-menu"
-      aria-label="${resolvedRole === 'admin' ? 'Admin menu' : 'Student menu'}"
+      aria-label="${resolvedRole === 'admin' ? 'Admin menu' : (resolvedRole === 'teacher' ? 'Teacher menu' : 'Student menu')}"
       hidden
     >
       <div class="header-nav-drawer-top">
@@ -448,13 +451,15 @@ export function setupHeaderNavigation(profile = null) {
 
   navZone.removeAttribute('style');
   navZone.className = 'nav-zone header-inline-nav';
-  navZone.id = resolvedRole === 'admin' ? 'admin-nav-zone' : 'student-nav-zone';
+  navZone.id = `${resolvedRole}-nav-zone`;
   navZone.setAttribute(
     'aria-label',
-    resolvedRole === 'admin' ? 'Admin Primary Navigation' : 'Student Primary Navigation'
+    resolvedRole === 'admin'
+      ? 'Admin Primary Navigation'
+      : (resolvedRole === 'teacher' ? 'Teacher Primary Navigation' : 'Student Primary Navigation')
   );
 
-  const desktopEntries = getDesktopNavEntries(resolvedRole);
+  const desktopEntries = getDesktopNavEntries(resolvedRole, permissions);
   navZone.innerHTML = desktopEntries
     .map((entry) => {
       if (entry.type === 'link') {
@@ -544,9 +549,10 @@ export function setupHeaderNavigation(profile = null) {
     }
     nameEl.className = 'header-user-name';
 
+    const roleDefaultName = resolvedRole === 'admin' ? 'Admin' : (resolvedRole === 'teacher' ? 'Teacher' : 'Student');
     const fullName =
-      profile?.full_name || nameEl.textContent?.trim() || (resolvedRole === 'admin' ? 'Admin' : 'Student');
-    const shortName = formatShortFirstName(fullName, resolvedRole === 'admin' ? 'Admin' : 'Student');
+      profile?.full_name || nameEl.textContent?.trim() || roleDefaultName;
+    const shortName = formatShortFirstName(fullName, roleDefaultName);
     nameEl.textContent = fullName;
     nameEl.setAttribute('data-short-name', shortName);
     nameEl.title = fullName;
@@ -561,8 +567,8 @@ export function setupHeaderNavigation(profile = null) {
       codeEl.classList.add('header-user-id', 'num');
       if (profile?.student_code) {
         codeEl.textContent = profile.student_code;
-      } else if (resolvedRole === 'admin') {
-        codeEl.textContent = 'Admin';
+      } else {
+        codeEl.textContent = roleDefaultName;
       }
     }
 

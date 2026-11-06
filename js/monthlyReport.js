@@ -75,11 +75,17 @@ function shiftYearMonth(ymStr, deltaMonths) {
 }
 
 async function initMonthlyReportPage() {
-  const profile = await requireAuth(['student', 'admin']);
+  const profile = await requireAuth(['student', 'teacher', 'admin']);
   if (!profile) return;
 
   currentProfile = profile;
   isAdmin = profile.role === 'admin';
+  const isTeacher = profile.role === 'teacher';
+
+  if (isTeacher && profile.permissions?.can_generate_reports === false) {
+    window.location.href = '/pages/teacher.html';
+    return;
+  }
 
   configureHeaderNavigation(profile);
   renderDemoBannerIfNeeded();
@@ -92,7 +98,7 @@ async function initMonthlyReportPage() {
     monthInput.value = currentYm;
   }
 
-  if (isAdmin) {
+  if (isAdmin || isTeacher) {
     await setupAdminStudentSelector();
   } else {
     // STRICT RULE: Students can ONLY view their own report; ignore any URL ?id= param.
@@ -150,12 +156,30 @@ async function setupAdminStudentSelector() {
     if (isSupabaseConfigured()) {
       const supabase = await getSupabase();
       if (supabase) {
-        const { data } = await supabase
-          .from('profiles')
-          .select('id, student_code, full_name, level, active')
-          .eq('role', 'student')
-          .order('student_code', { ascending: true });
-        if (Array.isArray(data)) students = data;
+        if (currentProfile?.role === 'teacher') {
+          const { data: assignments } = await supabase
+            .from('teacher_student_assignments')
+            .select('student_id')
+            .eq('teacher_id', currentProfile.id);
+
+          const assignedIds = (assignments || []).map((a) => a.student_id);
+          if (assignedIds.length > 0) {
+            const { data } = await supabase
+              .from('profiles')
+              .select('id, student_code, full_name, level, active')
+              .in('id', assignedIds)
+              .eq('role', 'student')
+              .order('student_code', { ascending: true });
+            if (Array.isArray(data)) students = data;
+          }
+        } else {
+          const { data } = await supabase
+            .from('profiles')
+            .select('id, student_code, full_name, level, active')
+            .eq('role', 'student')
+            .order('student_code', { ascending: true });
+          if (Array.isArray(data)) students = data;
+        }
       }
     } else if (isDemoMode()) {
       students = DemoDB.getStudents().filter((s) => s.role !== 'admin');
@@ -165,7 +189,7 @@ async function setupAdminStudentSelector() {
   }
 
   if (students.length === 0) {
-    selectEl.innerHTML = `<option value="">No students found</option>`;
+    selectEl.innerHTML = `<option value="">No assigned students found</option>`;
     return;
   }
 

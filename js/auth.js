@@ -30,6 +30,44 @@ async function fetchProfileFromSupabase(supabase, userId) {
       if (profileErr || !profile) {
         return { profile: null, error: profileErr || new Error('Profile not found') };
       }
+
+      if (profile.role === 'teacher') {
+        try {
+          const { data: perms } = await supabase
+            .from('teacher_permissions')
+            .select('*')
+            .eq('teacher_id', userId)
+            .maybeSingle();
+
+          profile.permissions = perms || {
+            can_view_students: true,
+            can_mark_attendance: true,
+            can_correct_attendance: true,
+            can_generate_reports: true,
+            can_manage_tasks: true,
+            can_manage_tests: true,
+            can_publish_announcements: true,
+            can_manage_resources: true,
+            can_review_scores: true,
+            can_request_corrections: true,
+          };
+        } catch (permErr) {
+          console.warn('Teacher permissions fetch error:', permErr);
+          profile.permissions = {
+            can_view_students: true,
+            can_mark_attendance: true,
+            can_correct_attendance: true,
+            can_generate_reports: true,
+            can_manage_tasks: true,
+            can_manage_tests: true,
+            can_publish_announcements: true,
+            can_manage_resources: true,
+            can_review_scores: true,
+            can_request_corrections: true,
+          };
+        }
+      }
+
       return { profile, error: null };
     } finally {
       inFlightProfilePromise = null;
@@ -138,6 +176,39 @@ export async function loginWithStudentId(studentId, password) {
       return { user: { id: adminProfile.id, email }, profile: adminProfile };
     } else {
       throw new Error('Invalid password for Admin. (Demo password: admin123)');
+    }
+  }
+
+  // Teacher login check in Demo Mode
+  if (cleanId === 'TEACHER' || cleanId === 'TCH01') {
+    if (password === 'teacher123' || password === 'teacher') {
+      const teacherProfile = {
+        id: 'teacher-demo-uuid',
+        student_code: 'TCH01',
+        full_name: 'Anita Sharma (Teacher)',
+        role: 'teacher',
+        level: 'Teacher',
+        active: true,
+        created_at: new Date().toISOString(),
+        permissions: {
+          can_view_students: true,
+          can_mark_attendance: true,
+          can_correct_attendance: true,
+          can_generate_reports: true,
+          can_manage_tasks: true,
+          can_manage_tests: true,
+          can_publish_announcements: true,
+          can_manage_resources: true,
+          can_review_scores: true,
+          can_request_corrections: true,
+        }
+      };
+      DemoDB.setDemoAuth(teacherProfile);
+      syncJmcwcRecoveryUserScope(teacherProfile.id);
+      writeProfileCache(teacherProfile);
+      return { user: { id: teacherProfile.id, email }, profile: teacherProfile };
+    } else {
+      throw new Error('Invalid password for Teacher. (Demo password: teacher123)');
     }
   }
 
@@ -329,6 +400,8 @@ export function redirectByRole(profile) {
   }
   if (profile.role === 'admin') {
     window.location.href = '/pages/admin.html';
+  } else if (profile.role === 'teacher') {
+    window.location.href = '/pages/teacher.html';
   } else {
     window.location.href = '/pages/student.html';
   }

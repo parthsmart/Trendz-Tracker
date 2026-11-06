@@ -10,6 +10,7 @@ import { showToast } from './toast.js';
 import { shouldOpenMoreOptions, buildModalLiveSummary, setMoreOptionsOpen } from './formPattern.js';
 
 let allResources = [];
+let teacherAssignedStudents = [];
 let submitAndAddAnotherResource = false;
 
 /**
@@ -107,14 +108,20 @@ function renderResourcesTable() {
           </span>
         </td>
         <td style="text-align: right;">
-          <div style="display: inline-flex; gap: 6px;">
-            <button type="button" class="btn btn-outline btn-sm btn-edit-resource" data-id="${res.id}">
-              Edit
-            </button>
-            <button type="button" class="btn ${res.active ? 'btn-outline' : 'btn-secondary'} btn-sm btn-toggle-resource" data-id="${res.id}" data-active="${res.active}">
-              ${res.active ? 'Deactivate' : 'Activate'}
-            </button>
-          </div>
+          ${
+            currentLoggedInProfile?.role === 'teacher' && res.created_by !== currentLoggedInProfile.id
+              ? '<span class="badge badge-neutral">Shared</span>'
+              : `
+            <div style="display: inline-flex; gap: 6px;">
+              <button type="button" class="btn btn-outline btn-sm btn-edit-resource" data-id="${res.id}">
+                Edit
+              </button>
+              <button type="button" class="btn ${res.active ? 'btn-outline' : 'btn-secondary'} btn-sm btn-toggle-resource" data-id="${res.id}" data-active="${res.active}">
+                ${res.active ? 'Deactivate' : 'Activate'}
+              </button>
+            </div>
+            `
+          }
         </td>
       </tr>
     `;
@@ -184,9 +191,14 @@ function updateResourceLiveSummary() {
   });
 }
 
-function openEditModal(resourceId) {
+async function openEditModal(resourceId) {
   const res = allResources.find(r => r.id === resourceId);
   if (!res) return;
+
+  if (currentLoggedInProfile?.role === 'teacher' && res.created_by && res.created_by !== currentLoggedInProfile.id) {
+    showToast('You can only edit resources that you created.', 'error');
+    return;
+  }
 
   clearResourceErrors();
   document.getElementById('modal-resource-title').textContent = 'Edit Learning Resource';
@@ -196,6 +208,43 @@ function openEditModal(resourceId) {
   document.getElementById('resource-topic').value = res.topic || '';
   document.getElementById('resource-desc').value = res.description || '';
   document.getElementById('resource-active').checked = !!res.active;
+
+  const recGroup = document.getElementById('resource-recipients-group');
+  const recList = document.getElementById('resource-recipients-list');
+  if (recGroup && recList) {
+    if (currentLoggedInProfile?.role === 'teacher') {
+      recGroup.style.display = 'block';
+      let currentRecipients = new Set();
+      if (isSupabaseConfigured()) {
+        try {
+          const supabase = await getSupabase();
+          const { data: recData } = await supabase
+            .from('resource_recipients')
+            .select('student_id')
+            .eq('resource_id', res.id);
+          (recData || []).forEach((r) => currentRecipients.add(r.student_id));
+        } catch (err) {
+          console.warn('Could not load resource recipients:', err);
+        }
+      }
+      recList.innerHTML = teacherAssignedStudents.length === 0
+        ? '<div class="form-hint" style="padding: 4px;">No assigned students found.</div>'
+        : teacherAssignedStudents
+            .map((s) => {
+              const checked = currentRecipients.has(s.id);
+              return `
+                <label style="display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; font-size: 0.9rem;">
+                  <input type="checkbox" value="${s.id}" ${checked ? 'checked' : ''} />
+                  <span>${escapeHtml(s.full_name || 'Student')} (${escapeHtml(s.student_code || '')})</span>
+                </label>
+              `;
+            })
+            .join('');
+    } else {
+      recGroup.style.display = 'none';
+      recList.innerHTML = '';
+    }
+  }
 
   const btnSaveAnother = document.getElementById('btn-save-add-another-resource');
   if (btnSaveAnother) btnSaveAnother.style.display = 'none';
@@ -215,6 +264,27 @@ function openAddModal() {
   document.getElementById('form-resource').reset();
   document.getElementById('resource-id').value = '';
   document.getElementById('resource-active').checked = true;
+
+  const recGroup = document.getElementById('resource-recipients-group');
+  const recList = document.getElementById('resource-recipients-list');
+  if (recGroup && recList) {
+    if (currentLoggedInProfile?.role === 'teacher') {
+      recGroup.style.display = 'block';
+      recList.innerHTML = teacherAssignedStudents.length === 0
+        ? '<div class="form-hint" style="padding: 4px;">No assigned students found.</div>'
+        : teacherAssignedStudents
+            .map((s) => `
+              <label style="display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; font-size: 0.9rem;">
+                <input type="checkbox" value="${s.id}" checked />
+                <span>${escapeHtml(s.full_name || 'Student')} (${escapeHtml(s.student_code || '')})</span>
+              </label>
+            `)
+            .join('');
+    } else {
+      recGroup.style.display = 'none';
+      recList.innerHTML = '';
+    }
+  }
 
   const btnSaveAnother = document.getElementById('btn-save-add-another-resource');
   if (btnSaveAnother) btnSaveAnother.style.display = 'inline-flex';
@@ -254,6 +324,19 @@ async function handleFormSubmit(e) {
     return;
   }
 
+  let selectedRecipients = null;
+  if (currentLoggedInProfile?.role === 'teacher') {
+    const checkedBoxes = Array.from(
+      document.querySelectorAll('#resource-recipients-list input[type="checkbox"]:checked')
+    );
+    selectedRecipients = checkedBoxes.map((cb) => cb.value);
+    if (selectedRecipients.length === 0) {
+      showResourceError('Please select at least one student recipient for this resource.');
+      submitAndAddAnotherResource = false;
+      return;
+    }
+  }
+
   const saveBtn = document.getElementById('btn-save-resource');
   saveBtn.disabled = true;
   saveBtn.textContent = 'Saving...';
@@ -262,21 +345,24 @@ async function handleFormSubmit(e) {
     if (isSupabaseConfigured()) {
       const supabase = await getSupabase();
       if (supabase) {
-        if (id) {
-          const { error } = await supabase
-            .from('resources')
-            .update({ title, url, topic, description, active })
-            .eq('id', id);
-          if (error) throw error;
-          showToast('Resource updated successfully', 'success');
-        } else {
-          const maxSort = allResources.reduce((max, r) => Math.max(max, r.sort_order || 0), 0);
-          const { error } = await supabase
-            .from('resources')
-            .insert([{ title, url, topic, description, active, sort_order: maxSort + 1 }]);
-          if (error) throw error;
-          showToast('Resource added successfully', 'success');
-        }
+        const maxSort = allResources.reduce((max, r) => Math.max(max, r.sort_order || 0), 0);
+        const resourcePayload = {
+          title,
+          url,
+          topic,
+          description,
+          active,
+          sort_order: id ? undefined : maxSort + 1,
+        };
+
+        const { error } = await supabase.rpc('save_resource_atomic', {
+          p_resource_id: id || null,
+          p_resource: resourcePayload,
+          p_recipients: currentLoggedInProfile?.role === 'teacher' ? (selectedRecipients || []) : null,
+        });
+        if (error) throw error;
+
+        showToast(id ? 'Resource updated successfully' : 'Resource added successfully', 'success');
         const addAnother = submitAndAddAnotherResource && !id;
         submitAndAddAnotherResource = false;
         await loadResources();
@@ -384,19 +470,52 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
-async function initResourcesPage() {
-  const profile = await requireAuth(['admin']);
+let currentLoggedInProfile = null;
+
+export async function initResourcesPage() {
+  const profile = await requireAuth(['teacher', 'admin']);
   if (!profile) return;
+  currentLoggedInProfile = profile;
+
+  if (profile.role === 'teacher' && profile.permissions?.can_manage_resources === false) {
+    window.location.href = '/pages/teacher.html';
+    return;
+  }
 
   const nameEl = document.getElementById('header-user-name');
   const roleEl = document.getElementById('header-user-role');
   const pillContainer = document.getElementById('user-pill-container');
-  if (nameEl) nameEl.textContent = profile.full_name || 'Admin';
-  if (roleEl) roleEl.textContent = profile.student_code || 'Teacher';
+  if (nameEl) nameEl.textContent = profile.full_name || (profile.role === 'admin' ? 'Admin' : 'Teacher');
+  if (roleEl) roleEl.textContent = profile.student_code || (profile.role === 'admin' ? 'Admin' : 'Teacher');
   if (pillContainer) pillContainer.style.display = 'flex';
 
   setupModalListeners();
-  setupAdminNav(profile);
+  if (profile.role === 'admin') {
+    setupAdminNav(profile);
+  }
+
+  if (profile.role === 'teacher' && isSupabaseConfigured()) {
+    try {
+      const supabase = await getSupabase();
+      const { data: assignments } = await supabase
+        .from('teacher_student_assignments')
+        .select('student_id')
+        .eq('teacher_id', profile.id);
+      const assignedIds = (assignments || []).map((a) => a.student_id);
+      if (assignedIds.length > 0) {
+        const { data: students } = await supabase
+          .from('profiles')
+          .select('id, full_name, student_code')
+          .in('id', assignedIds)
+          .eq('role', 'student')
+          .eq('active', true)
+          .order('student_code');
+        teacherAssignedStudents = students || [];
+      }
+    } catch (err) {
+      console.warn('Could not load teacher assigned students for resources:', err);
+    }
+  }
 
   document.getElementById('btn-open-add-resource')?.addEventListener('click', openAddModal);
   document.getElementById('form-resource')?.addEventListener('submit', handleFormSubmit);

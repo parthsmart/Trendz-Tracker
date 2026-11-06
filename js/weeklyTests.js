@@ -96,11 +96,18 @@ let searchQuery = '';
 let selectedLevelFilter = '';
 
 async function initWeeklyTestsPage() {
-  currentProfile = await requireAuth(['admin']);
+  currentProfile = await requireAuth(['teacher', 'admin']);
   if (!currentProfile) return;
 
+  if (currentProfile.role === 'teacher' && currentProfile.permissions?.can_manage_tests === false) {
+    window.location.href = '/pages/teacher.html';
+    return;
+  }
+
   renderHeaderUser(currentProfile);
-  setupAdminNav(currentProfile);
+  if (currentProfile.role === 'admin') {
+    setupAdminNav(currentProfile);
+  }
   setupModalListeners();
 
   if (isDemoMode()) {
@@ -199,7 +206,17 @@ async function loadActiveStudents() {
       rows.forEach((p) => {
         adminProfilesMap.set(p.id, p.full_name || p.student_code || 'Admin');
       });
-      activeStudents = rows.filter((s) => s.role === 'student' && s.active !== false);
+
+      if (currentProfile?.role === 'teacher') {
+        const { data: assignments } = await supabase
+          .from('teacher_student_assignments')
+          .select('student_id')
+          .eq('teacher_id', currentProfile.id);
+        const assignedIds = new Set((assignments || []).map((a) => a.student_id));
+        activeStudents = rows.filter((s) => s.role === 'student' && s.active !== false && assignedIds.has(s.id));
+      } else {
+        activeStudents = rows.filter((s) => s.role === 'student' && s.active !== false);
+      }
     } else {
       adminProfilesMap.set('usr-admin-1', 'Chief Trainer');
       activeStudents = DemoDB.getStudents()
@@ -366,7 +383,7 @@ async function loadTests(selectTestId = null) {
       const [testRes, countRes, sectionsRes] = await Promise.all([
         supabase
           .from('weekly_tests')
-          .select('id, title, test_date, audience_level, notes, test_type, opens_at, closes_at, remind_days_before, created_at')
+          .select('id, title, test_date, audience_level, notes, test_type, opens_at, closes_at, remind_days_before, created_by, created_at')
           .order('test_date', { ascending: false }),
         supabase.from('weekly_test_scores').select('test_id'),
         supabase
@@ -2524,6 +2541,7 @@ export async function executeSaveWeeklyTest({
   idVal,
   testPayload,
   normalizedSectionRows = [],
+  recipients = null,
   existingSections = modalExistingSections,
   lockedSectionIds = modalLockedSectionIds,
 }) {
@@ -2536,13 +2554,18 @@ export async function executeSaveWeeklyTest({
       throw err;
     }
 
+    const rpcParams = {
+      p_test_id: idVal || null,
+      p_test: testPayload,
+      p_sections: normalizedSectionRows,
+    };
+    if (recipients !== null && recipients !== undefined) {
+      rpcParams.p_recipients = recipients;
+    }
+
     const { data: rpcData, error: rpcErr } = await supabase.rpc(
       'save_weekly_test_sections_atomic',
-      {
-        p_test_id: idVal || null,
-        p_test: testPayload,
-        p_sections: normalizedSectionRows,
-      }
+      rpcParams
     );
 
     if (rpcErr) {
@@ -2709,6 +2732,18 @@ function setupTestModalHandlers() {
 
       const normalizedSectionRows = toRows(modalSectionsDraft, idVal || undefined);
 
+      let selectedRecipients = null;
+      if (currentProfile?.role === 'teacher') {
+        const checkedBoxes = Array.from(
+          document.querySelectorAll('#test-recipients-list input[type="checkbox"]:checked')
+        );
+        selectedRecipients = checkedBoxes.map((cb) => cb.value);
+        if (selectedRecipients.length === 0) {
+          showModalError('Please select at least one student recipient for this test.');
+          return;
+        }
+      }
+
       btnSubmit.disabled = true;
       let newlyCreatedTestId = null;
 
@@ -2732,6 +2767,7 @@ function setupTestModalHandlers() {
           idVal,
           testPayload,
           normalizedSectionRows,
+          recipients: selectedRecipients,
           existingSections: modalExistingSections,
           lockedSectionIds: modalLockedSectionIds,
         });
@@ -2781,6 +2817,13 @@ function friendlyDbErrorMessage(err) {
 }
 
 async function openTestModal(test = null) {
+  if (test && currentProfile?.role === 'teacher') {
+    if (test.created_by && test.created_by !== currentProfile.id) {
+      showToast('error', 'You can only edit tests that you created.');
+      return;
+    }
+  }
+
   const modalTitle = document.getElementById('test-modal-title');
   const idInput = document.getElementById('test-id-input');
   const dateInput = document.getElementById('test-date-input');
@@ -2802,6 +2845,43 @@ async function openTestModal(test = null) {
   modalLockedSectionIds = new Set();
   modalHasAnyScoresOrAttempts = false;
   modalExistingSections = [];
+
+  const recipientsGroup = document.getElementById('test-recipients-group');
+  const recipientsList = document.getElementById('test-recipients-list');
+  if (recipientsGroup && recipientsList) {
+    if (currentProfile?.role === 'teacher') {
+      recipientsGroup.style.display = 'block';
+      let currentRecipientIds = new Set();
+      if (test && test.id && isSupabaseConfigured()) {
+        try {
+          const supabase = await getSupabase();
+          const { data: recData } = await supabase
+            .from('weekly_test_recipients')
+            .select('student_id')
+            .eq('test_id', test.id);
+          (recData || []).forEach((r) => currentRecipientIds.add(r.student_id));
+        } catch (err) {
+          console.warn('Could not load test recipients:', err);
+        }
+      }
+      recipientsList.innerHTML = activeStudents.length === 0
+        ? '<div class="form-hint" style="padding: 4px;">No assigned students found.</div>'
+        : activeStudents
+            .map((s) => {
+              const checked = !test || currentRecipientIds.has(s.id);
+              return `
+                <label style="display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; font-size: 0.9rem;">
+                  <input type="checkbox" value="${s.id}" ${checked ? 'checked' : ''} />
+                  <span>${escapeHtml(s.full_name || 'Student')} (${escapeHtml(s.student_code || '')})</span>
+                </label>
+              `;
+            })
+            .join('');
+    } else {
+      recipientsGroup.style.display = 'none';
+      recipientsList.innerHTML = '';
+    }
+  }
 
   if (test) {
     if (modalTitle) modalTitle.textContent = 'Edit Weekly Test';

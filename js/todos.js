@@ -28,8 +28,10 @@ import {
   setMoreOptionsOpen,
 } from './formPattern.js';
 
+let currentProfile = null;
 let allCategories = [];
 let allTodos = [];
+let teacherAssignedStudents = [];
 let titleFilledByFlashButton = false;
 
 async function loadCategories() {
@@ -458,14 +460,20 @@ function renderTodosTable() {
             </span>
           </td>
           <td style="text-align: right;">
-            <div style="display: inline-flex; gap: var(--space-2);">
-              <button type="button" class="btn btn-outline btn-sm btn-edit-todo" data-id="${escapeHtml(todo.id)}">
-                Edit
-              </button>
-              <button type="button" class="btn btn-outline btn-sm btn-toggle-todo" data-id="${escapeHtml(todo.id)}" data-active="${Boolean(todo.active)}">
-                ${todo.active ? 'Deactivate' : 'Activate'}
-              </button>
-            </div>
+            ${
+              currentProfile?.role === 'teacher' && todo.created_by && todo.created_by !== currentProfile.id
+                ? '<span class="badge badge-neutral">Shared</span>'
+                : `
+              <div style="display: inline-flex; gap: var(--space-2);">
+                <button type="button" class="btn btn-outline btn-sm btn-edit-todo" data-id="${escapeHtml(todo.id)}">
+                  Edit
+                </button>
+                <button type="button" class="btn btn-outline btn-sm btn-toggle-todo" data-id="${escapeHtml(todo.id)}" data-active="${Boolean(todo.active)}">
+                  ${todo.active ? 'Deactivate' : 'Activate'}
+                </button>
+              </div>
+              `
+            }
           </td>
         </tr>
       `;
@@ -506,12 +514,64 @@ function openEditModal(todoId) {
   const todo = allTodos.find((t) => String(t.id) === String(todoId));
   if (!todo) return;
 
+  if (currentProfile?.role === 'teacher' && todo.created_by && todo.created_by !== currentProfile.id) {
+    showToast('error', 'You can only edit tasks that you created.');
+    return;
+  }
+
   clearFormErrors();
   titleFilledByFlashButton = false;
   document.getElementById('modal-todo-title').textContent = 'Edit Daily Task';
   document.getElementById('todo-id').value = todo.id;
   document.getElementById('todo-title').value = todo.title || '';
   document.getElementById('todo-section').value = todo.section || 'basics';
+
+  const recGroup = document.getElementById('todo-recipients-group');
+  const recList = document.getElementById('todo-recipients-list');
+  if (recGroup && recList) {
+    if (currentProfile?.role === 'teacher') {
+      recGroup.style.display = 'block';
+      let currentRecipients = new Set();
+      if (isSupabaseConfigured()) {
+        getSupabase().then((supabase) => {
+          supabase
+            .from('daily_task_recipients')
+            .select('student_id')
+            .eq('task_id', todo.id)
+            .then(({ data }) => {
+              (data || []).forEach((r) => currentRecipients.add(r.student_id));
+              recList.innerHTML = teacherAssignedStudents.length === 0
+                ? '<div class="form-hint" style="padding: 4px;">No assigned students found.</div>'
+                : teacherAssignedStudents
+                    .map((s) => {
+                      const checked = currentRecipients.has(s.id);
+                      return `
+                        <label style="display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; font-size: 0.9rem;">
+                          <input type="checkbox" value="${s.id}" ${checked ? 'checked' : ''} />
+                          <span>${escapeHtml(s.full_name || 'Student')} (${escapeHtml(s.student_code || '')})</span>
+                        </label>
+                      `;
+                    })
+                    .join('');
+            })
+            .catch((err) => console.warn('Could not load task recipients:', err));
+        });
+      }
+      recList.innerHTML = teacherAssignedStudents.length === 0
+        ? '<div class="form-hint" style="padding: 4px;">No assigned students found.</div>'
+        : teacherAssignedStudents
+            .map((s) => `
+              <label style="display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; font-size: 0.9rem;">
+                <input type="checkbox" value="${s.id}" />
+                <span>${escapeHtml(s.full_name || 'Student')} (${escapeHtml(s.student_code || '')})</span>
+              </label>
+            `)
+            .join('');
+    } else {
+      recGroup.style.display = 'none';
+      recList.innerHTML = '';
+    }
+  }
 
   const saveAddAnotherBtn = document.getElementById('btn-save-add-another-todo');
   if (saveAddAnotherBtn) saveAddAnotherBtn.style.display = 'none';
@@ -566,6 +626,27 @@ function openAddModal() {
   document.getElementById('form-todo').reset();
   document.getElementById('todo-id').value = '';
   document.getElementById('todo-active').checked = true;
+
+  const recGroup = document.getElementById('todo-recipients-group');
+  const recList = document.getElementById('todo-recipients-list');
+  if (recGroup && recList) {
+    if (currentProfile?.role === 'teacher') {
+      recGroup.style.display = 'block';
+      recList.innerHTML = teacherAssignedStudents.length === 0
+        ? '<div class="form-hint" style="padding: 4px;">No assigned students found.</div>'
+        : teacherAssignedStudents
+            .map((s) => `
+              <label style="display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; font-size: 0.9rem;">
+                <input type="checkbox" value="${s.id}" checked />
+                <span>${escapeHtml(s.full_name || 'Student')} (${escapeHtml(s.student_code || '')})</span>
+              </label>
+            `)
+            .join('');
+    } else {
+      recGroup.style.display = 'none';
+      recList.innerHTML = '';
+    }
+  }
 
   const saveAddAnotherBtn = document.getElementById('btn-save-add-another-todo');
   if (saveAddAnotherBtn) saveAddAnotherBtn.style.display = 'inline-flex';
@@ -648,6 +729,18 @@ async function submitTodoForm(keepOpenForAnother = false) {
     active,
   };
 
+  let selectedRecipients = null;
+  if (currentProfile?.role === 'teacher') {
+    const checkedBoxes = Array.from(
+      document.querySelectorAll('#todo-recipients-list input[type="checkbox"]:checked')
+    );
+    selectedRecipients = checkedBoxes.map((cb) => cb.value);
+    if (selectedRecipients.length === 0) {
+      showFormErrors({ form: 'Please select at least one student recipient for this task.' });
+      return;
+    }
+  }
+
   const saveBtn = document.getElementById('btn-save-todo');
   const addAnotherBtn = document.getElementById('btn-save-add-another-todo');
   if (saveBtn) {
@@ -660,26 +753,20 @@ async function submitTodoForm(keepOpenForAnother = false) {
     if (isSupabaseConfigured()) {
       const supabase = await getSupabase();
       if (supabase) {
-        if (id) {
-          const { error } = await supabase
-            .from('daily_tasks')
-            .update(taskPayload)
-            .eq('id', id);
-          if (error) throw error;
-          showToast('success', 'Task updated successfully');
-        } else {
-          const maxSort = allTodos.reduce((max, t) => Math.max(max, Number(t.sort_order) || 0), 0);
-          const { error } = await supabase
-            .from('daily_tasks')
-            .insert([
-              {
-                ...taskPayload,
-                sort_order: maxSort + 1,
-              },
-            ]);
-          if (error) throw error;
-          showToast('success', 'Task added successfully');
-        }
+        const maxSort = allTodos.reduce((max, t) => Math.max(max, Number(t.sort_order) || 0), 0);
+        const finalPayload = {
+          ...taskPayload,
+          sort_order: id ? undefined : maxSort + 1,
+        };
+
+        const { error } = await supabase.rpc('save_daily_task_atomic', {
+          p_task_id: id || null,
+          p_task: finalPayload,
+          p_recipients: currentProfile?.role === 'teacher' ? (selectedRecipients || []) : null,
+        });
+        if (error) throw error;
+
+        showToast('success', id ? 'Task updated successfully' : 'Task added successfully');
         await loadTodos();
         if (keepOpenForAnother && !id) {
           openAddModal();
@@ -769,6 +856,12 @@ async function handleReorder(todoId, direction) {
 }
 
 async function handleToggleActive(todoId, newActive) {
+  const todo = allTodos.find((t) => String(t.id) === String(todoId));
+  if (currentProfile?.role === 'teacher' && todo && todo.created_by && todo.created_by !== currentProfile.id) {
+    showToast('error', 'You can only toggle tasks that you created.');
+    return;
+  }
+
   try {
     if (isSupabaseConfigured()) {
       const supabase = await getSupabase();
@@ -804,18 +897,49 @@ function escapeHtml(str) {
 }
 
 async function initTodosPage() {
-  const profile = await requireAuth(['admin']);
+  const profile = await requireAuth(['teacher', 'admin']);
   if (!profile) return;
+  currentProfile = profile;
+
+  if (profile.role === 'teacher' && profile.permissions?.can_manage_tasks === false) {
+    window.location.href = '/pages/teacher.html';
+    return;
+  }
 
   const nameEl = document.getElementById('header-user-name');
   const roleEl = document.getElementById('header-user-role');
   const pillContainer = document.getElementById('user-pill-container');
-  if (nameEl) nameEl.textContent = profile.full_name || 'Admin';
-  if (roleEl) roleEl.textContent = profile.student_code || 'Teacher';
+  if (nameEl) nameEl.textContent = profile.full_name || (profile.role === 'admin' ? 'Admin' : 'Teacher');
+  if (roleEl) roleEl.textContent = profile.student_code || (profile.role === 'admin' ? 'Admin' : 'Teacher');
   if (pillContainer) pillContainer.style.display = 'flex';
 
   setupModalListeners();
-  setupAdminNav(profile);
+  if (profile.role === 'admin') {
+    setupAdminNav(profile);
+  }
+
+  if (profile.role === 'teacher' && isSupabaseConfigured()) {
+    try {
+      const supabase = await getSupabase();
+      const { data: assignments } = await supabase
+        .from('teacher_student_assignments')
+        .select('student_id')
+        .eq('teacher_id', profile.id);
+      const assignedIds = (assignments || []).map((a) => a.student_id);
+      if (assignedIds.length > 0) {
+        const { data: students } = await supabase
+          .from('profiles')
+          .select('id, full_name, student_code')
+          .in('id', assignedIds)
+          .eq('role', 'student')
+          .eq('active', true)
+          .order('student_code');
+        teacherAssignedStudents = students || [];
+      }
+    } catch (err) {
+      console.warn('Could not load teacher assigned students for tasks:', err);
+    }
+  }
 
   document.getElementById('btn-open-add-todo')?.addEventListener('click', openAddModal);
   document.getElementById('form-todo')?.addEventListener('submit', handleFormSubmit);

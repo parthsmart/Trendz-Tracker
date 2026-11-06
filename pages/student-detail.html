@@ -37,9 +37,9 @@
           <!-- Zone 3: User Details & Logout Action -->
           <div class="actions-zone">
             <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
-              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Teacher</span>
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Loading...</span>
               <span class="meta-separator" aria-hidden="true">·</span>
-              <span id="header-user-role" style="color: var(--text-muted);">Admin</span>
+              <span id="header-user-role" style="color: var(--text-muted);">&mdash;</span>
             </div>
             <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
               Sign Out
@@ -54,11 +54,11 @@
           <!-- Demo Mode Alert Placeholder -->
           <div id="demo-banner-placeholder"></div>
 
-          <!-- TEACHER READ-ONLY BANNER -->
-          <div class="teacher-readonly-banner" style="background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-left: 4px solid var(--color-primary); padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); margin-bottom: var(--space-5); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2);">
+          <!-- ROLE CONTEXT BANNER (Hidden neutral loading state until verified) -->
+          <div class="teacher-readonly-banner" id="role-context-banner" style="display: none; background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-left: 4px solid var(--color-primary); padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); margin-bottom: var(--space-5); justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2);">
             <div style="display: flex; align-items: center; gap: var(--space-2);">
-              <span style="font-size: var(--text-sm); font-weight: 600; color: var(--text-main);">
-                Viewing as teacher &mdash; read-only
+              <span id="role-context-banner-text" style="font-size: var(--text-sm); font-weight: 600; color: var(--text-main);">
+                Loading access context...
               </span>
             </div>
             <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
