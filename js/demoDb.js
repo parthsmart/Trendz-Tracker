@@ -1197,8 +1197,31 @@ export const DemoDB = {
 
   /**
    * Mock RPC today_ist() returning current date in Asia/Kolkata
+   * Deterministic test override supported via `trendz_demo_today_ist` localStorage key.
    */
   async mockTodayIST() {
+    if (typeof localStorage !== 'undefined') {
+      const override = localStorage.getItem('trendz_demo_today_ist');
+      if (override && override.trim()) return override.trim();
+    }
+    try {
+      const istFormatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      });
+      return istFormatter.format(new Date());
+    } catch {
+      return new Date().toISOString().split('T')[0];
+    }
+  },
+
+  getTodayIST() {
+    if (typeof localStorage !== 'undefined') {
+      const override = localStorage.getItem('trendz_demo_today_ist');
+      if (override && override.trim()) return override.trim();
+    }
     try {
       const istFormatter = new Intl.DateTimeFormat('en-CA', {
         timeZone: 'Asia/Kolkata',
@@ -4374,7 +4397,7 @@ export const DemoDB = {
       case 'category_aliases':
         return JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_CATEGORY_ALIASES) || '[]');
       case 'attendance_sessions':
-        return this.getSessions();
+        return this.getAttendanceSessions();
       case 'weekly_tests':
         return this.getWeeklyTests();
       case 'import_batches':
@@ -4716,13 +4739,26 @@ export const DemoDB = {
       { name: 'category_aliases', mode: 'snapshot' },
       { name: 'attendance_sessions', mode: 'snapshot' },
       { name: 'weekly_tests', mode: 'snapshot' },
+      { name: 'weekly_test_sections', mode: 'snapshot' },
+      { name: 'weekly_test_attempts', mode: 'snapshot' },
+      { name: 'weekly_test_removals', mode: 'snapshot' },
+      { name: 'announcements', mode: 'snapshot' },
       { name: 'import_batches', mode: 'snapshot' },
+      { name: 'teacher_permissions', mode: 'snapshot' },
+      { name: 'teacher_student_assignments', mode: 'snapshot' },
+      { name: 'weekly_test_recipients', mode: 'snapshot' },
+      { name: 'daily_task_recipients', mode: 'snapshot' },
+      { name: 'announcement_recipients', mode: 'snapshot' },
+      { name: 'resource_recipients', mode: 'snapshot' },
+      { name: 'score_correction_requests', mode: 'snapshot' },
       { name: 'student_rounds', mode: 'append', cursor_column: 'updated_at' },
       { name: 'results', mode: 'append', cursor_column: 'updated_at' },
       { name: 'weekly_test_scores', mode: 'append', cursor_column: 'updated_at' },
       { name: 'attendance', mode: 'append', cursor_column: 'updated_at' },
       { name: 'activity_results', mode: 'append', cursor_column: 'updated_at' },
-      { name: 'result_audit', mode: 'append', cursor_column: 'changed_at' }
+      { name: 'result_audit', mode: 'append', cursor_column: 'changed_at' },
+      { name: 'attendance_audit', mode: 'append', cursor_column: 'changed_at' },
+      { name: 'teacher_audit_log', mode: 'append', cursor_column: 'created_at' }
     ];
 
     let totalCells = 0;

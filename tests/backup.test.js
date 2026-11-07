@@ -76,10 +76,10 @@ import {
 } from '../js/backupExport.js';
 
 describe('Phase 5c — 1. Table Configuration & Sheet Value Helpers (api/_backupTables.js)', () => {
-  it('defines all 22 tables (16 snapshot + 6 append) in exact order', () => {
-    assert.equal(BACKUP_TABLES.length, 22);
-    assert.equal(SNAPSHOT_TABLES.length, 16);
-    assert.equal(APPEND_TABLES.length, 6);
+  it('defines all 31 tables (23 snapshot + 8 append) in exact order', () => {
+    assert.equal(BACKUP_TABLES.length, 31);
+    assert.equal(SNAPSHOT_TABLES.length, 23);
+    assert.equal(APPEND_TABLES.length, 8);
 
     const expectedSnapshot = [
       'profiles',
@@ -98,6 +98,13 @@ describe('Phase 5c — 1. Table Configuration & Sheet Value Helpers (api/_backup
       'weekly_test_removals',
       'announcements',
       'import_batches',
+      'teacher_permissions',
+      'teacher_student_assignments',
+      'weekly_test_recipients',
+      'daily_task_recipients',
+      'announcement_recipients',
+      'resource_recipients',
+      'score_correction_requests',
     ];
     assert.deepEqual(
       SNAPSHOT_TABLES.map((t) => t.name),
@@ -111,6 +118,8 @@ describe('Phase 5c — 1. Table Configuration & Sheet Value Helpers (api/_backup
       'attendance',
       'activity_results',
       'result_audit',
+      'attendance_audit',
+      'teacher_audit_log',
     ];
     assert.deepEqual(
       APPEND_TABLES.map((t) => t.name),
@@ -118,7 +127,7 @@ describe('Phase 5c — 1. Table Configuration & Sheet Value Helpers (api/_backup
     );
   });
 
-  it('assigns cursorColumn updated_at to 5 append tables and changed_at to result_audit', () => {
+  it('assigns cursorColumn updated_at to 5 append tables, changed_at to result_audit & attendance_audit, and created_at to teacher_audit_log', () => {
     for (const t of SNAPSHOT_TABLES) {
       assert.equal(t.cursorColumn, null, `Snapshot table ${t.name} must have null cursorColumn`);
       assert.ok(Array.isArray(t.primaryKey) && t.primaryKey.length >= 1);
@@ -126,8 +135,10 @@ describe('Phase 5c — 1. Table Configuration & Sheet Value Helpers (api/_backup
 
     for (const t of APPEND_TABLES) {
       assert.deepEqual(t.primaryKey, ['id']);
-      if (t.name === 'result_audit') {
+      if (t.name === 'result_audit' || t.name === 'attendance_audit') {
         assert.equal(t.cursorColumn, 'changed_at');
+      } else if (t.name === 'teacher_audit_log') {
+        assert.equal(t.cursorColumn, 'created_at');
       } else {
         assert.equal(t.cursorColumn, 'updated_at');
       }
@@ -196,6 +207,66 @@ describe('Phase 5c — 1. Table Configuration & Sheet Value Helpers (api/_backup
       BACKUP_TABLES.map((t) => t.name)
     );
   });
+
+  it('RESTORE_TABLE_ORDER includes every table from PRIVATE_SERVER_BACKUP_TABLES exactly once in valid FK dependency order', () => {
+    assert.equal(RESTORE_TABLE_ORDER.length, PRIVATE_SERVER_BACKUP_TABLES.length);
+    assert.equal(new Set(RESTORE_TABLE_ORDER).size, RESTORE_TABLE_ORDER.length, 'No duplicate tables in restore order');
+
+    const backupNames = PRIVATE_SERVER_BACKUP_TABLES.map((t) => t.name);
+    assert.deepEqual(
+      [...RESTORE_TABLE_ORDER].sort(),
+      [...backupNames].sort(),
+      'RESTORE_TABLE_ORDER must match PRIVATE_SERVER_BACKUP_TABLES exactly'
+    );
+
+    // Foreign key dependency ordering assertions:
+    const idx = (name) => RESTORE_TABLE_ORDER.indexOf(name);
+
+    // 1. Root tables must precede child tables
+    assert.ok(idx('profiles') < idx('student_rounds'), 'profiles must precede student_rounds');
+    assert.ok(idx('profiles') < idx('results'), 'profiles must precede results');
+    assert.ok(idx('profiles') < idx('attendance'), 'profiles must precede attendance');
+    assert.ok(idx('profiles') < idx('teacher_permissions'), 'profiles must precede teacher_permissions');
+    assert.ok(idx('profiles') < idx('teacher_student_assignments'), 'profiles must precede teacher_student_assignments');
+    assert.ok(idx('profiles') < idx('weekly_test_removals'), 'profiles must precede weekly_test_removals');
+
+    // 2. student_rounds MUST precede results (results.student_round_id -> student_rounds.id)
+    assert.ok(idx('student_rounds') < idx('results'), 'student_rounds must precede results');
+
+    // 3. round_series must precede student_rounds and category_series
+    assert.ok(idx('round_series') < idx('student_rounds'), 'round_series must precede student_rounds');
+    assert.ok(idx('round_series') < idx('category_series'), 'round_series must precede category_series');
+
+    // 4. categories must precede category_series, results, weekly_test_sections, weekly_test_scores
+    assert.ok(idx('categories') < idx('category_series'), 'categories must precede category_series');
+    assert.ok(idx('categories') < idx('results'), 'categories must precede results');
+    assert.ok(idx('categories') < idx('weekly_test_sections'), 'categories must precede weekly_test_sections');
+    assert.ok(idx('categories') < idx('weekly_test_scores'), 'categories must precede weekly_test_scores');
+
+    // 5. weekly_tests must precede recipients, sections, scores, and attempts
+    assert.ok(idx('weekly_tests') < idx('weekly_test_recipients'), 'weekly_tests must precede weekly_test_recipients');
+    assert.ok(idx('weekly_tests') < idx('weekly_test_sections'), 'weekly_tests must precede weekly_test_sections');
+    assert.ok(idx('weekly_tests') < idx('weekly_test_scores'), 'weekly_tests must precede weekly_test_scores');
+    assert.ok(idx('weekly_tests') < idx('weekly_test_attempts'), 'weekly_tests must precede weekly_test_attempts');
+
+    // 6. attendance_sessions must precede attendance
+    assert.ok(idx('attendance_sessions') < idx('attendance'), 'attendance_sessions must precede attendance');
+
+    // 7. jmcwc_papers and jmcwc_categories must precede jmcwc_attempts
+    assert.ok(idx('jmcwc_papers') < idx('jmcwc_attempts'), 'jmcwc_papers must precede jmcwc_attempts');
+    assert.ok(idx('jmcwc_categories') < idx('jmcwc_attempts'), 'jmcwc_categories must precede jmcwc_attempts');
+
+    // 8. jmcwc_attempts must precede jmcwc_payloads and jmcwc_scores
+    assert.ok(idx('jmcwc_attempts') < idx('jmcwc_payloads'), 'jmcwc_attempts must precede jmcwc_payloads');
+    assert.ok(idx('jmcwc_attempts') < idx('jmcwc_scores'), 'jmcwc_attempts must precede jmcwc_scores');
+
+    // 9. Questionable legacy names must NOT be present
+    assert.equal(idx('weekly_test_section_removals'), -1, 'legacy weekly_test_section_removals must be absent');
+    assert.equal(idx('rounds'), -1, 'legacy rounds must be absent');
+    assert.equal(idx('profile_audit'), -1, 'profile_audit must be absent');
+    assert.equal(idx('report_log'), -1, 'report_log must be absent');
+    assert.equal(idx('backup_runs'), -1, 'backup_runs must be absent');
+  });
 });
 
 describe('Phase 5c — 2. RFC 4180 CSV, Formula Protection, CRC-32 & Store ZIP (js/backupExport.js)', () => {
@@ -242,7 +313,7 @@ describe('Phase 5c — 2. RFC 4180 CSV, Formula Protection, CRC-32 & Store ZIP (
     assert.equal(crc32(new Uint8Array(0)), 0x00000000);
   });
 
-  it('builds and parses a valid uncompressed Store ZIP archive with 22 CSVs + README.txt', () => {
+  it('builds and parses a valid uncompressed Store ZIP archive with 31 CSVs + README.txt', () => {
     const fixedDate = new Date('2026-10-19T12:30:00Z');
     const files = EXPORT_TABLES.map((t, idx) => ({
       name: `${t.name}.csv`,
@@ -251,19 +322,19 @@ describe('Phase 5c — 2. RFC 4180 CSV, Formula Protection, CRC-32 & Store ZIP (
     const readmeContent = buildExportReadme({
       dateIst: '2026-10-19',
       tableSummaries: Object.fromEntries(EXPORT_TABLES.map((t) => [t.name, 1])),
-      totalRows: 22,
+      totalRows: EXPORT_TABLES.length,
     });
     files.push({ name: 'README.txt', content: readmeContent });
 
     const zipBytes = buildStoreZip(files, fixedDate);
     const parsedEntries = parseStoreZip(zipBytes);
 
-    assert.equal(parsedEntries.length, 23);
+    assert.equal(parsedEntries.length, EXPORT_TABLES.length + 1);
     assert.equal(parsedEntries[0].name, 'profiles.csv');
     assert.ok(parsedEntries[0].text.includes('row_0'));
-    assert.equal(parsedEntries[22].name, 'README.txt');
-    assert.ok(parsedEntries[22].text.includes('TRENDZ TRACKER — FULL DATA BACKUP ARCHIVE'));
-    assert.ok(parsedEntries[22].text.includes('2026-10-19'));
+    assert.equal(parsedEntries[EXPORT_TABLES.length].name, 'README.txt');
+    assert.ok(parsedEntries[EXPORT_TABLES.length].text.includes('TRENDZ TRACKER — FULL DATA BACKUP ARCHIVE'));
+    assert.ok(parsedEntries[EXPORT_TABLES.length].text.includes('2026-10-19'));
   });
 });
 
@@ -1302,8 +1373,8 @@ describe('Phase 5c — 4. Backup Endpoint Auth, Lock & Pass Execution (api/backu
       JMCWC_BACKUP_TABLES.map((t) => t.name),
       expectedJmcwcTables
     );
-    assert.equal(PRIVATE_SERVER_BACKUP_TABLES.length, 29);
-    assert.equal(RESTORE_TABLE_ORDER.length, 32);
+    assert.equal(PRIVATE_SERVER_BACKUP_TABLES.length, 38);
+    assert.equal(RESTORE_TABLE_ORDER.length, 38);
 
     // Public/Google Sheets BACKUP_TABLES and browser EXPORT_TABLES must never include jmcwc_payloads
     assert.ok(!BACKUP_TABLES.some((t) => t.name === 'jmcwc_payloads'));

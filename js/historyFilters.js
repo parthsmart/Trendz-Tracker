@@ -380,6 +380,26 @@ export function renderCompactHistoryRowHtml({
 }
 
 /**
+ * Normalizes a Memoriad module key, preserving stored identifiers and legacy aliases.
+ * - 'calendar' -> 'calendar'
+ * - 'additions' / 'addition' -> 'additions'
+ * - 'multiplications' / 'multiplication' -> 'multiplications'
+ * - 'square_roots' / 'square_root' -> 'square_roots'
+ *
+ * @param {string|null|undefined} val
+ * @returns {string}
+ */
+export function normalizeMemoriadModuleKey(val) {
+  if (!val) return '';
+  const s = String(val).trim().toLowerCase();
+  if (s === 'calendar' || s.includes('calendar')) return 'calendar';
+  if (s === 'addition' || s === 'additions' || s.includes('addition')) return 'additions';
+  if (s === 'multiplication' || s === 'multiplications' || s.includes('multiplication')) return 'multiplications';
+  if (s === 'square_root' || s === 'square_roots' || s.includes('root')) return 'square_roots';
+  return s;
+}
+
+/**
  * Resolves the category / drill / module identifier for filtering.
  *
  * @param {Record<string, any>} row
@@ -408,11 +428,12 @@ export function resolveRowCategoryKey(row, sectionKind) {
     return String(drillKey).trim().toLowerCase();
   }
   if (sectionKind === 'memoriad') {
-    const modKey =
+    const rawKey =
+      row.module ??
       row.settings?.module ??
       row.activity_name ??
       '';
-    return String(modKey).trim().toLowerCase();
+    return normalizeMemoriadModuleKey(rawKey);
   }
   return '';
 }
@@ -467,8 +488,21 @@ export function filterAndSortHistory(rows, filters = {}, options = { sectionKind
         if (catKey !== targetCat && String(row.category_id) !== String(category)) {
           return false;
         }
+      } else if (sectionKind === 'memoriad') {
+        const normTarget = normalizeMemoriadModuleKey(targetCat);
+        const normCat = normalizeMemoriadModuleKey(catKey);
+        const rowNameNorm = normalizeMemoriadModuleKey(row.activity_name);
+        const rawModNorm = normalizeMemoriadModuleKey(row.module || row.settings?.module);
+        if (
+          normCat !== normTarget &&
+          rowNameNorm !== normTarget &&
+          rawModNorm !== normTarget &&
+          catKey !== targetCat
+        ) {
+          return false;
+        }
       } else {
-        // Elements / Memoriad: compare drill key or activity name
+        // Elements: compare drill key or activity name
         const rowName = String(row.activity_name || '').trim().toLowerCase();
         if (catKey !== targetCat && rowName !== targetCat) {
           return false;

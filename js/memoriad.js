@@ -28,6 +28,7 @@ import {
   practiceRecordStatus,
   formatFriendlyDateIST,
   formatAccuracyDisplay,
+  normalizeMemoriadModuleKey,
 } from './historyFilters.js';
 
 function escapeHtml(str) {
@@ -51,10 +52,10 @@ let memoriadHistoryFilters = {
 let memoriadHistoryPage = 1;
 const MEMORIAD_PAGE_SIZE = 20;
 
-const MEMORIAD_CATEGORIES = [
-  { id: 'calendar', name: 'Mental Calendar Dates' },
-  { id: 'addition', name: 'Mental Additions' },
-];
+const MEMORIAD_CATEGORIES = MEMORIAD_MODULE_CATALOG.map((m) => ({
+  id: m.key,
+  name: m.title,
+}));
 
 async function initMemoriadHub() {
   const profile = await requireAuth(['student', 'admin']);
@@ -357,13 +358,10 @@ function renderMemoriadHistoryView() {
 
   const rowsHtml = paged.items
     .map((row, idx) => {
-      const modKey = row.settings?.module || row.activity_name || 'Memoriad';
-      const modTitle =
-        modKey === 'calendar'
-          ? 'Mental Calendar Dates'
-          : modKey === 'addition'
-            ? 'Mental Additions'
-            : row.activity_name || modKey;
+      const modKey = row.settings?.module || row.module || row.activity_name || 'Memoriad';
+      const normKey = normalizeMemoriadModuleKey(modKey);
+      const catalogEntry = MEMORIAD_MODULE_CATALOG.find((m) => m.key === normKey);
+      const modTitle = catalogEntry?.title || row.activity_name || modKey;
       const correct = Number(row.correct) || 0;
       const total = Number(row.total ?? row.attempted) || 0;
       const fb = getScoreFeedback(correct, total);

@@ -19,7 +19,7 @@ export const GOOGLE_SHEETS_CELL_LIMIT = 10000000;
 export const GOOGLE_SHEETS_WARN_RATIO = 0.7;
 
 /**
- * 16 Snapshot tables (fully rewritten on each backup run, in this exact order).
+ * 23 Snapshot tables (fully rewritten on each backup run, in this exact order).
  */
 export const SNAPSHOT_TABLES = [
   {
@@ -121,10 +121,53 @@ export const SNAPSHOT_TABLES = [
     primaryKey: ['id'],
     cursorColumn: null,
   },
+  {
+    name: 'teacher_permissions',
+    mode: 'snapshot',
+    primaryKey: ['teacher_id'],
+    cursorColumn: null,
+  },
+  {
+    name: 'teacher_student_assignments',
+    mode: 'snapshot',
+    primaryKey: ['id'],
+    fallbackPrimaryKey: ['teacher_id', 'student_id'],
+    cursorColumn: null,
+  },
+  {
+    name: 'weekly_test_recipients',
+    mode: 'snapshot',
+    primaryKey: ['test_id', 'student_id'],
+    cursorColumn: null,
+  },
+  {
+    name: 'daily_task_recipients',
+    mode: 'snapshot',
+    primaryKey: ['task_id', 'student_id'],
+    cursorColumn: null,
+  },
+  {
+    name: 'announcement_recipients',
+    mode: 'snapshot',
+    primaryKey: ['announcement_id', 'student_id'],
+    cursorColumn: null,
+  },
+  {
+    name: 'resource_recipients',
+    mode: 'snapshot',
+    primaryKey: ['resource_id', 'student_id'],
+    cursorColumn: null,
+  },
+  {
+    name: 'score_correction_requests',
+    mode: 'snapshot',
+    primaryKey: ['id'],
+    cursorColumn: null,
+  },
 ];
 
 /**
- * 6 Append tables (rows added when new or changed, in this exact order).
+ * 8 Append tables (rows added when new or changed, in this exact order).
  */
 export const APPEND_TABLES = [
   {
@@ -163,10 +206,22 @@ export const APPEND_TABLES = [
     primaryKey: ['id'],
     cursorColumn: 'changed_at',
   },
+  {
+    name: 'attendance_audit',
+    mode: 'append',
+    primaryKey: ['id'],
+    cursorColumn: 'changed_at',
+  },
+  {
+    name: 'teacher_audit_log',
+    mode: 'append',
+    primaryKey: ['id'],
+    cursorColumn: 'created_at',
+  },
 ];
 
 /**
- * Combined ordered list of all 22 browser/sheet-accessible core tables: snapshot tables first, then append tables.
+ * Combined ordered list of all 31 browser/sheet-accessible core tables: snapshot tables first, then append tables.
  */
 export const BACKUP_TABLES = [...SNAPSHOT_TABLES, ...APPEND_TABLES];
 
@@ -294,7 +349,7 @@ export const JMCWC_BACKUP_TABLE_MAP = new Map(JMCWC_BACKUP_TABLES.map((t) => [t.
 export const FORBIDDEN_PUBLIC_OR_MIRROR_TABLES = Object.freeze(['jmcwc_payloads']);
 
 /**
- * All 29 tables covered by private server-side admin backups (`BACKUP_TABLES` + `JMCWC_BACKUP_TABLES`).
+ * All 38 tables covered by private server-side admin backups (`BACKUP_TABLES` + `JMCWC_BACKUP_TABLES`).
  */
 export const PRIVATE_SERVER_BACKUP_TABLES = [...BACKUP_TABLES, ...JMCWC_BACKUP_TABLES];
 
@@ -303,17 +358,24 @@ export const PRIVATE_SERVER_BACKUP_TABLE_MAP = new Map(
 );
 
 /**
- * Authoritative foreign-key-safe restore sequence across all 29 application tables
- * (22 core tables + 7 JMCWC tables), plus `backup_runs` last.
+ * Authoritative foreign-key-safe restore sequence across all 38 application tables
+ * (31 core tables + 7 JMCWC tables in PRIVATE_SERVER_BACKUP_TABLES).
+ *
+ * Foreign-key dependencies strictly enforced:
+ * - Tier 1: Root tables (profiles, categories, round_series, jmcwc_papers)
+ * - Tier 2: Configuration, assignments, and parent rounds referencing Tier 1
+ *           (student_rounds is restored here, BEFORE results in Tier 3)
+ * - Tier 3: Transactional drills, attempts, sections, scores, and correction requests
+ * - Tier 4: Immutable audit logs and private attempt payloads
  */
 export const RESTORE_TABLE_ORDER = Object.freeze([
   // Tier 1: Root tables with no application-table foreign keys
   'categories',
   'round_series',
-  'rounds',
   'profiles',
   'jmcwc_papers',
-  // Tier 2: Tables referencing Tier 1
+
+  // Tier 2: Tables referencing Tier 1 (configuration, series, parent rounds)
   'category_series',
   'category_aliases',
   'basics_thresholds',
@@ -324,25 +386,34 @@ export const RESTORE_TABLE_ORDER = Object.freeze([
   'weekly_tests',
   'attendance_sessions',
   'import_batches',
+  'teacher_permissions',
+  'teacher_student_assignments',
+  'weekly_test_removals',
+  'student_rounds',
   'jmcwc_categories',
   'jmcwc_assignments',
-  // Tier 3: Tables referencing Tier 1 & Tier 2
-  'jmcwc_targets',
-  'results',
-  'activity_results',
+
+  // Tier 3: Tables referencing Tier 1 & Tier 2 (student_rounds must precede results)
+  'weekly_test_recipients',
+  'daily_task_recipients',
+  'announcement_recipients',
+  'resource_recipients',
   'weekly_test_sections',
   'weekly_test_scores',
   'weekly_test_attempts',
-  'weekly_test_section_removals',
+  'results',
+  'activity_results',
   'attendance',
+  'score_correction_requests',
+  'jmcwc_targets',
   'jmcwc_attempts',
+
   // Tier 4: Audit logs, private attempt payloads, and graded attempt scores
+  'attendance_audit',
+  'teacher_audit_log',
   'result_audit',
-  'profile_audit',
   'jmcwc_payloads',
   'jmcwc_scores',
-  'report_log',
-  'backup_runs',
 ]);
 
 /**
