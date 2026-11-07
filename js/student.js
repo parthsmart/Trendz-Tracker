@@ -17,7 +17,7 @@ import { isSupabaseConfigured } from './config.js';
 import { isDemoMode } from './demoDb.js';
 import { formatTodayHeadingIST } from './periods.js';
 import { fetchStudentDashboardData, fetchStudentScoreSheetData } from './dashboardData.js';
-import { groupTests, isSectionStartable } from './weeklyTestView.js';
+import { groupTests, isSectionStartable, getWeeklyTestCompletionState } from './weeklyTestView.js';
 import {
   renderStreakCard,
   renderTodaySummaryMetrics,
@@ -245,40 +245,71 @@ async function loadAndRenderAvailableWeeklyTestCard(studentId) {
       return;
     }
 
-    // Prefer an online test with sections still to do, or the first available test
-    const activeTest =
-      availableNow.find(
-        (t) =>
-          String(t.type || t.test_type).toLowerCase() === 'online' &&
-          Array.isArray(t.sections) &&
-          t.sections.some((sec) => isSectionStartable(sec, t.state))
-      ) || availableNow[0];
+    const testsWithState = availableNow.map((t) => ({
+      test: t,
+      completion: getWeeklyTestCompletionState(t),
+    }));
 
+    // Prioritize an incomplete test (in-progress first, then not-started); otherwise take first completed
+    const chosen =
+      testsWithState.find((item) => item.completion.state === 'partially_completed') ||
+      testsWithState.find((item) => item.completion.state === 'not_started') ||
+      testsWithState[0];
+
+    const activeTest = chosen.test;
+    const completion = chosen.completion;
     const isOnline =
       String(activeTest.type || activeTest.test_type || 'offline').toLowerCase() === 'online';
-    const sections = Array.isArray(activeTest.sections) ? activeTest.sections : [];
-    const todoCount = isOnline
-      ? sections.filter((sec) => isSectionStartable(sec, activeTest.state)).length
-      : 0;
 
-    const subtitleText = isOnline
-      ? `${todoCount} ${todoCount === 1 ? 'section' : 'sections'} still to do`
-      : 'Scheduled for today (with your trainer)';
+    let badgeHtml = '';
+    let actionBtnHtml = '';
+    let subtitleText = '';
+
+    if (completion.state === 'completed') {
+      badgeHtml = `<span class="badge" style="background: #DEF7EC; color: #03543F; font-size: 11px; font-weight: 700;">Completed</span>`;
+      subtitleText = isOnline
+        ? `All ${completion.totalCount} sections completed &middot; Scores submitted`
+        : 'Scores recorded by your trainer';
+      actionBtnHtml = `
+        <a href="/pages/weekly-test.html" class="btn btn-outline btn-sm" style="text-decoration: none;">
+          View results
+        </a>
+      `;
+    } else if (completion.state === 'partially_completed') {
+      badgeHtml = `<span class="badge" style="background: #FEF08A; color: #713F12; font-size: 11px; font-weight: 700;">In progress</span>`;
+      subtitleText = `${completion.submittedCount} of ${completion.totalCount} completed &middot; ${completion.todoCount} still to do`;
+      actionBtnHtml = `
+        <a href="/pages/weekly-test.html" class="btn btn-primary btn-sm" style="text-decoration: none;">
+          Continue
+        </a>
+      `;
+    } else {
+      badgeHtml = `<span class="badge badge-primary" style="font-size: 11px; font-weight: 700;">To do</span>`;
+      subtitleText = isOnline
+        ? `${completion.totalCount} ${completion.totalCount === 1 ? 'section' : 'sections'} to do`
+        : 'Scheduled for today (with your trainer)';
+      actionBtnHtml = `
+        <a href="/pages/weekly-test.html" class="btn btn-primary btn-sm" style="text-decoration: none;">
+          Start
+        </a>
+      `;
+    }
 
     container.innerHTML = `
       <section class="card" style="margin-bottom: var(--space-4); padding: var(--space-4) var(--space-5); border: 1px solid var(--color-primary); background: var(--color-primary-subtle);" aria-label="Available Weekly Test">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3);">
           <div>
-            <div style="font-weight: 800; font-size: var(--text-base); color: var(--text-main);">
-              Weekly test: ${escapeHtml(activeTest.title)}
+            <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
+              <span style="font-weight: 800; font-size: var(--text-base); color: var(--text-main);">
+                Weekly test: ${escapeHtml(activeTest.title)}
+              </span>
+              ${badgeHtml}
             </div>
             <div style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">
-              ${escapeHtml(subtitleText)}
+              ${subtitleText}
             </div>
           </div>
-          <a href="/pages/weekly-test.html" class="btn btn-primary btn-sm" style="text-decoration: none;">
-            Start
-          </a>
+          ${actionBtnHtml}
         </div>
       </section>
     `;

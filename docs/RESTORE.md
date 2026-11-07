@@ -180,5 +180,63 @@ const latestRows = deduplicateAppendRows(rawSheetRows, 'updated_at');
    Compare `SELECT count(*) FROM public.<table_name>;` against `README.txt` (from ZIP) or the `_Runs` / `backup_state` summary.
 2. **Schema Health**:
    Run `SELECT public.admin_schema_health();` and confirm `"ok": true`.
-3. **Spot Check Admin Overview**:
+3. **Rollout Boundary & Authoritative Policy State (`supabase/owner_phase19_restore_activation.sql`)**:
+   `public.rollout_boundaries` stores platform deployment milestones (`feature`, `status`, `activated_at`) and is excluded from user data exports and student mirrors. On a restored database, initial migration sets `status = 'installed'` with `activated_at = NULL`.
+   - **Do NOT default to `now()` or guess timestamps**: inventing a timestamp shifts the historical eligibility boundary and can corrupt task credit calculations or incorrectly grandfather scores.
+   - Retrieve your saved rollout state from your private deployment records (exported via `supabase/owner_phase19_export_rollout.sql`).
+   - If the pre-disaster deployment was `'active'`, set `v_saved_status := 'active'` and `v_saved_activated_at := '<exact_original_timestamp>'` in `supabase/owner_phase19_restore_activation.sql` and run it in the SQL Editor.
+   - If the pre-disaster deployment was `'installed'` (unactivated), set `v_saved_status := 'installed'` and `v_saved_activated_at := NULL`. This restores the unactivated state without prematurely enforcing authoritative task credit.
+   - If required state is missing, the script aborts immediately with a clear error.
+   - Verify that `SELECT feature, status, activated_at FROM public.rollout_boundaries WHERE feature = 'phase19_authoritative_todo';` matches your private record exactly.
+4. **Spot Check Admin Overview**:
    Sign in as an admin and open `/pages/admin.html` and `/pages/backup.html` to verify student counts, streaks, and recent backup status.
+
+---
+
+## 6. Private Rollout Boundary State Export & Restoration Procedure
+
+Because `public.rollout_boundaries` tracks deployment infrastructure milestones rather than student records, it must be exported and restored via the private owner procedures:
+
+### Export Procedure (Before Disaster / After Rollout Activation)
+1. Run `supabase/owner_phase19_export_rollout.sql` in the Supabase SQL Editor:
+   ```sql
+   SELECT feature, status, activated_at
+   FROM public.rollout_boundaries
+   WHERE feature = 'phase19_authoritative_todo';
+   ```
+2. Or generate a structured JSON audit snapshot:
+   ```sql
+   SELECT json_build_object(
+     'exported_at', now(),
+     'feature', feature,
+     'status', status,
+     'activated_at', activated_at
+   ) AS private_rollout_state
+   FROM public.rollout_boundaries
+   WHERE feature = 'phase19_authoritative_todo';
+   ```
+3. Securely record the resulting `status` (`'active'` or `'installed'`) and exact `activated_at` timestamp alongside your off-site disaster recovery credentials and backup archives.
+
+### Restore Procedure (During Disaster Recovery Rebuild)
+1. Re-run base schema and `supabase/owner_phase19_improvements_migration.sql` to provision tables.
+2. Open `supabase/owner_phase19_restore_activation.sql`.
+3. Set the required variables in the `DO $$ DECLARE` block:
+   - For an active deployment:
+     ```sql
+     v_saved_status TEXT := 'active';
+     v_saved_activated_at TIMESTAMPTZ := '2026-11-07 10:15:30.123456+00'::timestamptz;
+     ```
+   - For an unactivated deployment:
+     ```sql
+     v_saved_status TEXT := 'installed';
+     v_saved_activated_at TIMESTAMPTZ := NULL;
+     ```
+4. Execute `supabase/owner_phase19_restore_activation.sql` as database owner (postgres) in the Supabase SQL Editor.
+5. If variables are left unset (`v_saved_status := NULL`), the script aborts with error code `22023` to prevent accidental auto-activation or boundary shifting.
+6. Verify the restored boundary:
+   ```sql
+   SELECT feature, status, activated_at
+   FROM public.rollout_boundaries
+   WHERE feature = 'phase19_authoritative_todo';
+   ```
+

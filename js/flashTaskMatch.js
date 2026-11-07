@@ -126,6 +126,8 @@ export function parseFlashTaskQuery(search = '') {
       : new URLSearchParams(typeof search === 'string' ? search : '');
 
   const isTask = params.get('task') === '1';
+  const rawTaskId = params.get('todo_task_id') || params.get('todo_task');
+  const todo_task_id = rawTaskId && typeof rawTaskId === 'string' ? rawTaskId.trim() : null;
 
   let flash_digits = null;
   const rawDigits = params.get('digits');
@@ -164,14 +166,16 @@ export function parseFlashTaskQuery(search = '') {
   }
 
   const hasAnyParam =
+    Boolean(todo_task_id) ||
     flash_digits !== null ||
     flash_count !== null ||
     flash_speed_ms !== null ||
     flash_mode !== null;
 
   return {
-    isTask,
+    isTask: isTask || Boolean(todo_task_id),
     hasAnyParam,
+    todo_task_id,
     task: {
       flash_digits,
       flash_count,

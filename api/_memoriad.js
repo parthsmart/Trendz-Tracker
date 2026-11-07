@@ -936,14 +936,35 @@ export function generateMemoriadSet(moduleKey, settings = {}, rng = defaultRng) 
  * @param {object} session
  */
 export function buildMemoriadStartResponse(session) {
-  const limit = getMemoriadTimeLimit(session.module);
+  const settings = session?.settings || {};
+  const limit = Number(
+    session?.time_limit_seconds ||
+    session?.duration_seconds ||
+    settings.time_limit_seconds ||
+    settings.duration_seconds ||
+    getMemoriadTimeLimit(session?.module)
+  );
+  const prepSeconds = Number(
+    settings.concentration_seconds ??
+    settings.prep_seconds ??
+    DEFAULT_CONCENTRATION_SECONDS
+  );
   return {
-    session_id: session.session_id || session.id,
-    module: session.module,
-    title: session.title || MODULES[session.module]?.title || 'Memoriad Practice',
-    questions: Array.isArray(session.questions) ? session.questions : [],
+    session_id: session?.session_id || session?.id,
+    module: session?.module,
+    title: session?.title || MODULES[session?.module]?.title || 'Memoriad Practice',
+    questions: Array.isArray(session?.questions) ? session.questions : [],
     time_limit_seconds: limit,
-    settings: session.settings || {},
+    duration_seconds: limit,
+    prep_seconds: prepSeconds,
+    concentration_seconds: prepSeconds,
+    settings: {
+      ...settings,
+      time_limit_seconds: limit,
+      duration_seconds: limit,
+      concentration_seconds: prepSeconds,
+      prep_seconds: prepSeconds,
+    },
   };
 }
 

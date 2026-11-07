@@ -1195,19 +1195,48 @@ export const DRILL_KEYS = Object.keys(DRILLS);
  *   generated: Array<{ text: string, expected: any }>
  * }} params
  */
-export function buildDrillStartResponse({ sessionId, drillKey, drill, generated }) {
+export function buildDrillStartResponse({
+  sessionId,
+  drillKey,
+  drill,
+  generated,
+  timeLimitSeconds = null,
+  settings = null,
+}) {
   const questionTexts = (generated || []).map((q) =>
     typeof q === 'string' ? q : String(q.text)
   );
+  const effectiveLimit = Number(
+    timeLimitSeconds ||
+      settings?.time_limit_seconds ||
+      settings?.duration_seconds ||
+      drill?.time_limit_seconds ||
+      60
+  );
+  const prepSeconds = Number(settings?.prep_seconds ?? 3);
 
-  return {
+  const res = {
     session_id: sessionId,
     drill: drillKey,
-    title: drill.title,
+    title: drill?.title || 'Elements Drill',
     questions: questionTexts,
-    time_limit_seconds: drill.time_limit_seconds,
-    hint: drill.hint,
+    time_limit_seconds: effectiveLimit,
+    hint: drill?.hint || '',
   };
+
+  if (timeLimitSeconds !== null || settings !== null) {
+    res.duration_seconds = effectiveLimit;
+    res.prep_seconds = prepSeconds;
+    res.settings = {
+      drill: drillKey,
+      time_limit_seconds: effectiveLimit,
+      duration_seconds: effectiveLimit,
+      prep_seconds: prepSeconds,
+      ...(settings || {}),
+    };
+  }
+
+  return res;
 }
 
 /**
@@ -1800,7 +1829,12 @@ export function stripBasicsExpected(generated = []) {
  * @param {Array<string|null>} answers
  * @param {number|string|Date} [now=Date.now()]
  */
-export function checkTimedBasicsSubmission(session, answers, now = Date.now()) {
+export function checkTimedBasicsSubmission(
+  session,
+  answers,
+  now = Date.now(),
+  clientDurationSeconds = null
+) {
   if (!session || typeof session !== 'object') {
     return {
       ok: false,
@@ -1911,10 +1945,24 @@ export function checkTimedBasicsSubmission(session, answers, now = Date.now()) {
     };
   }
 
-  const rawUsedSeconds =
-    mode === 'timed' && Number(modeSeconds) > 0
-      ? Math.min(elapsedSeconds, Number(modeSeconds))
-      : elapsedSeconds;
+  let rawUsedSeconds;
+  if (
+    clientDurationSeconds !== null &&
+    Number.isFinite(Number(clientDurationSeconds)) &&
+    Number(clientDurationSeconds) > 0
+  ) {
+    const cSec = Number(clientDurationSeconds);
+    if (mode === 'timed' && Number(modeSeconds) > 0) {
+      rawUsedSeconds = Math.min(cSec, Number(modeSeconds));
+    } else {
+      rawUsedSeconds = Math.min(cSec, elapsedSeconds);
+    }
+  } else {
+    rawUsedSeconds =
+      mode === 'timed' && Number(modeSeconds) > 0
+        ? Math.min(elapsedSeconds, Number(modeSeconds))
+        : elapsedSeconds;
+  }
 
   const usedSeconds = Math.max(1, Math.round(rawUsedSeconds));
   const timeSeconds = usedSeconds;
@@ -1983,10 +2031,15 @@ export function checkTimedBasicsSubmission(session, answers, now = Date.now()) {
  * @param {Array<string|null>} answers
  * @param {number|string|Date} [now=Date.now()]
  */
-export function checkSubmission(session, answers, now = Date.now()) {
+export function checkSubmission(
+  session,
+  answers,
+  now = Date.now(),
+  clientDurationSeconds = null
+) {
   const sessionMode = session?.mode || session?.settings?.mode;
   if (sessionMode === 'timed' || sessionMode === 'unlimited') {
-    return checkTimedBasicsSubmission(session, answers, now);
+    return checkTimedBasicsSubmission(session, answers, now, clientDurationSeconds);
   }
 
   if (!session || typeof session !== 'object') {
@@ -2111,7 +2164,24 @@ export function checkSubmission(session, answers, now = Date.now()) {
 
   const total = questionCount;
   const accuracy = total > 0 ? Math.round((correct / total) * 1000) / 10 : 0;
-  const seconds = Math.min(Math.max(0, Math.round(elapsedSeconds)), BASICS_MAX_TIME_SECONDS);
+  const timeLimitSeconds = Number(
+    session.time_limit_seconds ||
+      session.settings?.time_limit_seconds ||
+      session.settings?.seconds ||
+      0
+  );
+  let effectiveElapsed = elapsedSeconds;
+  if (
+    clientDurationSeconds !== null &&
+    Number.isFinite(Number(clientDurationSeconds)) &&
+    Number(clientDurationSeconds) > 0
+  ) {
+    const cSec = Number(clientDurationSeconds);
+    effectiveElapsed = timeLimitSeconds > 0 ? Math.min(cSec, timeLimitSeconds) : cSec;
+  } else if (timeLimitSeconds > 0) {
+    effectiveElapsed = Math.min(elapsedSeconds, timeLimitSeconds);
+  }
+  const seconds = Math.min(Math.max(0, Math.round(effectiveElapsed)), BASICS_MAX_TIME_SECONDS);
 
   return {
     ok: true,

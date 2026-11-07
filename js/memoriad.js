@@ -12,7 +12,10 @@
  */
 
 import { requireAuth } from './guard.js';
-import { isDemoMode } from './demoDb.js';
+import { isDemoMode, DemoDB } from './demoDb.js';
+import { getSupabase } from './supabaseClient.js';
+import { isSupabaseConfigured } from './config.js';
+import { showToast } from './toast.js';
 import { fetchStudentMemoriadResults } from './memoriadCard.js';
 import { MEMORIAD_MODULE_CATALOG, summarizeAllMemoriad } from './memoriadStats.js';
 import { getScoreFeedback } from './scoreColors.js';
@@ -29,6 +32,8 @@ import {
   formatFriendlyDateIST,
   formatAccuracyDisplay,
   normalizeMemoriadModuleKey,
+  resolveHistoryTargetStudent,
+  renderTargetStudentBanner,
 } from './historyFilters.js';
 
 function escapeHtml(str) {
@@ -39,6 +44,18 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+
+let currentUser = null;
+let activeHistoryStudent = null;
+
+export function getActiveMemoriadStudent() {
+  return activeHistoryStudent;
+}
+
+export function setActiveMemoriadStudentForTesting(stu) {
+  activeHistoryStudent = stu;
 }
 
 let cachedMemoriadRows = [];
@@ -58,8 +75,9 @@ const MEMORIAD_CATEGORIES = MEMORIAD_MODULE_CATALOG.map((m) => ({
 }));
 
 async function initMemoriadHub() {
-  const profile = await requireAuth(['student', 'admin']);
+  const profile = await requireAuth(['student', 'admin', 'teacher']);
   if (!profile) return;
+  currentUser = profile;
 
   renderHeaderUser(profile);
 
@@ -67,11 +85,43 @@ async function initMemoriadHub() {
     renderDemoBanner();
   }
 
+  const urlParams = new URLSearchParams(window.location.search);
+  const requestedStudentId = urlParams.get('student_id') || urlParams.get('student');
+  const supabase = isSupabaseConfigured() ? await getSupabase() : null;
+
+  const targetResult = await resolveHistoryTargetStudent({
+    loggedInProfile: currentUser,
+    urlStudentId: requestedStudentId,
+    supabase,
+    isDemo: isDemoMode(),
+    DemoDB,
+  });
+
+  if (targetResult.error) {
+    showToast('error', targetResult.error);
+    if (!targetResult.targetStudent) {
+      const bannerPlaceholder = document.getElementById('config-banner-placeholder');
+      if (bannerPlaceholder) {
+        bannerPlaceholder.innerHTML = `<div class="banner banner-error" style="margin-bottom: var(--space-4);" role="alert">${targetResult.error}</div>`;
+        bannerPlaceholder.style.display = 'block';
+      }
+      return;
+    }
+  }
+
+  activeHistoryStudent = targetResult.targetStudent || currentUser;
+
+  if (!targetResult.isSelf && activeHistoryStudent) {
+    const bannerPlaceholder = document.getElementById('config-banner-placeholder');
+    renderTargetStudentBanner(bannerPlaceholder, activeHistoryStudent);
+  }
+
   const container = document.getElementById('memoriad-modules-container');
   const weekEl = document.getElementById('memoriad-tries-this-week');
 
   try {
-    const rows = await fetchStudentMemoriadResults(profile.id);
+    const targetId = activeHistoryStudent ? activeHistoryStudent.id : profile.id;
+    const rows = await fetchStudentMemoriadResults(targetId);
     cachedMemoriadRows = rows || [];
     const summary = summarizeAllMemoriad(rows, new Date());
 
@@ -237,8 +287,20 @@ function renderLastFiveTable(mod, modSummary) {
 
 function renderModuleCard(mod, modSummary) {
   const badgeClass = mod.available ? 'badge badge-active' : 'badge badge-inactive';
-  const actionHtml = mod.available
+  const isViewingOther = activeHistoryStudent && activeHistoryStudent.id !== currentUser?.id;
+  const actionHtml = !mod.available
     ? `
+      <button type="button" class="btn btn-outline" style="width: 100%; justify-content: center;" disabled>
+        Coming soon
+      </button>
+    `
+    : isViewingOther
+    ? `
+      <button type="button" class="btn btn-outline" style="width: 100%; justify-content: center;" disabled>
+        Practice disabled in student view
+      </button>
+    `
+    : `
       <a
         href="/pages/memoriad-play.html?module=${encodeURIComponent(mod.key)}"
         class="btn btn-primary"
@@ -246,11 +308,6 @@ function renderModuleCard(mod, modSummary) {
       >
         Start ${escapeHtml(mod.title)} &rarr;
       </a>
-    `
-    : `
-      <button type="button" class="btn btn-outline" style="width: 100%; justify-content: center;" disabled>
-        Coming soon
-      </button>
     `;
 
   return `

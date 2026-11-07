@@ -254,3 +254,181 @@ export function groupTests(tests) {
 
   return { availableNow, upcoming, past };
 }
+
+/**
+ * Derives the completion status of a weekly test (online or offline) for student dashboards:
+ * - 'completed': all sections submitted (online) or scores recorded (offline)
+ * - 'partially_completed': some sections submitted or in progress, but more remain
+ * - 'not_started': no sections submitted or started yet
+ *
+ * @param {Record<string, any>} test
+ * @returns {{
+ *   state: 'not_started' | 'partially_completed' | 'completed',
+ *   label: string,
+ *   isCompleted: boolean,
+ *   isPartiallyCompleted: boolean,
+ *   submittedCount: number,
+ *   todoCount: number,
+ *   totalCount: number
+ * }}
+ */
+export function getWeeklyTestCompletionState(test) {
+  if (!test || typeof test !== 'object') {
+    return {
+      state: 'not_started',
+      label: 'Not started',
+      isCompleted: false,
+      isPartiallyCompleted: false,
+      submittedCount: 0,
+      todoCount: 0,
+      totalCount: 0,
+    };
+  }
+
+  const isOnline = String(test.type || test.test_type || 'offline').toLowerCase() === 'online';
+  const testState = String(test.state || 'open').toLowerCase();
+
+  if (isOnline) {
+    const sections = Array.isArray(test.sections) ? test.sections : [];
+    const totalCount = sections.length;
+    if (totalCount === 0) {
+      return {
+        state: 'not_started',
+        label: 'Not started',
+        isCompleted: false,
+        isPartiallyCompleted: false,
+        submittedCount: 0,
+        todoCount: 0,
+        totalCount: 0,
+      };
+    }
+
+    const submittedCount = sections.filter(
+      (sec) =>
+        sec.attempt === 'submitted' ||
+        (sec.correct !== null &&
+          sec.correct !== undefined &&
+          sec.total !== null &&
+          sec.total !== undefined &&
+          Number(sec.total) > 0)
+    ).length;
+
+    const inProgressCount = sections.filter(
+      (sec) =>
+        sec.attempt !== 'submitted' &&
+        (isSectionResumable(sec, testState) || sec.attempt === 'started')
+    ).length;
+
+    const startableCount = sections.filter((sec) => isSectionStartable(sec, testState)).length;
+    const todoCount = startableCount + inProgressCount;
+
+    if (submittedCount >= totalCount) {
+      return {
+        state: 'completed',
+        label: 'Completed',
+        actionLabel: 'View results',
+        isCompleted: true,
+        isPartiallyCompleted: false,
+        submittedCount,
+        todoCount: 0,
+        totalCount,
+      };
+    }
+
+    if (submittedCount > 0 || inProgressCount > 0) {
+      return {
+        state: 'partially_completed',
+        label: 'Partially completed',
+        actionLabel: 'Continue',
+        isCompleted: false,
+        isPartiallyCompleted: true,
+        submittedCount,
+        todoCount,
+        totalCount,
+      };
+    }
+
+    return {
+      state: 'not_started',
+      label: 'Not started',
+      actionLabel: 'Start',
+      isCompleted: false,
+      isPartiallyCompleted: false,
+      submittedCount: 0,
+      todoCount,
+      totalCount,
+    };
+  }
+
+  // Offline test
+  const sections = Array.isArray(test.sections) ? test.sections : [];
+  const scores = Array.isArray(test.scores) ? test.scores : [];
+  const hasScoresDirect = Boolean(test.has_score);
+
+  if (sections.length > 0) {
+    const scoredCount = sections.filter(
+      (sec) => sec.total !== null && sec.total !== undefined && Number(sec.total) > 0
+    ).length;
+
+    if (scoredCount >= sections.length) {
+      return {
+        state: 'completed',
+        label: 'Completed',
+        actionLabel: 'View results',
+        isCompleted: true,
+        isPartiallyCompleted: false,
+        submittedCount: scoredCount,
+        todoCount: 0,
+        totalCount: sections.length,
+      };
+    }
+
+    if (scoredCount > 0) {
+      return {
+        state: 'partially_completed',
+        label: 'Partially completed',
+        actionLabel: 'Continue',
+        isCompleted: false,
+        isPartiallyCompleted: true,
+        submittedCount: scoredCount,
+        todoCount: sections.length - scoredCount,
+        totalCount: sections.length,
+      };
+    }
+
+    return {
+      state: 'not_started',
+      label: 'Not started',
+      actionLabel: 'Start',
+      isCompleted: false,
+      isPartiallyCompleted: false,
+      submittedCount: 0,
+      todoCount: sections.length,
+      totalCount: sections.length,
+    };
+  }
+
+  if (scores.length > 0 || hasScoresDirect) {
+    return {
+      state: 'completed',
+      label: 'Completed',
+      actionLabel: 'View results',
+      isCompleted: true,
+      isPartiallyCompleted: false,
+      submittedCount: scores.length || 1,
+      todoCount: 0,
+      totalCount: scores.length || 1,
+    };
+  }
+
+  return {
+    state: 'not_started',
+    label: 'Not started',
+    actionLabel: 'Start',
+    isCompleted: false,
+    isPartiallyCompleted: false,
+    submittedCount: 0,
+    todoCount: 1,
+    totalCount: 1,
+  };
+}

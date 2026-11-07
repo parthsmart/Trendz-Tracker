@@ -61,6 +61,8 @@ import {
   practiceRecordStatus,
   formatFriendlyDateIST,
   formatAccuracyDisplay,
+  resolveHistoryTargetStudent,
+  renderTargetStudentBanner,
 } from './historyFilters.js';
 
 let flashHistoryFilters = {
@@ -85,8 +87,10 @@ const STORAGE_KEY_SETTINGS = 'trendz_flash_settings_v2';
 const STORAGE_KEY_SOUND = 'trendz_flash_sound_v1';
 
 let currentProfile = null;
+let activeHistoryStudent = null;
 let currentSettings = { ...DEFAULT_FLASH_SETTINGS };
 let activeTaskSpec = null; // Phase 14a: non-null when ?task=1 is present in URL
+let activeTodoTaskId = null; // Phase 19: non-null when assigned daily task is active
 let soundEnabled = false;
 let audioCtx = null;
 let cachedHistoryRows = [];
@@ -360,7 +364,7 @@ function updateTaskBannerUI() {
 
   const summary = flashSummary(activeTaskSpec);
   if (reqEl) {
-    reqEl.textContent = `Today's task needs: ${summary}. A try counts for the task only with these settings.`;
+    reqEl.textContent = `Today's task needs: ${summary}. A try counts for the task only with these settings. Note: Flash Anzan stream duration is physically determined by items × speed (t = count × speed).`;
   }
 
   const isMatch = matchesTask(currentSettings, activeTaskSpec);
@@ -488,6 +492,9 @@ async function callFlashStartRpc(settings) {
     speed_ms: settings.speed_ms,
     mode: settings.mode,
   };
+  if (activeTodoTaskId) {
+    payload.todo_task_id = activeTodoTaskId;
+  }
 
   if (isDemoMode() && !isSupabaseConfigured()) {
     return DemoDB.mockFlashStart(payload, currentProfile?.id);
@@ -1182,7 +1189,7 @@ async function loadFlashHistory() {
   try {
     let rows = [];
     if (isDemoMode() && !isSupabaseConfigured()) {
-      rows = DemoDB.getActivityResults(currentProfile?.id, 'flash_anzan');
+      rows = DemoDB.getActivityResults((activeHistoryStudent && activeHistoryStudent.id) || currentProfile?.id, 'flash_anzan');
     } else {
       const supabase = await getSupabase();
       if (supabase && currentProfile?.id) {
@@ -1190,7 +1197,7 @@ async function loadFlashHistory() {
           const { data, error } = await supabase
             .from('activity_results')
             .select('id, activity_type, activity_name, correct, total, time_seconds, settings, created_at')
-            .eq('student_id', currentProfile.id)
+            .eq('student_id', (activeHistoryStudent && activeHistoryStudent.id) || currentProfile.id)
             .eq('activity_type', 'flash_anzan')
             .order('created_at', { ascending: false })
             .order('id', { ascending: false })
@@ -1696,7 +1703,46 @@ function renderHeaderUser(profile) {
 }
 
 async function initFlashTrainerPage() {
-  const profile = await requireAuth(['student', 'admin']);
+  const profile = await requireAuth(['student', 'admin', 'teacher']);
+  if (!profile) return;
+
+  currentProfile = profile;
+  renderHeaderUser(profile);
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const requestedStudentId = urlParams.get('student_id') || urlParams.get('student');
+  const supabase = isSupabaseConfigured() ? await getSupabase() : null;
+
+  const targetResult = await resolveHistoryTargetStudent({
+    loggedInProfile: currentProfile,
+    urlStudentId: requestedStudentId,
+    supabase,
+    isDemo: isDemoMode(),
+    DemoDB,
+  });
+
+  if (targetResult.error) {
+    showToast('error', targetResult.error);
+    if (!targetResult.targetStudent) {
+      const bannerPlaceholder = document.getElementById('config-banner-placeholder');
+      if (bannerPlaceholder) {
+        bannerPlaceholder.innerHTML = `<div class="banner banner-error" style="margin-bottom: var(--space-4);" role="alert">${targetResult.error}</div>`;
+        bannerPlaceholder.style.display = 'block';
+      }
+      return;
+    }
+  }
+
+  activeHistoryStudent = targetResult.targetStudent || currentProfile;
+
+  if (!targetResult.isSelf && activeHistoryStudent) {
+    const bannerPlaceholder = document.getElementById('config-banner-placeholder');
+    renderTargetStudentBanner(bannerPlaceholder, activeHistoryStudent);
+
+    // In student detail view, hide flash setup and runner so complete history is prominent
+    const setupCard = document.getElementById('flash-setup-form')?.closest('.card') || document.getElementById('flash-setup-form');
+    if (setupCard) setupCard.style.display = 'none';
+  }
   if (!profile) return;
 
   currentProfile = profile;
@@ -1727,6 +1773,7 @@ async function initFlashTrainerPage() {
   // 2. Phase 14a: Read URL query parameters (?task=1, digits, count, speed, mode).
   // Valid task parameters win over last-used settings while task=1 is present.
   const parsedQuery = parseFlashTaskQuery(window.location.search);
+  activeTodoTaskId = parsedQuery.todo_task_id || null;
   if (parsedQuery.isTask) {
     activeTaskSpec = parsedQuery.task;
   } else {

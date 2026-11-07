@@ -332,6 +332,8 @@ function updateTargetDropdown(selectedSection, currentTargetValue = '') {
   const flashGroup =
     document.getElementById('group-flash-settings') ||
     document.getElementById('todo-flash-settings-group');
+  const durationGroup = document.getElementById('group-todo-duration');
+  const durationInput = document.getElementById('todo-duration-seconds');
   const catSelect = getTargetSelectEl();
   const catLabel =
     document.getElementById('label-todo-target') ||
@@ -351,6 +353,8 @@ function updateTargetDropdown(selectedSection, currentTargetValue = '') {
   if (sec === 'flash') {
     if (targetGroup) targetGroup.style.display = 'none';
     if (flashGroup) flashGroup.style.display = 'block';
+    if (durationGroup) durationGroup.style.display = 'none';
+    if (durationInput) durationInput.value = '';
     if (catSelect) {
       catSelect.innerHTML = '<option value="">Any Flash Anzan try</option>';
       catSelect.value = '';
@@ -363,6 +367,7 @@ function updateTargetDropdown(selectedSection, currentTargetValue = '') {
 
   if (targetGroup) targetGroup.style.display = '';
   if (flashGroup) flashGroup.style.display = 'none';
+  if (durationGroup) durationGroup.style.display = '';
 
   if (!catSelect) return;
 
@@ -451,7 +456,7 @@ function renderTodosTable() {
           <td>
             <span class="badge badge-neutral">${escapeHtml(sec.label)}</span>
           </td>
-          <td>${targetDisplay}</td>
+          <td>${targetDisplay}${todo.duration_seconds ? ` <span class="badge" style="background: var(--bg-surface-subtle); border: 1px solid var(--border-subtle); font-size: 10px; margin-left: 4px;">⏱ ${escapeHtml(todo.duration_seconds)}s</span>` : ''}</td>
           <td class="num">${reqCount}</td>
           <td>${levelDisplay}</td>
           <td>
@@ -596,12 +601,15 @@ function openEditModal(todoId) {
       Number.isInteger(loadedCount) && loadedCount >= 1 ? String(loadedCount) : '1';
   }
   document.getElementById('todo-level').value = todo.level || '';
+  const durInput = document.getElementById('todo-duration-seconds');
+  if (durInput) durInput.value = todo.duration_seconds || '';
   document.getElementById('todo-active').checked = todo.active !== false;
 
   const hasOptionalValue = shouldOpenMoreOptions(
     [
       currentTarget,
       todo.level,
+      todo.duration_seconds,
       todo.flash_digits,
       todo.flash_count,
       todo.flash_speed_ms,
@@ -625,6 +633,8 @@ function openAddModal() {
   document.getElementById('modal-todo-title').textContent = 'Add Daily Task';
   document.getElementById('form-todo').reset();
   document.getElementById('todo-id').value = '';
+  const durInput = document.getElementById('todo-duration-seconds');
+  if (durInput) durInput.value = '';
   document.getElementById('todo-active').checked = true;
 
   const recGroup = document.getElementById('todo-recipients-group');
@@ -675,6 +685,7 @@ async function submitTodoForm(keepOpenForAnother = false) {
   const rawFlashCount = document.getElementById('todo-flash-count')?.value ?? '';
   const rawFlashSpeed = document.getElementById('todo-flash-speed')?.value ?? '';
   const rawFlashMode = document.getElementById('todo-flash-mode')?.value ?? '';
+  const rawDuration = document.getElementById('todo-duration-seconds')?.value ?? '';
   const rawRequiredCount = document.getElementById('todo-required-count')?.value ?? '1';
   const rawLevel = document.getElementById('todo-level').value;
   const rawActive = document.getElementById('todo-active').checked;
@@ -689,6 +700,7 @@ async function submitTodoForm(keepOpenForAnother = false) {
       flash_count: rawFlashCount,
       flash_speed_ms: rawFlashSpeed,
       flash_mode: rawFlashMode,
+      duration_seconds: rawDuration,
       required_count: rawRequiredCount,
       level: rawLevel,
       active: rawActive,
@@ -710,6 +722,7 @@ async function submitTodoForm(keepOpenForAnother = false) {
     flash_count,
     flash_speed_ms,
     flash_mode,
+    duration_seconds,
     level,
     required_count,
     active,
@@ -724,6 +737,7 @@ async function submitTodoForm(keepOpenForAnother = false) {
     flash_count,
     flash_speed_ms,
     flash_mode,
+    duration_seconds,
     level,
     required_count,
     active,
@@ -960,8 +974,19 @@ async function initTodosPage() {
     updateTargetDropdown(e.target.value, '');
   });
 
+  document.querySelectorAll('.btn-duration-preset').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const durInput = document.getElementById('todo-duration-seconds');
+      if (durInput) {
+        durInput.value = btn.dataset.duration || '';
+        updateTodoLiveSummary();
+      }
+    });
+  });
+
   [
     'todo-target',
+    'todo-duration-seconds',
     'todo-required-count',
     'todo-level',
     'todo-active',

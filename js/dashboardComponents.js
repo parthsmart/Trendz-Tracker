@@ -312,9 +312,10 @@ export function renderTodoList(todos = [], containerId = 'todo-list-container', 
             } else if (isReadOnly) {
               actionButtonsHtml = doneBadgeHtml;
             } else if (sec === 'basics') {
+              const taskIdParam = t.id || t.task_id ? `&todo_task_id=${encodeURIComponent(t.id || t.task_id)}` : '';
               const onlineHref = canPracticeOnline
-                ? `/pages/basics-practice.html?cat=${encodeURIComponent(t.task_category_id)}`
-                : '/pages/basics.html';
+                ? `/pages/basics-practice.html?cat=${encodeURIComponent(t.task_category_id)}${taskIdParam}`
+                : `/pages/basics.html${t.id || t.task_id ? `?todo_task_id=${encodeURIComponent(t.id || t.task_id)}` : ''}`;
               actionButtonsHtml = `
                 ${doneBadgeHtml}
                 <a href="${onlineHref}" class="btn btn-primary btn-sm" style="text-decoration: none;">Practice online</a>
@@ -835,54 +836,84 @@ export function setupScoreSheetController({
   const ROUNDS_PER_PAGE = 5;
   let pageOffset = 0; // 0 = newest 5 rounds in selected series
 
-  // Default to the current series (is_current = true), or the last series by sort_order
   const sortedSeries = [...roundSeries].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+
+  // Count rounds per series for this student
+  const roundsCountBySeries = new Map();
+  sortedSeries.forEach(s => roundsCountBySeries.set(s.id, 0));
+  (studentRounds || []).forEach(sr => {
+    if (sr && sr.series_id) {
+      roundsCountBySeries.set(sr.series_id, (roundsCountBySeries.get(sr.series_id) || 0) + 1);
+    }
+  });
+
+  // Default to the current series (is_current = true), or the last series by sort_order
   const defaultSeries = sortedSeries.find(s => s.is_current) || sortedSeries[sortedSeries.length - 1] || null;
   let selectedSeriesId = defaultSeries ? defaultSeries.id : null;
+
+  // If the default series has 0 rounds for this student, but another series has rounds,
+  // auto-select the series that actually has rounds so the admin sees the student's history immediately
+  if (defaultSeries && (roundsCountBySeries.get(defaultSeries.id) || 0) === 0) {
+    const seriesWithRounds = [...sortedSeries]
+      .reverse()
+      .find(s => (roundsCountBySeries.get(s.id) || 0) > 0);
+    if (seriesWithRounds) {
+      selectedSeriesId = seriesWithRounds.id;
+    }
+  }
 
   // Inject or update Series Selector in the score sheet card header
   const olderBtnEl = document.getElementById(olderBtnId);
   const controlsContainer = olderBtnEl ? olderBtnEl.parentElement : null;
-  if (controlsContainer && sortedSeries.length > 0 && !document.getElementById('select-sheet-series')) {
-    const seriesWrap = document.createElement('div');
-    seriesWrap.style.display = 'inline-flex';
-    seriesWrap.style.alignItems = 'center';
-    seriesWrap.style.gap = '6px';
-    seriesWrap.style.marginRight = '8px';
+  let sel = document.getElementById('select-sheet-series');
 
-    const lbl = document.createElement('label');
-    lbl.htmlFor = 'select-sheet-series';
-    lbl.textContent = 'Series:';
-    lbl.style.fontSize = 'var(--text-xs)';
-    lbl.style.fontWeight = '600';
-    lbl.style.color = 'var(--text-muted)';
+  if (controlsContainer && sortedSeries.length > 0) {
+    if (!sel) {
+      const seriesWrap = document.createElement('div');
+      seriesWrap.style.display = 'inline-flex';
+      seriesWrap.style.alignItems = 'center';
+      seriesWrap.style.gap = '6px';
+      seriesWrap.style.marginRight = '8px';
 
-    const sel = document.createElement('select');
-    sel.id = 'select-sheet-series';
-    sel.className = 'form-select';
-    sel.style.minHeight = '32px';
-    sel.style.padding = '2px 28px 2px 10px';
-    sel.style.fontSize = 'var(--text-xs)';
-    sel.style.fontWeight = '600';
+      const lbl = document.createElement('label');
+      lbl.htmlFor = 'select-sheet-series';
+      lbl.textContent = 'Series:';
+      lbl.style.fontSize = 'var(--text-xs)';
+      lbl.style.fontWeight = '600';
+      lbl.style.color = 'var(--text-muted)';
 
+      sel = document.createElement('select');
+      sel.id = 'select-sheet-series';
+      sel.className = 'form-select';
+      sel.style.minHeight = '32px';
+      sel.style.padding = '2px 28px 2px 10px';
+      sel.style.fontSize = 'var(--text-xs)';
+      sel.style.fontWeight = '600';
+
+      seriesWrap.appendChild(lbl);
+      seriesWrap.appendChild(sel);
+      controlsContainer.insertBefore(seriesWrap, olderBtnEl);
+
+      sel.addEventListener('change', () => {
+        selectedSeriesId = sel.value;
+        pageOffset = 0;
+        renderPage();
+      });
+    }
+
+    // Populate / refresh options with exact rounds count
+    sel.innerHTML = '';
     sortedSeries.forEach(s => {
+      const count = roundsCountBySeries.get(s.id) || 0;
+      const countLabel = `(${count} ${count === 1 ? 'round' : 'rounds'})`;
+      const currentLabel = s.is_current ? ' · Current' : '';
       const opt = document.createElement('option');
       opt.value = s.id;
-      opt.textContent = s.is_current ? `${s.name} (Current)` : s.name;
+      opt.textContent = `${s.name} ${countLabel}${currentLabel}`;
       sel.appendChild(opt);
     });
 
     if (selectedSeriesId) sel.value = selectedSeriesId;
-
-    sel.addEventListener('change', () => {
-      selectedSeriesId = sel.value;
-      pageOffset = 0;
-      renderPage();
-    });
-
-    seriesWrap.appendChild(lbl);
-    seriesWrap.appendChild(sel);
-    controlsContainer.insertBefore(seriesWrap, olderBtnEl);
   }
 
   function getSeriesCategories(seriesId) {
@@ -935,7 +966,37 @@ export function setupScoreSheetController({
       if (rangeLabel) {
         rangeLabel.textContent = `${seriesName} · No rounds recorded yet`;
       }
-      wrapper.innerHTML = `<div class="empty-state" style="padding: var(--space-6);">No rounds recorded in ${escapeHtml(seriesName)} yet.</div>`;
+
+      const otherSeriesWithRounds = sortedSeries
+        .filter(s => s.id !== selectedSeriesId && (roundsCountBySeries.get(s.id) || 0) > 0)
+        .map(s => `${s.name} (${roundsCountBySeries.get(s.id)} ${roundsCountBySeries.get(s.id) === 1 ? 'round' : 'rounds'})`);
+
+      let emptyMsgHtml = '';
+      if (otherSeriesWithRounds.length > 0) {
+        emptyMsgHtml = `
+          <div class="empty-state" style="padding: var(--space-6); text-align: center;">
+            <p style="margin: 0 0 var(--space-2) 0; font-weight: 600; color: var(--text-main);">
+              No rounds recorded in <strong>${escapeHtml(seriesName)}</strong> yet.
+            </p>
+            <p style="margin: 0; font-size: var(--text-xs); color: var(--text-muted);">
+              This student has recorded rounds in: <strong>${escapeHtml(otherSeriesWithRounds.join(', '))}</strong>.<br>
+              Select that series from the dropdown above to view those score sheets.
+            </p>
+          </div>
+        `;
+      } else {
+        emptyMsgHtml = `
+          <div class="empty-state" style="padding: var(--space-6); text-align: center;">
+            <p style="margin: 0 0 var(--space-2) 0; font-weight: 600; color: var(--text-main);">
+              No competition rounds recorded for this student across any series yet.
+            </p>
+            <p style="margin: 0; font-size: var(--text-xs); color: var(--text-muted);">
+              When this student completes competition rounds, they will appear in this score sheet matrix.
+            </p>
+          </div>
+        `;
+      }
+      wrapper.innerHTML = emptyMsgHtml;
       return;
     }
 

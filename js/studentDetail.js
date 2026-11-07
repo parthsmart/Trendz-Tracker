@@ -203,6 +203,7 @@ async function loadAndRenderStudentDashboard(studentId) {
 
   } catch (err) {
     console.error('Failed to load student detail dashboard:', err);
+    showToast('error', `Could not load student dashboard: ${err.message || 'Database error'}`);
   }
 }
 
@@ -254,6 +255,17 @@ function renderStudentDetails(profile) {
   if (reportBtn) {
     reportBtn.href = `/pages/monthly-report.html?studentId=${encodeURIComponent(profile.id)}`;
   }
+
+  // Section "View all scores" links for Basics, Flash Anzan, Elements, and Memoriad
+  const studentParam = encodeURIComponent(profile.id);
+  const basicsLinkEl = document.getElementById('link-view-all-basics');
+  if (basicsLinkEl) basicsLinkEl.href = `/pages/basics.html?student_id=${studentParam}`;
+  const flashLinkEl = document.getElementById('link-view-all-flash');
+  if (flashLinkEl) flashLinkEl.href = `/pages/flash.html?student_id=${studentParam}`;
+  const elementsLinkEl = document.getElementById('link-view-all-elements');
+  if (elementsLinkEl) elementsLinkEl.href = `/pages/elements.html?student_id=${studentParam}`;
+  const memoriadLinkEl = document.getElementById('link-view-all-memoriad');
+  if (memoriadLinkEl) memoriadLinkEl.href = `/pages/memoriad.html?student_id=${studentParam}`;
 }
 
 export function renderHeaderUser(profile) {

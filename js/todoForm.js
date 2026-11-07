@@ -280,6 +280,39 @@ export function normalizeTaskInput(input = {}, sectionOverride) {
     activity_key = null;
   }
 
+  // duration_seconds: empty / "any" / "default" -> null; otherwise integer 5..3600
+  let duration_seconds = null;
+  const rawDuration = safeInput.duration_seconds;
+  const hasDuration =
+    rawDuration !== undefined &&
+    rawDuration !== null &&
+    trimText(String(rawDuration)) !== '' &&
+    trimText(String(rawDuration)).toLowerCase() !== 'default' &&
+    trimText(String(rawDuration)).toLowerCase() !== 'any';
+
+  if (section === 'flash') {
+    if (hasDuration) {
+      errors.duration_seconds =
+        'Flash Anzan duration is determined by its number count and speed interval (t = count × speed) and cannot use an arbitrary duration.';
+    }
+    duration_seconds = null;
+  } else if (hasDuration) {
+    const strDuration = trimText(String(rawDuration));
+    const numDuration = typeof rawDuration === 'number' ? rawDuration : Number(strDuration);
+    if (
+      typeof rawDuration === 'boolean' ||
+      !/^\d+$/.test(strDuration) ||
+      !Number.isInteger(numDuration) ||
+      numDuration < 5 ||
+      numDuration > 3600
+    ) {
+      errors.duration_seconds =
+        'Duration must be a whole number between 5 and 3600 seconds (or empty for default).';
+    } else {
+      duration_seconds = numDuration;
+    }
+  }
+
   if (Object.keys(errors).length > 0) {
     return { errors };
   }
@@ -296,6 +329,7 @@ export function normalizeTaskInput(input = {}, sectionOverride) {
       flash_count,
       flash_speed_ms,
       flash_mode,
+      duration_seconds,
       level,
       required_count,
       active,
@@ -473,10 +507,19 @@ export function taskLink(task = {}) {
         : ''
   );
 
+  const taskId = trimText(
+    safeTask.id !== undefined && safeTask.id !== null
+      ? String(safeTask.id)
+      : safeTask.task_id !== undefined && safeTask.task_id !== null
+        ? String(safeTask.task_id)
+        : ''
+  );
+  const taskQuery = taskId ? `&todo_task_id=${encodeURIComponent(taskId)}` : '';
+
   if (section === 'basics') {
     return categoryId
-      ? `/pages/basics.html?cat=${encodeURIComponent(categoryId)}`
-      : '/pages/basics.html';
+      ? `/pages/basics.html?cat=${encodeURIComponent(categoryId)}${taskQuery}`
+      : `/pages/basics.html${taskId ? `?todo_task_id=${encodeURIComponent(taskId)}` : ''}`;
   }
 
   if (section === 'round') {
@@ -485,18 +528,21 @@ export function taskLink(task = {}) {
 
   if (section === 'elements') {
     return activityKey
-      ? `/pages/element-drill.html?drill=${encodeURIComponent(activityKey)}`
-      : '/pages/elements.html';
+      ? `/pages/element-drill.html?drill=${encodeURIComponent(activityKey)}${taskQuery}`
+      : `/pages/elements.html${taskId ? `?todo_task_id=${encodeURIComponent(taskId)}` : ''}`;
   }
 
   if (section === 'memoriad') {
     return activityKey
-      ? `/pages/memoriad-play.html?module=${encodeURIComponent(activityKey)}`
-      : '/pages/memoriad.html';
+      ? `/pages/memoriad-play.html?module=${encodeURIComponent(activityKey)}${taskQuery}`
+      : `/pages/memoriad.html${taskId ? `?todo_task_id=${encodeURIComponent(taskId)}` : ''}`;
   }
 
   if (section === 'flash') {
     const queryParts = ['task=1'];
+    if (taskId) {
+      queryParts.push(`todo_task_id=${encodeURIComponent(taskId)}`);
+    }
 
     const rawDigits =
       safeTask.flash_digits !== undefined ? safeTask.flash_digits : safeTask.task_flash_digits;

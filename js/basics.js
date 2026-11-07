@@ -26,9 +26,12 @@ import {
   practiceRecordStatus,
   formatFriendlyDateIST,
   formatAccuracyDisplay,
+  resolveHistoryTargetStudent,
+  renderTargetStudentBanner,
 } from './historyFilters.js';
 
 let currentProfile = null;
+let activeHistoryStudent = null;
 let basicsCategories = [];
 let allBasicsResults = [];
 let activeThresholds = [];
@@ -96,6 +99,14 @@ export function setServerTodayErrorForTesting(errOrNull) {
 
 export function getServerTodayIST() {
   return serverTodayIST;
+}
+
+export function getActiveHistoryStudent() {
+  return activeHistoryStudent;
+}
+
+export function setActiveHistoryStudentForTesting(stu) {
+  activeHistoryStudent = stu;
 }
 
 export function setBasicsResultsForTesting(results) {
@@ -408,7 +419,7 @@ export async function loadBasicsHistory() {
                 sort_order
               )
             `)
-            .eq('student_id', currentProfile.id)
+            .eq('student_id', (activeHistoryStudent && activeHistoryStudent.id) || currentProfile.id)
             .in('category_id', categoryIds)
             .order('entry_date', { ascending: false })
             .order('created_at', { ascending: false })
@@ -426,8 +437,9 @@ export async function loadBasicsHistory() {
       }
     } else {
       // Demo Mode retrieval with pre-computed meets_target
-      const demoDbResults = DemoDB.getResultsWithTarget(currentProfile?.id || 'usr-101', 'basics');
-      const demoKey = `trendz_demo_basics_${currentProfile?.id || 'usr-101'}`;
+      const targetId = (activeHistoryStudent && activeHistoryStudent.id) || currentProfile?.id || 'usr-101';
+      const demoDbResults = DemoDB.getResultsWithTarget(targetId, 'basics');
+      const demoKey = `trendz_demo_basics_${targetId}`;
       const localAdded = JSON.parse(localStorage.getItem(demoKey) || '[]');
       // Merge local additions with targets
       allBasicsResults = [...localAdded, ...demoDbResults.filter(d => !localAdded.some(l => l.id === d.id))];
@@ -897,7 +909,45 @@ function escapeHtml(str) {
  * Initialize Basics Page
  */
 async function initBasics() {
-  currentProfile = await requireAuth(['student', 'admin']);
+  currentProfile = await requireAuth(['student', 'admin', 'teacher']);
+  if (!currentProfile) return;
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const requestedStudentId = urlParams.get('student_id') || urlParams.get('student');
+  const supabase = isSupabaseConfigured() ? await getSupabase() : null;
+
+  const targetResult = await resolveHistoryTargetStudent({
+    loggedInProfile: currentProfile,
+    urlStudentId: requestedStudentId,
+    supabase,
+    isDemo: isDemoMode(),
+    DemoDB,
+  });
+
+  if (targetResult.error) {
+    showToast('error', targetResult.error);
+    if (!targetResult.targetStudent) {
+      const bannerPlaceholder = document.getElementById('config-banner-placeholder');
+      if (bannerPlaceholder) {
+        bannerPlaceholder.innerHTML = `<div class="banner banner-error" style="margin-bottom: var(--space-4);" role="alert">${escapeHtml(targetResult.error)}</div>`;
+        bannerPlaceholder.style.display = 'block';
+      }
+      return;
+    }
+  }
+
+  activeHistoryStudent = targetResult.targetStudent || currentProfile;
+
+  if (!targetResult.isSelf && activeHistoryStudent) {
+    const bannerPlaceholder = document.getElementById('config-banner-placeholder');
+    renderTargetStudentBanner(bannerPlaceholder, activeHistoryStudent);
+
+    // Hide manual entry and direct practice cards for student profile history view
+    const entryCard = document.querySelector('section.card[aria-labelledby="entry-heading"]') || document.getElementById('basics-entry-card');
+    if (entryCard) entryCard.style.display = 'none';
+    const onlineCard = document.getElementById('basics-online-practice-card');
+    if (onlineCard) onlineCard.style.display = 'none';
+  }
   if (!currentProfile) return;
 
   const pillContainer = document.getElementById('user-pill-container');

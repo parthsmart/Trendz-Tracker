@@ -781,3 +781,135 @@ export function renderHistoryPaginationHtml({ idPrefix, page, totalPages, totalC
     </div>
   `;
 }
+
+/**
+ * Resolves the target student when viewing history across sections (Basics, Flash, Elements, Memoriad).
+ * Enforces permissions:
+ * - Admin can view any student's history.
+ * - Teacher can only view history for assigned students.
+ * - Student can only view their own history.
+ *
+ * @param {{
+ *   loggedInProfile: object|null,
+ *   urlStudentId: string|null,
+ *   supabase?: object|null,
+ *   isDemo?: boolean,
+ *   DemoDB?: object|null
+ * }} params
+ * @returns {Promise<{ targetStudent: object|null, isSelf: boolean, error: string|null }>}
+ */
+export async function resolveHistoryTargetStudent({
+  loggedInProfile,
+  urlStudentId,
+  supabase = null,
+  isDemo = false,
+  DemoDB = null,
+}) {
+  if (!urlStudentId || !urlStudentId.trim()) {
+    return { targetStudent: loggedInProfile, isSelf: true, error: null };
+  }
+
+  const cleanId = urlStudentId.trim();
+  if (cleanId === loggedInProfile?.id) {
+    return { targetStudent: loggedInProfile, isSelf: true, error: null };
+  }
+
+  // Student role cannot view another student's scores
+  if (loggedInProfile?.role === 'student') {
+    return {
+      targetStudent: loggedInProfile,
+      isSelf: true,
+      error: 'You do not have permission to view scores for other students.',
+    };
+  }
+
+  // Teacher role: verify assignment
+  if (loggedInProfile?.role === 'teacher') {
+    let isAssigned = false;
+    if (supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('teacher_student_assignments')
+          .select('student_id')
+          .eq('teacher_id', loggedInProfile.id)
+          .eq('student_id', cleanId)
+          .maybeSingle();
+        if (!error && data) isAssigned = true;
+      } catch (err) {
+        console.warn('Failed to verify teacher-student assignment:', err);
+      }
+    } else if (isDemo && DemoDB) {
+      const assignments = typeof DemoDB.getTeacherStudentAssignments === 'function'
+        ? DemoDB.getTeacherStudentAssignments()
+        : JSON.parse(localStorage.getItem('trendz_demo_teacher_student_assignments') || '[]');
+      isAssigned = assignments.some(
+        (a) => a.teacher_id === loggedInProfile.id && a.student_id === cleanId
+      );
+    }
+
+    if (!isAssigned) {
+      return {
+        targetStudent: null,
+        isSelf: false,
+        error: 'You do not have permission to view this student. They are not in your assigned roster.',
+      };
+    }
+  }
+
+  // For Admin or Verified Teacher: fetch student profile
+  let targetProfile = null;
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, student_code, level, role, active')
+        .eq('id', cleanId)
+        .maybeSingle();
+      if (!error && data) targetProfile = data;
+    } catch (err) {
+      console.warn('Failed to resolve target student profile:', err);
+    }
+  } else if (isDemo && DemoDB) {
+    const students = typeof DemoDB.getStudents === 'function' ? DemoDB.getStudents() : [];
+    targetProfile = students.find((s) => s.id === cleanId) || null;
+  }
+
+  if (!targetProfile) {
+    return {
+      targetStudent: null,
+      isSelf: false,
+      error: `Could not find student with ID "${cleanId}".`,
+    };
+  }
+
+  return { targetStudent: targetProfile, isSelf: false, error: null };
+}
+
+/**
+ * Renders a prominent banner indicating which student's complete history is being viewed.
+ *
+ * @param {HTMLElement|string} container - Element or element ID
+ * @param {object} targetStudent - Profile of the target student
+ */
+export function renderTargetStudentBanner(container, targetStudent) {
+  const el = typeof container === 'string' ? document.getElementById(container) : container;
+  if (!el || !targetStudent) return;
+
+  const name = escapeHtml(targetStudent.full_name || targetStudent.name || 'Student');
+  const code = escapeHtml(targetStudent.student_code || targetStudent.id || '');
+  const id = encodeURIComponent(targetStudent.id);
+
+  el.innerHTML = `
+    <div class="banner banner-info" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-4); border-left: 4px solid var(--color-primary);" role="region" aria-label="Viewing student scores banner">
+      <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
+        <span style="font-weight: 700; color: #1E40AF; font-size: var(--text-sm);">Viewing complete history for student:</span>
+        <strong style="color: var(--text-main); font-size: var(--text-sm);">${name}</strong>
+        <span class="status-chip chip-unverified" style="font-size: 11px;">${code}</span>
+      </div>
+      <a href="/pages/student-detail.html?id=${id}" class="btn btn-outline btn-xs" style="text-decoration: none;">
+        &larr; Return to student profile
+      </a>
+    </div>
+  `;
+  el.style.display = 'block';
+}

@@ -42,7 +42,13 @@ import {
   practiceRecordStatus,
   formatFriendlyDateIST,
   formatAccuracyDisplay,
+  resolveHistoryTargetStudent,
+  renderTargetStudentBanner,
 } from './historyFilters.js';
+import { isSupabaseConfigured } from './config.js';
+import { isDemoMode, DemoDB } from './demoDb.js';
+import { getSupabase } from './supabaseClient.js';
+import { showToast } from './toast.js';
 
 function escapeHtml(str) {
   if (str === null || str === undefined) return '';
@@ -55,6 +61,15 @@ function escapeHtml(str) {
 }
 
 let currentUser = null;
+let activeHistoryStudent = null;
+
+export function getActiveElementsStudent() {
+  return activeHistoryStudent;
+}
+
+export function setActiveElementsStudentForTesting(stu) {
+  activeHistoryStudent = stu;
+}
 let cachedElementRows = [];
 let elementsHistoryFilters = {
   dateFrom: '',
@@ -67,7 +82,40 @@ let elementsHistoryPage = 1;
 const ELEMENTS_PAGE_SIZE = 20;
 
 async function initElementsCatalogPage() {
-  const user = await requireAuth(['student', 'admin']);
+  const user = await requireAuth(['student', 'admin', 'teacher']);
+  if (!user) return;
+  currentUser = user;
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const requestedStudentId = urlParams.get('student_id') || urlParams.get('student');
+  const supabase = isSupabaseConfigured() ? await getSupabase() : null;
+
+  const targetResult = await resolveHistoryTargetStudent({
+    loggedInProfile: currentUser,
+    urlStudentId: requestedStudentId,
+    supabase,
+    isDemo: isDemoMode(),
+    DemoDB,
+  });
+
+  if (targetResult.error) {
+    showToast('error', targetResult.error);
+    if (!targetResult.targetStudent) {
+      const bannerPlaceholder = document.getElementById('config-banner-placeholder');
+      if (bannerPlaceholder) {
+        bannerPlaceholder.innerHTML = `<div class="banner banner-error" style="margin-bottom: var(--space-4);" role="alert">${targetResult.error}</div>`;
+        bannerPlaceholder.style.display = 'block';
+      }
+      return;
+    }
+  }
+
+  activeHistoryStudent = targetResult.targetStudent || currentUser;
+
+  if (!targetResult.isSelf && activeHistoryStudent) {
+    const bannerPlaceholder = document.getElementById('config-banner-placeholder');
+    renderTargetStudentBanner(bannerPlaceholder, activeHistoryStudent);
+  }
   if (!user) return;
   currentUser = user;
 
@@ -82,7 +130,8 @@ async function loadAndRenderCatalog() {
   const weekSummaryEl = document.getElementById('elements-week-summary-text');
   if (!container) return;
 
-  const rows = await fetchStudentElementResults(currentUser.id);
+  const targetId = (activeHistoryStudent && activeHistoryStudent.id) || currentUser.id;
+  const rows = await fetchStudentElementResults(targetId);
   cachedElementRows = rows;
   const summaries = summaryByDrill(rows);
   const weekSets = setsThisWeek(rows);

@@ -66,8 +66,16 @@ let countdownEndMs = 0;
 let roundTimerId = null;
 let roundEnded = false;
 let pendingSubmissionAnswers = null;
+let pendingSubmissionRecordedDuration = null;
 let previousBestBeforeSubmit = null;
 let isSubmitting = false;
+
+let solvingStartPerfMs = 0;
+let solvingEndPerfMs = 0;
+let todoTaskId = null;
+let isTodoMode = false;
+let assignedTask = null;
+
 
 // Review state
 let currentReviewItems = [];
@@ -402,6 +410,55 @@ function renderSetupSummary() {
   });
 }
 
+
+function renderPrepCountdownOverlay(startCount, onComplete) {
+  let count = startCount;
+  const overlay = document.createElement('div');
+  overlay.id = 'prep-countdown-overlay';
+  overlay.style.cssText = `
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.72);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 99999;
+    color: #fff;
+    font-family: inherit;
+    user-select: none;
+  `;
+  overlay.innerHTML = `
+    <div style="font-size: 1.15rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; opacity: 0.9; margin-bottom: 8px;">
+      Daily Task &middot; Get Ready
+    </div>
+    <div id="prep-num" style="font-size: 5.5rem; font-weight: 900; line-height: 1; color: #60A5FA;">
+      ${count}
+    </div>
+    <div style="font-size: var(--text-xs); opacity: 0.75; margin-top: 16px;">
+      Assigned Duration: ${activeSeconds || 60}s &middot; Starting automatically
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const numEl = document.getElementById('prep-num');
+  const timer = setInterval(() => {
+    count--;
+    if (count > 0) {
+      if (numEl) numEl.textContent = String(count);
+    } else if (count === 0) {
+      if (numEl) {
+        numEl.textContent = 'GO!';
+        numEl.style.color = '#34D399';
+      }
+    } else {
+      clearInterval(timer);
+      overlay.remove();
+      onComplete();
+    }
+  }, 1000);
+}
+
 function showScreen(screenId) {
   ['screen-setup', 'screen-player', 'screen-results'].forEach((id) => {
     const el = document.getElementById(id);
@@ -479,6 +536,7 @@ function handleTimeUpAutoFinish() {
   if (roundEnded || !activePlayer) return;
   roundEnded = true;
   stopRoundTimer();
+  solvingEndPerfMs = performance.now();
 
   const reachedAnswers = activePlayer.finish();
   if (reachedAnswers === null) return;
@@ -490,7 +548,11 @@ function handleTimeUpAutoFinish() {
     return;
   }
 
-  submitCompletedPracticeSet(reachedAnswers);
+  const recordedDuration = activeMode === 'timed'
+    ? Number(activeSeconds)
+    : Math.max(1, Math.round((solvingEndPerfMs - (solvingStartPerfMs || timerStartMs)) / 1000));
+
+  submitCompletedPracticeSet(reachedAnswers, recordedDuration);
 }
 
 /**
@@ -532,6 +594,8 @@ function handleManualFinishClick() {
     return;
   }
 
+  const candidateEndMs = performance.now();
+
   const promptMsg =
     activeMode === 'timed'
       ? `End this timed round early and submit the ${reachedCount} ${reachedCount === 1 ? 'question' : 'questions'} you have answered?`
@@ -545,9 +609,14 @@ function handleManualFinishClick() {
 
   roundEnded = true;
   stopRoundTimer();
+  solvingEndPerfMs = candidateEndMs;
+
   const reachedAnswers = activePlayer.finish();
   if (reachedAnswers !== null) {
-    submitCompletedPracticeSet(reachedAnswers);
+    const recordedDuration = activeMode === 'timed'
+      ? Math.min(Number(activeSeconds), Math.max(1, Math.round((solvingEndPerfMs - (solvingStartPerfMs || timerStartMs)) / 1000)))
+      : Math.max(1, Math.round((solvingEndPerfMs - (solvingStartPerfMs || timerStartMs)) / 1000));
+    submitCompletedPracticeSet(reachedAnswers, recordedDuration);
   }
 }
 
@@ -660,6 +729,7 @@ async function startPracticeSession() {
           category_id: selectedCategory.id,
           mode: selectedMode,
           seconds: selectedMode === 'timed' ? selectedSeconds : null,
+          todo_task_id: todoTaskId || undefined,
         }),
       });
 
@@ -680,8 +750,27 @@ async function startPracticeSession() {
 
     activeSessionId = payload.session_id;
     activeMode = payload.mode === 'unlimited' ? 'unlimited' : 'timed';
+    const returnedSeconds =
+      payload.duration_seconds ??
+      payload.time_limit_seconds ??
+      payload.seconds ??
+      payload.settings?.duration_seconds;
     activeSeconds =
-      activeMode === 'timed' ? Number(payload.seconds || selectedSeconds || 60) : null;
+      activeMode === 'timed' ? Number(returnedSeconds ?? selectedSeconds ?? 60) : null;
+    selectedSeconds = activeSeconds;
+
+    if (isTodoMode) {
+      const bannerPlaceholder = document.getElementById('config-banner-placeholder');
+      if (bannerPlaceholder) {
+        const taskTitle =
+          assignedTask?.title || payload.settings?.todo_title || payload.title || 'Daily Task';
+        bannerPlaceholder.innerHTML = `
+          <div class="banner banner-info" style="margin-bottom: var(--space-4);">
+            <strong>Daily Task:</strong> ${escapeHtml(taskTitle)} &middot; Assigned Duration: <strong>${activeSeconds}s (Locked)</strong>
+          </div>
+        `;
+      }
+    }
 
     if (payload.target !== undefined) {
       effectiveTarget = payload.target;
@@ -696,6 +785,7 @@ async function startPracticeSession() {
 
     roundEnded = false;
     pendingSubmissionAnswers = null;
+    pendingSubmissionRecordedDuration = null;
     const retryBox = document.getElementById('player-submit-retry-box');
     const answerForm = document.getElementById('player-answer-form');
     if (retryBox) retryBox.style.display = 'none';
@@ -706,8 +796,23 @@ async function startPracticeSession() {
       revisitSkipped: false,
     });
     showScreen('screen-player');
-    startRoundTimer();
-    renderCurrentPlayerQuestion();
+
+    const prepSeconds = Number(
+      payload.prep_seconds ??
+      payload.settings?.prep_seconds ??
+      (isTodoMode ? 3 : 0)
+    );
+    if (prepSeconds > 0) {
+      renderPrepCountdownOverlay(prepSeconds, () => {
+        startRoundTimer();
+        solvingStartPerfMs = performance.now();
+        renderCurrentPlayerQuestion();
+      });
+    } else {
+      startRoundTimer();
+      solvingStartPerfMs = performance.now();
+      renderCurrentPlayerQuestion();
+    }
   } catch (err) {
     showErrorBanner(err.message || 'Could not start practice round.');
     showToast('error', err.message || 'Could not start practice round.');
@@ -721,12 +826,13 @@ async function startPracticeSession() {
  * Submits the reached answers array to `POST /api/drill` (`action: 'submit'`).
  * Prevents double submission and retains answers with "Try sending again" if network fails.
  */
-async function submitCompletedPracticeSet(answersArray) {
+async function submitCompletedPracticeSet(answersArray, recordedDuration = null) {
   if (isSubmitting) return;
   isSubmitting = true;
   roundEnded = true;
   stopRoundTimer();
   pendingSubmissionAnswers = answersArray;
+  pendingSubmissionRecordedDuration = recordedDuration;
   showErrorBanner('');
 
   const inputEl = document.getElementById('player-answer-input');
@@ -773,6 +879,7 @@ async function submitCompletedPracticeSet(answersArray) {
       }
 
       pendingSubmissionAnswers = null;
+      pendingSubmissionRecordedDuration = null;
       await renderResultsScreen(resultData);
       return;
     }
@@ -789,6 +896,7 @@ async function submitCompletedPracticeSet(answersArray) {
           action: 'submit',
           session_id: activeSessionId,
           answers: answersArray,
+          duration_seconds: recordedDuration !== null ? recordedDuration : (activeMode === 'timed' ? Number(activeSeconds) : Math.max(1, Math.round((performance.now() - (solvingStartPerfMs || timerStartMs)) / 1000))),
         }),
       });
 
@@ -803,13 +911,15 @@ async function submitCompletedPracticeSet(answersArray) {
         answersArray,
         currentProfile?.id || 'usr-101',
         selectedCategory?.id || 'cat-bas-1',
-        activeMode
+        activeMode,
+        recordedDuration
       );
     } else {
       throw new Error('Database connection is not configured.');
     }
 
     pendingSubmissionAnswers = null;
+    pendingSubmissionRecordedDuration = null;
     await refreshCategoryResults();
     renderSetupSummary();
     await renderResultsScreen(resultData);
@@ -1088,7 +1198,7 @@ async function initBasicsPracticePage() {
   // Retry submit button if network failed
   document.getElementById('btn-retry-submit')?.addEventListener('click', () => {
     if (pendingSubmissionAnswers) {
-      submitCompletedPracticeSet(pendingSubmissionAnswers);
+      submitCompletedPracticeSet(pendingSubmissionAnswers, pendingSubmissionRecordedDuration);
     }
   });
 
@@ -1131,9 +1241,50 @@ async function initBasicsPracticePage() {
     return;
   }
 
+  const todoParam = urlParams.get('todo_task_id');
+  if (todoParam) {
+    todoTaskId = todoParam;
+    isTodoMode = true;
+    if (isDemoMode() && DemoDB?.getTodo) {
+      assignedTask = DemoDB.getTodo(todoTaskId);
+    } else if (isSupabaseConfigured()) {
+      try {
+        const supabase = await getSupabase();
+        const { data: tRow } = await supabase
+          .from('daily_tasks')
+          .select('id, title, duration_seconds, required_count, section, category_id, activity_key')
+          .eq('id', todoTaskId)
+          .maybeSingle();
+        if (tRow) assignedTask = tRow;
+      } catch {
+        // Fall back to server authoritative response
+      }
+    }
+    if (assignedTask && assignedTask.duration_seconds > 0) {
+      selectedSeconds = assignedTask.duration_seconds;
+      activeSeconds = assignedTask.duration_seconds;
+      selectedMode = 'timed';
+      activeMode = 'timed';
+    }
+  }
+
   const catParam =
     urlParams.get('cat') || urlParams.get('category') || urlParams.get('category_id') || '';
   await loadSetupData(catParam);
+
+  if (isTodoMode && selectedCategory) {
+    const bannerPlaceholder = document.getElementById('config-banner-placeholder');
+    if (bannerPlaceholder) {
+      bannerPlaceholder.innerHTML = `
+        <div class="banner banner-info" style="margin-bottom: var(--space-4);">
+          <strong>Daily Task:</strong> ${escapeHtml(assignedTask?.title || 'Daily Task')} &middot; Assigned Duration: <strong>${selectedSeconds}s (Locked)</strong>
+        </div>
+      `;
+    }
+    setTimeout(() => {
+      startPracticeSession();
+    }, 200);
+  }
 }
 
 async function startWeeklyTestBasicsSection() {
@@ -1183,6 +1334,7 @@ async function startWeeklyTestBasicsSection() {
     };
     roundEnded = false;
     pendingSubmissionAnswers = null;
+    pendingSubmissionRecordedDuration = null;
 
     const finishBtn = document.getElementById('btn-finish-round');
     if (finishBtn) finishBtn.textContent = 'Finish / Exit';

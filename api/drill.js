@@ -21,6 +21,7 @@
  */
 
 import { getDrillServerClient, verifyStudentCaller } from './_supabaseAdmin.js';
+import { resolveAndValidateDailyTask } from './_dailyTasks.js';
 import {
   DRILLS,
   buildDrillStartResponse,
@@ -93,7 +94,7 @@ export default async function handler(req, res) {
 
   let student;
   try {
-    student = await verifyStudentCaller(req);
+    student = req._testStudent || (await verifyStudentCaller(req));
   } catch (authErr) {
     const code = authErr.statusCode || 401;
     return res.status(code).json({
@@ -103,7 +104,7 @@ export default async function handler(req, res) {
 
   let adminSupabase;
   try {
-    adminSupabase = getDrillServerClient(student);
+    adminSupabase = req._testAdminSupabase || getDrillServerClient(student);
   } catch {
     return res.status(500).json({
       error: 'Server database configuration is missing. Please contact your teacher.',
@@ -166,6 +167,20 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
     });
   }
 
+  // Validate daily task assignment if provided
+  const todoTaskId = body.todo_task_id;
+  const taskRes = await resolveAndValidateDailyTask(
+    adminSupabase,
+    todoTaskId,
+    student,
+    'basics',
+    categoryId
+  );
+  if (!taskRes.ok) {
+    return res.status(taskRes.statusCode || 400).json({ error: taskRes.error });
+  }
+  const validatedTask = taskRes.task;
+
   // Rate limit: 60 starts per hour per student (activity_type = 'basics')
   const oneHourAgoIso = new Date(Date.now() - 3600 * 1000).toISOString();
   const { count: recentCount, error: countErr } = await adminSupabase
@@ -192,9 +207,34 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
   const displayQuestions = stripBasicsExpected(generated);
   const expectedAnswers = generated.map((q) => q.expected);
 
+  let finalSeconds = modeSpec.seconds;
+  let finalMode = modeSpec.mode;
+  let finalExpiry = modeSpec.expirySeconds;
+  if (validatedTask && validatedTask.duration_seconds > 0) {
+    finalSeconds = validatedTask.duration_seconds;
+    finalMode = 'timed';
+    // Exclude 3s prep from solver timer, include in server deadline + 15s transit
+    finalExpiry = 3 + finalSeconds + 15;
+  }
+
   const nowMs = Date.now();
   const startedAtIso = new Date(nowMs).toISOString();
-  const expiresAtIso = new Date(nowMs + modeSpec.expirySeconds * 1000).toISOString();
+  const expiresAtIso = new Date(nowMs + finalExpiry * 1000).toISOString();
+
+  const sessionSettings = {
+    kind: 'basics',
+    category_id: category.id,
+    mode: finalMode,
+    seconds: finalSeconds,
+    duration_seconds: finalSeconds,
+    time_limit_seconds: finalSeconds,
+    prep_seconds: 3,
+    pool: modeSpec.pool,
+    is_todo: Boolean(validatedTask),
+    todo_task_id: validatedTask ? validatedTask.id : null,
+    todo_section: validatedTask ? 'basics' : null,
+    todo_category_id: validatedTask ? category.id : null,
+  };
 
   const { data: sessionRow, error: insertErr } = await adminSupabase
     .from('drill_sessions')
@@ -202,13 +242,7 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
       student_id: student.id,
       activity_type: 'basics',
       activity_name: category.name,
-      settings: {
-        kind: 'basics',
-        category_id: category.id,
-        mode: modeSpec.mode,
-        seconds: modeSpec.seconds,
-        pool: modeSpec.pool,
-      },
+      settings: sessionSettings,
       questions: displayQuestions,
       expected: expectedAnswers,
       min_seconds: 1,
@@ -267,10 +301,14 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
     session_id: sessionRow.id,
     title: category.name,
     questions: displayQuestions,
-    mode: modeSpec.mode,
-    seconds: modeSpec.seconds,
+    mode: finalMode,
+    seconds: finalSeconds,
+    duration_seconds: finalSeconds,
+    time_limit_seconds: finalSeconds,
+    prep_seconds: 3,
     pool: modeSpec.pool,
     target,
+    settings: sessionSettings,
   });
 }
 
@@ -314,11 +352,44 @@ async function handleStartDrill({ body, student, adminSupabase, res }) {
   const questionTexts = generated.map((q) => q.text);
   const expectedAnswers = generated.map((q) => q.expected);
 
+  // Validate daily task assignment if provided
+  const todoTaskId = body.todo_task_id;
+  const taskRes = await resolveAndValidateDailyTask(
+    adminSupabase,
+    todoTaskId,
+    student,
+    'elements',
+    drillKey
+  );
+  if (!taskRes.ok) {
+    return res.status(taskRes.statusCode || 400).json({ error: taskRes.error });
+  }
+  const validatedTask = taskRes.task;
+
+  let finalTimeLimit = drillObj.time_limit_seconds;
+  if (validatedTask && validatedTask.duration_seconds > 0) {
+    finalTimeLimit = validatedTask.duration_seconds;
+  }
+
+  const PREP_SECONDS = 3;
   const nowMs = Date.now();
   const startedAtIso = new Date(nowMs).toISOString();
+  // Exclude 3s preparation countdown from solver timer and include in server deadline (+ 15s transit)
   const expiresAtIso = new Date(
-    nowMs + (drillObj.time_limit_seconds + EXPIRY_GRACE_SECONDS) * 1000
+    nowMs + (PREP_SECONDS + finalTimeLimit + EXPIRY_GRACE_SECONDS) * 1000
   ).toISOString();
+
+  const sessionSettings = {
+    drill: drillKey,
+    questions: drillObj.questions,
+    time_limit_seconds: finalTimeLimit,
+    duration_seconds: finalTimeLimit,
+    prep_seconds: PREP_SECONDS,
+    is_todo: Boolean(validatedTask),
+    todo_task_id: validatedTask ? validatedTask.id : null,
+    todo_section: validatedTask ? 'elements' : null,
+    todo_activity_key: validatedTask ? drillKey : null,
+  };
 
   const { data: sessionRow, error: insertErr } = await adminSupabase
     .from('drill_sessions')
@@ -326,11 +397,7 @@ async function handleStartDrill({ body, student, adminSupabase, res }) {
       student_id: student.id,
       activity_type: 'element',
       activity_name: drillObj.title,
-      settings: {
-        drill: drillKey,
-        questions: drillObj.questions,
-        time_limit_seconds: drillObj.time_limit_seconds,
-      },
+      settings: sessionSettings,
       questions: questionTexts,
       expected: expectedAnswers,
       min_seconds: 1,
@@ -352,6 +419,8 @@ async function handleStartDrill({ body, student, adminSupabase, res }) {
     drillKey,
     drill: drillObj,
     generated,
+    timeLimitSeconds: finalTimeLimit,
+    settings: sessionSettings,
   });
 
   return res.status(200).json(safeResponse);
@@ -382,7 +451,7 @@ async function handleSubmitDrill({ body, student, adminSupabase, res }) {
   }
 
   if (session.activity_type === 'basics') {
-    return handleSubmitBasicsSession({ session, answers, student, adminSupabase, res });
+    return handleSubmitBasicsSession({ session, answers, student, adminSupabase, res, body });
   }
 
   if (session.status !== 'open') {
@@ -409,38 +478,148 @@ async function handleSubmitDrill({ body, student, adminSupabase, res }) {
 
   const nowMs = Date.now();
   const expiresMs = new Date(session.expires_at).getTime();
-  if (Number.isFinite(expiresMs) && nowMs > expiresMs) {
+  const EXPIRY_TRANSIT_GRACE_MS = 15000;
+  if (Number.isFinite(expiresMs) && nowMs > (expiresMs + EXPIRY_TRANSIT_GRACE_MS)) {
     return res.status(400).json({
       error: 'Time is up, please start a new set',
     });
   }
 
+  const isTodoSession = Boolean(session.settings?.is_todo || session.settings?.todo_task_id);
   const startedMs = new Date(session.started_at).getTime();
-  const elapsedSeconds = Number.isFinite(startedMs)
-    ? Math.max(0, (nowMs - startedMs) / 1000)
-    : drillObj.time_limit_seconds;
+  const rawPrep = session.settings?.prep_seconds;
+  const prepSeconds = Number.isFinite(Number(rawPrep)) ? Number(rawPrep) : 3;
 
+  const rawTimeLimit = session.settings?.time_limit_seconds ?? session.settings?.duration_seconds;
   const timeLimitSeconds =
-    Number(session.settings?.time_limit_seconds) || drillObj.time_limit_seconds;
+    Number.isFinite(Number(rawTimeLimit)) && Number(rawTimeLimit) > 0
+      ? Number(rawTimeLimit)
+      : drillObj.time_limit_seconds;
+
+  // Authoritative server deadline: started + (prep + timeLimit)
+  const nominalDeadlineMs = startedMs + (prepSeconds + timeLimitSeconds) * 1000;
+  const isPastDeadline = Number.isFinite(startedMs) && nowMs >= nominalDeadlineMs;
+
+  const serverElapsed = Number.isFinite(startedMs)
+    ? Math.max(0, (nowMs - startedMs) / 1000)
+    : timeLimitSeconds;
+
+  const clientDuration = Number(body.duration_seconds ?? body.client_duration_seconds);
+  const attemptedCount = Array.isArray(answers)
+    ? answers.filter((a) => a !== null && a !== undefined && String(a).trim() !== '').length
+    : 0;
+  const isComplete = questions.length > 0 && attemptedCount === questions.length;
+  const hasValidEarlyClientDuration =
+    Number.isFinite(clientDuration) && clientDuration > 0 && clientDuration < timeLimitSeconds;
+
+  let effectiveElapsed;
+  if (hasValidEarlyClientDuration && (isComplete || (!isTodoSession && !isPastDeadline))) {
+    // Preserves early finish solving duration even if delivery or retry arrives after deadline
+    effectiveElapsed = Math.min(timeLimitSeconds, Math.min(serverElapsed, clientDuration));
+  } else if (isPastDeadline) {
+    // Round expired at deadline (or incomplete assigned attempt arriving at/after deadline)
+    effectiveElapsed = timeLimitSeconds;
+  } else if (Number.isFinite(clientDuration) && clientDuration > 0) {
+    effectiveElapsed = Math.min(timeLimitSeconds, Math.min(serverElapsed, clientDuration));
+  } else {
+    effectiveElapsed = Math.min(timeLimitSeconds, Math.max(1, serverElapsed - prepSeconds));
+  }
 
   const graded = gradeDrillSubmission({
     drillKey,
     questions,
     expected,
     answers,
-    elapsedSeconds,
+    elapsedSeconds: effectiveElapsed,
     timeLimitSeconds,
   });
 
+  // Reject early manual submission for assigned Daily Tasks when questions remain unanswered
+  if (isTodoSession && !isPastDeadline && graded.attempted < questions.length) {
+    return res.status(400).json({
+      error: 'All questions must be answered to submit an assigned Daily Task before the deadline.',
+    });
+  }
+
   // Reject a set where attempted > 0 and elapsed < attempted * 0.25 seconds
-  if (graded.attempted > 0 && elapsedSeconds < graded.attempted * MIN_SECONDS_PER_ATTEMPT) {
+  if (graded.attempted > 0 && effectiveElapsed < graded.attempted * MIN_SECONDS_PER_ATTEMPT) {
     return res.status(400).json({
       error: 'finished faster than possible, not saved',
     });
   }
 
-  // If attempted is 0, save nothing and say so
+  // Handle 0 attempts
   if (graded.attempted === 0) {
+    // For assigned Daily Tasks reaching deadline, persist empty attempt with total = 0 (earns 0 credit)
+    if (isTodoSession && isPastDeadline) {
+      const nowIso = new Date(nowMs).toISOString();
+      const { data: claimedRows, error: claimErr } = await adminSupabase
+        .from('drill_sessions')
+        .update({
+          status: 'submitted',
+          submitted_at: nowIso,
+        })
+        .eq('id', session.id)
+        .eq('student_id', student.id)
+        .eq('status', 'open')
+        .select('id');
+
+      if (claimErr || !claimedRows || claimedRows.length === 0) {
+        return res.status(400).json({
+          error: 'already submitted',
+        });
+      }
+
+      const { data: insertedResult, error: insertErr } = await adminSupabase
+        .from('activity_results')
+        .insert({
+          student_id: student.id,
+          activity_type: 'element',
+          activity_name: drillObj.title,
+          correct: 0,
+          total: 0,
+          time_seconds: timeLimitSeconds,
+          settings: {
+            drill: drillKey,
+            questions: questions.length,
+            time_limit_seconds: timeLimitSeconds,
+            attempted: 0,
+            session_id: session.id,
+            is_todo: true,
+            todo_task_id: session.settings?.todo_task_id,
+            empty_expiry: true,
+          },
+        })
+        .select('id')
+        .single();
+
+      if (insertErr || !insertedResult) {
+        await adminSupabase
+          .from('drill_sessions')
+          .update({ status: 'open', submitted_at: null })
+          .eq('id', session.id);
+
+        return res.status(500).json({
+          error: 'Could not save your drill results. Please try sending again.',
+        });
+      }
+
+      await adminSupabase
+        .from('drill_sessions')
+        .update({ result_id: insertedResult.id })
+        .eq('id', session.id);
+
+      return res.status(200).json({
+        ...graded,
+        correct: 0,
+        attempted: 0,
+        total: 0,
+        score: 0,
+        empty_expiry: true,
+        message: 'Time expired with no questions attempted. Recorded with 0 credit.',
+      });
+    }
+
     return res.status(400).json({
       error: 'No questions were attempted, so nothing was saved.',
     });
@@ -516,15 +695,35 @@ async function handleSubmitBasicsSession({
   student,
   adminSupabase,
   res,
+  body,
 }) {
   const nowMs = Date.now();
-  const check = checkTimedBasicsSubmission(session, answers, nowMs);
+  const startedMs = new Date(session.started_at).getTime();
+  const rawPrep = session.settings?.prep_seconds;
+  const prepSeconds = Number.isFinite(Number(rawPrep)) ? Number(rawPrep) : 3;
 
-  if (!check.ok) {
-    return res.status(check.statusCode || 400).json({
-      error: check.error,
-    });
-  }
+  const practiceMode =
+    session.settings?.mode === 'unlimited' || session.mode === 'unlimited'
+      ? 'unlimited'
+      : 'timed';
+  const isTimed = practiceMode === 'timed';
+
+  const rawSeconds = session.settings?.seconds ?? session.settings?.duration_seconds ?? session.seconds;
+  const timeLimitSeconds =
+    isTimed && Number.isFinite(Number(rawSeconds)) && Number(rawSeconds) > 0
+      ? Number(rawSeconds)
+      : (isTimed ? 60 : null);
+
+  const nominalDeadlineMs =
+    isTimed && Number.isFinite(startedMs)
+      ? startedMs + (prepSeconds + timeLimitSeconds) * 1000
+      : null;
+  const isPastDeadline = isTimed && Number.isFinite(nominalDeadlineMs) && nowMs >= nominalDeadlineMs;
+  const isTodoSession = Boolean(session.settings?.is_todo || session.settings?.todo_task_id);
+
+  const attemptedCount = Array.isArray(answers)
+    ? answers.filter((a) => a !== null && a !== undefined && String(a).trim() !== '').length
+    : 0;
 
   const categoryId = session.settings?.category_id;
   if (!categoryId) {
@@ -533,10 +732,170 @@ async function handleSubmitBasicsSession({
     });
   }
 
-  const practiceMode =
-    session.settings?.mode === 'unlimited' || session.mode === 'unlimited'
-      ? 'unlimited'
-      : 'timed';
+  // Handle empty expiry attempt for assigned Daily To-do sessions reaching deadline
+  if (attemptedCount === 0 && isTodoSession && isPastDeadline) {
+    const nowIso = new Date(nowMs).toISOString();
+    const { data: claimedRows, error: claimErr } = await adminSupabase
+      .from('drill_sessions')
+      .update({
+        status: 'submitted',
+        submitted_at: nowIso,
+      })
+      .eq('id', session.id)
+      .eq('student_id', student.id)
+      .eq('status', 'open')
+      .select('id');
+
+    if (claimErr || !claimedRows || claimedRows.length === 0) {
+      return res.status(400).json({
+        error: 'already submitted',
+      });
+    }
+
+    let entryDate = fallbackTodayIst();
+    try {
+      const { data: istDate, error: rpcErr } = await adminSupabase.rpc('today_ist');
+      if (!rpcErr && istDate) {
+        entryDate = String(istDate).trim();
+      }
+    } catch {
+      // Keep fallbackTodayIst()
+    }
+
+    const { data: insertedResult, error: insertErr } = await adminSupabase
+      .from('results')
+      .insert({
+        student_id: student.id,
+        category_id: categoryId,
+        correct: 0,
+        total: 0,
+        time_seconds: timeLimitSeconds || 60,
+        entry_date: entryDate,
+        verified: true,
+        source: 'site',
+        practice_mode: session.settings?.mode || 'timed',
+        verified_by: null,
+        student_round_id: null,
+      })
+      .select('id')
+      .single();
+
+    if (insertErr || !insertedResult) {
+      await adminSupabase
+        .from('drill_sessions')
+        .update({ status: 'open', submitted_at: null })
+        .eq('id', session.id);
+
+      return res.status(500).json({
+        error: 'Could not save your practice results. Please try sending again.',
+      });
+    }
+
+    const updatedSettings = {
+      ...(session.settings || {}),
+      todo_credit: false,
+      empty_expiry: true,
+      completed_duration: true,
+      early_finish: false,
+    };
+
+    const { error: emptyLinkErr } = await adminSupabase
+      .from('drill_sessions')
+      .update({
+        result_id: insertedResult.id,
+        result_row_id: insertedResult.id,
+        settings: updatedSettings,
+      })
+      .eq('id', session.id);
+
+    if (emptyLinkErr) {
+      await adminSupabase.from('results').delete().eq('id', insertedResult.id);
+      await adminSupabase
+        .from('drill_sessions')
+        .update({ status: 'open', submitted_at: null })
+        .eq('id', session.id);
+
+      return res.status(500).json({
+        error: 'Could not save your practice results. Please try sending again.',
+      });
+    }
+
+    return res.status(200).json({
+      ok: true,
+      total: 0,
+      correct: 0,
+      attempted: 0,
+      accuracy: 0,
+      time_seconds: timeLimitSeconds || 60,
+      empty_expiry: true,
+      message: 'Time expired with no questions attempted. Recorded with 0 credit.',
+    });
+  }
+
+  // Validate timing without penalizing delayed network delivery or retry
+  const serverElapsed = Number.isFinite(startedMs)
+    ? Math.max(0, (nowMs - startedMs) / 1000)
+    : (timeLimitSeconds || 60);
+  const clientDuration = Number(body?.duration_seconds ?? body?.client_duration_seconds);
+
+  let validatedClientDuration = null;
+  let isEarlyFinish = false;
+  if (isTimed) {
+    const hasValidEarlyClientDuration =
+      Number.isFinite(clientDuration) && clientDuration > 0 && clientDuration < timeLimitSeconds;
+    const clientFinishedEarly =
+      body?.finished_reason === 'early' ||
+      body?.early_finish === true ||
+      body?.finished_by === 'manual';
+
+    if (hasValidEarlyClientDuration || clientFinishedEarly) {
+      // Early finish: student ended before assigned duration.
+      // Duration is preserved even if network transit or retry crossed the deadline.
+      validatedClientDuration = Math.min(
+        timeLimitSeconds,
+        Math.min(
+          serverElapsed,
+          hasValidEarlyClientDuration
+            ? clientDuration
+            : (Number.isFinite(clientDuration) && clientDuration > 0 ? clientDuration : Math.max(1, Math.round(serverElapsed)))
+        )
+      );
+      isEarlyFinish = true;
+    } else if (!isPastDeadline) {
+      // Arrived before server deadline: physically could not have completed full duration
+      validatedClientDuration = Math.min(
+        timeLimitSeconds,
+        Number.isFinite(clientDuration) && clientDuration > 0 ? Math.min(serverElapsed, clientDuration) : serverElapsed
+      );
+      isEarlyFinish = true;
+    } else {
+      // Genuine expiry at deadline: full duration completed
+      validatedClientDuration = timeLimitSeconds;
+      isEarlyFinish = false;
+    }
+  } else if (Number.isFinite(clientDuration) && clientDuration > 0) {
+    // Unlimited practice: record true duration without clamping to 60s
+    validatedClientDuration = Math.min(serverElapsed + 2, clientDuration);
+  }
+
+  // Reject forged timing claims where client duration is faster than human speed floor
+  if (
+    attemptedCount > 0 &&
+    validatedClientDuration !== null &&
+    validatedClientDuration < attemptedCount * MIN_SECONDS_PER_ATTEMPT
+  ) {
+    return res.status(400).json({
+      error: 'finished faster than possible, not saved',
+    });
+  }
+
+  const check = checkTimedBasicsSubmission(session, answers, nowMs, validatedClientDuration);
+
+  if (!check.ok) {
+    return res.status(check.statusCode || 400).json({
+      error: check.error,
+    });
+  }
 
   // Claim the session atomically (update only where status is 'open')
   const nowIso = new Date(nowMs).toISOString();
@@ -604,14 +963,41 @@ async function handleSubmitBasicsSession({
     });
   }
 
-  // Update the session with status and result_row_id
-  await adminSupabase
+  // Update the session with status, result_row_id, and authoritative todo credit eligibility
+  const isCompletedDuration = isTimed && isPastDeadline && !isEarlyFinish;
+  const earnsTodoCredit = isTodoSession && (isTimed ? isCompletedDuration : true) && check.attempted > 0;
+  const updatedSettings = {
+    ...(session.settings || {}),
+    todo_credit: earnsTodoCredit,
+    early_finish: isEarlyFinish,
+    completed_duration: isCompletedDuration,
+  };
+
+  const { error: linkErr } = await adminSupabase
     .from('drill_sessions')
     .update({
       status: 'submitted',
       result_row_id: insertedResult.id,
+      settings: updatedSettings,
     })
     .eq('id', session.id);
+
+  if (linkErr) {
+    // If the linkage update fails, clean up the inserted result row and revert session to open
+    // so the student can retry cleanly without losing task credit or leaving orphaned scores.
+    await adminSupabase.from('results').delete().eq('id', insertedResult.id);
+    await adminSupabase
+      .from('drill_sessions')
+      .update({
+        status: 'open',
+        submitted_at: null,
+      })
+      .eq('id', session.id);
+
+    return res.status(500).json({
+      error: 'Could not record task credit linkage. Please try sending again.',
+    });
+  }
 
   return res.status(200).json({
     correct: check.correct,
