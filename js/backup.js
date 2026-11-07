@@ -7,12 +7,12 @@
  *    - Staleness warning when last Google backup is > 2 days old or never run.
  *    - Configuration indicator (`Yes` / `No`) and `Open backup sheet ↗` link.
  *    - Cell usage capacity bar against Google Sheets' 10,000,000-cell limit (warning > 70%).
- *    - Per-table status table (18 tables: 12 snapshot + 6 append) and last 10 `backup_runs`.
+ *    - Per-table status table across all configured snapshot and append tables, and last 10 `backup_runs`.
  * 3. Runs multi-pass Google Sheet backup (`POST /api/backup` `{ action: 'run' }`):
  *    - Loops up to 300 passes while `status === 'partial'` with live progress bar and Cancel button.
  *    - Halts immediately on `done`, `busy`, user cancel, or error (never auto-retries errors).
  * 4. Runs in-browser "Download all data (ZIP)" export:
- *    - Reads all 18 tables in pages of 1,000 rows ordered by primary key using the admin's session.
+ *    - Reads all configured tables in pages of 1,000 rows ordered by primary key using the admin's session.
  *    - Aborts immediately without downloading if any table read fails.
  *    - Converts each table to RFC 4180 CSV (with formula prefix guard `'`), adds `README.txt`,
  *      builds an uncompressed store-mode ZIP (`trendz-backup-YYYY-MM-DD.zip`), downloads it,
@@ -266,10 +266,35 @@ function renderBackupStatus(statusData) {
       ratio >= warnRatio ? 'var(--color-warning-text)' : 'var(--text-muted)';
   }
 
-  // 3. Per-Table Status Table
+  // 3. Per-Table Status Table & Dynamic Table Counts
+  const tables = Array.isArray(data.tables) ? data.tables : [];
+  const totalTableCount = tables.length || EXPORT_TABLES.length;
+  const snapshotCount = tables.length
+    ? tables.filter((t) => t.mode === 'snapshot').length
+    : EXPORT_TABLES.filter((t) => t.mode === 'snapshot').length;
+  const appendCount = tables.length
+    ? tables.filter((t) => t.mode === 'append').length
+    : EXPORT_TABLES.filter((t) => t.mode === 'append').length;
+
+  const statusHeadingEl = document.getElementById('table-backup-status-heading');
+  if (statusHeadingEl) {
+    statusHeadingEl.textContent = `Table Backup Status (${totalTableCount} Tables)`;
+  }
+  const statusSubEl = document.getElementById('table-backup-status-sub');
+  if (statusSubEl) {
+    statusSubEl.textContent = `${snapshotCount} snapshot tables (rewritten each run) and ${appendCount} append tables (incremental keyset paging with a 1-minute safe horizon).`;
+  }
+  const zipSubEl = document.getElementById('stat-last-zip-export-sub');
+  if (zipSubEl) {
+    zipSubEl.textContent = `${EXPORT_TABLES.length} CSV files + README.txt`;
+  }
+  const actionsDescEl = document.getElementById('backup-actions-desc');
+  if (actionsDescEl) {
+    actionsDescEl.textContent = `Run an on-demand Google Sheet backup pass (8-second passes with automatic continuation) or download all ${EXPORT_TABLES.length} tables as a local ZIP of CSV files.`;
+  }
+
   const tablesTbody = document.getElementById('backup-tables-tbody');
   if (tablesTbody) {
-    const tables = Array.isArray(data.tables) ? data.tables : [];
     tablesTbody.innerHTML = '';
 
     if (tables.length === 0) {
@@ -745,7 +770,7 @@ async function fetchAllRowsForTableExport(supabase, tableMeta) {
 }
 
 /**
- * Reads all 18 tables in pages of 1,000, builds RFC 4180 CSVs + README.txt,
+ * Reads all configured tables in pages of 1,000, builds RFC 4180 CSVs + README.txt,
  * packages them into `trendz-backup-YYYY-MM-DD.zip`, triggers browser download,
  * and records the export via `admin_log_export`.
  */

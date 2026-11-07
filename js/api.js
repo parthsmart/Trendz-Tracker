@@ -168,3 +168,115 @@ export async function toggleStudentLeaderboardVisible(studentId, currentVisible)
   return data;
 }
 
+/**
+ * Creates a new teacher user in Supabase Auth & public.profiles
+ * @param {Object} data - { teacher_code, full_name, password, permissions, assigned_student_ids }
+ */
+export async function createTeacher(data) {
+  if (!isSupabaseConfigured()) {
+    if (!isDemoAllowedHost()) {
+      throw new Error('Configuration error - contact the administrator.');
+    }
+    return {
+      id: 'demo-teacher-' + Date.now(),
+      student_code: data.teacher_code?.toUpperCase(),
+      full_name: data.full_name,
+      role: 'teacher',
+      level: 'Teacher',
+      active: true,
+    };
+  }
+
+  const supabase = await getSupabase();
+  const { data: { session } } = await supabase.auth.getSession();
+
+  if (!session?.access_token) {
+    throw new Error('Authentication required. Please sign in as an admin.');
+  }
+
+  const payload = { action: 'create', ...data };
+
+  const response = await fetch('/api/manage-teacher', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.access_token}`
+    },
+    body: JSON.stringify(payload)
+  });
+
+  let result = null;
+  const rawText = await response.text();
+  try {
+    result = rawText && rawText.trim() ? JSON.parse(rawText) : null;
+  } catch {
+    result = null;
+  }
+
+  if (!response.ok || !result || !result.success) {
+    throw new Error(result?.error || `Failed to create teacher account (Status ${response.status})`);
+  }
+
+  clearProfileCache();
+  return result;
+}
+
+/**
+ * Executes a teacher management action:
+ * - update_assignments
+ * - update_permissions
+ * - set_active
+ * - get_audit_log
+ * - get_teacher_details
+ * @param {Object} payload - { action, teacher_id, ... }
+ */
+export async function manageTeacher(payload) {
+  if (!isSupabaseConfigured()) {
+    if (!isDemoAllowedHost()) {
+      throw new Error('Configuration error - contact the administrator.');
+    }
+    return { success: true, message: 'Demo mode simulated action' };
+  }
+
+  const supabase = await getSupabase();
+  const { data: { session } } = await supabase.auth.getSession();
+
+  if (!session?.access_token) {
+    throw new Error('Authentication required. Please sign in as an admin.');
+  }
+
+  const response = await fetch('/api/manage-teacher', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.access_token}`
+    },
+    body: JSON.stringify(payload)
+  });
+
+  let result = null;
+  const rawText = await response.text();
+  try {
+    result = rawText && rawText.trim() ? JSON.parse(rawText) : null;
+  } catch {
+    result = null;
+  }
+
+  if (!response.ok || !result || !result.success) {
+    throw new Error(result?.error || `Failed to manage teacher (Status ${response.status})`);
+  }
+
+  clearProfileCache();
+  return result;
+}
+
+/**
+ * Resets a teacher's password
+ * @param {string} teacherId - The UUID of the teacher in profiles/auth.users
+ * @param {string} newPassword - The new temporary password
+ */
+export async function resetTeacherPassword(teacherId, newPassword) {
+  return resetStudentPassword(teacherId, newPassword);
+}
+
+

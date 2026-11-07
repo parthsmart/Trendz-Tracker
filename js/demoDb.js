@@ -311,10 +311,11 @@ function initDemoStorage() {
       { id: 'todo-2', title: 'Round Drill: Subtraction (SUB)', section: 'round', category_id: 'cat-rnd-2', activity_key: null, level: null, sort_order: 2, active: true },
       { id: 'todo-3', title: 'Round Drill: Multiplication (MULT)', section: 'round', category_id: 'cat-rnd-4', activity_key: null, level: null, sort_order: 3, active: true },
       { id: 'todo-4', title: 'Round Drill: Division (DIV)', section: 'round', category_id: 'cat-rnd-5', activity_key: null, level: null, sort_order: 4, active: true },
-      { id: 'todo-5', title: 'Mental Basics: 1-digit 4-rows (1d4r)', section: 'basics', category_id: 'cat-bas-1', activity_key: null, level: null, sort_order: 5, active: true },
+      { id: 'todo-5', title: 'Mental Basics: 1-digit 4-rows (1d4r)', section: 'basics', category_id: 'cat-bas-1', activity_key: null, duration_seconds: 60, level: null, sort_order: 5, active: true },
       { id: 'todo-6', title: 'Mental Basics: 2-digit 2-rows (2d2r)', section: 'basics', category_id: 'cat-bas-2', activity_key: null, level: null, sort_order: 6, active: true },
       { id: 'todo-7', title: 'Any Round Competition Task', section: 'round', category_id: null, activity_key: null, level: null, sort_order: 7, active: true },
-      { id: 'todo-8', title: 'Flash: 1 digit, 50 numbers, 0.5 s, add only', section: 'flash', category_id: null, activity_key: null, flash_digits: 1, flash_count: 50, flash_speed_ms: 500, flash_mode: 'add', required_count: 2, level: null, sort_order: 8, active: true }
+      { id: 'todo-8', title: 'Flash: 1 digit, 50 numbers, 0.5 s, add only', section: 'flash', category_id: null, activity_key: null, flash_digits: 1, flash_count: 50, flash_speed_ms: 500, flash_mode: 'add', required_count: 2, level: null, sort_order: 8, active: true },
+      { id: 'todo-9', title: 'Elements: Day Codes Speed Drill', section: 'elements', category_id: null, activity_key: 'day_codes', duration_seconds: 60, required_count: 1, level: null, sort_order: 9, active: true }
     ];
     localStorage.setItem(DEMO_STORAGE_KEY_TODOS, JSON.stringify(initialTodos));
   }
@@ -1197,8 +1198,31 @@ export const DemoDB = {
 
   /**
    * Mock RPC today_ist() returning current date in Asia/Kolkata
+   * Deterministic test override supported via `trendz_demo_today_ist` localStorage key.
    */
   async mockTodayIST() {
+    if (typeof localStorage !== 'undefined') {
+      const override = localStorage.getItem('trendz_demo_today_ist');
+      if (override && override.trim()) return override.trim();
+    }
+    try {
+      const istFormatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      });
+      return istFormatter.format(new Date());
+    } catch {
+      return new Date().toISOString().split('T')[0];
+    }
+  },
+
+  getTodayIST() {
+    if (typeof localStorage !== 'undefined') {
+      const override = localStorage.getItem('trendz_demo_today_ist');
+      if (override && override.trim()) return override.trim();
+    }
     try {
       const istFormatter = new Intl.DateTimeFormat('en-CA', {
         timeZone: 'Asia/Kolkata',
@@ -1247,6 +1271,7 @@ export const DemoDB = {
         flash_speed_ms: t.flash_speed_ms ?? null,
         flash_mode: t.flash_mode ?? null,
         required_count: reqCount,
+        duration_seconds: t.duration_seconds ? Number(t.duration_seconds) : null,
         done_count: isDone ? reqCount : 0,
         done: isDone
       };
@@ -1335,6 +1360,7 @@ export const DemoDB = {
     flash_count = null,
     flash_speed_ms = null,
     flash_mode = null,
+    duration_seconds = null,
     level,
     required_count = 1,
     active = true
@@ -1351,6 +1377,7 @@ export const DemoDB = {
       flash_count: section === 'flash' ? (flash_count ?? null) : null,
       flash_speed_ms: section === 'flash' ? (flash_speed_ms ?? null) : null,
       flash_mode: section === 'flash' ? (flash_mode ?? null) : null,
+      duration_seconds: duration_seconds ? Number(duration_seconds) : null,
       level: level ? level.trim() : null,
       required_count: Number(required_count) || 1,
       sort_order: todos.length + 1,
@@ -1360,6 +1387,10 @@ export const DemoDB = {
     todos.push(newTodo);
     this.saveTodos(todos);
     return newTodo;
+  },
+  getTodo(id) {
+    const todos = this.getTodos();
+    return todos.find(t => t.id === id) || null;
   },
   updateTodo(id, updates) {
     const todos = this.getTodos();
@@ -4374,7 +4405,7 @@ export const DemoDB = {
       case 'category_aliases':
         return JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_CATEGORY_ALIASES) || '[]');
       case 'attendance_sessions':
-        return this.getSessions();
+        return this.getAttendanceSessions();
       case 'weekly_tests':
         return this.getWeeklyTests();
       case 'import_batches':
@@ -4397,6 +4428,25 @@ export const DemoDB = {
   },
 
   // ==================== PHASE 7: FLASH ANZAN DEMO RPC FIXTURES ====================
+
+  getTeacherStudentAssignments(teacherId = null) {
+    initDemoStorage();
+    const key = 'trendz_demo_teacher_student_assignments_v1';
+    let list = JSON.parse(localStorage.getItem(key) || 'null');
+    if (!Array.isArray(list)) {
+      list = [
+        { teacher_id: 'usr-teacher-1', student_id: 'usr-101' },
+        { teacher_id: 'usr-teacher-1', student_id: 'usr-102' },
+        { teacher_id: 'usr-teacher-1', student_id: 'usr-103' }
+      ];
+      localStorage.setItem(key, JSON.stringify(list));
+    }
+    if (teacherId) {
+      return list.filter(a => a.teacher_id === teacherId);
+    }
+    return list;
+  },
+
   getActivityResults(studentId = null, activityType = null) {
     initDemoStorage();
     const key = 'trendz_demo_activity_results_v1';
@@ -4600,6 +4650,58 @@ export const DemoDB = {
       localStorage.setItem(key, JSON.stringify(list));
     }
 
+
+    if (!list.some(r => r && r.student_id === 'usr-102')) {
+      list.push(
+        {
+          id: 'act-demo-102-flash-1',
+          student_id: 'usr-102',
+          activity_type: 'flash_anzan',
+          activity_name: 'Flash Anzan',
+          correct: 8,
+          total: 10,
+          time_seconds: 105,
+          settings: { digits: 2, count: 10, speed_ms: 1000, questions: 10, mode: 'add' },
+          created_at: yestIso,
+          updated_at: yestIso,
+        },
+        {
+          id: 'act-demo-102-elem-1',
+          student_id: 'usr-102',
+          activity_type: 'element',
+          activity_name: 'Day Codes',
+          correct: 50,
+          total: 56,
+          time_seconds: 52,
+          settings: { drill: 'day_codes', questions: 56, time_limit_seconds: 60, attempted: 56 },
+          created_at: nowIso,
+          updated_at: nowIso,
+        },
+        {
+          id: 'act-demo-102-mem-cal-1',
+          student_id: 'usr-102',
+          activity_type: 'memoriad',
+          activity_name: 'Mental Calendar Dates',
+          correct: 20,
+          total: 25,
+          time_seconds: 38,
+          settings: {
+            module: 'calendar',
+            questions: 25,
+            dates: 25,
+            attempted: 25,
+            correct: 20,
+            score: 20,
+            used_seconds: 38.2,
+            concentration_seconds: 5,
+          },
+          created_at: nowIso,
+          updated_at: nowIso,
+        }
+      );
+      localStorage.setItem(key, JSON.stringify(list));
+    }
+
     return list.filter(r => {
       if (studentId && r.student_id !== studentId) return false;
       if (activityType && r.activity_type !== activityType) return false;
@@ -4619,7 +4721,9 @@ export const DemoDB = {
       count: Number(p_settings?.count) || 5,
       speed_ms: Number(p_settings?.speed_ms) || 1000,
       mode: p_settings?.mode === 'add_sub' ? 'add_sub' : 'add',
+      ...(p_settings?.todo_task_id ? { todo_task_id: p_settings.todo_task_id } : {}),
     };
+    this._lastFlashSettings = cleanSettings;
     const fixedSampleNumbers =
       cleanSettings.mode === 'add_sub'
         ? [24, 15, -12, 31, -8]
@@ -4663,7 +4767,13 @@ export const DemoDB = {
       correct: 1,
       total: 1,
       time_seconds: fixedResult.seconds,
-      settings: { digits: 2, count: 5, speed_ms: 1000, mode: 'add' },
+      settings: {
+        digits: 2,
+        count: 5,
+        speed_ms: 1000,
+        mode: 'add',
+        ...(this._lastFlashSettings || {}),
+      },
       created_at: nowIso,
       updated_at: nowIso,
     });
@@ -4716,13 +4826,26 @@ export const DemoDB = {
       { name: 'category_aliases', mode: 'snapshot' },
       { name: 'attendance_sessions', mode: 'snapshot' },
       { name: 'weekly_tests', mode: 'snapshot' },
+      { name: 'weekly_test_sections', mode: 'snapshot' },
+      { name: 'weekly_test_attempts', mode: 'snapshot' },
+      { name: 'weekly_test_removals', mode: 'snapshot' },
+      { name: 'announcements', mode: 'snapshot' },
       { name: 'import_batches', mode: 'snapshot' },
+      { name: 'teacher_permissions', mode: 'snapshot' },
+      { name: 'teacher_student_assignments', mode: 'snapshot' },
+      { name: 'weekly_test_recipients', mode: 'snapshot' },
+      { name: 'daily_task_recipients', mode: 'snapshot' },
+      { name: 'announcement_recipients', mode: 'snapshot' },
+      { name: 'resource_recipients', mode: 'snapshot' },
+      { name: 'score_correction_requests', mode: 'snapshot' },
       { name: 'student_rounds', mode: 'append', cursor_column: 'updated_at' },
       { name: 'results', mode: 'append', cursor_column: 'updated_at' },
       { name: 'weekly_test_scores', mode: 'append', cursor_column: 'updated_at' },
       { name: 'attendance', mode: 'append', cursor_column: 'updated_at' },
       { name: 'activity_results', mode: 'append', cursor_column: 'updated_at' },
-      { name: 'result_audit', mode: 'append', cursor_column: 'changed_at' }
+      { name: 'result_audit', mode: 'append', cursor_column: 'changed_at' },
+      { name: 'attendance_audit', mode: 'append', cursor_column: 'changed_at' },
+      { name: 'teacher_audit_log', mode: 'append', cursor_column: 'created_at' }
     ];
 
     let totalCells = 0;
@@ -4814,17 +4937,28 @@ export const DemoDB = {
       title,
       questions: ['Sunday', 'Saturday', 'February (02)', '47', '97 / 4'],
       time_limit_seconds: timeLimitSeconds,
+      duration_seconds: timeLimitSeconds,
+      prep_seconds: 3,
       hint,
+      settings: {
+        drill: drillKey,
+        time_limit_seconds: timeLimitSeconds,
+        duration_seconds: timeLimitSeconds,
+        prep_seconds: 3,
+      },
     };
   },
 
-  mockElementDrillSubmit(sessionId, answers = [], studentId = 'usr-101', drillMeta = null) {
+  mockElementDrillSubmit(sessionId, answers = [], studentId = 'usr-101', drillMeta = null, durationSeconds = null) {
     if (!isDemoMode()) {
       throw new Error('Action blocked: Demo mode cannot mutate live database.');
     }
     const drillKey = drillMeta?.key || 'day_codes';
     const title = drillMeta?.title || 'Day Codes';
     const timeLimitSeconds = Number(drillMeta?.time_limit_seconds) || 60;
+    const finalSeconds = durationSeconds && Number.isFinite(Number(durationSeconds))
+      ? Math.max(1, Math.min(timeLimitSeconds, Math.round(Number(durationSeconds))))
+      : 18;
 
     // Fixed fake result per specification (no client-side grading or generation)
     const fixedResult = {
@@ -4832,7 +4966,7 @@ export const DemoDB = {
       attempted: 5,
       questions_total: 5,
       accuracy: 80.0,
-      seconds: 18,
+      seconds: finalSeconds,
       detail: [
         { question: 'Sunday', expected_display: '1', given: answers[0] ?? '1', correct: true },
         { question: 'Saturday', expected_display: '0', given: answers[1] ?? '0', correct: true },
@@ -4916,8 +5050,20 @@ export const DemoDB = {
       questions,
       mode: normMode,
       seconds: normSeconds,
+      duration_seconds: normSeconds,
+      time_limit_seconds: normSeconds,
+      prep_seconds: 3,
       pool,
       target: { min_accuracy: 90, min_questions_per_minute: 40 },
+      settings: {
+        kind: 'basics',
+        category_id: cat.id,
+        mode: normMode,
+        seconds: normSeconds,
+        duration_seconds: normSeconds,
+        time_limit_seconds: normSeconds,
+        prep_seconds: 3,
+      },
     };
   },
 
@@ -4926,7 +5072,8 @@ export const DemoDB = {
     answers = [],
     studentId = 'usr-101',
     categoryId = 'cat-bas-1',
-    mode = 'timed'
+    mode = 'timed',
+    durationSeconds = null
   ) {
     if (!isDemoMode()) {
       throw new Error('Action blocked: Demo mode cannot mutate live database.');
@@ -4975,6 +5122,9 @@ export const DemoDB = {
     }).format(new Date());
 
     const practiceMode = mode === 'unlimited' ? 'unlimited' : 'timed';
+    const finalSeconds = durationSeconds && Number.isFinite(Number(durationSeconds))
+      ? Math.max(1, Math.round(Number(durationSeconds)))
+      : 30;
 
     initDemoStorage();
     const results = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_RESULTS) || '[]');
@@ -4985,7 +5135,7 @@ export const DemoDB = {
       category_id: categoryId || 'cat-bas-1',
       correct: 4,
       total: 5,
-      time_seconds: 30,
+      time_seconds: finalSeconds,
       note: null,
       entry_date: todayIstStr,
       created_at: nowIso,
@@ -5040,10 +5190,14 @@ export const DemoDB = {
         module: 'calendar',
         title: 'Mental Calendar Dates',
         questions: fixedDates25,
-        time_limit_seconds: 60,
+        time_limit_seconds: Number(settings?.time_limit_seconds || settings?.duration_seconds) > 0 ? Number(settings.time_limit_seconds || settings.duration_seconds) : 60,
+        duration_seconds: Number(settings?.time_limit_seconds || settings?.duration_seconds) > 0 ? Number(settings.time_limit_seconds || settings.duration_seconds) : 60,
+        prep_seconds: conc,
         settings: {
           dates: 25,
           concentration_seconds: conc,
+          time_limit_seconds: Number(settings?.time_limit_seconds || settings?.duration_seconds) > 0 ? Number(settings.time_limit_seconds || settings.duration_seconds) : 60,
+          duration_seconds: Number(settings?.time_limit_seconds || settings?.duration_seconds) > 0 ? Number(settings.time_limit_seconds || settings.duration_seconds) : 60,
         },
       };
     }
@@ -5066,7 +5220,9 @@ export const DemoDB = {
         module: 'multiplications',
         title: 'Mental Multiplications',
         questions: fixedMultiplications10,
-        time_limit_seconds: 900,
+        time_limit_seconds: Number(settings?.time_limit_seconds || settings?.duration_seconds) > 0 ? Number(settings.time_limit_seconds || settings.duration_seconds) : 900,
+        duration_seconds: Number(settings?.time_limit_seconds || settings?.duration_seconds) > 0 ? Number(settings.time_limit_seconds || settings.duration_seconds) : 900,
+        prep_seconds: conc,
         settings: {
           concentration_seconds: conc,
         },
@@ -5083,7 +5239,9 @@ export const DemoDB = {
         module: 'square_roots',
         title: 'Mental Square Roots',
         questions: fixedSquareRoots10,
-        time_limit_seconds: 900,
+        time_limit_seconds: Number(settings?.time_limit_seconds || settings?.duration_seconds) > 0 ? Number(settings.time_limit_seconds || settings.duration_seconds) : 900,
+        duration_seconds: Number(settings?.time_limit_seconds || settings?.duration_seconds) > 0 ? Number(settings.time_limit_seconds || settings.duration_seconds) : 900,
+        prep_seconds: conc,
         settings: {
           concentration_seconds: conc,
         },
@@ -5108,7 +5266,9 @@ export const DemoDB = {
       module: 'additions',
       title: 'Mental Additions',
       questions: fixedAdditions10,
-      time_limit_seconds: 600,
+      time_limit_seconds: Number(settings?.time_limit_seconds || settings?.duration_seconds) > 0 ? Number(settings.time_limit_seconds || settings.duration_seconds) : 600,
+      duration_seconds: Number(settings?.time_limit_seconds || settings?.duration_seconds) > 0 ? Number(settings.time_limit_seconds || settings.duration_seconds) : 600,
+      prep_seconds: conc,
       settings: {
         concentration_seconds: conc,
       },
@@ -5143,6 +5303,27 @@ export const DemoDB = {
     const title = titleMap[mod] || 'Mental Calendar Dates';
 
     if (nonNullCount === 0) {
+      const isAssignedExpiry = normFinishedBy === 'time_up' && Boolean(settings?.todo_task_id);
+      if (isAssignedExpiry) {
+        return {
+          module: mod,
+          title,
+          questions_total: mod === 'calendar' ? 25 : 10,
+          attempted: 0,
+          correct: 0,
+          wrong: 0,
+          score: 0,
+          ...(mod === 'square_roots' ? { digits_total: 0 } : {}),
+          used_seconds: Number(settings?.duration_seconds || settings?.time_limit_seconds || 10),
+          finished_by: normFinishedBy,
+          saved: true,
+          total: 0,
+          result_id: `act-demo-mem-empty-${Date.now()}`,
+          empty_expiry: true,
+          message: 'Attempt saved. No questions were answered, so this round earned no Daily To-do credit.',
+          detail: [],
+        };
+      }
       return {
         module: mod,
         title,

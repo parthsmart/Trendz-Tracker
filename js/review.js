@@ -24,6 +24,38 @@ import { formatSecondsToTime, getISTDateString, formatDisplayDateIST } from './s
 import { openModal, closeModal, setupModalListeners, setupAdminNav } from './modal.js';
 import { sendStudentMessage } from './studentMessages.js';
 
+export const ALLOWED_CORRECTION_TABLES = Object.freeze(['results', 'activity_results']);
+
+export function resolveCorrectionTableName(entryOrSource) {
+  if (!entryOrSource) return 'results';
+  if (typeof entryOrSource === 'object') {
+    if (entryOrSource.table_name && ALLOWED_CORRECTION_TABLES.includes(entryOrSource.table_name)) {
+      return entryOrSource.table_name;
+    }
+    if (entryOrSource.activity_type) {
+      return 'activity_results';
+    }
+    return resolveCorrectionTableName(entryOrSource.source);
+  }
+  const s = String(entryOrSource).toLowerCase().trim();
+  const sourceTableMap = {
+    results: 'results',
+    typed: 'results',
+    sheet_sync: 'results',
+    round: 'results',
+    site: 'results',
+    offline: 'results',
+    online: 'results',
+    activity_results: 'activity_results',
+    element: 'activity_results',
+    elements: 'activity_results',
+    flash: 'activity_results',
+    flash_anzan: 'activity_results',
+    memoriad: 'activity_results',
+  };
+  return sourceTableMap[s] || 'results';
+}
+
 let currentProfile = null;
 let allCategories = [];
 let currentPage = 1;
@@ -43,11 +75,24 @@ let activeFilters = {
 };
 
 async function initReviewPage() {
-  currentProfile = await requireAuth(['admin']);
+  currentProfile = await requireAuth(['teacher', 'admin']);
   if (!currentProfile) return;
 
+  if (currentProfile.role === 'teacher') {
+    if (currentProfile.permissions?.can_review_scores === false) {
+      window.location.href = '/pages/teacher.html';
+      return;
+    }
+    const heading = document.querySelector('h1');
+    if (heading) {
+      heading.innerHTML = 'Review Practice Entries <span class="badge badge-info" style="font-size: var(--text-xs); vertical-align: middle; margin-left: 8px;">Assigned students only</span>';
+    }
+  }
+
   renderHeaderUser(currentProfile);
-  setupAdminNav(currentProfile);
+  if (currentProfile.role === 'admin') {
+    setupAdminNav(currentProfile);
+  }
   setupModalListeners();
 
   if (isDemoMode()) {
@@ -67,9 +112,358 @@ async function initReviewPage() {
   setupFilterControls();
   setupBulkVerifyControls();
   setupModalHandlers();
+  if (currentProfile.role === 'admin') {
+    await checkPendingCorrectionRequests();
+  }
 
   // Initial load
   await loadReviewEntries();
+}
+
+let activeSupabaseOverride = null;
+let cachedPendingRequests = [];
+
+export function getCachedPendingCorrectionRequests() {
+  return cachedPendingRequests;
+}
+
+export async function checkPendingCorrectionRequests(supabaseOverride = null) {
+  if (supabaseOverride) {
+    activeSupabaseOverride = supabaseOverride;
+  }
+  if (!activeSupabaseOverride && !isSupabaseConfigured()) return;
+  try {
+    const supabase = activeSupabaseOverride || await getSupabase();
+    const { data: requests, error } = await supabase
+      .from('score_correction_requests')
+      .select('id, student_id, teacher_id, proposed_correct, proposed_total, reason, created_at, profiles!score_correction_requests_student_id_fkey(full_name, student_code)')
+      .eq('status', 'pending');
+
+    if (error) {
+      console.warn('Check pending correction requests query failed:', error);
+      // Distinguish query failure from empty response: do not clear banner or assume 0 requests on error
+      return { success: false, error };
+    }
+
+    cachedPendingRequests = Array.isArray(requests) ? requests : [];
+
+    // Successful empty response
+    if (cachedPendingRequests.length === 0) {
+      const banner = document.getElementById('pending-corrections-banner');
+      if (banner) {
+        banner.remove();
+      }
+      const modal = document.getElementById('admin-corrections-modal');
+      if (modal) {
+        closeModal('admin-corrections-modal');
+        const modalBody = modal.querySelector('.modal-body');
+        if (modalBody) modalBody.innerHTML = '';
+      }
+      return { success: true, count: 0, requests: [] };
+    }
+
+    // Successful response with pending requests
+    let banner = document.getElementById('pending-corrections-banner');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'pending-corrections-banner';
+      banner.className = 'banner banner-info';
+      banner.style.cssText = 'margin-bottom: var(--space-4); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2);';
+      const main = document.querySelector('main .container') || document.querySelector('main') || document.body;
+      if (main) {
+        if (main.firstChild) {
+          main.insertBefore(banner, main.firstChild);
+        } else {
+          main.appendChild(banner);
+        }
+      }
+    }
+    banner.style.display = '';
+
+    banner.innerHTML = `
+      <div>
+        <strong>📝 Teacher Score Corrections:</strong> There are <strong>${cachedPendingRequests.length}</strong> pending correction request(s) awaiting your decision.
+      </div>
+      <button type="button" id="btn-view-corrections" class="btn btn-outline btn-sm" style="background:#fff;">
+        Review Requests (${cachedPendingRequests.length})
+      </button>
+    `;
+
+    const btnView = document.getElementById('btn-view-corrections');
+    if (btnView) {
+      btnView.onclick = () => {
+        openAdminCorrectionsModal(cachedPendingRequests, btnView);
+      };
+    }
+
+    // If modal is currently open, refresh its content in place
+    const modal = document.getElementById('admin-corrections-modal');
+    if (modal && (modal.classList.contains('open') || modal.classList.contains('is-open'))) {
+      renderAdminCorrectionsModalContent(modal, cachedPendingRequests);
+    }
+
+    return { success: true, count: cachedPendingRequests.length, requests: cachedPendingRequests };
+  } catch (err) {
+    console.warn('Check pending correction requests warning:', err);
+    return { success: false, error: err };
+  }
+}
+
+export function renderAdminCorrectionsModalContent(modal, requests) {
+  modal.innerHTML = `
+    <div class="modal-dialog" style="max-width: 680px;">
+      <header class="modal-header">
+        <div>
+          <h2 class="modal-title">Pending Score Correction Requests</h2>
+          <p class="modal-subtitle">Review proposed adjustments submitted by teachers.</p>
+        </div>
+        <button type="button" class="modal-close" data-close-modal="admin-corrections-modal" aria-label="Close modal">&times;</button>
+      </header>
+      <div class="modal-body" style="max-height: 440px; overflow-y: auto;">
+        ${requests.map((r) => `
+          <div class="correction-card" data-request-id="${r.id}" style="padding: var(--space-3); border: 1px solid var(--border-color, #e2e8f0); border-radius: var(--radius-md, 6px); margin-bottom: var(--space-3); background: var(--bg-surface, #fff);">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px;">
+              <strong>${escapeHtml(r.profiles?.full_name || 'Student')} (${escapeHtml(r.profiles?.student_code || '')})</strong>
+              <span class="badge badge-warning">Pending</span>
+            </div>
+            <div style="font-size: var(--text-sm); margin-bottom: 6px;">
+              Proposed Score: <strong class="num">${r.proposed_correct} / ${r.proposed_total}</strong>
+            </div>
+            <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 0 0 var(--space-3) 0;">
+              Reason: "${escapeHtml(r.reason || 'None specified')}"
+            </p>
+            <div class="corr-actions-row" id="corr-actions-${r.id}" style="display: flex; gap: var(--space-2); justify-content: flex-end; flex-wrap: wrap;">
+              <button type="button" class="btn btn-outline btn-sm btn-reject-corr" data-id="${r.id}">Reject</button>
+              <button type="button" class="btn btn-primary btn-sm btn-approve-corr" data-id="${r.id}">Approve</button>
+            </div>
+            <div class="corr-form-container" id="corr-form-container-${r.id}" style="display: none; border-top: 1px dashed var(--border-color, #e2e8f0); padding-top: var(--space-2); margin-top: var(--space-2);"></div>
+          </div>
+        `).join('')}
+      </div>
+      <footer class="modal-footer">
+        <button type="button" class="btn btn-ghost" data-close-modal="admin-corrections-modal">Close</button>
+      </footer>
+    </div>
+  `;
+
+  // Wire close controls inside modal (both Close button and '×' button) without duplicating
+  modal.querySelectorAll('[data-close-modal="admin-corrections-modal"], .modal-close').forEach((btn) => {
+    btn.onclick = (e) => {
+      e.preventDefault();
+      closeModal('admin-corrections-modal');
+    };
+  });
+
+  // Action buttons: Approve
+  modal.querySelectorAll('.btn-approve-corr').forEach((btn) => {
+    btn.onclick = () => {
+      const id = btn.getAttribute('data-id');
+      showCorrectionDecisionForm(id, 'approve', btn, modal);
+    };
+  });
+
+  // Action buttons: Reject
+  modal.querySelectorAll('.btn-reject-corr').forEach((btn) => {
+    btn.onclick = () => {
+      const id = btn.getAttribute('data-id');
+      showCorrectionDecisionForm(id, 'reject', btn, modal);
+    };
+  });
+}
+
+/**
+ * Displays an accessible on-page decision form replacing window.prompt
+ */
+export function showCorrectionDecisionForm(requestId, action, openerBtn, modal) {
+  const actionsRow = modal.querySelector(`#corr-actions-${requestId}`);
+  const formContainer = modal.querySelector(`#corr-form-container-${requestId}`);
+  if (!actionsRow || !formContainer) return;
+
+  actionsRow.style.display = 'none';
+  formContainer.style.display = 'block';
+
+  const isApprove = action === 'approve';
+  const labelText = isApprove
+    ? 'Approval Note <span style="font-weight: 400; color: var(--text-muted);">(optional)</span>'
+    : 'Rejection Reason <span style="color: var(--color-danger-text, #ef4444);" aria-hidden="true">*</span>';
+  const placeholderText = isApprove
+    ? 'Admin approval note (optional)'
+    : 'Provide a reason for rejection (required)';
+  const defaultVal = isApprove ? 'Approved by admin' : '';
+  const confirmBtnText = isApprove ? 'Confirm Approval' : 'Confirm Rejection';
+  const confirmBtnClass = isApprove ? 'btn-primary' : 'btn-danger';
+
+  formContainer.innerHTML = `
+    <form class="correction-decision-form" data-id="${requestId}" data-action="${action}" novalidate>
+      <div class="form-group" style="margin-bottom: var(--space-2);">
+        <label for="corr-note-${requestId}" style="display: block; font-size: var(--text-xs); font-weight: 600; margin-bottom: 4px; color: var(--text-main);">
+          ${labelText}
+        </label>
+        <textarea
+          id="corr-note-${requestId}"
+          name="decision_note"
+          class="form-control corr-decision-textarea"
+          rows="2"
+          style="width: 100%; box-sizing: border-box; font-size: var(--text-sm); font-family: inherit; padding: var(--space-2);"
+          placeholder="${placeholderText}"
+          ${!isApprove ? 'required aria-required="true"' : ''}
+        >${escapeHtml(defaultVal)}</textarea>
+        <div id="corr-error-${requestId}" class="corr-decision-error" role="alert" style="display: none; color: var(--color-danger-text, #ef4444); font-size: var(--text-xs); margin-top: 4px; font-weight: 500;"></div>
+      </div>
+      <div style="display: flex; gap: var(--space-2); justify-content: flex-end; align-items: center; flex-wrap: wrap;">
+        <button type="button" class="btn btn-ghost btn-sm btn-cancel-corr" data-id="${requestId}">Cancel</button>
+        <button type="submit" class="btn ${confirmBtnClass} btn-sm btn-confirm-corr" data-id="${requestId}">
+          ${confirmBtnText}
+        </button>
+      </div>
+    </form>
+  `;
+
+  const form = formContainer.querySelector('form');
+  const textarea = formContainer.querySelector('textarea');
+  const cancelBtn = formContainer.querySelector('.btn-cancel-corr');
+  const confirmBtn = formContainer.querySelector('.btn-confirm-corr');
+  const errorEl = formContainer.querySelector('.corr-decision-error');
+
+  // Focus textarea
+  if (textarea && typeof textarea.focus === 'function') {
+    textarea.focus();
+    if (isApprove && typeof textarea.select === 'function') {
+      try { textarea.select(); } catch (_) {}
+    }
+  }
+
+  const hideForm = () => {
+    formContainer.style.display = 'none';
+    formContainer.innerHTML = '';
+    actionsRow.style.display = 'flex';
+    if (openerBtn && typeof openerBtn.focus === 'function') {
+      try { openerBtn.focus(); } catch (_) {}
+    }
+  };
+
+  if (cancelBtn) {
+    cancelBtn.onclick = (e) => {
+      if (e && typeof e.preventDefault === 'function') e.preventDefault();
+      hideForm();
+    };
+  }
+
+  if (form) {
+    // Keyboard Escape cancels decision form without closing parent modal
+    form.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' || e.key === 'Esc') {
+        if (typeof e.stopPropagation === 'function') e.stopPropagation();
+        if (typeof e.preventDefault === 'function') e.preventDefault();
+        hideForm();
+      }
+    });
+
+    const submitHandler = async (e) => {
+      if (e && typeof e.preventDefault === 'function') e.preventDefault();
+
+      const rawVal = textarea ? textarea.value : '';
+      const trimmed = (rawVal || '').trim();
+
+      // Validation
+      if (!isApprove) {
+        if (!trimmed) {
+          if (errorEl) {
+            errorEl.textContent = 'Rejection reason is required. Please provide a reason.';
+            errorEl.style.display = 'block';
+          }
+          if (textarea) {
+            textarea.setAttribute('aria-invalid', 'true');
+            if (typeof textarea.focus === 'function') textarea.focus();
+          }
+          return;
+        }
+      }
+
+      if (errorEl) {
+        errorEl.style.display = 'none';
+        errorEl.textContent = '';
+      }
+      if (textarea) {
+        textarea.removeAttribute('aria-invalid');
+      }
+
+      const note = isApprove ? (trimmed || 'Approved by admin') : trimmed;
+
+      // In-flight state: disable buttons & textarea to prevent double submission
+      if (confirmBtn) {
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = isApprove ? 'Approving...' : 'Rejecting...';
+      }
+      if (cancelBtn) cancelBtn.disabled = true;
+      if (textarea) textarea.disabled = true;
+
+      try {
+        await executeAdminDecideCorrection(requestId, action, note, activeSupabaseOverride);
+        showToast(isApprove ? 'success' : 'info', isApprove ? 'Score correction approved and applied.' : 'Score correction rejected.');
+        await checkPendingCorrectionRequests(activeSupabaseOverride);
+        if (typeof loadReviewEntries === 'function') await loadReviewEntries();
+      } catch (err) {
+        showToast('error', err.message);
+        if (errorEl) {
+          errorEl.textContent = err.message || 'An error occurred while saving.';
+          errorEl.style.display = 'block';
+        }
+        if (confirmBtn) {
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = confirmBtnText;
+        }
+        if (cancelBtn) cancelBtn.disabled = false;
+        if (textarea) {
+          textarea.disabled = false;
+          // Preserves entered text for retry!
+          if (typeof textarea.focus === 'function') textarea.focus();
+        }
+      }
+    };
+
+    form.onsubmit = submitHandler;
+    if (confirmBtn) {
+      confirmBtn.onclick = submitHandler;
+    }
+  }
+}
+
+export function openAdminCorrectionsModal(requests, openerEl = null) {
+  if (!requests || requests.length === 0) {
+    closeModal('admin-corrections-modal');
+    return;
+  }
+
+  let modal = document.getElementById('admin-corrections-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'admin-corrections-modal';
+    modal.className = 'modal-backdrop';
+    modal.setAttribute('aria-hidden', 'true');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    document.body.appendChild(modal);
+  }
+
+  // Ensure backdrop click closes modal
+  modal.onclick = (e) => {
+    if (e.target === modal) {
+      closeModal('admin-corrections-modal');
+    }
+  };
+
+  renderAdminCorrectionsModalContent(modal, requests);
+
+  // Set focus to opener prior to openModal so modalFocusHistory records it reliably
+  const opener = openerEl || document.getElementById('btn-view-corrections');
+  if (opener && typeof opener.focus === 'function' && document.activeElement !== opener) {
+    try {
+      opener.focus();
+    } catch (_) {}
+  }
+
+  openModal('admin-corrections-modal');
 }
 
 /**
@@ -292,6 +686,25 @@ async function loadReviewEntries() {
     if (isSupabaseConfigured()) {
       const supabase = await getSupabase();
 
+      let teacherAssignedIds = null;
+      if (currentProfile?.role === 'teacher') {
+        const { data: assignments, error: assignErr } = await supabase
+          .from('teacher_student_assignments')
+          .select('student_id')
+          .eq('teacher_id', currentProfile.id);
+
+        if (assignErr) throw assignErr;
+        teacherAssignedIds = (assignments || []).map((a) => a.student_id);
+
+        if (teacherAssignedIds.length === 0) {
+          allEntries = [];
+          totalEntriesCount = 0;
+          renderTable();
+          updatePaginationUI();
+          return;
+        }
+      }
+
       const buildReviewQuery = (tableName, includeTargetFields) => {
         const selectCols = buildReviewSelectColumns({
           section: activeFilters.section,
@@ -300,6 +713,10 @@ async function loadReviewEntries() {
         let q = supabase
           .from(tableName)
           .select(selectCols, { count: 'exact' });
+
+        if (teacherAssignedIds) {
+          q = q.in('student_id', teacherAssignedIds);
+        }
 
         if (activeFilters.dateFrom) {
           q = q.gte('entry_date', activeFilters.dateFrom);
@@ -595,6 +1012,8 @@ function renderReviewTable(entries) {
                 type="button"
                 class="btn btn-outline btn-sm btn-action-correct"
                 data-id="${entry.id}"
+                data-table="${resolveCorrectionTableName(entry)}"
+                data-source="${escapeHtml(entry.source || '')}"
                 data-correct="${correct}"
                 data-total="${total}"
                 data-time="${entry.time_seconds || 0}"
@@ -603,9 +1022,9 @@ function renderReviewTable(entries) {
                 data-cat="${escapeHtml(category.name)}"
                 data-round="${escapeHtml(roundLabel)}"
                 style="padding: 2px 6px; font-size: 11px;"
-                title="Correct score"
+                title="${currentProfile?.role === 'teacher' ? 'Request score correction' : 'Correct score'}"
               >
-                ✏️ Correct
+                ✏️ ${currentProfile?.role === 'teacher' ? 'Request Correction' : 'Correct'}
               </button>
             `}
 
@@ -756,13 +1175,14 @@ function attachRowActionListeners() {
   document.querySelectorAll('.btn-action-correct').forEach(btn => {
     btn.addEventListener('click', () => {
       const id = btn.getAttribute('data-id');
+      const tableName = btn.getAttribute('data-table') || resolveCorrectionTableName(btn.getAttribute('data-source'));
       const correct = btn.getAttribute('data-correct');
       const total = btn.getAttribute('data-total');
       const timeSec = Number(btn.getAttribute('data-time') || 0);
       const note = btn.getAttribute('data-note') || '';
       const meta = `${btn.getAttribute('data-student')} · ${btn.getAttribute('data-cat')} (${btn.getAttribute('data-round')})`;
 
-      openCorrectModal(id, correct, total, timeSec, note, meta);
+      openCorrectModal(id, correct, total, timeSec, note, meta, tableName);
     });
   });
 
@@ -886,63 +1306,112 @@ function updateSelectedUI() {
 }
 
 /**
- * Database RPC: admin_set_verified
+ * Database RPC: admin_set_verified / teacher_verify_scores
  */
-async function executeSetVerified(ids, verified, reason) {
+export async function executeSetVerified(ids, verified, reason, supabaseOverride = null, profileOverride = null) {
+  const profile = profileOverride || currentProfile;
   try {
-    if (isSupabaseConfigured()) {
-      const supabase = await getSupabase();
-      const { error } = await supabase.rpc('admin_set_verified', {
-        p_ids: ids,
-        p_verified: verified,
-        p_reason: reason || (verified ? 'Verified by teacher' : 'Unverified by teacher')
-      });
-      if (error) throw new Error(error.message);
+    if (isSupabaseConfigured() || supabaseOverride) {
+      const supabase = supabaseOverride || (await getSupabase());
+      if (profile?.role === 'teacher') {
+        const { data, error } = await supabase.rpc('teacher_verify_scores', {
+          p_ids: ids,
+          p_verified: verified,
+          p_reason: reason || (verified ? 'Verified by teacher' : 'Unverified by teacher')
+        });
+        if (error) throw new Error(error.message);
+        showToast('success', `${ids.length} ${ids.length === 1 ? 'entry' : 'entries'} ${verified ? 'verified' : 'unverified'}.`);
+        if (typeof loadReviewEntries === 'function') await loadReviewEntries();
+        return data;
+      } else {
+        const { data, error } = await supabase.rpc('admin_set_verified', {
+          p_ids: ids,
+          p_verified: verified,
+          p_reason: reason || (verified ? 'Verified by teacher' : 'Unverified by teacher')
+        });
+        if (error) throw new Error(error.message);
+        showToast('success', `${ids.length} ${ids.length === 1 ? 'entry' : 'entries'} ${verified ? 'verified' : 'unverified'}.`);
+        if (typeof loadReviewEntries === 'function') await loadReviewEntries();
+        return data;
+      }
     } else {
-      DemoDB.adminSetVerified(ids, verified, reason, currentProfile.id);
+      DemoDB.adminSetVerified(ids, verified, reason, profile?.id);
+      showToast('success', `${ids.length} ${ids.length === 1 ? 'entry' : 'entries'} ${verified ? 'verified' : 'unverified'}.`);
+      if (typeof loadReviewEntries === 'function') await loadReviewEntries();
     }
-
-    showToast('success', `${ids.length} ${ids.length === 1 ? 'entry' : 'entries'} ${verified ? 'verified' : 'unverified'}.`);
-    await loadReviewEntries();
   } catch (err) {
     console.error('Failed to set verified status:', err);
     showToast('error', 'Verification failed: ' + err.message);
+    throw err;
   }
 }
 
 /**
- * Database RPC: admin_set_flag
+ * Database RPC: admin_set_flag / teacher_flag_score
  */
-async function executeSetFlag(id, flagged, note) {
+export async function executeSetFlag(id, flagged, note, supabaseOverride = null, profileOverride = null) {
+  const profile = profileOverride || currentProfile;
   try {
-    if (isSupabaseConfigured()) {
-      const supabase = await getSupabase();
-      const { error } = await supabase.rpc('admin_set_flag', {
-        p_id: id,
-        p_flagged: flagged,
-        p_note: note
-      });
-      if (error) throw new Error(error.message);
+    if (isSupabaseConfigured() || supabaseOverride) {
+      const supabase = supabaseOverride || (await getSupabase());
+      if (profile?.role === 'teacher') {
+        const { data, error } = await supabase.rpc('teacher_flag_score', {
+          p_id: id,
+          p_flagged: flagged,
+          p_note: note
+        });
+        if (error) throw new Error(error.message);
+        showToast('success', flagged ? 'Entry flagged for student review.' : 'Flag cleared.');
+        if (typeof loadReviewEntries === 'function') await loadReviewEntries();
+        return data;
+      } else {
+        const { data, error } = await supabase.rpc('admin_set_flag', {
+          p_id: id,
+          p_flagged: flagged,
+          p_note: note
+        });
+        if (error) throw new Error(error.message);
+        showToast('success', flagged ? 'Entry flagged for student review.' : 'Flag cleared.');
+        if (typeof loadReviewEntries === 'function') await loadReviewEntries();
+        return data;
+      }
     } else {
-      DemoDB.adminSetFlag(id, flagged, note, currentProfile.id);
+      DemoDB.adminSetFlag(id, flagged, note, profile?.id);
+      showToast('success', flagged ? 'Entry flagged for student review.' : 'Flag cleared.');
+      if (typeof loadReviewEntries === 'function') await loadReviewEntries();
     }
-
-    showToast('success', flagged ? 'Entry flagged for student review.' : 'Flag cleared.');
-    await loadReviewEntries();
   } catch (err) {
     console.error('Failed to update flag:', err);
     showToast('error', 'Flagging failed: ' + err.message);
+    throw err;
   }
 }
 
 /**
- * Database RPC: admin_correct_result
+ * Database RPC: admin_correct_result / teacher_request_score_correction
  */
-async function executeCorrectResult(id, correct, total, timeSeconds, note, reason) {
+export async function executeCorrectResult(id, correct, total, timeSeconds, note, reason, tableName = null, supabaseOverride = null, profileOverride = null) {
+  const profile = profileOverride || currentProfile;
+  const resolvedTable = resolveCorrectionTableName(tableName);
   try {
-    if (isSupabaseConfigured()) {
-      const supabase = await getSupabase();
-      const { error } = await supabase.rpc('admin_correct_result', {
+    if (isSupabaseConfigured() || supabaseOverride) {
+      const supabase = supabaseOverride || (await getSupabase());
+      if (profile?.role === 'teacher') {
+        const { data, error } = await supabase.rpc('teacher_request_score_correction', {
+          p_result_id: id,
+          p_table_name: resolvedTable,
+          p_proposed_correct: correct,
+          p_proposed_total: total,
+          p_proposed_time_seconds: timeSeconds,
+          p_reason: reason
+        });
+        if (error) throw new Error(error.message);
+        showToast('success', 'Score correction request submitted for administrator approval.');
+        if (typeof loadReviewEntries === 'function') await loadReviewEntries();
+        return data;
+      }
+
+      const { data, error } = await supabase.rpc('admin_correct_result', {
         p_id: id,
         p_correct: correct,
         p_total: total,
@@ -951,16 +1420,36 @@ async function executeCorrectResult(id, correct, total, timeSeconds, note, reaso
         p_reason: reason
       });
       if (error) throw new Error(error.message);
+      showToast('success', 'Score corrected and stamped successfully.');
+      if (typeof loadReviewEntries === 'function') await loadReviewEntries();
+      return data;
     } else {
-      DemoDB.adminCorrectResult(id, correct, total, timeSeconds, note, reason, currentProfile.id);
+      DemoDB.adminCorrectResult(id, correct, total, timeSeconds, note, reason, profile?.id);
+      showToast('success', 'Score corrected and stamped successfully.');
+      if (typeof loadReviewEntries === 'function') await loadReviewEntries();
     }
-
-    showToast('success', 'Score corrected and stamped successfully.');
-    await loadReviewEntries();
   } catch (err) {
     console.error('Correction failed:', err);
     showToast('error', 'Correction failed: ' + err.message);
+    throw err;
   }
+}
+
+/**
+ * Database RPC: admin_decide_score_correction
+ */
+export async function executeAdminDecideCorrection(requestId, action, decisionNote, supabaseOverride = null) {
+  if (action !== 'approve' && action !== 'reject') {
+    throw new Error("Invalid action: must be 'approve' or 'reject'.");
+  }
+  const supabase = supabaseOverride || (await getSupabase());
+  const { data, error } = await supabase.rpc('admin_decide_score_correction', {
+    p_request_id: requestId,
+    p_action: action,
+    p_decision_note: decisionNote || null,
+  });
+  if (error) throw new Error(error.message);
+  return data;
 }
 
 /**
@@ -1001,12 +1490,13 @@ function setupModalHandlers() {
   if (correctForm) {
     correctForm.onsubmit = async (e) => {
       e.preventDefault();
-      const id = document.getElementById('correct-entry-id').value;
-      const correct = Number(document.getElementById('correct-input-correct').value);
-      const total = Number(document.getElementById('correct-input-total').value);
-      const timeStr = document.getElementById('correct-input-time').value.trim();
-      const note = document.getElementById('correct-input-note').value.trim();
-      const reason = document.getElementById('correct-input-reason').value.trim();
+      const id = document.getElementById('correct-entry-id')?.value;
+      const tableName = document.getElementById('correct-entry-table')?.value || 'results';
+      const correct = Number(document.getElementById('correct-input-correct')?.value);
+      const total = Number(document.getElementById('correct-input-total')?.value);
+      const timeStr = document.getElementById('correct-input-time')?.value?.trim() || '';
+      const note = document.getElementById('correct-input-note')?.value?.trim() || '';
+      const reason = document.getElementById('correct-input-reason')?.value?.trim() || '';
 
       if (reason.length < 3) {
         showToast('error', 'Audit reason must be at least 3 characters.');
@@ -1021,7 +1511,7 @@ function setupModalHandlers() {
       const timeSeconds = parseTimeStringToSeconds(timeStr);
 
       closeModal('correct-modal');
-      await executeCorrectResult(id, correct, total, timeSeconds, note, reason);
+      await executeCorrectResult(id, correct, total, timeSeconds, note, reason, tableName);
     };
   }
 
@@ -1151,14 +1641,49 @@ function openFlagModal(id, existingNote) {
   openModal('flag-modal');
 }
 
-function openCorrectModal(id, correct, total, timeSeconds, note, meta) {
-  document.getElementById('correct-entry-id').value = id;
-  document.getElementById('correct-entry-meta').textContent = meta;
-  document.getElementById('correct-input-correct').value = correct;
-  document.getElementById('correct-input-total').value = total;
-  document.getElementById('correct-input-time').value = formatSecondsToTime(timeSeconds);
-  document.getElementById('correct-input-note').value = note || '';
-  document.getElementById('correct-input-reason').value = '';
+export function openCorrectModal(id, correct, total, timeSeconds, note, meta, tableName = 'results') {
+  const idEl = document.getElementById('correct-entry-id');
+  if (idEl) idEl.value = id;
+
+  const tableEl = document.getElementById('correct-entry-table');
+  if (tableEl) tableEl.value = resolveCorrectionTableName(tableName);
+
+  const metaEl = document.getElementById('correct-entry-meta');
+  if (metaEl) metaEl.textContent = meta;
+
+  const correctEl = document.getElementById('correct-input-correct');
+  if (correctEl) correctEl.value = correct;
+
+  const totalEl = document.getElementById('correct-input-total');
+  if (totalEl) totalEl.value = total;
+
+  const timeEl = document.getElementById('correct-input-time');
+  if (timeEl) timeEl.value = formatSecondsToTime(timeSeconds);
+
+  const noteEl = document.getElementById('correct-input-note');
+  if (noteEl) noteEl.value = note || '';
+
+  const reasonEl = document.getElementById('correct-input-reason');
+  if (reasonEl) reasonEl.value = '';
+
+  const noteGroup = noteEl?.closest('.form-group') || document.getElementById('correct-note-group');
+  if (noteGroup) {
+    noteGroup.style.display = currentProfile?.role === 'teacher' ? 'none' : 'block';
+  }
+
+  const titleEl = document.querySelector('#correct-modal .modal-title');
+  const subtitleEl = document.querySelector('#correct-modal .modal-subtitle');
+  const submitBtn = document.getElementById('btn-submit-correct');
+
+  if (currentProfile?.role === 'teacher') {
+    if (titleEl) titleEl.textContent = 'Request Score Correction';
+    if (subtitleEl) subtitleEl.textContent = 'Submit score correction request for administrator approval.';
+    if (submitBtn) submitBtn.textContent = 'Submit Correction Request';
+  } else {
+    if (titleEl) titleEl.textContent = 'Correct & Stamp Score';
+    if (subtitleEl) subtitleEl.textContent = 'Admin correction stamps corrected_by and locks the row from student edits.';
+    if (submitBtn) submitBtn.textContent = 'Apply Correction';
+  }
 
   openModal('correct-modal');
 }
@@ -1323,8 +1848,9 @@ function renderHeaderUser(profile) {
   const btnLogout = document.getElementById('btn-header-logout');
 
   if (container) container.style.display = 'inline-flex';
-  if (nameEl) nameEl.textContent = profile.full_name || profile.name || 'Admin';
-  if (roleEl) roleEl.textContent = 'Teacher';
+  const roleLabel = profile.role === 'admin' ? 'Admin' : (profile.role === 'teacher' ? 'Teacher' : 'Staff');
+  if (nameEl) nameEl.textContent = profile.full_name || profile.name || roleLabel;
+  if (roleEl) roleEl.textContent = roleLabel;
 
   if (btnLogout) {
     btnLogout.addEventListener('click', async () => {

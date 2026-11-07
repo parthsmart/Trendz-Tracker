@@ -130,8 +130,8 @@
             <div class="stat-card">
               <span class="stat-label">Last Manual ZIP Export (IST)</span>
               <span class="stat-value num" id="stat-last-zip-export" style="font-size: var(--text-lg);">—</span>
-              <span style="font-size: var(--text-sm); color: var(--text-muted);">
-                18 CSV files + README.txt
+              <span style="font-size: var(--text-sm); color: var(--text-muted);" id="stat-last-zip-export-sub">
+                CSV files + README.txt
               </span>
             </div>
 
@@ -155,8 +155,8 @@
             <div class="section-header-row" style="margin-bottom: var(--space-3); flex-wrap: wrap; gap: var(--space-3);">
               <div>
                 <h2 style="font-size: var(--text-lg); margin-bottom: var(--space-1);">Backup &amp; Export Actions</h2>
-                <p style="font-size: var(--text-sm); color: var(--text-muted); margin: 0;">
-                  Run an on-demand Google Sheet backup pass (8-second passes with automatic continuation) or download all 18 tables as a local ZIP of CSV files.
+                <p style="font-size: var(--text-sm); color: var(--text-muted); margin: 0;" id="backup-actions-desc">
+                  Run an on-demand Google Sheet backup pass (8-second passes with automatic continuation) or download all data tables as a local ZIP of CSV files.
                 </p>
               </div>
               <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
@@ -302,13 +302,13 @@
             </details>
           </div>
 
-          <!-- Per-Table Status Table (18 Tables) -->
+          <!-- Per-Table Status Table -->
           <div class="card" style="padding: var(--space-5); margin-bottom: var(--space-6);">
             <div class="section-header-row" style="margin-bottom: var(--space-3);">
               <div>
-                <h2 style="font-size: var(--text-lg); margin-bottom: var(--space-1);">Table Backup Status (18 Tables)</h2>
-                <p style="font-size: var(--text-sm); color: var(--text-muted); margin: 0;">
-                  12 snapshot tables (rewritten each run) and 6 append tables (incremental keyset paging with a 1-minute safe horizon).
+                <h2 style="font-size: var(--text-lg); margin-bottom: var(--space-1);" id="table-backup-status-heading">Table Backup Status</h2>
+                <p style="font-size: var(--text-sm); color: var(--text-muted); margin: 0;" id="table-backup-status-sub">
+                  Snapshot tables (rewritten each run) and append tables (incremental keyset paging with a 1-minute safe horizon).
                 </p>
               </div>
             </div>

@@ -282,6 +282,32 @@
                     </div>
                   </fieldset>
 
+                  <!-- Fixed Duration (optional) -->
+                  <div class="form-group" id="group-todo-duration">
+                    <label class="form-label" for="todo-duration-seconds">
+                      Practice duration (optional)
+                    </label>
+                    <div style="display: flex; gap: var(--space-2); margin-bottom: var(--space-2); flex-wrap: wrap;">
+                      <button type="button" class="btn btn-outline btn-sm btn-duration-preset" data-duration="30">30s</button>
+                      <button type="button" class="btn btn-outline btn-sm btn-duration-preset" data-duration="60">60s</button>
+                      <button type="button" class="btn btn-outline btn-sm btn-duration-preset" data-duration="120">120s</button>
+                      <button type="button" class="btn btn-outline btn-sm btn-duration-preset" data-duration="">Default</button>
+                    </div>
+                    <input
+                      type="number"
+                      id="todo-duration-seconds"
+                      class="form-input num"
+                      min="5"
+                      max="3600"
+                      step="1"
+                      placeholder="e.g. 60 (or custom like 130)"
+                    />
+                    <span class="form-hint">
+                      Optional fixed time limit in seconds (5 to 3600). When set, online practice freezes at this duration.
+                    </span>
+                    <div id="error-todo-duration-seconds" class="form-error" style="display: none;"></div>
+                  </div>
+
                   <!-- Level (optional) -->
                   <div class="form-group">
                     <label class="form-label" for="todo-level">Level (optional)</label>
@@ -294,6 +320,12 @@
                     />
                     <span class="form-hint">Leave blank to assign to all students.</span>
                     <div id="error-todo-level" class="form-error" style="display: none;"></div>
+                  </div>
+
+                  <!-- Targeted Students (Assigned only for teachers) -->
+                  <div id="todo-recipients-group" class="form-group" style="display: none;">
+                    <label class="form-label">Assign to Students (Assigned only)</label>
+                    <div id="todo-recipients-list" class="recipients-picker" style="max-height: 140px; overflow-y: auto; border: 1px solid var(--border-color, #e2e8f0); border-radius: var(--radius-md, 8px); padding: var(--space-2, 8px); background: var(--surface-bg, #fff);"></div>
                   </div>
 
                   <!-- Active Status -->

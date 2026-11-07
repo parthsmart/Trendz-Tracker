@@ -124,6 +124,8 @@ export default defineConfig(({ command }) => {
           report: path.resolve(__dirname, 'pages/report.html'),
           backup: path.resolve(__dirname, 'pages/backup.html'),
           settings: path.resolve(__dirname, 'pages/settings.html'),
+          teacher: path.resolve(__dirname, 'pages/teacher.html'),
+          teachers: path.resolve(__dirname, 'pages/teachers.html'),
         },
       },
     },

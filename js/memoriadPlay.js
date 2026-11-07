@@ -155,6 +155,7 @@ let currentProfile = null;
 let activeModuleKey = 'calendar';
 let currentSettings = {};
 let phase = 'settings'; // 'settings' | 'concentration' | 'stage' | 'results'
+let activeTodoTaskId = null;
 
 // Weekly Test runner state (?test=<id>&section=<id>)
 let isTestMode = false;
@@ -198,6 +199,8 @@ async function initMemoriadPlay() {
 
   const params = new URLSearchParams(window.location.search);
   const requestedModule = (params.get('module') || 'calendar').trim().toLowerCase();
+  const rawTaskId = params.get('todo_task_id') || params.get('todo_task');
+  activeTodoTaskId = rawTaskId && typeof rawTaskId === 'string' ? rawTaskId.trim() : null;
 
   if (isTestMode) {
     const appHeader = document.querySelector('.app-header');
@@ -253,20 +256,26 @@ async function initMemoriadPlay() {
   currentSettings = loadModuleSettings(activeModuleKey);
 
   window.addEventListener('keydown', handleGlobalStageKeydown);
-  renderSettingsView();
+  if (activeTodoTaskId) {
+    startAssignedMemoriadPractice();
+  } else {
+    renderSettingsView();
+  }
 }
 
 function renderUnsupportedModule(moduleKey) {
   const root = document.getElementById('memoriad-view-root');
   if (!root) return;
+  const backHref = activeTodoTaskId ? '/pages/student.html' : '/pages/memoriad.html';
+  const backLabel = activeTodoTaskId ? 'Back to Daily Tasks' : 'Back to Memoriad';
   root.innerHTML = `
     <div class="card" style="max-width: 580px; margin: var(--space-6) auto; padding: var(--space-6); text-align: center;">
       <h1 style="font-size: 1.35rem; margin-bottom: var(--space-2);">Module Not Available</h1>
       <p style="font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-4);">
         The module <code>${escapeHtml(moduleKey)}</code> is coming in a later step.
       </p>
-      <a href="/pages/memoriad.html" class="btn btn-primary" style="text-decoration: none;">
-        &larr; Back to Memoriad
+      <a href="${backHref}" class="btn btn-primary" style="text-decoration: none;">
+        &larr; ${backLabel}
       </a>
     </div>
   `;
@@ -285,7 +294,133 @@ function buildKeyZeroNote(keyZeroDayIndex) {
   return parts.join(', ');
 }
 
+async function startAssignedMemoriadPractice() {
+  stopAllTimers();
+  phase = 'settings';
+  document.body.classList.remove('memoriad-stage-mode');
+
+  const normalContainer = document.getElementById('memoriad-normal-container');
+  const stageRoot = document.getElementById('memoriad-stage-root');
+  const viewRoot = document.getElementById('memoriad-view-root');
+  if (normalContainer) normalContainer.style.display = 'block';
+  if (stageRoot) {
+    stageRoot.style.display = 'none';
+    stageRoot.innerHTML = '';
+  }
+
+  const meta = MODULE_META[activeModuleKey] || { title: 'Competition Practice' };
+  if (viewRoot) {
+    viewRoot.innerHTML = `
+      <div class="card" style="max-width: 580px; margin: var(--space-6) auto; padding: var(--space-6); text-align: center;">
+        <div class="banner banner-info" style="margin-bottom: var(--space-4);">
+          <span class="banner-icon" aria-hidden="true">⏱️</span>
+          <div class="banner-body">
+            <strong>Daily Task:</strong> Launching assigned ${escapeHtml(meta.title)} with locked settings...
+          </div>
+        </div>
+        <div style="font-size: var(--text-sm); color: var(--text-muted); margin-top: var(--space-3);">
+          Preparing questions and countdown...
+        </div>
+      </div>
+    `;
+  }
+
+  try {
+    const started = await callMemoriadApi({
+      action: 'start',
+      module: activeModuleKey,
+      settings: {
+        concentration_seconds: 5,
+        ...(activeModuleKey === 'calendar' ? { dates: 125 } : {}),
+      },
+      todo_task_id: activeTodoTaskId,
+    });
+
+    sessionData = started;
+    const authoritativeLimit = Number(
+      started.duration_seconds ||
+      started.time_limit_seconds ||
+      started.settings?.duration_seconds ||
+      started.settings?.time_limit_seconds
+    );
+    const concentrationSec = Number(
+      started.concentration_seconds ??
+      started.prep_seconds ??
+      started.settings?.concentration_seconds ??
+      5
+    );
+
+    currentSettings = {
+      ...currentSettings,
+      ...(started.settings || {}),
+      time_limit_seconds: authoritativeLimit,
+      duration_seconds: authoritativeLimit,
+      concentration_seconds: concentrationSec,
+    };
+
+    activeQuestionIndex = 0;
+    lastSubmissionResult = null;
+    lastSubmissionError = null;
+    lastFinishedBy = 'finish';
+    stageInputsLocked = false;
+
+    if (activeModuleKey === 'calendar') {
+      calendarAnswers = new Array(started.questions.length).fill(null);
+    } else if (activeModuleKey === 'additions') {
+      additionsSlots = started.questions.map(() =>
+        createAnswerSlots(
+          11,
+          currentSettings.typing_direction,
+          '',
+          currentSettings.highlight_columns
+        )
+      );
+      additionsManualStepOffsets = new Array(started.questions.length).fill(0);
+    } else if (activeModuleKey === 'multiplications') {
+      multiplicationsSlots = started.questions.map(() =>
+        createAnswerSlots(16, currentSettings.typing_direction, '', 1)
+      );
+      multiplicationsStepStates = new Array(started.questions.length).fill(0);
+    } else if (activeModuleKey === 'square_roots') {
+      squareRootsSlots = started.questions.map(() =>
+        createAnswerSlots(8, 'ltr', '', 1)
+      );
+      squareRootsStepStates = new Array(started.questions.length).fill(0);
+    }
+
+    if (concentrationSec > 0) {
+      enterConcentrationPhase(concentrationSec);
+    } else {
+      enterStagePhase();
+    }
+  } catch (err) {
+    if (viewRoot) {
+      viewRoot.innerHTML = `
+        <div class="card" style="max-width: 580px; margin: var(--space-6) auto; padding: var(--space-6); text-align: center;">
+          <div class="banner banner-error" style="margin-bottom: var(--space-4);">
+            <span class="banner-icon" aria-hidden="true">⚠️</span>
+            <div class="banner-body">
+              <strong>Cannot Start Assigned Task:</strong> ${escapeHtml(err?.message || 'Could not start the practice round.')}
+            </div>
+          </div>
+          <div style="display: flex; justify-content: center; gap: var(--space-3); margin-top: var(--space-4);">
+            <button type="button" id="btn-assigned-retry" class="btn btn-primary">Try Again</button>
+            <a href="/pages/student.html" class="btn btn-outline" style="text-decoration: none;">Back to Daily Tasks</a>
+          </div>
+        </div>
+      `;
+      document.getElementById('btn-assigned-retry')?.addEventListener('click', () => {
+        startAssignedMemoriadPractice();
+      });
+    }
+  }
+}
+
 function renderSettingsView() {
+  if (activeTodoTaskId) {
+    startAssignedMemoriadPractice();
+    return;
+  }
   stopAllTimers();
   phase = 'settings';
   document.body.classList.remove('memoriad-stage-mode');
@@ -455,6 +590,21 @@ function renderSettingsView() {
           </div>
         </div>
 
+        ${
+          activeTodoTaskId
+            ? `
+          <div class="card" style="border-left: 4px solid var(--color-primary); background: rgba(59, 130, 246, 0.08); padding: var(--space-3) var(--space-4); margin-bottom: var(--space-4);">
+            <div style="font-weight: 600; color: var(--color-primary); display: flex; align-items: center; gap: var(--space-2);">
+              <span>📋</span> Assigned Daily Task
+            </div>
+            <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 2px;">
+              This try will count toward your assigned daily task for ${escapeHtml(meta.title)}.
+            </div>
+          </div>
+        `
+            : ''
+        }
+
         <form id="memoriad-settings-form">
           ${moduleSpecificFieldsHtml}
 
@@ -596,6 +746,7 @@ async function handleStartFromSettings() {
       action: 'start',
       module: activeModuleKey,
       settings: apiSettings,
+      todo_task_id: activeTodoTaskId || undefined,
     });
 
     // Store questions in JS memory only; do not render them until Concentration finishes
@@ -749,6 +900,7 @@ function enterConcentrationPhase(seconds) {
         <div style="display: flex; align-items: center; gap: var(--space-3);">
           <span class="badge badge-role">Concentration</span>
           <strong style="font-size: var(--text-base); color: var(--text-main);">${escapeHtml(meta.title)}</strong>
+          ${activeTodoTaskId ? `<span class="badge badge-info" style="font-weight: 700;">Daily Task &middot; ${getActiveStageLimitSeconds()}s (Locked)</span>` : ''}
         </div>
         <div style="display: flex; align-items: center; gap: var(--space-2);">
           <button type="button" id="btn-stage-fullscreen" class="btn btn-outline btn-sm">
@@ -891,6 +1043,7 @@ function renderCalendarStageShell(stageRoot, limitSeconds) {
         <div style="display: flex; align-items: center; gap: var(--space-3);">
           <div id="comp-stage-timer" class="comp-timer-display" style="${timerStyle}">00:00</div>
           <div id="comp-stage-limit" class="comp-limit-badge">Limit ${escapeHtml(limitFormatted)}</div>
+          ${activeTodoTaskId ? `<span class="badge badge-info" style="font-weight: 700;">Daily Task (${limitSeconds}s locked)</span>` : ''}
           <div id="comp-stage-last10" class="comp-last10-notice" role="status" aria-live="assertive">
             <span aria-hidden="true">&#9888;</span>
             <span>TIME ENDING: <strong id="comp-stage-last10-sec">10s left</strong></span>
@@ -1130,6 +1283,7 @@ function renderAdditionsStageShell(stageRoot, limitSeconds) {
         <div style="display: flex; align-items: center; gap: var(--space-3);">
           <div id="comp-stage-timer" class="comp-timer-display" style="${timerStyle}">00:00</div>
           <div id="comp-stage-limit" class="comp-limit-badge">Limit ${escapeHtml(limitFormatted)}</div>
+          ${activeTodoTaskId ? `<span class="badge badge-info" style="font-weight: 700;">Daily Task (${limitSeconds}s locked)</span>` : ''}
           <div id="comp-stage-last10" class="comp-last10-notice" role="status" aria-live="assertive">
             <span aria-hidden="true">&#9888;</span>
             <span>TIME ENDING: <strong id="comp-stage-last10-sec">10s left</strong></span>
@@ -1361,6 +1515,7 @@ function renderMultiplicationsStageShell(stageRoot, limitSeconds) {
         <div style="display: flex; align-items: center; gap: var(--space-3);">
           <div id="comp-stage-timer" class="comp-timer-display" style="${timerStyle}">00:00</div>
           <div id="comp-stage-limit" class="comp-limit-badge">Limit ${escapeHtml(limitFormatted)}</div>
+          ${activeTodoTaskId ? `<span class="badge badge-info" style="font-weight: 700;">Daily Task (${limitSeconds}s locked)</span>` : ''}
           <div id="comp-stage-last10" class="comp-last10-notice" role="status" aria-live="assertive">
             <span aria-hidden="true">&#9888;</span>
             <span>TIME ENDING: <strong id="comp-stage-last10-sec">10s left</strong></span>
@@ -1647,6 +1802,7 @@ function renderSquareRootsStageShell(stageRoot, limitSeconds) {
         <div style="display: flex; align-items: center; gap: var(--space-3);">
           <div id="comp-stage-timer" class="comp-timer-display" style="${timerStyle}">00:00</div>
           <div id="comp-stage-limit" class="comp-limit-badge">Limit ${escapeHtml(limitFormatted)}</div>
+          ${activeTodoTaskId ? `<span class="badge badge-info" style="font-weight: 700;">Daily Task (${limitSeconds}s locked)</span>` : ''}
           <div id="comp-stage-last10" class="comp-last10-notice" role="status" aria-live="assertive">
             <span aria-hidden="true">&#9888;</span>
             <span>TIME ENDING: <strong id="comp-stage-last10-sec">10s left</strong></span>
@@ -2226,6 +2382,10 @@ function bindStageChromeButtons() {
           window.location.href = '/pages/weekly-test.html';
           return;
         }
+        if (activeTodoTaskId) {
+          window.location.href = '/pages/student.html';
+          return;
+        }
         renderSettingsView();
       },
     });
@@ -2346,11 +2506,17 @@ async function submitCurrentSession(finishedBy = lastFinishedBy || 'finish') {
   renderSubmittingState();
 
   try {
+    const limitSeconds = getActiveStageLimitSeconds();
+    const measuredUsedSeconds = lastFinishedBy === 'time_up'
+      ? limitSeconds
+      : Math.max(0.1, Math.min(limitSeconds, (performance.now() - stageStartPerfMs) / 1000));
+
     const response = await callMemoriadApi({
       action: 'submit',
       session_id: sessionData.session_id,
       answers,
       finished_by: lastFinishedBy,
+      duration_seconds: measuredUsedSeconds,
     });
     if (response?.saved && response?.activity_row) {
       try {
@@ -2411,8 +2577,12 @@ function renderSubmissionErrorView() {
       </button>
     `;
 
-  const backHref = isTestMode ? '/pages/weekly-test.html' : '/pages/memoriad.html';
-  const backLabel = isTestMode ? 'Back to Weekly Test' : 'Back to Memoriad';
+  const backHref = isTestMode
+    ? '/pages/weekly-test.html'
+    : (activeTodoTaskId ? '/pages/student.html' : '/pages/memoriad.html');
+  const backLabel = isTestMode
+    ? 'Back to Weekly Test'
+    : (activeTodoTaskId ? 'Back to Daily Tasks' : 'Back to Memoriad');
 
   viewRoot.innerHTML = `
     <div class="card" style="max-width: 620px; margin: var(--space-6) auto; padding: var(--space-6);">
@@ -2436,8 +2606,66 @@ function renderSubmissionErrorView() {
     submitCurrentSession(lastFinishedBy);
   });
   document.getElementById('btn-error-try-again')?.addEventListener('click', () => {
+    if (activeTodoTaskId) {
+    startAssignedMemoriadPractice();
+  } else {
     renderSettingsView();
+  }
   });
+}
+
+export function deriveMemoriadSaveBanner(
+  res,
+  { isTestMode = false, activeTestTitle = 'Weekly Test' } = {}
+) {
+  if (!res) {
+    return {
+      text: 'No questions were attempted, so no score was saved.',
+      bannerClass: 'banner-demo',
+      saved: false,
+      emptyExpiry: false,
+    };
+  }
+
+  const isSaved = Boolean(res.saved);
+  const attempted = Number(res.attempted ?? res.total) || 0;
+  const isEmptyExpiry = Boolean(res.empty_expiry) || (isSaved && attempted === 0);
+
+  if (isSaved && isEmptyExpiry) {
+    const emptySavedMessage =
+      res.message && typeof res.message === 'string' && res.message.trim()
+        ? res.message
+        : 'Attempt saved. No questions were answered, so this round earned no Daily To-do credit.';
+    return {
+      text: emptySavedMessage,
+      bannerClass: 'banner-info',
+      saved: true,
+      emptyExpiry: true,
+    };
+  }
+
+  if (isSaved) {
+    const testTitle = res.test_title || activeTestTitle;
+    return {
+      text: isTestMode ? `Saved as part of ${testTitle}` : 'Saved to your scores.',
+      bannerClass: 'banner-success',
+      saved: true,
+      emptyExpiry: false,
+    };
+  }
+
+  // Actually unsaved attempt
+  const unsavedMessage =
+    res.message && typeof res.message === 'string' && res.message.trim()
+      ? res.message
+      : 'No questions were attempted, so no score was saved.';
+
+  return {
+    text: unsavedMessage,
+    bannerClass: 'banner-demo',
+    saved: false,
+    emptyExpiry: false,
+  };
 }
 
 function renderResultsView() {
@@ -2447,15 +2675,9 @@ function renderResultsView() {
   const res = lastSubmissionResult;
   const feedback = getScoreFeedback(res.correct, res.attempted);
   const usedSecondsFormatted = Number(res.used_seconds || 0).toFixed(2);
-  const testTitle = res.test_title || activeTestTitle;
-  const saveBannerText =
-    res.attempted === 0 || res.saved === false
-      ? 'No questions were attempted, so no score was saved.'
-      : isTestMode
-        ? `Saved as part of ${testTitle}`
-        : 'Saved to your scores.';
-  const saveBannerClass =
-    res.attempted === 0 || res.saved === false ? 'banner-demo' : 'banner-success';
+  const bannerInfo = deriveMemoriadSaveBanner(res, { isTestMode, activeTestTitle });
+  const saveBannerText = bannerInfo.text;
+  const saveBannerClass = bannerInfo.bannerClass;
 
   const isSquareRoots = activeModuleKey === 'square_roots' || res.module === 'square_roots';
   const detailRows = Array.isArray(res.detail) ? res.detail : [];
@@ -2547,7 +2769,7 @@ function renderResultsView() {
   viewRoot.innerHTML = `
     <div style="max-width: 900px; margin: 0 auto;">
       <div class="banner ${saveBannerClass}" style="margin-bottom: var(--space-4);">
-        <span class="banner-icon" aria-hidden="true">${res.saved ? '✅' : 'ℹ️'}</span>
+        <span class="banner-icon" aria-hidden="true">${res.saved ? (bannerInfo.emptyExpiry ? 'ℹ️' : '✅') : 'ℹ️'}</span>
         <div class="banner-body">
           <strong>${escapeHtml(saveBannerText)}</strong>
         </div>
@@ -2564,14 +2786,23 @@ function renderResultsView() {
             ${
               isTestMode
                 ? `<a href="/pages/weekly-test.html" class="btn btn-primary" style="text-decoration: none;">Back to Weekly Test</a>`
-                : `
-                  <button type="button" id="btn-results-try-again" class="btn btn-primary">
-                    Try again
-                  </button>
-                  <a href="/pages/memoriad.html" class="btn btn-outline" style="text-decoration: none;">
-                    Back to Memoriad
-                  </a>
-                `
+                : activeTodoTaskId
+                  ? `
+                    <button type="button" id="btn-results-try-again" class="btn btn-primary">
+                      Try assigned practice again
+                    </button>
+                    <a href="/pages/student.html" class="btn btn-outline" style="text-decoration: none;">
+                      Back to Daily Tasks
+                    </a>
+                  `
+                  : `
+                    <button type="button" id="btn-results-try-again" class="btn btn-primary">
+                      Try again
+                    </button>
+                    <a href="/pages/memoriad.html" class="btn btn-outline" style="text-decoration: none;">
+                      Back to Memoriad
+                    </a>
+                  `
             }
           </div>
         </div>
@@ -2642,7 +2873,11 @@ function renderResultsView() {
   `;
 
   document.getElementById('btn-results-try-again')?.addEventListener('click', () => {
+    if (activeTodoTaskId) {
+    startAssignedMemoriadPractice();
+  } else {
     renderSettingsView();
+  }
   });
 }
 
@@ -2668,14 +2903,22 @@ async function callMemoriadApi(payload) {
       );
     }
     if (payload.action === 'start') {
-      return DemoDB.mockMemoriadStart(payload.module, payload.settings);
+      const st = { ...(payload.settings || {}) };
+      if (payload.todo_task_id && DemoDB?.getTodo) {
+        const t = DemoDB.getTodo(payload.todo_task_id);
+        if (t && Number(t.duration_seconds) > 0) {
+          st.duration_seconds = Number(t.duration_seconds);
+          st.time_limit_seconds = Number(t.duration_seconds);
+        }
+      }
+      return DemoDB.mockMemoriadStart(payload.module, st);
     }
     return DemoDB.mockMemoriadSubmit(
       payload.session_id,
       activeModuleKey,
       payload.answers,
       currentProfile?.id,
-      currentSettings,
+      { ...currentSettings, ...(activeTodoTaskId ? { todo_task_id: activeTodoTaskId } : {}) },
       payload.finished_by
     );
   }
@@ -2767,4 +3010,6 @@ function renderDemoBanner() {
   `;
 }
 
-document.addEventListener('DOMContentLoaded', initMemoriadPlay);
+if (typeof document !== 'undefined') {
+  document.addEventListener('DOMContentLoaded', initMemoriadPlay);
+}

@@ -257,7 +257,9 @@ export function getCallerClient(token) {
 
 /**
  * Extracts and verifies the Bearer JWT token from the Request header,
- * checking that the user exists and has role === 'admin' in public.profiles.
+ * checking that the user exists and has role === 'admin' and active === true in public.profiles.
+ * Sets `err.statusCode = 401` for missing/invalid token and `403` for non-admin/inactive.
+ *
  * @param {Request | Object} req
  * @returns {Promise<Object>} The authenticated admin profile (including accessToken)
  */
@@ -273,19 +275,29 @@ export async function verifyAdminCaller(req) {
   }
 
   if (!authHeader.startsWith('Bearer ')) {
-    throw new Error('Unauthorized: Missing or invalid Bearer token.');
+    const err = new Error('Unauthorized: Missing or invalid Bearer token.');
+    err.statusCode = 401;
+    throw err;
   }
 
   const token = authHeader.replace('Bearer ', '').trim();
-  const supabase = hasSupabaseAdminConfig() ? getAdminClient() : getCallerClient(token);
-
-  // 1. Verify token with Supabase Auth
-  const { data: { user }, error: userError } = await supabase.auth.getUser(token);
-  if (userError || !user) {
-    throw new Error('Unauthorized: Invalid authentication session.');
+  if (!token) {
+    const err = new Error('Unauthorized: Missing or invalid Bearer token.');
+    err.statusCode = 401;
+    throw err;
   }
 
-  // 2. Query public.profiles to verify role is admin
+  const supabase = hasSupabaseAdminConfig() ? getAdminClient() : getCallerClient(token);
+
+  // 1. Verify token with Supabase Auth (strictly requires a valid user session)
+  const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+  if (userError || !user) {
+    const err = new Error('Unauthorized: Invalid authentication session.');
+    err.statusCode = 401;
+    throw err;
+  }
+
+  // 2. Query public.profiles to verify role is admin and active
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('id, student_code, role, active')
@@ -293,11 +305,15 @@ export async function verifyAdminCaller(req) {
     .single();
 
   if (profileError || !profile) {
-    throw new Error('Forbidden: Caller profile not found.');
+    const err = new Error('Forbidden: Caller profile not found.');
+    err.statusCode = 403;
+    throw err;
   }
 
   if (profile.role !== 'admin' || !profile.active) {
-    throw new Error('Forbidden: Admin access required.');
+    const err = new Error('Forbidden: Admin access required.');
+    err.statusCode = 403;
+    throw err;
   }
 
   return {

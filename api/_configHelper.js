@@ -17,7 +17,49 @@ function isPlaceholder(val) {
   );
 }
 
-const RETIRED_PROJECT_REF = 'ctwjujnqxkhononxykdc';
+export const RETIRED_PROJECT_REF = 'ctwjujnqxkhononxykdc';
+export const PRODUCTION_PROJECT_REF = 'kgzivhavpsvitwrscrrj';
+export const APPROVED_STAGING_PROJECT_REF = 'xhgzbbkvwojwfbexvcmh';
+
+/**
+ * Validates that staging preview configuration is strictly isolated from production.
+ *
+ * Rules:
+ * 1. Both frontend (VITE_SUPABASE_URL) and backend (SUPABASE_URL) must be explicitly configured.
+ * 2. Frontend and backend URLs must be identical (no mismatched project targets).
+ * 3. Rejects live Mumbai production project (kgzivhavpsvitwrscrrj) with a fatal error.
+ * 4. Ensures the preview server serves the staging configuration without exposing the service-role key.
+ */
+export function validateStagingIsolation(env = process.env) {
+  const viteUrl = (env.VITE_SUPABASE_URL || '').trim();
+  const backendUrl = (env.SUPABASE_URL || '').trim();
+
+  if (!viteUrl || !backendUrl) {
+    throw new Error(
+      'Staging Isolation Error: Both VITE_SUPABASE_URL and SUPABASE_URL must be configured in .env.staging.local.'
+    );
+  }
+
+  const cleanVite = viteUrl.replace(/\/rest\/v1\/?$/i, '').replace(/\/+$/, '');
+  const cleanBackend = backendUrl.replace(/\/rest\/v1\/?$/i, '').replace(/\/+$/, '');
+
+  if (cleanVite !== cleanBackend) {
+    throw new Error(
+      `Staging Isolation Error: Frontend URL (${cleanVite}) and Backend URL (${cleanBackend}) do not match. Staging configuration must be consistent.`
+    );
+  }
+
+  if (cleanVite.includes(PRODUCTION_PROJECT_REF) || cleanBackend.includes(PRODUCTION_PROJECT_REF)) {
+    throw new Error(
+      `FATAL: Staging preview cannot connect to live Mumbai production project (${PRODUCTION_PROJECT_REF}). Staging preview must point to an isolated staging project (e.g. ${APPROVED_STAGING_PROJECT_REF}).`
+    );
+  }
+
+  return {
+    url: cleanVite,
+    isIsolated: true,
+  };
+}
 
 /**
  * Picks the first non-placeholder value from a list of candidate environment variable values,

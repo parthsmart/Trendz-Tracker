@@ -56,9 +56,14 @@ export async function fetchStudentScoreSheetData(studentId) {
             .from('round_series')
             .select('id, name, sort_order, is_current')
             .order('sort_order', { ascending: true });
-          if (!error && data) return data;
-        } catch {
-          // fall through
+          if (error) {
+            console.error('Failed to fetch round_series:', error);
+            throw new Error(`Failed to load round series: ${error.message}`);
+          }
+          if (data) return data;
+        } catch (err) {
+          console.error('Error fetching round_series:', err);
+          throw err;
         }
         return [];
       }
@@ -71,9 +76,14 @@ export async function fetchStudentScoreSheetData(studentId) {
             .from('category_series')
             .select('series_id, category_id, sort_order')
             .order('sort_order', { ascending: true });
-          if (!error && data) return data;
-        } catch {
-          // fall through
+          if (error) {
+            console.error('Failed to fetch category_series:', error);
+            throw new Error(`Failed to load category series: ${error.message}`);
+          }
+          if (data) return data;
+        } catch (err) {
+          console.error('Error fetching category_series:', err);
+          throw err;
         }
         return [];
       }
@@ -84,18 +94,40 @@ export async function fetchStudentScoreSheetData(studentId) {
         try {
           const { data, error } = await supabase
             .from('student_rounds')
-            .select('id, student_id, series_id, round_number, entry_date, created_at')
+            .select('id, student_id, series_id, round_number, round_date, round_type, time_taken_seconds, created_at')
             .eq('student_id', studentId)
             .order('round_number', { ascending: false })
             .limit(200);
-          if (!error && data) return data;
-        } catch {
-          // fall through
+          if (error) {
+            console.error('Failed to fetch student_rounds:', error);
+            throw new Error(`Failed to load student rounds: ${error.message}`);
+          }
+          if (data) {
+            return data.map((r) => {
+              const d = r.round_date || (r.created_at ? String(r.created_at).slice(0, 10) : null);
+              return {
+                ...r,
+                round_date: d,
+                entry_date: d,
+              };
+            });
+          }
+        } catch (err) {
+          console.error('Error fetching student_rounds:', err);
+          throw err;
         }
         return [];
       }
       const matchedRounds = DemoDB.getStudentRounds(studentId);
-      return matchedRounds.length > 0 ? matchedRounds : DemoDB.getStudentRounds('usr-101');
+      const rawDemo = matchedRounds.length > 0 ? matchedRounds : DemoDB.getStudentRounds('usr-101');
+      return rawDemo.map((r) => {
+        const d = r.round_date || r.entry_date || (r.created_at ? String(r.created_at).slice(0, 10) : null);
+        return {
+          ...r,
+          round_date: d,
+          entry_date: d,
+        };
+      });
     })(),
     (async () => {
       if (supabase) {

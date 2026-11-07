@@ -36,14 +36,20 @@ let lastDashboardData = null;
 let activeMessageNonce = null;
 
 async function initStudentDetail() {
-  // 1. Guard check: Strictly admin-only.
-  // If a student tries to open this page, requireAuth redirects them to /pages/student.html
-  const loggedInProfile = await requireAuth(['admin']);
+  const loggedInProfile = await requireAuth(['teacher', 'admin']);
   if (!loggedInProfile) return;
 
-  // Render header details & admin nav dropdown/hamburger
+  if (loggedInProfile.role === 'teacher' && loggedInProfile.permissions?.can_view_students === false) {
+    window.location.href = '/pages/teacher.html';
+    return;
+  }
+
+  // Render header details & role context
   renderHeaderUser(loggedInProfile);
-  setupAdminNav(loggedInProfile);
+  renderRoleContext(loggedInProfile);
+  if (loggedInProfile.role === 'admin') {
+    setupAdminNav(loggedInProfile);
+  }
 
   // Render demo banner if running on demo host
   if (isDemoMode()) {
@@ -68,6 +74,22 @@ async function initStudentDetail() {
   if (!profile) {
     showStudentNotFound(`We could not find any active or registered student with ID "${escapeHtml(studentId.trim())}". They may have been deactivated or removed.`);
     return;
+  }
+
+  // Verify assignment for teachers
+  if (loggedInProfile.role === 'teacher' && isSupabaseConfigured()) {
+    const supabase = await getSupabase();
+    const { data: assignment } = await supabase
+      .from('teacher_student_assignments')
+      .select('student_id')
+      .eq('teacher_id', loggedInProfile.id)
+      .eq('student_id', profile.id)
+      .maybeSingle();
+
+    if (!assignment) {
+      showStudentNotFound('You do not have access to view this student. They are not in your assigned roster.');
+      return;
+    }
   }
 
   currentStudentProfile = profile;
@@ -181,6 +203,7 @@ async function loadAndRenderStudentDashboard(studentId) {
 
   } catch (err) {
     console.error('Failed to load student detail dashboard:', err);
+    showToast('error', `Could not load student dashboard: ${err.message || 'Database error'}`);
   }
 }
 
@@ -232,20 +255,64 @@ function renderStudentDetails(profile) {
   if (reportBtn) {
     reportBtn.href = `/pages/monthly-report.html?studentId=${encodeURIComponent(profile.id)}`;
   }
+
+  // Section "View all scores" links for Basics, Flash Anzan, Elements, and Memoriad
+  const studentParam = encodeURIComponent(profile.id);
+  const basicsLinkEl = document.getElementById('link-view-all-basics');
+  if (basicsLinkEl) basicsLinkEl.href = `/pages/basics.html?student_id=${studentParam}`;
+  const flashLinkEl = document.getElementById('link-view-all-flash');
+  if (flashLinkEl) flashLinkEl.href = `/pages/flash.html?student_id=${studentParam}`;
+  const elementsLinkEl = document.getElementById('link-view-all-elements');
+  if (elementsLinkEl) elementsLinkEl.href = `/pages/elements.html?student_id=${studentParam}`;
+  const memoriadLinkEl = document.getElementById('link-view-all-memoriad');
+  if (memoriadLinkEl) memoriadLinkEl.href = `/pages/memoriad.html?student_id=${studentParam}`;
 }
 
-function renderHeaderUser(profile) {
+export function renderHeaderUser(profile) {
   const container = document.getElementById('user-pill-container');
   const nameEl = document.getElementById('header-user-name');
   const roleEl = document.getElementById('header-user-role');
   if (container) container.style.display = 'flex';
-  if (nameEl) nameEl.textContent = profile.full_name || 'Admin';
-  if (roleEl) roleEl.textContent = 'Teacher';
+  const roleLabel = profile.role === 'admin' ? 'Admin' : (profile.role === 'teacher' ? 'Teacher' : 'Staff');
+  if (nameEl) nameEl.textContent = profile.full_name || profile.name || roleLabel;
+  if (roleEl) roleEl.textContent = roleLabel;
 
   document.getElementById('btn-header-logout')?.addEventListener('click', async () => {
     const { logoutUser } = await import('./auth.js');
     await logoutUser();
   });
+}
+
+export function renderRoleContext(profile) {
+  const banner = document.getElementById('role-context-banner');
+  const bannerText = document.getElementById('role-context-banner-text');
+  const backBtn = document.getElementById('btn-back-overview');
+  const editProfileBtn = document.getElementById('btn-edit-student-profile');
+  const sendMsgBtn = document.getElementById('btn-send-student-message');
+  const auditBtn = document.getElementById('btn-student-change-history');
+
+  if (banner) banner.style.display = 'flex';
+
+  if (profile.role === 'admin') {
+    if (bannerText) bannerText.innerHTML = 'Viewing as administrator';
+    if (backBtn) {
+      backBtn.href = '/pages/admin.html';
+      backBtn.textContent = '← Back to Overview';
+    }
+    if (editProfileBtn) editProfileBtn.style.display = '';
+    if (sendMsgBtn) sendMsgBtn.style.display = '';
+    if (auditBtn) auditBtn.style.display = '';
+  } else if (profile.role === 'teacher') {
+    if (bannerText) bannerText.innerHTML = 'Viewing as teacher &mdash; read-only';
+    if (backBtn) {
+      backBtn.href = '/pages/teacher.html';
+      backBtn.textContent = '← Back to Teacher Workspace';
+    }
+    // Teachers have read-only inspection on student detail: hide admin mutate actions
+    if (editProfileBtn) editProfileBtn.style.display = 'none';
+    if (sendMsgBtn) sendMsgBtn.style.display = 'none';
+    if (auditBtn) auditBtn.style.display = 'none';
+  }
 }
 
 function renderDemoBanner() {

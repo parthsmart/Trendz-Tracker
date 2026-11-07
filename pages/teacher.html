@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Teacher Overview - Trendz Tracker</title>
+    <meta name="description" content="Teacher dashboard for tracking assigned students' practice, review, and tests." />
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- Top Bar: 3-Zone Navigation -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <a href="/pages/teacher.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="4" y="2" width="16" height="20" rx="2"></rect>
+                <line x1="8" y1="6" x2="16" y2="6"></line>
+                <line x1="16" y1="14" x2="16" y2="18"></line>
+                <path d="M16 10h.01"></path>
+                <path d="M12 10h.01"></path>
+                <path d="M8 10h.01"></path>
+                <path d="M12 14h.01"></path>
+                <path d="M8 14h.01"></path>
+                <path d="M12 18h.01"></path>
+                <path d="M8 18h.01"></path>
+              </svg>
+            </span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <button type="button" class="mobile-menu-btn" id="btn-mobile-menu" aria-label="Toggle Navigation" aria-expanded="false">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+
+          <nav class="nav-zone" id="teacher-nav-zone" aria-label="Teacher Primary Navigation"></nav>
+
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-sm); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Teacher</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-role" style="color: var(--text-muted);">Teacher</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Page Content -->
+      <main class="main-content">
+        <div class="container">
+          <div id="config-banner-placeholder"></div>
+
+          <!-- Page Heading -->
+          <div class="section-header-row" style="margin-bottom: var(--space-6); display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: var(--space-4);">
+            <div>
+              <div style="display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-2);">
+                <h1 style="margin: 0;">Teacher Workspace</h1>
+                <span class="badge badge-info" id="badge-scope" style="font-size: var(--text-xs); font-weight: 600;">
+                  Assigned students only
+                </span>
+              </div>
+              <p style="font-size: var(--text-sm); margin: 0; color: var(--text-muted);">
+                Monitor daily practice, review scores, and track upcoming tests for your assigned students.
+              </p>
+            </div>
+            <div class="meta-row" style="font-size: var(--text-sm);">
+              <span>Today (IST): <strong id="overview-today-ist" class="num">—</strong></span>
+            </div>
+          </div>
+
+          <!-- Summary Cards (4 Cards) -->
+          <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-bottom: var(--space-6);">
+            <div class="stat-card">
+              <span class="stat-label">Assigned Students</span>
+              <span class="stat-value" id="stat-assigned-students">—</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Not Practiced Today</span>
+              <span class="stat-value" id="stat-not-practiced" style="color: var(--color-warning-text, #d97706);">—</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Pending Review</span>
+              <span class="stat-value" id="stat-pending-review" style="color: var(--color-accent-text, #2563eb);">—</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Needing Attention</span>
+              <span class="stat-value" id="stat-needs-attention" style="color: var(--color-danger-text, #dc2626);">—</span>
+            </div>
+          </div>
+
+          <!-- 4 Core Overview Sections -->
+          <div style="display: flex; flex-direction: column; gap: var(--space-6);">
+
+            <!-- Section 1: Assigned students who have not practiced today -->
+            <section class="card" aria-labelledby="heading-not-practiced">
+              <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2);">
+                <div>
+                  <h2 id="heading-not-practiced" style="font-size: var(--text-lg); margin: 0;">
+                    Students Not Practiced Today
+                  </h2>
+                  <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 2px 0 0 0;">
+                    Assigned students who have not logged any practice entries for today (India time).
+                  </p>
+                </div>
+                <span class="badge badge-neutral num" id="badge-not-practiced-count">0</span>
+              </div>
+              <div class="card-body" id="container-not-practiced">
+                <div class="empty-state">Loading assigned students...</div>
+              </div>
+            </section>
+
+            <!-- Section 2: Students needing attention -->
+            <section class="card" aria-labelledby="heading-attention">
+              <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2);">
+                <div>
+                  <h2 id="heading-attention" style="font-size: var(--text-lg); margin: 0;">
+                    Students Needing Attention
+                  </h2>
+                  <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 2px 0 0 0;">
+                    Flagged drill entries or scores that require teacher follow-up.
+                  </p>
+                </div>
+                <span class="badge badge-neutral num" id="badge-attention-count">0</span>
+              </div>
+              <div class="card-body" id="container-needs-attention">
+                <div class="empty-state">Loading flagged entries...</div>
+              </div>
+            </section>
+
+            <!-- Section 3: Scores pending review -->
+            <section class="card" aria-labelledby="heading-pending-review">
+              <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2);">
+                <div>
+                  <h2 id="heading-pending-review" style="font-size: var(--text-lg); margin: 0;">
+                    Scores Pending Review
+                  </h2>
+                  <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 2px 0 0 0;">
+                    Unverified scores logged by assigned students in the last 7 calendar days.
+                  </p>
+                </div>
+                <div style="display: flex; align-items: center; gap: var(--space-3);">
+                  <span class="badge badge-neutral num" id="badge-pending-count">0</span>
+                  <a href="/pages/review.html" class="btn btn-outline btn-sm">Open Review &rarr;</a>
+                </div>
+              </div>
+              <div class="card-body" id="container-pending-review">
+                <div class="empty-state">Loading pending scores...</div>
+              </div>
+            </section>
+
+            <!-- Section 4: Upcoming weekly tests -->
+            <section class="card" aria-labelledby="heading-upcoming-tests">
+              <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2);">
+                <div>
+                  <h2 id="heading-upcoming-tests" style="font-size: var(--text-lg); margin: 0;">
+                    Upcoming Weekly Tests
+                  </h2>
+                  <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 2px 0 0 0;">
+                    Active or scheduled weekly tests available to assigned students.
+                  </p>
+                </div>
+                <a href="/pages/weekly-tests.html" class="btn btn-outline btn-sm">Manage Tests &rarr;</a>
+              </div>
+              <div class="card-body" id="container-upcoming-tests">
+                <div class="empty-state">Loading weekly tests...</div>
+              </div>
+            </section>
+
+          </div>
+        </div>
+      </main>
+
+      <footer class="app-footer">
+        <div class="container footer-inner">
+          <span>&copy; 2026 Trendz Abacus. Teacher Workspace.</span>
+          <span class="num">Teacher Portal</span>
+        </div>
+      </footer>
+    </div>
+
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <script type="module" src="/js/teacherOverview.js"></script>
+  </body>
+</html>

@@ -25,16 +25,32 @@ let currentProfile = null;
 let allSessions = [];
 let selectedSessionId = null;
 let activeStudentsList = [];
+let activeStudentsPromise = null;
+let rosterLoadError = null;
+let testSupabaseClient = null;
 let sessionAttendanceMap = new Map(); // studentId -> { status: 'present'|'absent'|'excused'|null, note: string }
 let rosterSearchQuery = '';
 let saveAndAddAnotherSessionMode = false;
 
 async function initAttendancePage() {
-  currentProfile = await requireAuth(['admin']);
+  currentProfile = await requireAuth(['teacher', 'admin']);
   if (!currentProfile) return;
 
+  if (currentProfile.role === 'teacher') {
+    if (currentProfile.permissions?.can_mark_attendance === false) {
+      window.location.href = '/pages/teacher.html';
+      return;
+    }
+    const heading = document.querySelector('h1');
+    if (heading) {
+      heading.innerHTML = 'Attendance <span class="badge badge-info" style="font-size: var(--text-xs); vertical-align: middle; margin-left: 8px;">Assigned students only</span>';
+    }
+  }
+
   renderHeaderUser(currentProfile);
-  setupAdminNav(currentProfile);
+  if (currentProfile.role === 'admin') {
+    setupAdminNav(currentProfile);
+  }
   setupModalListeners();
 
   if (isDemoMode()) {
@@ -44,35 +60,73 @@ async function initAttendancePage() {
   setupSessionModalHandlers();
   setupRosterHandlers();
 
-  // Load initial sessions and active students
-  await Promise.all([
-    loadActiveStudents(),
-    loadSessions()
-  ]);
+  // Load active students first, then load sessions to prevent misleading zero unmarked counts
+  try {
+    await loadActiveStudents();
+  } catch (err) {
+    // rosterLoadError is stored; will be displayed in roster table and sessions list
+  }
+  await loadSessions();
 }
 
 /**
  * Loads all active students for attendance marking
  */
 async function loadActiveStudents() {
-  if (isSupabaseConfigured()) {
-    try {
-      const supabase = await getSupabase();
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, full_name, student_code, level, active')
-        .eq('role', 'student')
-        .eq('active', true)
-        .order('student_code', { ascending: true });
+  rosterLoadError = null;
+  activeStudentsPromise = (async () => {
+    if (testSupabaseClient || isSupabaseConfigured()) {
+      const supabase = testSupabaseClient || (await getSupabase());
+      if (currentProfile?.role === 'teacher') {
+        const { data: assignments, error: assignErr } = await supabase
+          .from('teacher_student_assignments')
+          .select('student_id')
+          .eq('teacher_id', currentProfile.id);
 
-      if (!error && data) {
-        activeStudentsList = data;
+        if (assignErr) throw assignErr;
+        const assignedIds = (assignments || []).map((a) => a.student_id);
+
+        if (assignedIds.length === 0) {
+          activeStudentsList = [];
+          return activeStudentsList;
+        }
+
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('id, full_name, student_code, level, active')
+          .in('id', assignedIds)
+          .eq('role', 'student')
+          .eq('active', true)
+          .order('student_code', { ascending: true });
+
+        if (error) throw error;
+        activeStudentsList = data || [];
+        return activeStudentsList;
+      } else {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('id, full_name, student_code, level, active')
+          .eq('role', 'student')
+          .eq('active', true)
+          .order('student_code', { ascending: true });
+
+        if (error) throw error;
+        activeStudentsList = data || [];
+        return activeStudentsList;
       }
-    } catch (err) {
-      console.warn('Failed to load active students:', err);
+    } else {
+      activeStudentsList = DemoDB.getStudents().filter(s => s.role === 'student' && s.active !== false);
+      return activeStudentsList;
     }
-  } else {
-    activeStudentsList = DemoDB.getStudents().filter(s => s.role === 'student' && s.active !== false);
+  })();
+
+  try {
+    return await activeStudentsPromise;
+  } catch (err) {
+    rosterLoadError = err;
+    activeStudentsList = [];
+    console.warn('Failed to load active students:', err);
+    throw err;
   }
 }
 
@@ -80,6 +134,15 @@ async function loadActiveStudents() {
  * Loads all sessions and their attendance counts
  */
 async function loadSessions(selectIdAfterLoad = null) {
+  // Guarantee active students loading has settled before computing session unmarked counts
+  if (activeStudentsPromise) {
+    try {
+      await activeStudentsPromise;
+    } catch (_) {
+      // rosterLoadError is handled below to avoid misleading zero counts
+    }
+  }
+
   const container = document.getElementById('sessions-list-container');
   const countLabel = document.getElementById('session-count-label');
 
@@ -88,8 +151,8 @@ async function loadSessions(selectIdAfterLoad = null) {
   }
 
   try {
-    if (isSupabaseConfigured()) {
-      const supabase = await getSupabase();
+    if (testSupabaseClient || isSupabaseConfigured()) {
+      const supabase = testSupabaseClient || (await getSupabase());
 
       // 1. Fetch sessions
       const { data: sessions, error: sesErr } = await supabase
@@ -107,7 +170,8 @@ async function loadSessions(selectIdAfterLoad = null) {
 
       if (attErr) throw new Error(attErr.message);
 
-      const activeCount = activeStudentsList.length;
+      const rosterFailed = Boolean(rosterLoadError);
+      const activeCount = rosterFailed ? null : activeStudentsList.length;
 
       // Group attendance by session
       const attMap = new Map();
@@ -130,14 +194,15 @@ async function loadSessions(selectIdAfterLoad = null) {
           else if (r.status === 'excused') excused++;
         });
 
-        const unmarked = Math.max(0, activeCount - markedIds.size);
+        const unmarked = rosterFailed ? null : Math.max(0, activeCount - markedIds.size);
 
         return {
           ...ses,
           present_count: present,
           absent_count: absent,
           excused_count: excused,
-          unmarked_count: unmarked
+          unmarked_count: unmarked,
+          roster_error: rosterFailed
         };
       });
 
@@ -227,11 +292,15 @@ function renderSessionsList() {
           <span class="status-chip chip-neutral">
             ${ses.excused_count} Excused
           </span>
-          ${ses.unmarked_count > 0 ? `
+          ${ses.roster_error ? `
+            <span class="status-chip chip-danger" title="Student roster failed to load">
+              Roster unavailable
+            </span>
+          ` : (ses.unmarked_count > 0 ? `
             <span class="status-chip chip-warning">
               ${ses.unmarked_count} Unmarked
             </span>
-          ` : ''}
+          ` : '')}
         </div>
       </div>
     `;
@@ -328,6 +397,19 @@ async function loadSessionAttendanceRecords(sessionId) {
  * Updates quick counts at top of active session
  */
 function updateRosterCountsUI() {
+  const pEl = document.getElementById('active-count-present');
+  const aEl = document.getElementById('active-count-absent');
+  const eEl = document.getElementById('active-count-excused');
+  const uEl = document.getElementById('active-count-unmarked');
+
+  if (rosterLoadError) {
+    if (pEl) pEl.textContent = '—';
+    if (aEl) aEl.textContent = '—';
+    if (eEl) eEl.textContent = '—';
+    if (uEl) uEl.textContent = 'Error';
+    return;
+  }
+
   let present = 0;
   let absent = 0;
   let excused = 0;
@@ -346,11 +428,6 @@ function updateRosterCountsUI() {
     }
   });
 
-  const pEl = document.getElementById('active-count-present');
-  const aEl = document.getElementById('active-count-absent');
-  const eEl = document.getElementById('active-count-excused');
-  const uEl = document.getElementById('active-count-unmarked');
-
   if (pEl) pEl.textContent = present;
   if (aEl) aEl.textContent = absent;
   if (eEl) eEl.textContent = excused;
@@ -363,6 +440,20 @@ function updateRosterCountsUI() {
 function renderStudentRosterGrid() {
   const tbody = document.getElementById('attendance-roster-tbody');
   if (!tbody) return;
+
+  if (rosterLoadError) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="4" class="empty-state" style="padding: var(--space-8); text-align: center;">
+          <h4 style="font-size: var(--text-sm); font-weight: 600; margin-bottom: var(--space-1); color: var(--color-danger-text);">Failed to Load Student Roster</h4>
+          <p style="font-size: var(--text-sm); color: var(--text-muted); margin: 0;">
+            ${escapeHtml(rosterLoadError.message || 'Unable to fetch active students.')}
+          </p>
+        </td>
+      </tr>
+    `;
+    return;
+  }
 
   let displayStudents = activeStudentsList;
   if (rosterSearchQuery) {
@@ -379,9 +470,9 @@ function renderStudentRosterGrid() {
     tbody.innerHTML = `
       <tr>
         <td colspan="4" class="empty-state" style="padding: var(--space-8); text-align: center;">
-          <h4 style="font-size: var(--text-sm); font-weight: 600; margin-bottom: var(--space-1);">No Students Found</h4>
+          <h4 style="font-size: var(--text-sm); font-weight: 600; margin-bottom: var(--space-1);">${rosterSearchQuery ? 'No Students Found' : 'No Active Students'}</h4>
           <p style="font-size: var(--text-sm); color: var(--text-muted); margin: 0;">
-            No active students match "${escapeHtml(rosterSearchQuery)}".
+            ${rosterSearchQuery ? `No active students match "${escapeHtml(rosterSearchQuery)}".` : 'No active students found.'}
           </p>
         </td>
       </tr>
@@ -515,6 +606,10 @@ function setupRosterHandlers() {
   const btnMarkAll = document.getElementById('btn-mark-all-present');
   if (btnMarkAll) {
     btnMarkAll.addEventListener('click', () => {
+      if (rosterLoadError) {
+        showToast('error', 'Cannot mark attendance: student roster failed to load.');
+        return;
+      }
       activeStudentsList.forEach(student => {
         const current = sessionAttendanceMap.get(student.id) || { status: null, note: '' };
         sessionAttendanceMap.set(student.id, {
@@ -540,6 +635,11 @@ function setupRosterHandlers() {
  */
 async function handleSaveAttendanceClick() {
   if (!selectedSessionId) return;
+
+  if (rosterLoadError) {
+    showToast('error', 'Cannot save attendance: student roster failed to load.');
+    return;
+  }
 
   // Count unmarked active students
   let unmarkedCount = 0;
@@ -585,21 +685,35 @@ async function executeSaveAttendance() {
 
     if (isSupabaseConfigured()) {
       const supabase = await getSupabase();
-      const nowIso = new Date().toISOString();
 
-      const payload = recordsToSave.map(r => ({
-        ...r,
-        marked_by: currentProfile.id,
-        marked_at: nowIso
-      }));
+      if (currentProfile?.role === 'teacher') {
+        const rpcRecords = recordsToSave.map((r) => ({
+          student_id: r.student_id,
+          status: r.status,
+          note: r.note,
+        }));
 
-      // Upsert on unique constraint (session_id, student_id)
-      const { error } = await supabase
-        .from('attendance')
-        .upsert(payload, { onConflict: 'session_id,student_id' });
+        const { data: rpcRes, error: rpcErr } = await supabase.rpc('teacher_save_attendance', {
+          p_session_id: selectedSessionId,
+          p_records: rpcRecords,
+        });
 
-      if (error) throw new Error(error.message);
+        if (rpcErr) throw new Error(rpcErr.message);
+      } else {
+        const nowIso = new Date().toISOString();
+        const payload = recordsToSave.map(r => ({
+          ...r,
+          marked_by: currentProfile.id,
+          marked_at: nowIso
+        }));
 
+        // Upsert on unique constraint (session_id, student_id)
+        const { error } = await supabase
+          .from('attendance')
+          .upsert(payload, { onConflict: 'session_id,student_id' });
+
+        if (error) throw new Error(error.message);
+      }
     } else {
       DemoDB.saveAttendanceRecords(selectedSessionId, recordsToSave, currentProfile.id);
     }
@@ -649,17 +763,33 @@ function updateSessionLiveSummary() {
   });
 }
 
+function applyTeacherDateLimits(dateInput) {
+  if (!dateInput || currentProfile?.role !== 'teacher') return;
+  const todayIst = getISTDateString(new Date());
+  dateInput.max = todayIst;
+  if (currentProfile.permissions?.can_correct_attendance !== false) {
+    const minD = new Date(Date.now() - 7 * 86400000);
+    dateInput.min = getISTDateString(minD);
+  } else {
+    dateInput.min = todayIst;
+  }
+}
+
 function prepareCreateSessionModal() {
   const modalTitle = document.getElementById('session-modal-title');
   const btnSaveAnother = document.getElementById('btn-save-add-another-session');
   const moreOptions = document.getElementById('session-more-options');
+  const dateInput = document.getElementById('session-date-input');
 
   if (modalTitle) modalTitle.textContent = 'Create Attendance Session';
   if (btnSaveAnother) btnSaveAnother.style.display = 'inline-flex';
   clearSessionModalErrors();
 
   document.getElementById('session-id-input').value = '';
-  document.getElementById('session-date-input').value = getISTDateString(new Date());
+  if (dateInput) {
+    dateInput.value = getISTDateString(new Date());
+    applyTeacherDateLimits(dateInput);
+  }
   document.getElementById('session-title-input').value = '';
   document.getElementById('session-type-input').value = 'class';
   document.getElementById('session-notes-input').value = '';
@@ -701,12 +831,20 @@ function setupSessionModalHandlers() {
       const session = allSessions.find(s => s.id === selectedSessionId);
       if (!session) return;
 
+      const dateInput = document.getElementById('session-date-input');
+      applyTeacherDateLimits(dateInput);
+
+      if (currentProfile?.role === 'teacher' && dateInput?.min && session.session_date < dateInput.min) {
+        showToast('error', 'Past attendance sessions beyond 7 days can only be modified by an administrator.');
+        return;
+      }
+
       if (modalTitle) modalTitle.textContent = 'Edit Attendance Session';
       if (btnSaveAnother) btnSaveAnother.style.display = 'none';
       clearSessionModalErrors();
 
       document.getElementById('session-id-input').value = session.id;
-      document.getElementById('session-date-input').value = session.session_date;
+      if (dateInput) dateInput.value = session.session_date;
       document.getElementById('session-title-input').value = session.title;
       document.getElementById('session-type-input').value = session.session_type || 'class';
       document.getElementById('session-notes-input').value = session.notes || '';
@@ -884,8 +1022,9 @@ function renderHeaderUser(profile) {
   const btnLogout = document.getElementById('btn-header-logout');
 
   if (container) container.style.display = 'inline-flex';
-  if (nameEl) nameEl.textContent = profile.full_name || profile.name || 'Admin';
-  if (roleEl) roleEl.textContent = 'Teacher';
+  const roleLabel = profile.role === 'admin' ? 'Admin' : (profile.role === 'teacher' ? 'Teacher' : 'Staff');
+  if (nameEl) nameEl.textContent = profile.full_name || profile.name || roleLabel;
+  if (roleEl) roleEl.textContent = roleLabel;
 
   if (btnLogout) {
     btnLogout.addEventListener('click', async () => {
@@ -918,3 +1057,52 @@ function escapeHtml(str) {
 }
 
 document.addEventListener('DOMContentLoaded', initAttendancePage);
+
+// Exports for unit/contract tests
+function getActiveStudentsList() {
+  return activeStudentsList;
+}
+
+function getRosterLoadError() {
+  return rosterLoadError;
+}
+
+function getAllSessions() {
+  return allSessions;
+}
+
+function setCurrentProfileForTesting(profile) {
+  currentProfile = profile;
+}
+
+function setSupabaseClientForTesting(client) {
+  testSupabaseClient = client;
+}
+
+function resetAttendanceStateForTesting() {
+  currentProfile = null;
+  allSessions = [];
+  selectedSessionId = null;
+  activeStudentsList = [];
+  activeStudentsPromise = null;
+  rosterLoadError = null;
+  testSupabaseClient = null;
+  sessionAttendanceMap.clear();
+  rosterSearchQuery = '';
+}
+
+export {
+  initAttendancePage,
+  loadActiveStudents,
+  loadSessions,
+  selectSession,
+  renderSessionsList,
+  renderStudentRosterGrid,
+  updateRosterCountsUI,
+  getActiveStudentsList,
+  getRosterLoadError,
+  getAllSessions,
+  setCurrentProfileForTesting,
+  setSupabaseClientForTesting,
+  resetAttendanceStateForTesting
+};

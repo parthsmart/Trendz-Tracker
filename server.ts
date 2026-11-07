@@ -8,6 +8,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import createStudentHandler from './api/create-student.js';
+import manageTeacherHandler from './api/manage-teacher.js';
 import resetPasswordHandler from './api/reset-password.js';
 import supabaseProxyHandler from './api/supabase-proxy.js';
 import weeklyReportHandler from './api/weekly-report.js';
@@ -16,9 +17,16 @@ import drillHandler from './api/drill.js';
 import memoriadHandler from './api/memoriad.js';
 import weeklyTestHandler from './api/weekly-test.js';
 import jmcwcHandler from './api/jmcwc.js';
-import { getSupabaseServerConfig } from './api/_configHelper.js';
+import { getSupabaseServerConfig, validateStagingIsolation } from './api/_configHelper.js';
 
-dotenv.config({ path: process.env.DOTENV_CONFIG_PATH || process.env.ENV_FILE || '.env' });
+const isStaging = process.env.npm_lifecycle_event === 'preview:staging' || process.env.APP_ENV === 'staging';
+
+// In staging mode, strictly load staging env file and NEVER fall back to production .env
+if (isStaging) {
+  dotenv.config({ path: process.env.DOTENV_CONFIG_PATH || process.env.ENV_FILE || '.env.staging.local' });
+} else {
+  dotenv.config({ path: process.env.DOTENV_CONFIG_PATH || process.env.ENV_FILE || '.env' });
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -56,6 +64,7 @@ function safeHandler(fn: (req: express.Request, res: express.Response) => unknow
 
 // Mount the serverless API routes locally
 app.post('/api/create-student', safeHandler(createStudentHandler));
+app.post(['/api/manage-teacher', '/api/create-teacher'], safeHandler(manageTeacherHandler));
 app.post('/api/reset-password', safeHandler(resetPasswordHandler));
 app.all('/api/supabase-proxy', safeHandler(supabaseProxyHandler));
 app.all('/api/weekly-report', safeHandler(weeklyReportHandler));
@@ -66,6 +75,11 @@ app.all(['/api/weekly-test', '/api/weekly-test.js'], safeHandler(weeklyTestHandl
 app.all(['/api/jmcwc', '/api/jmcwc.js'], safeHandler(jmcwcHandler));
 
 async function startServer() {
+  if (isStaging) {
+    const stagingCheck = validateStagingIsolation();
+    console.log(`[STAGING ISOLATION] Verified staging project isolation: ${stagingCheck.url}`);
+  }
+
   const isProduction = process.env.NODE_ENV === 'production';
   const distPath = path.join(__dirname, 'dist');
 

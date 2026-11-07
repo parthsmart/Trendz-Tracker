@@ -11,10 +11,10 @@
 export const EXPORT_PAGE_SIZE = 1000;
 
 /**
- * The 22 tables exported in a full backup ZIP, in the same canonical order as `api/_backupTables.js`.
+ * The 31 tables exported in a full backup ZIP, in the same canonical order as `api/_backupTables.js`.
  */
 export const EXPORT_TABLES = [
-  // 16 Snapshot tables
+  // 23 Snapshot tables
   { name: 'profiles', mode: 'snapshot', primaryKey: ['id'], defaultColumns: ['id', 'student_code', 'full_name', 'role', 'level', 'active', 'leaderboard_visible', 'created_at'] },
   { name: 'round_series', mode: 'snapshot', primaryKey: ['id'], defaultColumns: ['id', 'name', 'sort_order', 'is_current', 'created_at'] },
   { name: 'categories', mode: 'snapshot', primaryKey: ['id'], defaultColumns: ['id', 'name', 'section', 'sort_order', 'active', 'created_at'] },
@@ -31,13 +31,22 @@ export const EXPORT_TABLES = [
   { name: 'weekly_test_removals', mode: 'snapshot', primaryKey: ['id'], defaultColumns: ['id', 'removed_by', 'removed_at', 'reason', 'title', 'test_date', 'scores_count', 'restored_at'] },
   { name: 'announcements', mode: 'snapshot', primaryKey: ['id'], defaultColumns: ['id', 'title', 'body', 'audience_level', 'active', 'created_by', 'created_at'] },
   { name: 'import_batches', mode: 'snapshot', primaryKey: ['id'], defaultColumns: ['id', 'student_id', 'file_name', 'conflict_mode', 'status', 'rounds_created', 'results_inserted', 'results_updated', 'results_skipped', 'acknowledgments', 'created_by', 'created_at', 'undone_at', 'undone_by'] },
-  // 6 Append tables
+  { name: 'teacher_permissions', mode: 'snapshot', primaryKey: ['teacher_id'], defaultColumns: ['teacher_id', 'can_view_students', 'can_mark_attendance', 'can_correct_attendance', 'can_generate_reports', 'can_manage_tasks', 'can_manage_tests', 'can_publish_announcements', 'can_manage_resources', 'can_review_scores', 'can_request_corrections', 'updated_at', 'updated_by'] },
+  { name: 'teacher_student_assignments', mode: 'snapshot', primaryKey: ['id'], fallbackPrimaryKey: ['teacher_id', 'student_id'], defaultColumns: ['id', 'teacher_id', 'student_id', 'assigned_by', 'created_at'] },
+  { name: 'weekly_test_recipients', mode: 'snapshot', primaryKey: ['test_id', 'student_id'], defaultColumns: ['test_id', 'student_id'] },
+  { name: 'daily_task_recipients', mode: 'snapshot', primaryKey: ['task_id', 'student_id'], defaultColumns: ['task_id', 'student_id'] },
+  { name: 'announcement_recipients', mode: 'snapshot', primaryKey: ['announcement_id', 'student_id'], defaultColumns: ['announcement_id', 'student_id'] },
+  { name: 'resource_recipients', mode: 'snapshot', primaryKey: ['resource_id', 'student_id'], defaultColumns: ['resource_id', 'student_id'] },
+  { name: 'score_correction_requests', mode: 'snapshot', primaryKey: ['id'], defaultColumns: ['id', 'teacher_id', 'student_id', 'result_id', 'activity_result_id', 'table_name', 'original_score_snapshot', 'proposed_correct', 'proposed_total', 'proposed_time_seconds', 'reason', 'status', 'decided_by', 'decided_at', 'decision_note', 'created_at'] },
+  // 8 Append tables
   { name: 'student_rounds', mode: 'append', primaryKey: ['id'], defaultColumns: ['id', 'student_id', 'series_id', 'round_number', 'round_date', 'round_type', 'time_taken_seconds', 'import_batch_id', 'created_at', 'updated_at'] },
   { name: 'results', mode: 'append', primaryKey: ['id'], defaultColumns: ['id', 'student_id', 'category_id', 'student_round_id', 'round_number', 'correct', 'total', 'time_seconds', 'entry_date', 'note', 'verified', 'verified_at', 'verified_by', 'flagged', 'flag_note', 'corrected_at', 'corrected_by', 'import_batch_id', 'created_at', 'updated_at'] },
   { name: 'weekly_test_scores', mode: 'append', primaryKey: ['id'], defaultColumns: ['id', 'test_id', 'student_id', 'category_id', 'correct', 'total', 'time_seconds', 'source', 'created_at', 'updated_at'] },
   { name: 'attendance', mode: 'append', primaryKey: ['id'], defaultColumns: ['id', 'session_id', 'student_id', 'status', 'note', 'marked_by', 'created_at', 'updated_at'] },
   { name: 'activity_results', mode: 'append', primaryKey: ['id'], defaultColumns: ['id', 'student_id', 'activity_type', 'score', 'entry_date', 'created_at', 'updated_at'] },
   { name: 'result_audit', mode: 'append', primaryKey: ['id'], defaultColumns: ['id', 'result_id', 'action', 'old_values', 'new_values', 'reason', 'changed_by', 'changed_at'] },
+  { name: 'attendance_audit', mode: 'append', primaryKey: ['id'], defaultColumns: ['id', 'attendance_id', 'session_id', 'student_id', 'changed_by', 'action', 'old_status', 'new_status', 'old_note', 'new_note', 'reason', 'changed_at'] },
+  { name: 'teacher_audit_log', mode: 'append', primaryKey: ['id'], defaultColumns: ['id', 'teacher_id', 'actor_id', 'action', 'details', 'created_at'] },
 ];
 
 const PLAIN_NUMBER_REGEX = /^[+-]?(?:\d+\.?\d*|\.\d+)$/;
@@ -383,7 +392,7 @@ export function buildExportReadme({ dateIst, tableSummaries = {}, totalRows = 0 
     `Backup Date (IST): ${dateIst || 'Unknown'}`,
     `Total Rows Exported: ${totalRows}`,
     '',
-    'CONTENTS (18 CSV files):',
+    `CONTENTS (${EXPORT_TABLES.length} CSV files):`,
   ];
 
   for (const t of EXPORT_TABLES) {
@@ -394,19 +403,22 @@ export function buildExportReadme({ dateIst, tableSummaries = {}, totalRows = 0 
   lines.push(
     '',
     'HOW TO RESTORE INTO A NEW SUPABASE PROJECT:',
-    '1. Recreate the database schema by running the 12 SQL scripts in',
-    '   `supabase/migrations/` in numerical order (01 through 12) in the',
+    '1. Recreate the database schema by running the SQL migrations in order in the',
     '   Supabase SQL Editor.',
-    '2. Create student/admin accounts in Supabase Auth (or import into',
+    '2. Create student/teacher/admin accounts in Supabase Auth (or import into',
     '   `profiles` after creating corresponding `auth.users` rows).',
     '3. Import the CSV files in foreign-key dependency order:',
     '   a) profiles.csv, round_series.csv, categories.csv, competition_settings.csv',
     '   b) category_series.csv, category_aliases.csv, basics_thresholds.csv,',
-    '      daily_tasks.csv, resources.csv',
-    '   c) attendance_sessions.csv, attendance.csv, weekly_tests.csv,',
-    '      weekly_test_scores.csv',
+    '      daily_tasks.csv, resources.csv, teacher_permissions.csv,',
+    '      teacher_student_assignments.csv',
+    '   c) weekly_tests.csv, weekly_test_sections.csv, attendance_sessions.csv,',
+    '      daily_task_recipients.csv, resource_recipients.csv,',
+    '      announcement_recipients.csv, weekly_test_recipients.csv',
     '   d) import_batches.csv, student_rounds.csv, results.csv,',
-    '      activity_results.csv, result_audit.csv',
+    '      activity_results.csv, weekly_test_scores.csv, weekly_test_attempts.csv,',
+    '      weekly_test_removals.csv, score_correction_requests.csv, attendance.csv',
+    '   e) result_audit.csv, attendance_audit.csv, teacher_audit_log.csv',
     '   Note: If any text cell was prefixed with a leading single quote (\')',
     '   to prevent spreadsheet formula injection, remove the leading single',
     '   quote if needed.',

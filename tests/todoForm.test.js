@@ -321,6 +321,52 @@ describe('normalizeTaskInput', () => {
       assert.equal(cleared.value.flash_mode, null);
     }
   });
+
+  it('validates duration_seconds and rejects arbitrary duration for Flash Anzan', () => {
+    // Flash rejects arbitrary duration
+    const flashWithDuration = normalizeTaskInput(
+      {
+        title: 'Flash drill',
+        duration_seconds: 60,
+      },
+      'flash'
+    );
+    assert.ok(flashWithDuration.errors?.duration_seconds);
+    assert.equal(
+      flashWithDuration.errors.duration_seconds,
+      'Flash Anzan duration is determined by its number count and speed interval (t = count × speed) and cannot use an arbitrary duration.'
+    );
+
+    // Flash accepts empty / any / default duration
+    for (const emptyDur of ['', null, undefined, 'any', 'default']) {
+      const flashEmpty = normalizeTaskInput(
+        {
+          title: 'Flash drill',
+          duration_seconds: emptyDur,
+        },
+        'flash'
+      );
+      assert.ok(flashEmpty.value);
+      assert.equal(flashEmpty.value.duration_seconds, null);
+    }
+
+    // Basics / Elements / Memoriad accepts valid duration 5..3600
+    const validBasicsDur = normalizeTaskInput(
+      {
+        title: 'Basics drill',
+        duration_seconds: 60,
+      },
+      'basics'
+    );
+    assert.ok(validBasicsDur.value);
+    assert.equal(validBasicsDur.value.duration_seconds, 60);
+
+    // Rejects out-of-range duration
+    const lowDur = normalizeTaskInput({ title: 'Low', duration_seconds: 4 }, 'basics');
+    assert.ok(lowDur.errors?.duration_seconds);
+    const highDur = normalizeTaskInput({ title: 'High', duration_seconds: 3601 }, 'basics');
+    assert.ok(highDur.errors?.duration_seconds);
+  });
 });
 
 describe('flashSummary', () => {

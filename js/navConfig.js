@@ -31,6 +31,8 @@ export const NAV_STAGE_AND_PUBLIC_ALLOWLIST = Object.freeze([
   '/pages/memoriad-play.html',
   '/pages/student-detail.html',
   '/pages/report.html',
+  '/pages/teacher.html',
+  '/pages/teachers.html',
   ...SETTINGS_SUBPAGE_PATHS,
 ]);
 
@@ -235,24 +237,159 @@ export const NAV_CONFIG = Object.freeze({
       desktopPlacement: 'menu-only',
     }),
   ]),
+
+  teacher: Object.freeze([
+    // Overview (inline)
+    Object.freeze({
+      id: 'teacher-overview',
+      label: 'Overview',
+      href: '/pages/teacher.html',
+      group: 'Overview',
+      inline: true,
+      desktopPlacement: 'inline',
+    }),
+
+    // My Students (inline, permission: can_view_students)
+    Object.freeze({
+      id: 'teacher-students',
+      label: 'My Students',
+      href: '/pages/students.html',
+      group: 'Overview',
+      inline: true,
+      desktopPlacement: 'inline',
+      permission: 'can_view_students',
+    }),
+
+    // Attendance (inline, permission: can_mark_attendance)
+    Object.freeze({
+      id: 'teacher-attendance',
+      label: 'Attendance',
+      href: '/pages/attendance.html',
+      group: 'Overview',
+      inline: true,
+      desktopPlacement: 'inline',
+      permission: 'can_mark_attendance',
+    }),
+
+    // Tasks (inline, permission: can_manage_tasks)
+    Object.freeze({
+      id: 'teacher-todos',
+      label: 'Tasks',
+      href: '/pages/todos.html',
+      group: 'Overview',
+      inline: true,
+      desktopPlacement: 'inline',
+      permission: 'can_manage_tasks',
+    }),
+
+    // Weekly Tests (inline, permission: can_manage_tests)
+    Object.freeze({
+      id: 'teacher-weekly-tests',
+      label: 'Weekly Tests',
+      href: '/pages/weekly-tests.html',
+      group: 'Overview',
+      inline: true,
+      desktopPlacement: 'inline',
+      permission: 'can_manage_tests',
+    }),
+
+    // Review (inline, permission: can_review_scores)
+    Object.freeze({
+      id: 'teacher-review',
+      label: 'Review',
+      href: '/pages/review.html',
+      group: 'Overview',
+      inline: true,
+      desktopPlacement: 'inline',
+      permission: 'can_review_scores',
+    }),
+
+    // Monthly Reports (inline, permission: can_generate_reports)
+    Object.freeze({
+      id: 'teacher-monthly-report',
+      label: 'Monthly Reports',
+      href: '/pages/monthly-report.html',
+      group: 'Overview',
+      inline: true,
+      desktopPlacement: 'inline',
+      permission: 'can_generate_reports',
+    }),
+
+    // Class Content (Announcements & Resources in dropdown)
+    Object.freeze({
+      id: 'teacher-announcements',
+      label: 'Announcements',
+      href: '/pages/announcements.html',
+      group: 'Class Content',
+      inline: false,
+      desktopPlacement: 'content-dropdown',
+      permission: 'can_publish_announcements',
+    }),
+    Object.freeze({
+      id: 'teacher-resources',
+      label: 'Resources',
+      href: '/pages/resources.html',
+      group: 'Class Content',
+      inline: false,
+      desktopPlacement: 'content-dropdown',
+      permission: 'can_manage_resources',
+    }),
+
+    // Account & Sign out
+    Object.freeze({
+      id: 'teacher-account',
+      label: 'Account',
+      href: '#account',
+      group: 'Account',
+      action: 'account',
+      inline: false,
+      desktopPlacement: 'menu-only',
+    }),
+    Object.freeze({
+      id: 'teacher-signout',
+      label: 'Sign out',
+      href: '#sign-out',
+      group: 'Account',
+      action: 'signout',
+      inline: false,
+      desktopPlacement: 'menu-only',
+    }),
+  ]),
 });
 
 /**
- * Returns all navigation items for a given role ('student' or 'admin').
- * @param {'student' | 'admin'} role
+ * Returns all navigation items for a given role ('student', 'teacher', or 'admin').
+ * Filters items if permissions object is passed for a teacher.
+ * @param {'student' | 'teacher' | 'admin'} role
+ * @param {Record<string, boolean> | null} [permissions=null]
  */
-export function getRoleNavItems(role) {
-  return role === 'admin' ? NAV_CONFIG.admin : NAV_CONFIG.student;
+export function getRoleNavItems(role, permissions = null) {
+  let items = NAV_CONFIG.student;
+  if (role === 'admin') {
+    items = NAV_CONFIG.admin;
+  } else if (role === 'teacher') {
+    items = NAV_CONFIG.teacher;
+  }
+
+  if (role === 'teacher' && permissions) {
+    return items.filter((item) => {
+      if (!item.permission) return true;
+      return permissions[item.permission] !== false;
+    });
+  }
+  return items;
 }
 
 /**
  * Returns the top-level inline navigation links shown on desktop (>= 1024px).
  * Student: Today, Round scores, Weekly Test, Leaderboard, Monthly Report
  * Admin: Overview, Review, Students, Attendance, Weekly Tests, Leaderboard, Monthly Report, Settings
- * @param {'student' | 'admin'} role
+ * Teacher: Overview, My Students, Attendance, Tasks, Weekly Tests, Review, Monthly Reports
+ * @param {'student' | 'teacher' | 'admin'} role
+ * @param {Record<string, boolean> | null} [permissions=null]
  */
-export function getInlineNavItems(role) {
-  return getRoleNavItems(role).filter((item) => item.desktopPlacement === 'inline');
+export function getInlineNavItems(role, permissions = null) {
+  return getRoleNavItems(role, permissions).filter((item) => item.desktopPlacement === 'inline');
 }
 
 /**
@@ -266,18 +403,24 @@ export function getInlineNavItems(role) {
  * Admin desktop layout:
  *   Overview, Review, Students, Attendance, Weekly Tests, Leaderboard, Monthly Report, Settings
  *
- * @param {'student' | 'admin'} role
+ * Teacher desktop layout:
+ *   Overview, My Students, Attendance, Tasks, Weekly Tests, Review, Monthly Reports,
+ *   Class Content ▾ (Announcements, Resources)
+ *
+ * @param {'student' | 'teacher' | 'admin'} role
+ * @param {Record<string, boolean> | null} [permissions=null]
  * @returns {Array<
  *   | { type: 'link', item: Record<string, any> }
  *   | { type: 'dropdown', id: string, toggleId: string, menuId: string, label: string, items: Array<Record<string, any>> }
  *   | { type: 'bell', item: Record<string, any> }
  * >}
  */
-export function getDesktopNavEntries(role) {
-  const items = getRoleNavItems(role);
+export function getDesktopNavEntries(role, permissions = null) {
+  const items = getRoleNavItems(role, permissions);
   const entries = [];
   let practiceDropdownAdded = false;
   let setupDropdownAdded = false;
+  let contentDropdownAdded = false;
 
   for (const item of items) {
     if (item.desktopPlacement === 'inline') {
@@ -286,27 +429,46 @@ export function getDesktopNavEntries(role) {
       if (!practiceDropdownAdded) {
         practiceDropdownAdded = true;
         const dropdownItems = items.filter((i) => i.desktopPlacement === 'practice-dropdown');
-        entries.push({
-          type: 'dropdown',
-          id: 'nav-practice-dropdown',
-          toggleId: 'btn-nav-practice-dropdown',
-          menuId: 'nav-practice-dropdown-menu',
-          label: 'Practice',
-          items: dropdownItems,
-        });
+        if (dropdownItems.length > 0) {
+          entries.push({
+            type: 'dropdown',
+            id: 'nav-practice-dropdown',
+            toggleId: 'btn-nav-practice-dropdown',
+            menuId: 'nav-practice-dropdown-menu',
+            label: 'Practice',
+            items: dropdownItems,
+          });
+        }
+      }
+    } else if (item.desktopPlacement === 'content-dropdown') {
+      if (!contentDropdownAdded) {
+        contentDropdownAdded = true;
+        const dropdownItems = items.filter((i) => i.desktopPlacement === 'content-dropdown');
+        if (dropdownItems.length > 0) {
+          entries.push({
+            type: 'dropdown',
+            id: 'nav-content-dropdown',
+            toggleId: 'btn-nav-content-dropdown',
+            menuId: 'nav-content-dropdown-menu',
+            label: 'Class Content',
+            items: dropdownItems,
+          });
+        }
       }
     } else if (item.desktopPlacement === 'setup-dropdown') {
       if (!setupDropdownAdded) {
         setupDropdownAdded = true;
         const dropdownItems = items.filter((i) => i.desktopPlacement === 'setup-dropdown');
-        entries.push({
-          type: 'dropdown',
-          id: 'nav-setup-dropdown',
-          toggleId: 'btn-nav-setup-dropdown',
-          menuId: 'nav-setup-dropdown-menu',
-          label: 'Setup',
-          items: dropdownItems,
-        });
+        if (dropdownItems.length > 0) {
+          entries.push({
+            type: 'dropdown',
+            id: 'nav-setup-dropdown',
+            toggleId: 'btn-nav-setup-dropdown',
+            menuId: 'nav-setup-dropdown-menu',
+            label: 'Setup',
+            items: dropdownItems,
+          });
+        }
       }
     } else if (item.desktopPlacement === 'bell') {
       entries.push({ type: 'bell', item });
@@ -319,11 +481,12 @@ export function getDesktopNavEntries(role) {
 /**
  * Groups a role's navigation items by their `group` property in declaration order
  * for the mobile (< 1024px) three-dot menu.
- * @param {'student' | 'admin'} role
+ * @param {'student' | 'teacher' | 'admin'} role
+ * @param {Record<string, boolean> | null} [permissions=null]
  * @returns {Array<{ group: string, items: Array<Record<string, any>> }>}
  */
-export function getGroupedNavItems(role) {
-  const items = getRoleNavItems(role);
+export function getGroupedNavItems(role, permissions = null) {
+  const items = getRoleNavItems(role, permissions);
   const groups = [];
   const map = new Map();
 

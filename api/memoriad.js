@@ -16,6 +16,7 @@
  */
 
 import { getDrillServerClient, verifyStudentCaller } from './_supabaseAdmin.js';
+import { resolveAndValidateDailyTask } from './_dailyTasks.js';
 import {
   MODULES,
   validateMemoriadSettings,
@@ -25,6 +26,7 @@ import {
   computeMemoriadExpiresAtMs,
   computeMemoriadUsedSeconds,
   validateFinishedBy,
+  getMemoriadTimeLimit,
 } from './_memoriad.js';
 
 const RATE_LIMIT_PER_HOUR = 60;
@@ -37,7 +39,7 @@ export default async function handler(req, res) {
 
   let student;
   try {
-    student = await verifyStudentCaller(req);
+    student = req._testStudent || (await verifyStudentCaller(req));
   } catch (authErr) {
     const code = authErr?.statusCode || 401;
     return res.status(code).json({
@@ -47,7 +49,7 @@ export default async function handler(req, res) {
 
   let adminClient;
   try {
-    adminClient = getDrillServerClient(student);
+    adminClient = req._testAdminSupabase || getDrillServerClient(student);
   } catch {
     return res.status(500).json({
       error: 'Server database configuration is missing. Please contact your teacher.',
@@ -103,19 +105,41 @@ async function handleStart(body, student, adminClient, res) {
   }
 
   const generated = generateMemoriadSet(moduleKey, validation.settings);
+
+  // Validate daily task assignment if provided
+  const todoTaskId = body.todo_task_id;
+  const taskRes = await resolveAndValidateDailyTask(
+    adminClient,
+    todoTaskId,
+    student,
+    'memoriad',
+    moduleKey
+  );
+  if (!taskRes.ok) {
+    return res.status(taskRes.statusCode || 400).json({ error: taskRes.error });
+  }
+  const validatedTask = taskRes.task;
+
+  let finalTimeLimit = getMemoriadTimeLimit(moduleKey);
+  if (validatedTask && validatedTask.duration_seconds > 0) {
+    finalTimeLimit = validatedTask.duration_seconds;
+  }
+
   const nowMs = Date.now();
   const startedAtIso = new Date(nowMs).toISOString();
   const expiresAtIso = new Date(
-    computeMemoriadExpiresAtMs(
-      nowMs,
-      generated.settings.concentration_seconds,
-      generated.module
-    )
+    nowMs + (generated.settings.concentration_seconds + finalTimeLimit + 30) * 1000
   ).toISOString();
 
   const sessionSettings = {
     module: generated.module,
     ...generated.settings,
+    time_limit_seconds: finalTimeLimit,
+    duration_seconds: finalTimeLimit,
+    is_todo: Boolean(validatedTask),
+    todo_task_id: validatedTask ? validatedTask.id : null,
+    todo_section: validatedTask ? 'memoriad' : null,
+    todo_activity_key: validatedTask ? moduleKey : null,
   };
 
   const { data: sessionRow, error: insertError } = await adminClient
@@ -147,7 +171,9 @@ async function handleStart(body, student, adminClient, res) {
       module: generated.module,
       title: generated.title,
       questions: generated.questions,
-      settings: generated.settings,
+      settings: sessionSettings,
+      time_limit_seconds: finalTimeLimit,
+      duration_seconds: finalTimeLimit,
     })
   );
 }
@@ -215,14 +241,57 @@ async function handleSubmit(body, student, adminClient, res) {
           ? 'square_roots'
           : 'additions');
 
+  const isTodoSession = Boolean(session.settings?.is_todo || session.settings?.todo_task_id);
   const startedAtMs = new Date(session.started_at).getTime();
   const concentrationSeconds = Number(session.settings?.concentration_seconds) || 0;
-  const usedSeconds = computeMemoriadUsedSeconds(
-    startedAtMs,
-    nowMs,
-    concentrationSeconds,
-    moduleKey
-  );
+  const timeLimit =
+    Number(session.settings?.time_limit_seconds) ||
+    Number(session.settings?.duration_seconds) ||
+    getMemoriadTimeLimit(moduleKey);
+
+  const nominalDeadlineMs = startedAtMs + (concentrationSeconds + timeLimit) * 1000;
+  // Authoritative server deadline check exclusively (client finishedBy is informational only)
+  const isPastDeadline = Number.isFinite(startedAtMs) && nowMs >= nominalDeadlineMs;
+
+  // Reject early manual submission for assigned Daily Tasks when questions remain unanswered
+  // (Client finished_by: 'time_up' cannot bypass this before the authoritative server deadline)
+  const attemptedCount = rawAnswers.filter(
+    (a) => a !== null && a !== undefined && String(a).trim() !== ''
+  ).length;
+  const questionsTotal = Array.isArray(session.questions) ? session.questions.length : 0;
+  if (isTodoSession && !isPastDeadline && attemptedCount < questionsTotal) {
+    return res.status(400).json({
+      error: 'All questions must be answered to submit an assigned Daily Task before the deadline.',
+    });
+  }
+
+  const serverElapsed = Number.isFinite(startedAtMs)
+    ? Math.max(0, (nowMs - startedAtMs) / 1000 - concentrationSeconds)
+    : timeLimit;
+  const clientDuration = Number(body.duration_seconds ?? body.client_duration_seconds);
+
+  const isComplete = questionsTotal > 0 && attemptedCount === questionsTotal;
+  const hasValidEarlyClientDuration =
+    Number.isFinite(clientDuration) && clientDuration > 0 && clientDuration < timeLimit;
+
+  let usedSeconds;
+  if (hasValidEarlyClientDuration && (isComplete || (!isTodoSession && !isPastDeadline))) {
+    // Preserves early finish solving duration even if delivery or retry arrives after deadline
+    usedSeconds = Math.min(timeLimit, Math.min(serverElapsed, clientDuration));
+  } else if (isPastDeadline) {
+    // If deadline was reached without an early complete finish, duration is the nominal round limit
+    usedSeconds = timeLimit;
+  } else if (Number.isFinite(clientDuration) && clientDuration > 0) {
+    // Finished early: client solving time is capped at timeLimit and total serverElapsed
+    usedSeconds = Math.min(timeLimit, Math.min(serverElapsed, clientDuration));
+  } else {
+    usedSeconds = computeMemoriadUsedSeconds(
+      startedAtMs,
+      nowMs,
+      concentrationSeconds,
+      moduleKey
+    );
+  }
 
   const evalResult = evaluateMemoriadSubmission(
     {
@@ -260,8 +329,59 @@ async function handleSubmit(body, student, adminClient, res) {
     });
   }
 
-  // If attempted is 0, save nothing in activity_results and inform the student
+  // Handle 0 attempts
   if (evaluation.attempted === 0) {
+    if (isTodoSession && isPastDeadline) {
+      // Persist empty expiry attempt with total = 0, earning 0 credit
+      const emptySettings = {
+        session_id: session.id,
+        module: moduleKey,
+        questions: evaluation.questions_total,
+        attempted: 0,
+        correct: 0,
+        wrong: 0,
+        score: 0,
+        used_seconds: usedSeconds,
+        concentration_seconds: concentrationSeconds,
+        finished_by: finishedBy,
+        is_todo: true,
+        todo_task_id: session.settings?.todo_task_id,
+        empty_expiry: true,
+      };
+
+      const { data: resultRow } = await adminClient
+        .from('activity_results')
+        .insert({
+          student_id: student.id,
+          activity_type: 'memoriad',
+          activity_name: session.activity_name,
+          correct: 0,
+          total: 0,
+          time_seconds: usedSeconds,
+          settings: emptySettings,
+        })
+        .select('id')
+        .single();
+
+      if (resultRow) {
+        await adminClient
+          .from('drill_sessions')
+          .update({ result_id: resultRow.id })
+          .eq('id', session.id);
+      }
+
+      return res.status(200).json({
+        ...evaluation,
+        used_seconds: usedSeconds,
+        finished_by: finishedBy,
+        saved: true,
+        total: 0,
+        result_id: resultRow?.id || null,
+        empty_expiry: true,
+        message: 'Attempt saved. No questions were answered, so this round earned no Daily To-do credit.',
+      });
+    }
+
     return res.status(200).json({
       ...evaluation,
       used_seconds: usedSeconds,
@@ -324,6 +444,7 @@ async function handleSubmit(body, student, adminClient, res) {
 
   return res.status(200).json({
     ...evaluation,
+    total: evaluation.attempted,
     used_seconds: usedSeconds,
     finished_by: finishedBy,
     saved: true,

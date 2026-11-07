@@ -130,7 +130,7 @@ async function initSettingsPage() {
   const roleEl = document.getElementById('header-user-role');
   const pillContainer = document.getElementById('user-pill-container');
   if (nameEl) nameEl.textContent = profile.full_name || 'Admin';
-  if (roleEl) roleEl.textContent = profile.student_code || 'Teacher';
+  if (roleEl) roleEl.textContent = profile.student_code || (profile.role === 'admin' ? 'Admin' : 'Teacher');
   if (pillContainer) pillContainer.style.display = 'flex';
 
   if (isDemoMode()) {

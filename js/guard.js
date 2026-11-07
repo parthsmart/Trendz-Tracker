@@ -36,17 +36,17 @@ export function checkProductionConfigLock() {
 }
 
 /**
- * Route guard for protected pages (Student & Admin).
- * @param {Array<'student' | 'admin'>} allowedRoles
+ * Route guard for protected pages (Student, Teacher, & Admin).
+ * @param {Array<'student' | 'teacher' | 'admin'>} allowedRoles
  */
-export async function requireAuth(allowedRoles = ['student', 'admin']) {
+export async function requireAuth(allowedRoles = ['student', 'teacher', 'admin']) {
   markPerf('tt:guard-start');
   if (checkProductionConfigLock()) {
     return null;
   }
 
   // Synchronously pre-render student navigation ONLY when a cached student profile is present.
-  // Privileged admin navigation is NEVER inferred or pre-rendered from unverified cache, page URLs, or allowedRoles.
+  // Privileged admin/teacher navigation is NEVER inferred or pre-rendered from unverified cache, page URLs, or allowedRoles.
   const earlyCachedProfile = readProfileCache();
   if (earlyCachedProfile && earlyCachedProfile.role === 'student' && allowedRoles.includes('student')) {
     setupHeaderNavigation(earlyCachedProfile);
@@ -55,10 +55,12 @@ export async function requireAuth(allowedRoles = ['student', 'admin']) {
     setupHeaderNavigation(null);
   }
 
-  // Fresh authorization is strictly required for admin privileges.
-  // Cached profiles are NEVER trusted to authorize admin-only routes or admin controls on shared routes.
-  const requiresAdminOnly = allowedRoles.includes('admin') && !allowedRoles.includes('student');
-  const allowCached = !requiresAdminOnly && earlyCachedProfile?.role === 'student';
+  // Fresh authorization is strictly required for privileged (admin/teacher) access.
+  // Cached profiles are NEVER trusted to authorize admin or teacher-only routes or controls.
+  const requiresPrivilegedOnly =
+    (allowedRoles.includes('admin') || allowedRoles.includes('teacher')) &&
+    !allowedRoles.includes('student');
+  const allowCached = !requiresPrivilegedOnly && earlyCachedProfile?.role === 'student';
 
   const profile = await getCurrentProfile({
     allowCached,
@@ -66,6 +68,8 @@ export async function requireAuth(allowedRoles = ['student', 'admin']) {
       if (!freshProfile || !allowedRoles.includes(freshProfile.role)) {
         if (freshProfile?.role === 'student') {
           window.location.href = '/pages/student.html';
+        } else if (freshProfile?.role === 'teacher') {
+          window.location.href = '/pages/teacher.html';
         } else {
           window.location.href = '/index.html';
         }
@@ -83,9 +87,14 @@ export async function requireAuth(allowedRoles = ['student', 'admin']) {
   }
 
   if (!allowedRoles.includes(profile.role)) {
-    // If student attempts to view admin page:
+    // If student attempts to view teacher/admin page:
     if (profile.role === 'student') {
       window.location.href = '/pages/student.html';
+      return null;
+    }
+    // If teacher attempts to view admin or student-only page:
+    if (profile.role === 'teacher') {
+      window.location.href = '/pages/teacher.html';
       return null;
     }
     window.location.href = '/index.html';
@@ -96,7 +105,9 @@ export async function requireAuth(allowedRoles = ['student', 'admin']) {
   setupHeaderNavigation(profile);
   setupHeaderUserUI(profile);
   renderConfigBanner();
-  initStudentNotificationBell(profile);
+  if (profile.role === 'student') {
+    initStudentNotificationBell(profile);
+  }
 
   markPerf('tt:guard-ready');
   if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
@@ -137,16 +148,23 @@ function setupHeaderUserUI(profile) {
   const userCodeEl = document.getElementById('header-user-code');
   const logoutBtn = document.getElementById('btn-header-logout');
 
+  const roleLabel =
+    profile.role === 'admin'
+      ? 'Admin'
+      : profile.role === 'teacher'
+      ? 'Teacher'
+      : 'Student';
+
   if (userNameEl) {
     userNameEl.textContent = profile.full_name;
     userNameEl.setAttribute(
       'data-short-name',
-      formatShortFirstName(profile.full_name, profile.role === 'admin' ? 'Admin' : 'Student')
+      formatShortFirstName(profile.full_name, roleLabel)
     );
     userNameEl.title = profile.full_name || '';
   }
-  if (userRoleEl) userRoleEl.textContent = profile.role === 'admin' ? 'Admin' : 'Student';
-  if (userCodeEl) userCodeEl.textContent = profile.student_code || (profile.role === 'admin' ? 'Admin' : 'STU');
+  if (userRoleEl) userRoleEl.textContent = roleLabel;
+  if (userCodeEl) userCodeEl.textContent = profile.student_code || roleLabel;
 
   if (logoutBtn && !logoutBtn.dataset.logoutWired) {
     logoutBtn.dataset.logoutWired = 'true';

@@ -46,6 +46,68 @@ const EXPIRY_GRACE_SECONDS = 30;
 const TEST_EXPIRY_GRACE_SECONDS = 60;
 const HIGHLIGHT_STORAGE_KEY = 'tt_element_highlight_active';
 
+
+function renderPrepCountdownOverlay(startCount, onComplete) {
+  let count = startCount;
+  const overlay = document.createElement('div');
+  overlay.id = 'prep-countdown-overlay';
+  overlay.style.cssText = `
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.72);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 99999;
+    color: #fff;
+    font-family: inherit;
+    user-select: none;
+  `;
+  overlay.innerHTML = `
+    <div style="font-size: 1.15rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; opacity: 0.9; margin-bottom: 8px;">
+      Daily Task &middot; Get Ready
+    </div>
+    <div id="prep-num" style="font-size: 5.5rem; font-weight: 900; line-height: 1; color: #60A5FA;">
+      ${count}
+    </div>
+    <div style="font-size: var(--text-xs); opacity: 0.75; margin-top: 16px;">
+      Assigned Duration: ${activeTimeLimitSec || 60}s &middot; Starting automatically
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const numEl = document.getElementById('prep-num');
+  const timer = setInterval(() => {
+    count--;
+    if (count > 0) {
+      if (numEl) numEl.textContent = String(count);
+    } else if (count === 0) {
+      if (numEl) {
+        numEl.textContent = 'GO!';
+        numEl.style.color = '#34D399';
+      }
+    } else {
+      clearInterval(timer);
+      overlay.remove();
+      onComplete();
+    }
+  }, 1000);
+}
+
+function updateTodoSubmitButtonState() {
+  if (!isTodoMode) return;
+  const answered = collectWorksheetAnswers().filter((a) => a !== null).length;
+  const btn = document.getElementById('btn-bottom-submit');
+  if (btn) {
+    btn.disabled = answered < activeQuestions.length;
+    btn.textContent =
+      answered < activeQuestions.length
+        ? `Submit (${answered} of ${activeQuestions.length} answered)`
+        : `Submit Worksheet (${answered}/${activeQuestions.length})`;
+  }
+}
+
 function loadHighlightPreference() {
   try {
     const raw = window.localStorage.getItem(HIGHLIGHT_STORAGE_KEY);
@@ -93,6 +155,14 @@ let currentDrillKey = '';
 let currentDrillMeta = null;
 let previousBestForDrill = null;
 
+
+// Daily To-do runner mode (?todo_task_id=<id>)
+let todoTaskId = null;
+let isTodoMode = false;
+let assignedTask = null;
+let solvingStartPerfMs = 0;
+let solvingEndPerfMs = 0;
+
 // Weekly Test runner mode (?test=<id>&section=<id>)
 let isTestMode = false;
 let activeTestId = null;
@@ -128,8 +198,32 @@ async function initElementDrillPage() {
   activeSectionId = runnerQuery.sectionId;
 
   const params = new URLSearchParams(window.location.search);
+  const todoParam = params.get('todo_task_id');
+  if (todoParam) {
+    todoTaskId = todoParam;
+    isTodoMode = true;
+    if (isDemoMode() && DemoDB?.getTodo) {
+      assignedTask = DemoDB.getTodo(todoTaskId);
+    } else if (isSupabaseConfigured()) {
+      try {
+        const supabase = await getSupabase();
+        const { data: tRow } = await supabase
+          .from('daily_tasks')
+          .select('id, title, duration_seconds, required_count, section, category_id, activity_key')
+          .eq('id', todoTaskId)
+          .maybeSingle();
+        if (tRow) assignedTask = tRow;
+      } catch {
+        // Fall back to server authoritative response
+      }
+    }
+  }
+
   currentDrillKey = String(params.get('drill') || '').trim();
-  currentDrillMeta = DRILL_CATALOG[currentDrillKey] || null;
+  currentDrillMeta = DRILL_CATALOG[currentDrillKey] ? { ...DRILL_CATALOG[currentDrillKey] } : null;
+  if (currentDrillMeta && assignedTask && assignedTask.duration_seconds > 0) {
+    currentDrillMeta.time_limit_seconds = assignedTask.duration_seconds;
+  }
 
   const startBtn = document.getElementById('btn-start-drill');
   const submitNowBtn = document.getElementById('btn-submit-now');
@@ -249,6 +343,20 @@ async function initElementDrillPage() {
   }
 
   startBtn?.addEventListener('click', () => handleStartDrill());
+
+  if (isTodoMode && currentDrillMeta.enabled) {
+    const bannerPlaceholder = document.getElementById('config-banner-placeholder');
+    if (bannerPlaceholder) {
+      bannerPlaceholder.innerHTML = `
+        <div class="banner banner-info" style="margin-bottom: var(--space-4);">
+          <strong>Daily Task:</strong> ${escapeHtml(assignedTask?.title || 'Daily Task')} &middot; Assigned Duration: <strong>${currentDrillMeta.time_limit_seconds}s (Locked)</strong>
+        </div>
+      `;
+    }
+    setTimeout(() => {
+      handleStartDrill();
+    }, 200);
+  }
 }
 
 async function populateIntroScreen() {
@@ -332,6 +440,7 @@ async function handleStartDrill() {
         body: JSON.stringify({
           action: 'start',
           drill: currentDrillKey,
+          todo_task_id: todoTaskId || undefined,
         }),
       });
 
@@ -342,13 +451,43 @@ async function handleStartDrill() {
       payload = data;
     } else if (isDemoMode()) {
       payload = DemoDB.mockElementDrillStart(currentDrillKey, currentDrillMeta);
+      if (assignedTask && assignedTask.duration_seconds > 0) {
+        payload.time_limit_seconds = assignedTask.duration_seconds;
+        payload.duration_seconds = assignedTask.duration_seconds;
+        if (payload.settings) {
+          payload.settings.time_limit_seconds = assignedTask.duration_seconds;
+          payload.settings.duration_seconds = assignedTask.duration_seconds;
+        }
+      }
     } else {
       throw new Error('Connection is not configured.');
     }
 
     activeSessionId = payload.session_id;
     activeQuestions = Array.isArray(payload.questions) ? payload.questions : [];
-    activeTimeLimitSec = Number(payload.time_limit_seconds) || currentDrillMeta.time_limit_seconds;
+    const returnedLimit = Number(
+      payload.duration_seconds ??
+      payload.time_limit_seconds ??
+      payload.settings?.duration_seconds ??
+      payload.settings?.time_limit_seconds
+    );
+    activeTimeLimitSec = returnedLimit > 0 ? returnedLimit : currentDrillMeta.time_limit_seconds;
+    if (currentDrillMeta) {
+      currentDrillMeta.time_limit_seconds = activeTimeLimitSec;
+    }
+
+    if (isTodoMode) {
+      const bannerPlaceholder = document.getElementById('config-banner-placeholder');
+      if (bannerPlaceholder) {
+        const taskTitle = assignedTask?.title || payload.settings?.todo_title || payload.title || 'Daily Task';
+        bannerPlaceholder.innerHTML = `
+          <div class="banner banner-info" style="margin-bottom: var(--space-4);">
+            <strong>Daily Task:</strong> ${escapeHtml(taskTitle)} &middot; Assigned Duration: <strong>${activeTimeLimitSec}s (Locked)</strong>
+          </div>
+        `;
+      }
+    }
+
     hasSubmitted = false;
     isSubmitting = false;
 
@@ -507,8 +646,39 @@ function renderWorksheet(payload) {
   if (worksheetScreen) worksheetScreen.style.display = 'block';
   if (retryBanner) retryBanner.style.display = 'none';
   if (submitNowBtn) {
-    submitNowBtn.disabled = false;
-    submitNowBtn.textContent = 'Submit now';
+    if (isTodoMode) {
+      submitNowBtn.style.display = 'none';
+    } else {
+      submitNowBtn.style.display = '';
+      submitNowBtn.disabled = false;
+      submitNowBtn.textContent = 'Submit now';
+    }
+  }
+
+  let bottomSubmitContainer = document.getElementById('todo-bottom-submit-container');
+  if (isTodoMode) {
+    if (!bottomSubmitContainer) {
+      bottomSubmitContainer = document.createElement('div');
+      bottomSubmitContainer.id = 'todo-bottom-submit-container';
+      bottomSubmitContainer.style.cssText = 'margin-top: var(--space-6); text-align: center;';
+      bottomSubmitContainer.innerHTML = `
+        <button type="button" id="btn-bottom-submit" class="btn btn-primary" disabled style="min-width: 220px; font-size: var(--text-base); padding: 12px 24px;">
+          Submit (0 of ${activeQuestions.length} answered)
+        </button>
+        <p id="todo-submit-hint" style="font-size: var(--text-xs); color: var(--color-text-muted); margin-top: 6px;">
+          Answer all questions to submit early, or wait for timer to auto-submit.
+        </p>
+      `;
+      const formEl = document.getElementById('worksheet-form');
+      if (formEl) formEl.appendChild(bottomSubmitContainer);
+      document.getElementById('btn-bottom-submit')?.addEventListener('click', () => {
+        submitWorksheet(false);
+      });
+    } else {
+      bottomSubmitContainer.style.display = 'block';
+    }
+  } else if (bottomSubmitContainer) {
+    bottomSubmitContainer.style.display = 'none';
   }
 
   const titleEl = document.getElementById('worksheet-drill-title');
@@ -569,6 +739,10 @@ function renderWorksheet(payload) {
       applyActiveQuestionHighlight(false);
     });
 
+    input.addEventListener('input', () => {
+      updateTodoSubmitButtonState();
+    });
+
     input.addEventListener('keydown', (e) => {
       // Never intercept any key when Ctrl, Alt, or Meta is pressed
       if (e.ctrlKey || e.altKey || e.metaKey) {
@@ -602,7 +776,14 @@ function renderWorksheet(payload) {
           inputs[idx + 1].select?.();
         } else if (e.key === 'Enter') {
           e.preventDefault();
-          submitWorksheet(false);
+          if (isTodoMode) {
+            const answered = collectWorksheetAnswers().filter((a) => a !== null).length;
+            if (answered === activeQuestions.length) {
+              submitWorksheet(false);
+            }
+          } else {
+            submitWorksheet(false);
+          }
         }
       } else if (e.key === 'ArrowUp') {
         if (idx - 1 >= 0) {
@@ -614,19 +795,31 @@ function renderWorksheet(payload) {
     });
   });
 
-  // Start timer when the worksheet is rendered
-  worksheetStartPerfMs = performance.now();
-  worksheetEndPerfMs = worksheetStartPerfMs + activeTimeLimitSec * 1000;
-  const graceSec = isTestMode ? TEST_EXPIRY_GRACE_SECONDS : EXPIRY_GRACE_SECONDS;
-  worksheetExpiresPerfMs =
-    worksheetStartPerfMs + (activeTimeLimitSec + graceSec) * 1000;
+  const startWorksheetSession = () => {
+    setWorksheetInputsDisabled(false);
+    worksheetStartPerfMs = performance.now();
+    worksheetEndPerfMs = worksheetStartPerfMs + activeTimeLimitSec * 1000;
+    const graceSec = isTestMode ? TEST_EXPIRY_GRACE_SECONDS : EXPIRY_GRACE_SECONDS;
+    worksheetExpiresPerfMs =
+      worksheetStartPerfMs + (activeTimeLimitSec + graceSec) * 1000;
 
-  updateTimerDisplay();
-  timerIntervalId = setInterval(updateTimerDisplay, TIMER_INTERVAL_MS);
+    updateTimerDisplay();
+    timerIntervalId = setInterval(updateTimerDisplay, TIMER_INTERVAL_MS);
+    updateTodoSubmitButtonState();
 
-  // Focus first question input
-  if (inputs.length > 0) {
-    inputs[0].focus();
+    if (inputs.length > 0) {
+      inputs[0].focus();
+    }
+  };
+
+  if (isTodoMode) {
+    setWorksheetInputsDisabled(true);
+    const prepSec = Number(payload.prep_seconds ?? payload.settings?.prep_seconds ?? 3);
+    renderPrepCountdownOverlay(prepSec, () => {
+      startWorksheetSession();
+    });
+  } else {
+    startWorksheetSession();
   }
 }
 
@@ -698,6 +891,16 @@ function stopTimers() {
 async function submitWorksheet(isAutoOrRetry = false) {
   if (isSubmitting || hasSubmitted || !activeSessionId) return;
 
+  const candidateEndMs = performance.now();
+  const answers = collectWorksheetAnswers();
+  const attemptedCount = answers.filter((a) => a !== null).length;
+
+  if (!isAutoOrRetry && isTodoMode) {
+    if (attemptedCount < activeQuestions.length) {
+      return;
+    }
+  }
+
   isSubmitting = true;
   stopTimers();
   setWorksheetInputsDisabled(true);
@@ -705,25 +908,30 @@ async function submitWorksheet(isAutoOrRetry = false) {
   const submitNowBtn = document.getElementById('btn-submit-now');
   const retryBanner = document.getElementById('worksheet-retry-banner');
   const retryBtn = document.getElementById('btn-retry-submit');
+  const bottomSubmitBtn = document.getElementById('btn-bottom-submit');
 
   if (submitNowBtn) {
     submitNowBtn.disabled = true;
     submitNowBtn.textContent = 'Submitting...';
+  }
+  if (bottomSubmitBtn) {
+    bottomSubmitBtn.disabled = true;
+    bottomSubmitBtn.textContent = 'Submitting...';
   }
   if (retryBtn) {
     retryBtn.disabled = true;
     retryBtn.textContent = 'Sending...';
   }
 
-  const answers = collectWorksheetAnswers();
-  const attemptedCount = answers.filter((a) => a !== null).length;
-  const elapsedSeconds = Math.max(
-    1,
-    Math.min(
-      activeTimeLimitSec,
-      Math.round((performance.now() - worksheetStartPerfMs) / 1000)
-    )
-  );
+  const elapsedSeconds = isAutoOrRetry && (worksheetEndPerfMs - candidateEndMs <= 0)
+    ? activeTimeLimitSec
+    : Math.max(
+        1,
+        Math.min(
+          activeTimeLimitSec,
+          Math.round((candidateEndMs - worksheetStartPerfMs) / 1000)
+        )
+      );
 
   try {
     let resultData = null;
@@ -747,6 +955,7 @@ async function submitWorksheet(isAutoOrRetry = false) {
             action: 'submit',
             session_id: activeSessionId,
             answers,
+            duration_seconds: elapsedSeconds,
           }),
         });
       } catch {
@@ -818,7 +1027,8 @@ async function submitWorksheet(isAutoOrRetry = false) {
             activeSessionId,
             answers,
             currentUser.id,
-            currentDrillMeta
+            currentDrillMeta,
+            elapsedSeconds
           );
     }
 

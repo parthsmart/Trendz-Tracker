@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Teacher Management — Trendz Tracker</title>
+    <meta name="description" content="Manage teacher accounts, student assignments, and granular permissions." />
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- Top Bar: 3-Zone Navigation -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <a href="/pages/admin.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="4" y="2" width="16" height="20" rx="2"></rect>
+                <line x1="8" y1="6" x2="16" y2="6"></line>
+                <line x1="16" y1="14" x2="16" y2="18"></line>
+                <path d="M16 10h.01"></path>
+                <path d="M12 10h.01"></path>
+                <path d="M8 10h.01"></path>
+                <path d="M12 14h.01"></path>
+                <path d="M8 14h.01"></path>
+                <path d="M12 18h.01"></path>
+                <path d="M8 18h.01"></path>
+              </svg>
+            </span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <button type="button" class="mobile-menu-btn" id="btn-mobile-menu" aria-label="Toggle Navigation" aria-expanded="false">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+
+          <nav class="nav-zone" id="admin-nav-zone" aria-label="Admin Primary Navigation"></nav>
+
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-sm); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Admin</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-role" style="color: var(--text-muted);">Teacher</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Page Content -->
+      <main class="main-content">
+        <div class="container">
+          <div id="config-banner-placeholder"></div>
+
+          <!-- Breadcrumbs back to Settings Hub -->
+          <nav aria-label="Breadcrumb" style="margin-bottom: var(--space-4);">
+            <div style="font-size: var(--text-xs); color: var(--text-muted); display: flex; align-items: center; gap: var(--space-2);">
+              <a href="/pages/settings.html" style="color: var(--text-muted); text-decoration: none;">Settings</a>
+              <span>/</span>
+              <span style="color: var(--text-main); font-weight: 500;">Teacher Management</span>
+            </div>
+          </nav>
+
+          <!-- Page Heading & Actions -->
+          <div class="section-header-row" style="margin-bottom: var(--space-6); display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: var(--space-4);">
+            <div>
+              <h1 style="margin: 0 0 var(--space-2) 0;">Teacher Management</h1>
+              <p style="font-size: var(--text-sm); margin: 0; color: var(--text-muted);">
+                Create teacher staff accounts, assign student rosters, and configure granular capability permissions.
+              </p>
+            </div>
+            <div>
+              <button type="button" id="btn-open-create-teacher" class="btn btn-primary">
+                + Add Teacher
+              </button>
+            </div>
+          </div>
+
+          <!-- Teachers Table Card -->
+          <div class="card">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3);">
+              <div style="display: flex; align-items: center; gap: var(--space-3);">
+                <span class="badge badge-neutral num" id="teachers-count-badge">0 teachers</span>
+              </div>
+              <div style="width: 100%; max-width: 280px;">
+                <input
+                  type="search"
+                  id="search-teachers-input"
+                  class="form-input"
+                  placeholder="Search teachers..."
+                  autocomplete="off"
+                />
+              </div>
+            </div>
+            <div class="card-body" id="teachers-table-container">
+              <div class="empty-state">Loading teacher accounts...</div>
+            </div>
+          </div>
+
+        </div>
+      </main>
+
+      <footer class="app-footer">
+        <div class="container footer-inner">
+          <span>&copy; 2026 Trendz Abacus. Staff Administration.</span>
+          <span class="num">Teachers</span>
+        </div>
+      </footer>
+    </div>
+
+    <!-- Modal 1: Create Teacher Modal -->
+    <div id="create-teacher-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="create-teacher-title">
+      <div class="modal-dialog" style="max-width: 640px;">
+        <header class="modal-header">
+          <div>
+            <h2 id="create-teacher-title" class="modal-title">Create Teacher Account</h2>
+            <p class="modal-subtitle">Add a new teacher with customized capability permissions.</p>
+          </div>
+          <button type="button" class="modal-close" data-close-modal="create-teacher-modal" aria-label="Close modal">&times;</button>
+        </header>
+        <form id="create-teacher-form" novalidate>
+          <div class="modal-body" style="display: flex; flex-direction: column; gap: var(--space-4);">
+            <div id="create-teacher-error" class="banner banner-error" style="display: none;" role="alert"></div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4);">
+              <div class="form-group">
+                <label for="new-teacher-code" class="form-label">Teacher Code</label>
+                <input
+                  type="text"
+                  id="new-teacher-code"
+                  class="form-input"
+                  placeholder="e.g. TCH01"
+                  required
+                  autocomplete="off"
+                />
+                <span class="form-hint">Used for sign in (e.g. TCH01).</span>
+              </div>
+
+              <div class="form-group">
+                <label for="new-teacher-name" class="form-label">Full Name</label>
+                <input
+                  type="text"
+                  id="new-teacher-name"
+                  class="form-input"
+                  placeholder="e.g. Anita Sharma"
+                  required
+                />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="new-teacher-password" class="form-label">Temporary Password</label>
+              <input
+                type="text"
+                id="new-teacher-password"
+                class="form-input"
+                placeholder="e.g. Teacher2026!"
+                required
+                minlength="6"
+              />
+              <span class="form-hint">Minimum 6 characters. Give this to the teacher.</span>
+            </div>
+
+            <!-- Permissions Checkboxes -->
+            <fieldset style="border: 1px solid var(--border-color, #e2e8f0); border-radius: var(--radius-md, 8px); padding: var(--space-4);">
+              <legend style="font-size: var(--text-sm); font-weight: 600; padding: 0 var(--space-2);">
+                Teacher Permissions (Defaults Enabled)
+              </legend>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); margin-top: var(--space-2); font-size: var(--text-xs);">
+                <label style="display: flex; align-items: center; gap: var(--space-2);">
+                  <input type="checkbox" id="perm-view-students" checked />
+                  <span>View assigned students</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: var(--space-2);">
+                  <input type="checkbox" id="perm-mark-attendance" checked />
+                  <span>Mark attendance</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: var(--space-2);">
+                  <input type="checkbox" id="perm-correct-attendance" checked />
+                  <span>Correct attendance (7 days)</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: var(--space-2);">
+                  <input type="checkbox" id="perm-generate-reports" checked />
+                  <span>Generate reports</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: var(--space-2);">
+                  <input type="checkbox" id="perm-manage-tasks" checked />
+                  <span>Assign daily tasks</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: var(--space-2);">
+                  <input type="checkbox" id="perm-manage-tests" checked />
+                  <span>Manage weekly tests</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: var(--space-2);">
+                  <input type="checkbox" id="perm-publish-announcements" checked />
+                  <span>Publish announcements</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: var(--space-2);">
+                  <input type="checkbox" id="perm-manage-resources" checked />
+                  <span>Share class resources</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: var(--space-2);">
+                  <input type="checkbox" id="perm-review-scores" checked />
+                  <span>Review &amp; flag scores</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: var(--space-2);">
+                  <input type="checkbox" id="perm-request-corrections" checked />
+                  <span>Request score corrections</span>
+                </label>
+              </div>
+            </fieldset>
+          </div>
+          <footer class="modal-footer">
+            <button type="button" class="btn btn-ghost" data-close-modal="create-teacher-modal">Cancel</button>
+            <button type="submit" id="btn-submit-create-teacher" class="btn btn-primary">
+              Create Teacher
+            </button>
+          </footer>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal 2: Assign Students Modal -->
+    <div id="assign-students-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="assign-modal-title">
+      <div class="modal-dialog" style="max-width: 600px;">
+        <header class="modal-header">
+          <div>
+            <h2 id="assign-modal-title" class="modal-title">Assign Students</h2>
+            <p class="modal-subtitle">Configure which students are assigned to this teacher.</p>
+          </div>
+          <button type="button" class="modal-close" data-close-modal="assign-students-modal" aria-label="Close modal">&times;</button>
+        </header>
+        <div class="modal-body">
+          <input type="hidden" id="assign-teacher-id" />
+          <p style="font-size: var(--text-sm); margin-bottom: var(--space-3);">
+            Assigning students to: <strong id="assign-teacher-name"></strong>
+          </p>
+
+          <div style="display: flex; gap: var(--space-2); margin-bottom: var(--space-3);">
+            <input
+              type="search"
+              id="search-assign-students"
+              class="form-input"
+              placeholder="Search students to assign..."
+            />
+            <button type="button" id="btn-assign-select-all" class="btn btn-outline btn-sm">Select All</button>
+            <button type="button" id="btn-assign-clear-all" class="btn btn-outline btn-sm">Clear All</button>
+          </div>
+
+          <div id="assign-students-list" style="max-height: 280px; overflow-y: auto; border: 1px solid var(--border-color, #e2e8f0); border-radius: var(--radius-md, 8px); padding: var(--space-2);">
+            <div class="empty-state">Loading students...</div>
+          </div>
+          <div style="font-size: var(--text-xs); color: var(--text-muted); margin-top: var(--space-2);">
+            Selected: <strong id="assign-selected-count">0</strong> student(s)
+          </div>
+        </div>
+        <footer class="modal-footer">
+          <button type="button" class="btn btn-ghost" data-close-modal="assign-students-modal">Cancel</button>
+          <button type="button" id="btn-save-assignments" class="btn btn-primary">
+            Save Assignments
+          </button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Modal 3: Edit Permissions Modal -->
+    <div id="edit-permissions-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="edit-perms-title">
+      <div class="modal-dialog" style="max-width: 540px;">
+        <header class="modal-header">
+          <div>
+            <h2 id="edit-perms-title" class="modal-title">Edit Teacher Permissions</h2>
+            <p class="modal-subtitle">Toggle specific capabilities for this teacher account.</p>
+          </div>
+          <button type="button" class="modal-close" data-close-modal="edit-permissions-modal" aria-label="Close modal">&times;</button>
+        </header>
+        <div class="modal-body">
+          <input type="hidden" id="edit-perms-teacher-id" />
+          <p style="font-size: var(--text-sm); margin-bottom: var(--space-3);">
+            Permissions for: <strong id="edit-perms-teacher-name"></strong>
+          </p>
+
+          <div style="display: flex; flex-direction: column; gap: var(--space-3); font-size: var(--text-sm);">
+            <label style="display: flex; align-items: center; justify-content: space-between; padding: var(--space-2); border-bottom: 1px solid var(--border-color, #f1f5f9);">
+              <span>View assigned student profiles &amp; progress</span>
+              <input type="checkbox" id="edit-perm-view-students" />
+            </label>
+            <label style="display: flex; align-items: center; justify-content: space-between; padding: var(--space-2); border-bottom: 1px solid var(--border-color, #f1f5f9);">
+              <span>Mark attendance for assigned students</span>
+              <input type="checkbox" id="edit-perm-mark-attendance" />
+            </label>
+            <label style="display: flex; align-items: center; justify-content: space-between; padding: var(--space-2); border-bottom: 1px solid var(--border-color, #f1f5f9);">
+              <span>Correct attendance within previous 7 days</span>
+              <input type="checkbox" id="edit-perm-correct-attendance" />
+            </label>
+            <label style="display: flex; align-items: center; justify-content: space-between; padding: var(--space-2); border-bottom: 1px solid var(--border-color, #f1f5f9);">
+              <span>Generate monthly progress reports</span>
+              <input type="checkbox" id="edit-perm-generate-reports" />
+            </label>
+            <label style="display: flex; align-items: center; justify-content: space-between; padding: var(--space-2); border-bottom: 1px solid var(--border-color, #f1f5f9);">
+              <span>Assign &amp; manage daily tasks</span>
+              <input type="checkbox" id="edit-perm-manage-tasks" />
+            </label>
+            <label style="display: flex; align-items: center; justify-content: space-between; padding: var(--space-2); border-bottom: 1px solid var(--border-color, #f1f5f9);">
+              <span>Create &amp; manage weekly tests</span>
+              <input type="checkbox" id="edit-perm-manage-tests" />
+            </label>
+            <label style="display: flex; align-items: center; justify-content: space-between; padding: var(--space-2); border-bottom: 1px solid var(--border-color, #f1f5f9);">
+              <span>Publish announcements to assigned students</span>
+              <input type="checkbox" id="edit-perm-publish-announcements" />
+            </label>
+            <label style="display: flex; align-items: center; justify-content: space-between; padding: var(--space-2); border-bottom: 1px solid var(--border-color, #f1f5f9);">
+              <span>Share &amp; manage class resources</span>
+              <input type="checkbox" id="edit-perm-manage-resources" />
+            </label>
+            <label style="display: flex; align-items: center; justify-content: space-between; padding: var(--space-2); border-bottom: 1px solid var(--border-color, #f1f5f9);">
+              <span>Review, verify, and flag student scores</span>
+              <input type="checkbox" id="edit-perm-review-scores" />
+            </label>
+            <label style="display: flex; align-items: center; justify-content: space-between; padding: var(--space-2);">
+              <span>Request score corrections (requires admin approval)</span>
+              <input type="checkbox" id="edit-perm-request-corrections" />
+            </label>
+          </div>
+        </div>
+        <footer class="modal-footer">
+          <button type="button" class="btn btn-ghost" data-close-modal="edit-permissions-modal">Cancel</button>
+          <button type="button" id="btn-save-permissions" class="btn btn-primary">
+            Save Permissions
+          </button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Modal 4: Reset Teacher Password Modal -->
+    <div id="reset-teacher-password-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="reset-tch-modal-title">
+      <div class="modal-dialog" style="max-width: 480px;">
+        <header class="modal-header">
+          <div>
+            <h2 id="reset-tch-modal-title" class="modal-title">Reset Teacher Password</h2>
+            <p class="modal-subtitle">Set a new temporary password for this teacher account.</p>
+          </div>
+          <button type="button" class="modal-close" data-close-modal="reset-teacher-password-modal" aria-label="Close modal">&times;</button>
+        </header>
+        <form id="reset-teacher-password-form" novalidate>
+          <input type="hidden" id="reset-teacher-id" />
+          <div class="modal-body">
+            <p style="font-size: var(--text-sm); margin-bottom: var(--space-4);">
+              Resetting password for: <strong id="reset-teacher-display-name"></strong>
+              (<span id="reset-teacher-display-code" class="num"></span>)
+            </p>
+            <div class="form-group">
+              <label for="reset-teacher-new-pwd" class="form-label">New Password</label>
+              <input
+                type="text"
+                id="reset-teacher-new-pwd"
+                class="form-input"
+                placeholder="Minimum 6 characters"
+                required
+                minlength="6"
+              />
+            </div>
+          </div>
+          <footer class="modal-footer">
+            <button type="button" class="btn btn-ghost" data-close-modal="reset-teacher-password-modal">Cancel</button>
+            <button type="submit" id="btn-submit-reset-teacher" class="btn btn-primary">Save New Password</button>
+          </footer>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal 5: Teacher Activity Log Modal -->
+    <div id="teacher-audit-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="audit-modal-title">
+      <div class="modal-dialog" style="max-width: 680px;">
+        <header class="modal-header">
+          <div>
+            <h2 id="audit-modal-title" class="modal-title">Teacher Activity Log</h2>
+            <p class="modal-subtitle">Recent administrative events for this teacher account.</p>
+          </div>
+          <button type="button" class="modal-close" data-close-modal="teacher-audit-modal" aria-label="Close modal">&times;</button>
+        </header>
+        <div class="modal-body" id="teacher-audit-log-container" style="max-height: 380px; overflow-y: auto;">
+          <div class="empty-state">Loading activity log...</div>
+        </div>
+        <footer class="modal-footer">
+          <button type="button" class="btn btn-ghost" data-close-modal="teacher-audit-modal">Close</button>
+        </footer>
+      </div>
+    </div>
+
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <script type="module" src="/js/teachers.js"></script>
+  </body>
+</html>

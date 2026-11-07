@@ -26,13 +26,18 @@ import {
   practiceRecordStatus,
   formatFriendlyDateIST,
   formatAccuracyDisplay,
+  resolveHistoryTargetStudent,
+  renderTargetStudentBanner,
 } from './historyFilters.js';
 
 let currentProfile = null;
+let activeHistoryStudent = null;
 let basicsCategories = [];
 let allBasicsResults = [];
 let activeThresholds = [];
 let editingDrillId = null;
+let serverTodayIST = null;
+let serverTodayError = null;
 
 let basicsHistoryFilters = {
   dateFrom: '',
@@ -43,6 +48,90 @@ let basicsHistoryFilters = {
 };
 let basicsHistoryPage = 1;
 const BASICS_PAGE_SIZE = 20;
+
+/**
+ * Obtains today's date in IST from the authoritative server/database RPC source (`today_ist`).
+ * In live mode: queries `supabase.rpc('today_ist')`.
+ * In demo mode: queries `DemoDB.mockTodayIST()` (deterministic, supports localStorage override).
+ *
+ * Rejects with an error if the database call fails or returns an invalid date,
+ * ensuring date loading failures are handled explicitly rather than falling back to
+ * an unverified or desynchronized device clock.
+ *
+ * @returns {Promise<string>} Format: "YYYY-MM-DD"
+ */
+export async function fetchServerTodayIST() {
+  if (isSupabaseConfigured()) {
+    const supabase = await getSupabase();
+    if (!supabase) {
+      throw new Error('Supabase client unavailable');
+    }
+    const { data, error } = await supabase.rpc('today_ist');
+    if (error) {
+      throw new Error(error.message || 'Failed to fetch server today_ist');
+    }
+    const clean = data ? String(data).trim() : '';
+    if (!clean || !/^\d{4}-\d{2}-\d{2}$/.test(clean)) {
+      throw new Error(`Invalid server date format: "${clean}"`);
+    }
+    return clean;
+  }
+
+  // Demo mode: deterministic demo date source
+  if (typeof DemoDB !== 'undefined' && typeof DemoDB.mockTodayIST === 'function') {
+    const demoDate = await DemoDB.mockTodayIST();
+    const clean = demoDate ? String(demoDate).trim() : '';
+    if (clean && /^\d{4}-\d{2}-\d{2}$/.test(clean)) {
+      return clean;
+    }
+  }
+
+  throw new Error('Demo database unavailable or returned invalid date');
+}
+
+export function setServerTodayISTForTesting(dateOrNull) {
+  serverTodayIST = dateOrNull;
+}
+
+export function setServerTodayErrorForTesting(errOrNull) {
+  serverTodayError = errOrNull;
+}
+
+export function getServerTodayIST() {
+  return serverTodayIST;
+}
+
+export function getActiveHistoryStudent() {
+  return activeHistoryStudent;
+}
+
+export function setActiveHistoryStudentForTesting(stu) {
+  activeHistoryStudent = stu;
+}
+
+export function setBasicsResultsForTesting(results) {
+  allBasicsResults = Array.isArray(results) ? [...results] : [];
+}
+
+export function getBasicsResultsForTesting() {
+  return allBasicsResults;
+}
+
+export function setBasicsCategoriesForTesting(cats) {
+  basicsCategories = Array.isArray(cats) ? [...cats] : [];
+}
+
+export function setBasicsFiltersForTesting(filters) {
+  basicsHistoryFilters = { ...basicsHistoryFilters, ...filters };
+}
+
+export function setBasicsPageForTesting(page) {
+  basicsHistoryPage = page;
+}
+
+export function setCurrentProfileForTesting(profile) {
+  currentProfile = profile;
+}
 
 /**
  * Format date into "3 Oct 2026"
@@ -59,18 +148,30 @@ function formatDateDisplay(dateStr) {
 
 /**
  * Configure min/max on custom date input (up to 7 days back)
+ * Uses server-authoritative date if available.
  */
-function setupDateLimits() {
+function setupDateLimits(todayDateStr = null) {
   const customDateInput = document.getElementById('basics-custom-date');
   if (!customDateInput) return;
 
-  const now = new Date();
-  const past7 = new Date();
-  past7.setDate(now.getDate() - 7);
+  const resolvedToday = todayDateStr && /^\d{4}-\d{2}-\d{2}$/.test(todayDateStr)
+    ? todayDateStr
+    : null;
 
-  customDateInput.max = now.toISOString().split('T')[0];
-  customDateInput.min = past7.toISOString().split('T')[0];
-  customDateInput.value = customDateInput.max;
+  if (resolvedToday) {
+    const [y, m, d] = resolvedToday.split('-').map(Number);
+    const past7Date = new Date(Date.UTC(y, m - 1, d - 7));
+    customDateInput.max = resolvedToday;
+    customDateInput.min = past7Date.toISOString().slice(0, 10);
+    customDateInput.value = resolvedToday;
+  } else {
+    const now = new Date();
+    const past7 = new Date();
+    past7.setDate(now.getDate() - 7);
+    customDateInput.max = now.toISOString().split('T')[0];
+    customDateInput.min = past7.toISOString().split('T')[0];
+    customDateInput.value = customDateInput.max;
+  }
 }
 
 /**
@@ -255,22 +356,33 @@ function updateCategoryTargetDisplay(categoryId) {
 /**
  * Load all basics results for this student
  */
-async function loadBasicsHistory() {
+export async function loadBasicsHistory() {
   const todayContainer = document.getElementById('today-drills-container');
   const pastContainer = document.getElementById('past-drills-container');
   const todayBadge = document.getElementById('today-count-badge');
 
-  todayContainer.innerHTML = '<div class="skeleton-row"></div>';
-  pastContainer.innerHTML = '<div class="skeleton-row"></div>';
+  if (todayContainer) todayContainer.innerHTML = '<div class="skeleton-row"></div>';
+  if (pastContainer) pastContainer.innerHTML = '<div class="skeleton-row"></div>';
 
   try {
+    // 1. Fetch server-authoritative today IST date
+    try {
+      serverTodayIST = await fetchServerTodayIST();
+      serverTodayError = null;
+      setupDateLimits(serverTodayIST);
+    } catch (dateErr) {
+      serverTodayIST = null;
+      serverTodayError = dateErr;
+      console.warn('Error fetching server today_ist:', dateErr);
+    }
+
     if (isSupabaseConfigured()) {
       const supabase = await getSupabase();
       const categoryIds = basicsCategories.map(c => c.id);
 
       if (categoryIds.length === 0) {
-        todayContainer.innerHTML = '<p style="font-size: var(--text-sm); color: var(--text-dim);">No categories found.</p>';
-        pastContainer.innerHTML = '';
+        if (todayContainer) todayContainer.innerHTML = '<p style="font-size: var(--text-sm); color: var(--text-dim);">No categories found.</p>';
+        if (pastContainer) pastContainer.innerHTML = '';
         return;
       }
 
@@ -307,7 +419,7 @@ async function loadBasicsHistory() {
                 sort_order
               )
             `)
-            .eq('student_id', currentProfile.id)
+            .eq('student_id', (activeHistoryStudent && activeHistoryStudent.id) || currentProfile.id)
             .in('category_id', categoryIds)
             .order('entry_date', { ascending: false })
             .order('created_at', { ascending: false })
@@ -325,8 +437,9 @@ async function loadBasicsHistory() {
       }
     } else {
       // Demo Mode retrieval with pre-computed meets_target
-      const demoDbResults = DemoDB.getResultsWithTarget(currentProfile.id, 'basics');
-      const demoKey = `trendz_demo_basics_${currentProfile.id}`;
+      const targetId = (activeHistoryStudent && activeHistoryStudent.id) || currentProfile?.id || 'usr-101';
+      const demoDbResults = DemoDB.getResultsWithTarget(targetId, 'basics');
+      const demoKey = `trendz_demo_basics_${targetId}`;
       const localAdded = JSON.parse(localStorage.getItem(demoKey) || '[]');
       // Merge local additions with targets
       allBasicsResults = [...localAdded, ...demoDbResults.filter(d => !localAdded.some(l => l.id === d.id))];
@@ -345,14 +458,14 @@ async function loadBasicsHistory() {
 /**
  * Render history split into Today's sessions and Past 7 days grouped by date
  */
-function renderHistory() {
+export function renderHistory() {
   const todayContainer = document.getElementById('today-drills-container');
   const pastContainer = document.getElementById('past-drills-container');
   const todayBadge = document.getElementById('today-count-badge');
   const toolbarContainer = document.getElementById('basics-history-toolbar-container');
   const paginationContainer = document.getElementById('basics-history-pagination-container');
 
-  if (allBasicsResults.length === 0) {
+  if (allBasicsResults.length === 0 && !serverTodayError) {
     if (todayContainer) {
       todayContainer.innerHTML = `
         <div class="card" style="padding: var(--space-6); text-align: center; color: var(--text-dim); font-size: var(--text-sm);">
@@ -367,42 +480,55 @@ function renderHistory() {
     return;
   }
 
-  // Determine latest date in the dataset to act as "today" or use standard ISO comparison
-  const latestDate = allBasicsResults[0]?.entry_date;
-  const todayItems = allBasicsResults.filter(r => r.entry_date === latestDate);
-
-  if (todayBadge) todayBadge.textContent = `(${todayItems.length})`;
-
-  // Render Today's items
-  if (todayContainer) {
-    if (todayItems.length === 0) {
+  // Handle server date loading failure explicitly
+  if (serverTodayError || !serverTodayIST) {
+    if (todayBadge) todayBadge.textContent = '(!)';
+    if (todayContainer) {
       todayContainer.innerHTML = `
-        <div class="card" style="padding: var(--space-4); text-align: center; color: var(--text-dim); font-size: var(--text-sm);">
-          No speed drills logged yet for today.
+        <div class="banner banner-error" role="alert" style="margin-bottom: var(--space-4);">
+          Unable to verify current date from server. Today's drills cannot be loaded.
         </div>
       `;
-    } else {
-      todayContainer.innerHTML = `
-        <div class="card history-compact-card">
-          <div class="table-container" style="border: none; border-radius: 0;">
-            <table class="history-compact-table" aria-label="Today's Basics Drills">
-              <thead>
-                <tr>
-                  <th scope="col">Category</th>
-                  <th scope="col" class="th-num">Score</th>
-                  <th scope="col" class="th-num">Accuracy</th>
-                  <th scope="col" class="th-num">Time</th>
-                  <th scope="col">Date</th>
-                  <th scope="col" class="th-action">Details</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${todayItems.map(item => renderDrillRow(item, 'today')).join('')}
-              </tbody>
-            </table>
+    }
+  } else {
+    // Authoritative server IST date for Today's practice
+    const todayItems = allBasicsResults.filter(
+      (r) => toISTDateString(r.entry_date || r.created_at) === serverTodayIST
+    );
+
+    if (todayBadge) todayBadge.textContent = `(${todayItems.length})`;
+
+    // Render Today's items
+    if (todayContainer) {
+      if (todayItems.length === 0) {
+        todayContainer.innerHTML = `
+          <div class="card" style="padding: var(--space-4); text-align: center; color: var(--text-dim); font-size: var(--text-sm);">
+            No speed drills logged yet for today.
           </div>
-        </div>
-      `;
+        `;
+      } else {
+        todayContainer.innerHTML = `
+          <div class="card history-compact-card">
+            <div class="table-container" style="border: none; border-radius: 0;">
+              <table class="history-compact-table" aria-label="Today's Basics Drills">
+                <thead>
+                  <tr>
+                    <th scope="col">Category</th>
+                    <th scope="col" class="th-num">Score</th>
+                    <th scope="col" class="th-num">Accuracy</th>
+                    <th scope="col" class="th-num">Time</th>
+                    <th scope="col">Date</th>
+                    <th scope="col" class="th-action">Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${todayItems.map(item => renderDrillRow(item, 'today')).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `;
+      }
     }
   }
 
@@ -435,28 +561,16 @@ function renderHistory() {
         </div>
       `;
     } else {
-      // Group paged items by entry_date
-      const grouped = new Map();
-      paged.items.forEach(item => {
-        const dateKey = item.entry_date || 'Earlier';
-        if (!grouped.has(dateKey)) grouped.set(dateKey, []);
-        grouped.get(dateKey).push(item);
-      });
+      const isAccuracySort =
+        basicsHistoryFilters.sort === 'accuracy_desc' ||
+        basicsHistoryFilters.sort === 'accuracy_asc';
 
-      let pastHtml = '';
-      grouped.forEach((items, dateKey) => {
-        pastHtml += `
+      if (isAccuracySort) {
+        // Render flat list without date grouping to preserve global accuracy ordering across pagination
+        pastContainer.innerHTML = `
           <div class="card history-compact-card" style="margin-bottom: var(--space-4);">
-            <div class="card-header" style="padding: var(--space-3) var(--space-5); background-color: var(--bg-surface-subtle); display: flex; justify-content: space-between; align-items: center;">
-              <span style="font-weight: 700; font-size: var(--text-sm); color: var(--text-main);">
-                📅 ${formatDateDisplay(dateKey)}
-              </span>
-              <span class="num" style="font-size: var(--text-xs); color: var(--text-dim);">
-                ${items.length} ${items.length === 1 ? 'drill' : 'drills'}
-              </span>
-            </div>
             <div class="table-container" style="border: none; border-radius: 0;">
-              <table class="history-compact-table" aria-label="Drills for ${escapeHtml(dateKey)}">
+              <table class="history-compact-table" aria-label="Basics drills ranked by accuracy">
                 <thead>
                   <tr>
                     <th scope="col">Category</th>
@@ -468,14 +582,55 @@ function renderHistory() {
                   </tr>
                 </thead>
                 <tbody>
-                  ${items.map(item => renderDrillRow(item, 'history')).join('')}
+                  ${paged.items.map((item) => renderDrillRow(item, 'history')).join('')}
                 </tbody>
               </table>
             </div>
           </div>
         `;
-      });
-      pastContainer.innerHTML = pastHtml;
+      } else {
+        // Group paged items by entry_date for date-based sorting
+        const grouped = new Map();
+        paged.items.forEach((item) => {
+          const dateKey = item.entry_date || 'Earlier';
+          if (!grouped.has(dateKey)) grouped.set(dateKey, []);
+          grouped.get(dateKey).push(item);
+        });
+
+        let pastHtml = '';
+        grouped.forEach((items, dateKey) => {
+          pastHtml += `
+            <div class="card history-compact-card" style="margin-bottom: var(--space-4);">
+              <div class="card-header" style="padding: var(--space-3) var(--space-5); background-color: var(--bg-surface-subtle); display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-weight: 700; font-size: var(--text-sm); color: var(--text-main);">
+                  📅 ${formatDateDisplay(dateKey)}
+                </span>
+                <span class="num" style="font-size: var(--text-xs); color: var(--text-dim);">
+                  ${items.length} ${items.length === 1 ? 'drill' : 'drills'}
+                </span>
+              </div>
+              <div class="table-container" style="border: none; border-radius: 0;">
+                <table class="history-compact-table" aria-label="Drills for ${escapeHtml(dateKey)}">
+                  <thead>
+                    <tr>
+                      <th scope="col">Category</th>
+                      <th scope="col" class="th-num">Score</th>
+                      <th scope="col" class="th-num">Accuracy</th>
+                      <th scope="col" class="th-num">Time</th>
+                      <th scope="col">Date</th>
+                      <th scope="col" class="th-action">Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${items.map((item) => renderDrillRow(item, 'history')).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          `;
+        });
+        pastContainer.innerHTML = pastHtml;
+      }
     }
   }
 
@@ -754,7 +909,45 @@ function escapeHtml(str) {
  * Initialize Basics Page
  */
 async function initBasics() {
-  currentProfile = await requireAuth(['student', 'admin']);
+  currentProfile = await requireAuth(['student', 'admin', 'teacher']);
+  if (!currentProfile) return;
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const requestedStudentId = urlParams.get('student_id') || urlParams.get('student');
+  const supabase = isSupabaseConfigured() ? await getSupabase() : null;
+
+  const targetResult = await resolveHistoryTargetStudent({
+    loggedInProfile: currentProfile,
+    urlStudentId: requestedStudentId,
+    supabase,
+    isDemo: isDemoMode(),
+    DemoDB,
+  });
+
+  if (targetResult.error) {
+    showToast('error', targetResult.error);
+    if (!targetResult.targetStudent) {
+      const bannerPlaceholder = document.getElementById('config-banner-placeholder');
+      if (bannerPlaceholder) {
+        bannerPlaceholder.innerHTML = `<div class="banner banner-error" style="margin-bottom: var(--space-4);" role="alert">${escapeHtml(targetResult.error)}</div>`;
+        bannerPlaceholder.style.display = 'block';
+      }
+      return;
+    }
+  }
+
+  activeHistoryStudent = targetResult.targetStudent || currentProfile;
+
+  if (!targetResult.isSelf && activeHistoryStudent) {
+    const bannerPlaceholder = document.getElementById('config-banner-placeholder');
+    renderTargetStudentBanner(bannerPlaceholder, activeHistoryStudent);
+
+    // Hide manual entry and direct practice cards for student profile history view
+    const entryCard = document.querySelector('section.card[aria-labelledby="entry-heading"]') || document.getElementById('basics-entry-card');
+    if (entryCard) entryCard.style.display = 'none';
+    const onlineCard = document.getElementById('basics-online-practice-card');
+    if (onlineCard) onlineCard.style.display = 'none';
+  }
   if (!currentProfile) return;
 
   const pillContainer = document.getElementById('user-pill-container');
@@ -894,10 +1087,11 @@ async function initBasics() {
           if (error) throw new Error(error.message);
         } else {
           const demoKey = `trendz_demo_basics_${currentProfile.id}`;
+          const todayFallBack = serverTodayIST || (await fetchServerTodayIST().catch(() => new Date().toISOString().split('T')[0]));
           const newEntry = {
             id: `bas-${Date.now()}`,
             ...insertPayload,
-            entry_date: insertPayload.entry_date || new Date().toISOString().split('T')[0],
+            entry_date: insertPayload.entry_date || todayFallBack,
             created_at: new Date().toISOString()
           };
           allBasicsResults.unshift(newEntry);
@@ -1074,4 +1268,6 @@ export async function handleBasicsUrlParams() {
   }, 100);
 }
 
-document.addEventListener('DOMContentLoaded', initBasics);
+if (typeof document !== 'undefined') {
+  document.addEventListener('DOMContentLoaded', initBasics);
+}
