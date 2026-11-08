@@ -49,6 +49,41 @@ let basicsHistoryFilters = {
 let basicsHistoryPage = 1;
 const BASICS_PAGE_SIZE = 20;
 
+export function isViewingOtherStudent() {
+  return Boolean(activeHistoryStudent && currentProfile && activeHistoryStudent.id !== currentProfile.id);
+}
+
+export function applyBasicsStudentViewMode(isOtherStudent) {
+  const entryCard = document.getElementById('basics-entry-card') || document.getElementById('basics-form')?.closest('.card') || document.querySelector('section.card[aria-labelledby="entry-heading"]');
+  if (entryCard) {
+    entryCard.style.display = isOtherStudent ? 'none' : '';
+  }
+
+  const onlineCard = document.getElementById('online-practice-categories-card') || document.getElementById('basics-online-practice-card');
+  if (onlineCard) {
+    if (isOtherStudent) {
+      onlineCard.style.display = 'none';
+    } else if (basicsCategories && basicsCategories.length > 0) {
+      onlineCard.style.display = 'block';
+    }
+  }
+
+  const onlineBtn = document.getElementById('btn-selected-practice-online');
+  if (onlineBtn) {
+    if (isOtherStudent) {
+      onlineBtn.style.display = 'none';
+    } else {
+      const selectEl = document.getElementById('basics-category-select');
+      if (selectEl && selectEl.value) {
+        updateCategoryTargetDisplay(selectEl.value);
+      } else {
+        onlineBtn.style.display = '';
+      }
+    }
+  }
+}
+
+
 /**
  * Obtains today's date in IST from the authoritative server/database RPC source (`today_ist`).
  * In live mode: queries `supabase.rpc('today_ist')`.
@@ -132,6 +167,7 @@ export function setBasicsPageForTesting(page) {
 export function setCurrentProfileForTesting(profile) {
   currentProfile = profile;
 }
+
 
 /**
  * Format date into "3 Oct 2026"
@@ -253,9 +289,15 @@ async function loadBasicsCategories() {
  * Renders a "Practice online" button for each basics category that is available online
  */
 function renderOnlinePracticeButtons() {
-  const cardEl = document.getElementById('online-practice-categories-card');
+  const cardEl = document.getElementById('online-practice-categories-card') || document.getElementById('basics-online-practice-card');
   const listEl = document.getElementById('online-practice-buttons-list');
   if (!cardEl || !listEl) return;
+
+  if (isViewingOtherStudent()) {
+    cardEl.style.display = 'none';
+    listEl.innerHTML = '';
+    return;
+  }
 
   const onlineCats = basicsCategories.filter(c => isBasicsOnlineAvailable(c));
   if (onlineCats.length === 0) {
@@ -310,7 +352,7 @@ function updateCategoryTargetDisplay(categoryId) {
 
   const selectedCat = basicsCategories.find(c => c.id === categoryId);
   if (onlineBtn) {
-    if (selectedCat && isBasicsOnlineAvailable(selectedCat)) {
+    if (!isViewingOtherStudent() && selectedCat && isBasicsOnlineAvailable(selectedCat)) {
       onlineBtn.href = `/pages/basics-practice.html?cat=${encodeURIComponent(selectedCat.id)}`;
       onlineBtn.textContent = `Practice ${selectedCat.name} online →`;
       onlineBtn.style.display = 'inline-flex';
@@ -709,7 +751,7 @@ function wireBasicsFilterListeners() {
  * @param {Record<string, any>} drill
  * @param {'today'|'history'} [contextPrefix='history'] - Context prefix for distinct DOM IDs
  */
-function renderDrillRow(drill, contextPrefix = 'history') {
+export function renderDrillRow(drill, contextPrefix = 'history') {
   const catName = drill.categories?.name || basicsCategories.find(c => c.id === drill.category_id)?.name || 'Basics';
   const feedback = getScoreFeedback(drill.correct, drill.total);
   const timeFormatted = formatSecondsToMMSS(drill.time_seconds);
@@ -756,32 +798,35 @@ function renderDrillRow(drill, contextPrefix = 'history') {
     { label: 'Notes', valueHtml: actualNote ? escapeHtml(actualNote) : '<span style="color: var(--text-dim);">None</span>' }
   );
 
-  const actionsHtml = !isLocked
-    ? `
-      <button
-        type="button"
-        class="btn btn-outline btn-sm btn-edit-drill"
-        data-id="${drill.id}"
-        style="min-height: 44px; min-width: 80px;"
-        title="Edit drill"
-      >
-        Edit
-      </button>
-      <button
-        type="button"
-        class="btn btn-outline btn-sm btn-delete-drill"
-        data-id="${drill.id}"
-        style="min-height: 44px; min-width: 80px; color: #DC2626;"
-        title="Delete drill"
-      >
-        Delete
-      </button>
-    `
-    : `
-      <span style="font-size: 11px; color: var(--text-dim); padding-right: var(--space-2);">
-        🔒 Locked (editing and deletion disabled)
-      </span>
-    `;
+  const isOtherStudentView = isViewingOtherStudent();
+  const actionsHtml = isOtherStudentView
+    ? ''
+    : (!isLocked
+      ? `
+        <button
+          type="button"
+          class="btn btn-outline btn-sm btn-edit-drill"
+          data-id="${drill.id}"
+          style="min-height: 44px; min-width: 80px;"
+          title="Edit drill"
+        >
+          Edit
+        </button>
+        <button
+          type="button"
+          class="btn btn-outline btn-sm btn-delete-drill"
+          data-id="${drill.id}"
+          style="min-height: 44px; min-width: 80px; color: #DC2626;"
+          title="Delete drill"
+        >
+          Delete
+        </button>
+      `
+      : `
+        <span style="font-size: 11px; color: var(--text-dim); padding-right: var(--space-2);">
+          🔒 Locked (editing and deletion disabled)
+        </span>
+      `);
 
   return renderCompactHistoryRowHtml({
     rowId: `${contextPrefix}-drill-${drill.id}`,
@@ -806,6 +851,10 @@ function renderDrillRow(drill, contextPrefix = 'history') {
 function attachDrillActionListeners() {
   document.querySelectorAll('.btn-edit-drill').forEach(btn => {
     btn.addEventListener('click', () => {
+      if (isViewingOtherStudent()) {
+        showToast('error', 'Cannot edit practice drills while viewing another student.');
+        return;
+      }
       const drillId = btn.getAttribute('data-id');
       const drill = allBasicsResults.find(r => r.id === drillId);
       if (!drill) return;
@@ -836,6 +885,10 @@ function attachDrillActionListeners() {
 
   document.querySelectorAll('.btn-delete-drill').forEach(btn => {
     btn.addEventListener('click', async () => {
+      if (isViewingOtherStudent()) {
+        showToast('error', 'Cannot delete practice drills while viewing another student.');
+        return;
+      }
       const drillId = btn.getAttribute('data-id');
       const drill = allBasicsResults.find(r => r.id === drillId);
       if (drill && (drill.verified === true || !!drill.verified_at || !!drill.corrected_at)) {
@@ -938,15 +991,12 @@ async function initBasics() {
 
   activeHistoryStudent = targetResult.targetStudent || currentProfile;
 
-  if (!targetResult.isSelf && activeHistoryStudent) {
+  const isOther = isViewingOtherStudent();
+  applyBasicsStudentViewMode(isOther);
+
+  if (isOther && activeHistoryStudent) {
     const bannerPlaceholder = document.getElementById('config-banner-placeholder');
     renderTargetStudentBanner(bannerPlaceholder, activeHistoryStudent);
-
-    // Hide manual entry and direct practice cards for student profile history view
-    const entryCard = document.querySelector('section.card[aria-labelledby="entry-heading"]') || document.getElementById('basics-entry-card');
-    if (entryCard) entryCard.style.display = 'none';
-    const onlineCard = document.getElementById('basics-online-practice-card');
-    if (onlineCard) onlineCard.style.display = 'none';
   }
   if (!currentProfile) return;
 
@@ -988,6 +1038,10 @@ async function initBasics() {
   // Form submit
   document.getElementById('basics-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (isViewingOtherStudent()) {
+      showToast('error', 'Cannot record or edit practice drills while viewing another student.');
+      return;
+    }
     const errorEl = document.getElementById('basics-form-error');
     const submitBtn = document.getElementById('btn-submit-drill');
     const btnText = document.getElementById('btn-submit-drill-text');
