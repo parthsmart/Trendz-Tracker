@@ -1545,7 +1545,20 @@ async function getJmcwcBearerToken() {
   }
 }
 
-async function callJmcwcApi(payload) {
+export function parseJmcwcApiError(response, data) {
+  const errorMessage =
+    (typeof data?.error === 'string' && data.error) ||
+    data?.error?.message ||
+    data?.message ||
+    `Request failed (${response?.status || 500})`;
+  const errorCode = data?.code || data?.error?.code || (response?.status === 403 ? 'FORBIDDEN' : 'API_ERROR');
+  const err = new Error(errorMessage);
+  err.status = response?.status || 500;
+  err.code = errorCode;
+  return err;
+}
+
+export async function callJmcwcApi(payload) {
   const token = await getJmcwcBearerToken();
   if (!token) {
     throw new Error('Authentication required for JMCWC online practice.');
@@ -1560,10 +1573,7 @@ async function callJmcwcApi(payload) {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok || data?.ok === false) {
-    const err = new Error(data?.error?.message || `Request failed (${response.status})`);
-    err.status = response.status;
-    err.code = data?.error?.code || 'API_ERROR';
-    throw err;
+    throw parseJmcwcApiError(response, data);
   }
   return data;
 }
@@ -1586,10 +1596,12 @@ async function loadJmcwcOverviewAndAttempts() {
   }
 
   try {
-    const [overviewRes, attemptsRes] = await Promise.all([
-      callJmcwcApi({ action: 'get_practice_overview' }),
-      callJmcwcApi({ action: 'list_attempts', limit: 50 }),
-    ]);
+    const overviewRes = await callJmcwcApi({ action: 'get_practice_overview' });
+    let attemptsRes = { attempts: [] };
+    // Only call assignment-dependent endpoints if the student has an assigned group
+    if (overviewRes?.assigned !== false && overviewRes?.group_key) {
+      attemptsRes = await callJmcwcApi({ action: 'list_attempts', limit: 50 });
+    }
 
     jmcwcOverviewData = overviewRes;
     jmcwcCategoriesList = Array.isArray(overviewRes.categories) ? overviewRes.categories : [];
@@ -3423,4 +3435,6 @@ function setupJmcwcOnlinePracticeUI() {
   });
 }
 
-document.addEventListener('DOMContentLoaded', initRoundScores);
+if (typeof document !== 'undefined') {
+  document.addEventListener('DOMContentLoaded', initRoundScores);
+}

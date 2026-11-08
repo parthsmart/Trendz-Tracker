@@ -60,6 +60,7 @@ export const AUTHORITATIVE_JMCWC_CATEGORIES = Object.freeze([
 
 export const SCORESHEET_SOURCE_FILTERS = Object.freeze(['both', 'manual', 'online']);
 export const SCORESHEET_DATE_PRESETS = Object.freeze(['last7', 'last30', 'all', 'single', 'range']);
+export const ONLINE_UNASSIGNED_MESSAGE = 'Online practice is unavailable until your teacher assigns your JMCWC group.';
 
 // =============================================================================
 // DATE & TIME UTILITIES (STRICT INDIA TIME)
@@ -722,6 +723,8 @@ export function buildScoresheetViewModel({
   onlineReviewCache = new Map(),
   papersMap = new Map(),
   loadErrors = { manual: null, online: null, reviews: new Map() },
+  onlineAssigned = true,
+  onlineAssignmentMessage = null,
 }) {
   const filterBounds = resolveDateFilterBounds(preset, todayIST, customFrom, customTo);
   const periodLabel = formatScoresheetPeriodLabel(filterBounds);
@@ -868,6 +871,8 @@ export function buildScoresheetViewModel({
     sheets,
     studentInfo,
     isEmpty,
+    onlineAssigned: Boolean(onlineAssigned),
+    onlineAssignmentMessage: onlineAssignmentMessage || (onlineAssigned ? null : ONLINE_UNASSIGNED_MESSAGE),
   };
 }
 
@@ -1387,12 +1392,17 @@ export function buildScoresheetPdfBytes(viewModel) {
   if (pages.length === 0) {
     // Empty state page
     const emptyOps = [];
-    renderPageHeader(emptyOps, 'No records recorded', 'Scoresheet', '');
+    const isUnassignedOnline = viewModel.onlineAssigned === false && viewModel.sourceFilter === 'online';
+    const emptyTitle = isUnassignedOnline ? 'Online Practice Unavailable' : 'No records recorded';
+    const emptyMessage = isUnassignedOnline
+      ? (viewModel.onlineAssignmentMessage || ONLINE_UNASSIGNED_MESSAGE)
+      : 'No round scores recorded for the selected source or date filter.';
+    renderPageHeader(emptyOps, emptyTitle, 'Scoresheet', '');
     emptyOps.push('BT');
-    emptyOps.push('/F1 12 Tf');
+    emptyOps.push('/F1 11 Tf');
     emptyOps.push('0.50 0.55 0.65 rg');
-    emptyOps.push(`1 0 0 1 ${MARGIN_X + 100} ${PAGE_H / 2} Tm`);
-    emptyOps.push(`(${pdfEscape('No round scores recorded for the selected source or date filter.')}) Tj`);
+    emptyOps.push(`1 0 0 1 ${MARGIN_X + 60} ${PAGE_H / 2} Tm`);
+    emptyOps.push(`(${pdfEscape(emptyMessage)}) Tj`);
     emptyOps.push('ET');
     pages.push({ ops: emptyOps, paperId: null });
   }
@@ -1994,6 +2004,19 @@ export function renderScoresheetHTML(viewModel) {
       `;
     }
 
+    if (viewModel.sourceFilter === 'online' && viewModel.onlineAssigned === false) {
+      return `
+        ${errorBannersHtml}
+        <div class="empty-state scoresheet-unassigned-card" style="padding: var(--space-8); text-align: center; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg);">
+          <div style="font-size: 2.5rem; margin-bottom: var(--space-2);">🔒</div>
+          <h3 class="empty-state-title" style="margin-bottom: var(--space-2); color: var(--text-main);">Online practice unavailable</h3>
+          <p class="empty-state-desc" style="max-width: 480px; margin: 0 auto; font-size: var(--text-sm); color: var(--text-muted); font-weight: 500;">
+            ${escapeHtml(viewModel.onlineAssignmentMessage || ONLINE_UNASSIGNED_MESSAGE)}
+          </p>
+        </div>
+      `;
+    }
+
     return `
       ${errorBannersHtml}
       <div class="empty-state" style="padding: var(--space-8); text-align: center; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg);">
@@ -2008,6 +2031,17 @@ export function renderScoresheetHTML(viewModel) {
   }
 
   let html = errorBannersHtml;
+
+  if (viewModel.sourceFilter === 'both' && viewModel.onlineAssigned === false) {
+    html += `
+      <div class="banner banner-info scoresheet-unassigned-notice" role="status" style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: var(--radius-md); color: #1e40af; margin-bottom: var(--space-4);">
+        <span style="font-size: 1.25rem;" aria-hidden="true">ℹ️</span>
+        <div style="font-size: var(--text-sm); font-weight: 600;">
+          ${escapeHtml(viewModel.onlineAssignmentMessage || ONLINE_UNASSIGNED_MESSAGE)}
+        </div>
+      </div>
+    `;
+  }
 
   viewModel.sheets.forEach((sheet, sheetIdx) => {
     const isManual = sheet.type === 'manual';
@@ -2262,6 +2296,8 @@ export class ScoresheetController {
       online: null,
       reviews: new Map(),
     };
+    this.onlineAssigned = true;
+    this.onlineAssignmentMessage = null;
 
     // Loaded Raw Data Caches
     this.manualRounds = [];
@@ -2449,13 +2485,26 @@ export class ScoresheetController {
 
           // 4. Paginate online attempts via JMCWC API offset and fetch authorized online metadata
           try {
+            let isAssigned = true;
             // First fetch overview to resolve authoritative online categories, published paper & student assignment
             try {
               const overviewAction = this.currentProfile?.role === 'admin' ? 'admin_get_overview' : 'get_practice_overview';
               const overviewRes = await this.callJmcwcApi({ action: overviewAction });
               if (overviewRes?.error) {
-                this.loadErrors.online = overviewRes.error.message || overviewRes.error || 'Failed to load online categories';
+                const errMsg = typeof overviewRes.error === 'string' ? overviewRes.error : (overviewRes.error.message || 'Failed to load online categories');
+                this.loadErrors.online = errMsg;
               } else {
+                if (overviewRes?.assigned === false || (this.currentProfile?.role !== 'admin' && !overviewRes?.group_key)) {
+                  isAssigned = false;
+                  this.onlineAssigned = false;
+                  this.onlineAssignmentMessage = ONLINE_UNASSIGNED_MESSAGE;
+                  this.jmcwcAssignment = null;
+                  this.onlineAttempts = [];
+                } else {
+                  this.onlineAssigned = true;
+                  this.onlineAssignmentMessage = null;
+                }
+
                 if (Array.isArray(overviewRes?.categories) && overviewRes.categories.length > 0) {
                   this.onlineCategories = [...overviewRes.categories].sort(
                     (a, b) => (Number(a.position) || 0) - (Number(b.position) || 0)
@@ -2483,51 +2532,57 @@ export class ScoresheetController {
               this.loadErrors.online = ovErr.message || 'Failed to load online practice metadata';
             }
 
-            let offset = 0;
-            const JMCWC_PAGE_SIZE = 50;
-            const allOnlineAttempts = [];
-            while (true) {
-              const attemptsRes = await this.callJmcwcApi({ action: 'list_attempts', offset });
-              if (attemptsRes?.error) {
-                throw new Error(attemptsRes.error);
+            if (isAssigned && !this.loadErrors.online) {
+              let offset = 0;
+              const JMCWC_PAGE_SIZE = 50;
+              const allOnlineAttempts = [];
+              while (true) {
+                const attemptsRes = await this.callJmcwcApi({ action: 'list_attempts', offset });
+                if (attemptsRes?.error) {
+                  const errMsg = typeof attemptsRes.error === 'string' ? attemptsRes.error : (attemptsRes.error.message || 'Failed to load online attempts');
+                  throw new Error(errMsg);
+                }
+                const batch = Array.isArray(attemptsRes?.attempts) ? attemptsRes.attempts : [];
+                if (batch.length === 0) break;
+                allOnlineAttempts.push(...batch);
+                if (batch.length < JMCWC_PAGE_SIZE) break;
+                offset += batch.length;
               }
-              const batch = Array.isArray(attemptsRes?.attempts) ? attemptsRes.attempts : [];
-              if (batch.length === 0) break;
-              allOnlineAttempts.push(...batch);
-              if (batch.length < JMCWC_PAGE_SIZE) break;
-              offset += batch.length;
-            }
-            this.onlineAttempts = allOnlineAttempts;
+              this.onlineAttempts = allOnlineAttempts;
 
-            // Preload reviews for submitted flat rounds with BOUNDED CONCURRENCY (max 3 concurrent)
-            const submittedFlat = this.onlineAttempts.filter((a) => a.status === 'submitted' && a.mode === 'flat');
-            const CONCURRENCY_LIMIT = 3;
-            for (let i = 0; i < submittedFlat.length; i += CONCURRENCY_LIMIT) {
-              const chunk = submittedFlat.slice(i, i + CONCURRENCY_LIMIT);
-              await Promise.all(
-                chunk.map(async (att) => {
-                  const cached = this.onlineReviewCache.get(att.id);
-                  const hasSuccessfulReview = Array.isArray(cached) || (cached && !cached.error && Array.isArray(cached.review));
-                  if (!hasSuccessfulReview) {
-                    try {
-                      const reviewRes = await this.callJmcwcApi({ action: 'get_attempt_review', attempt_id: att.id });
-                      if (reviewRes?.error) {
-                        throw new Error(reviewRes.error);
+              // Preload reviews for submitted flat rounds with BOUNDED CONCURRENCY (max 3 concurrent)
+              const submittedFlat = this.onlineAttempts.filter((a) => a.status === 'submitted' && a.mode === 'flat');
+              const CONCURRENCY_LIMIT = 3;
+              for (let i = 0; i < submittedFlat.length; i += CONCURRENCY_LIMIT) {
+                const chunk = submittedFlat.slice(i, i + CONCURRENCY_LIMIT);
+                await Promise.all(
+                  chunk.map(async (att) => {
+                    const cached = this.onlineReviewCache.get(att.id);
+                    const hasSuccessfulReview = Array.isArray(cached) || (cached && !cached.error && Array.isArray(cached.review));
+                    if (!hasSuccessfulReview) {
+                      try {
+                        const reviewRes = await this.callJmcwcApi({ action: 'get_attempt_review', attempt_id: att.id });
+                        if (reviewRes?.error) {
+                          const errMsg = typeof reviewRes.error === 'string' ? reviewRes.error : (reviewRes.error.message || 'Failed to load review breakdown');
+                          throw new Error(errMsg);
+                        }
+                        const reviewList = reviewRes?.attempt?.review;
+                        if (!Array.isArray(reviewList)) {
+                          throw new Error('Review breakdown response is missing or malformed');
+                        }
+                        this.onlineReviewCache.set(att.id, reviewList);
+                        this.loadErrors.reviews.delete(att.id);
+                      } catch (e) {
+                        console.warn(`Review fetch error for attempt ${att.id}:`, e.message);
+                        this.loadErrors.reviews.set(att.id, e.message || 'Failed to load review breakdown');
+                        this.onlineReviewCache.set(att.id, { error: e.message || 'Failed to load review breakdown' });
                       }
-                      const reviewList = reviewRes?.attempt?.review;
-                      if (!Array.isArray(reviewList)) {
-                        throw new Error('Review breakdown response is missing or malformed');
-                      }
-                      this.onlineReviewCache.set(att.id, reviewList);
-                      this.loadErrors.reviews.delete(att.id);
-                    } catch (e) {
-                      console.warn(`Review fetch error for attempt ${att.id}:`, e.message);
-                      this.loadErrors.reviews.set(att.id, e.message || 'Failed to load review breakdown');
-                      this.onlineReviewCache.set(att.id, { error: e.message || 'Failed to load review breakdown' });
                     }
-                  }
-                })
-              );
+                  })
+                );
+              }
+            } else {
+              this.onlineAttempts = [];
             }
           } catch (jmcwcErr) {
             console.error('JMCWC attempts fetch in scoresheet:', jmcwcErr?.message);
@@ -2594,6 +2649,8 @@ export class ScoresheetController {
       onlineReviewCache: this.onlineReviewCache,
       papersMap: this.papersMap,
       loadErrors: this.loadErrors,
+      onlineAssigned: this.onlineAssigned,
+      onlineAssignmentMessage: this.onlineAssignmentMessage,
     });
   }
 

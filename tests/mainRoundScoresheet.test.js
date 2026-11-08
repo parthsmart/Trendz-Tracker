@@ -20,6 +20,7 @@ import { describe, it } from 'node:test';
 
 import {
   AUTHORITATIVE_JMCWC_CATEGORIES,
+  ONLINE_UNASSIGNED_MESSAGE,
   getPastISTDate,
   resolveDateFilterBounds,
   formatScoresheetPeriodLabel,
@@ -41,6 +42,7 @@ import {
   wrapPdfText,
   formatColumnHeaderLabel,
 } from '../js/roundScoresheet.js';
+import { parseJmcwcApiError } from '../js/roundScores.js';
 
 describe('Main Round Scoresheet Engine', () => {
   describe('1. Date Boundaries & Presets (Strict India Time)', () => {
@@ -2128,5 +2130,264 @@ describe('Main Round Scoresheet Engine', () => {
       assert.ok(pdfText.includes('(Inexact square roots) Tj'));
       assert.ok(pdfText.includes('(Prime factorisation) Tj'));
       assert.ok(pdfText.includes('(Fraction division) Tj'));
+    });
+  });
+
+  describe('15. Unassigned Student Handling & Server Error Parsing', () => {
+    describe('15.1 parseJmcwcApiError contract & error preservation', () => {
+      it('preserves top-level string error message and code from server response', () => {
+        const response = { status: 409 };
+        const data = {
+          error: 'No published paper available for group junior1.',
+          code: 'NO_PUBLISHED_PAPER',
+        };
+        const err = parseJmcwcApiError(response, data);
+        assert.equal(err.message, 'No published paper available for group junior1.');
+        assert.equal(err.code, 'NO_PUBLISHED_PAPER');
+        assert.equal(err.status, 409);
+      });
+
+      it('preserves 403 forbidden error string and code without dropping to generic message', () => {
+        const response = { status: 403 };
+        const data = {
+          error: 'Forbidden: No assigned group for student.',
+          code: 'FORBIDDEN',
+        };
+        const err = parseJmcwcApiError(response, data);
+        assert.equal(err.message, 'Forbidden: No assigned group for student.');
+        assert.equal(err.code, 'FORBIDDEN');
+        assert.equal(err.status, 403);
+      });
+
+      it('falls back gracefully to nested error object or default HTTP status message', () => {
+        const response = { status: 500 };
+        const dataNested = {
+          error: { message: 'Database query timeout', code: 'DB_TIMEOUT' },
+        };
+        const errNested = parseJmcwcApiError(response, dataNested);
+        assert.equal(errNested.message, 'Database query timeout');
+        assert.equal(errNested.code, 'DB_TIMEOUT');
+        assert.equal(errNested.status, 500);
+
+        const dataEmpty = {};
+        const errEmpty = parseJmcwcApiError({ status: 502 }, dataEmpty);
+        assert.equal(errEmpty.message, 'Request failed (502)');
+        assert.equal(errEmpty.code, 'API_ERROR');
+        assert.equal(errEmpty.status, 502);
+      });
+    });
+
+    describe('15.2 Unassigned student STU101 in ScoresheetController', () => {
+      it('skips assignment-dependent history/review endpoints when assigned:false and leaves loadErrors.online null', async () => {
+        const apiCalls = [];
+        const mockCallJmcwcApi = async (payload) => {
+          apiCalls.push(payload);
+          if (payload.action === 'get_practice_overview') {
+            return {
+              assigned: false,
+              group_key: null,
+              blocked: true,
+              message: 'Ask your teacher to assign your JMCWC group.',
+              paper_available: false,
+              paper: null,
+              categories: AUTHORITATIVE_JMCWC_CATEGORIES,
+              targets: {},
+              attempts: [],
+            };
+          }
+          if (payload.action === 'list_attempts') {
+            throw new Error('Unexpected call to list_attempts for unassigned student!');
+          }
+          if (payload.action === 'get_attempt_review') {
+            throw new Error('Unexpected call to get_attempt_review for unassigned student!');
+          }
+          return {};
+        };
+
+        const mockSupabase = {
+          from: (table) => {
+            if (table === 'round_series') {
+              return { select: () => Promise.resolve({ data: [{ id: 's1', name: 'Series 1', is_current: true }], error: null }) };
+            }
+            if (table === 'category_series') {
+              return {
+                select: () => ({
+                  order: () => Promise.resolve({
+                    data: [
+                      { category_id: 'c1', series_id: 's1', sort_order: 1, category: { id: 'c1', name: 'Addition', section: 'round', active: true } },
+                    ],
+                    error: null,
+                  }),
+                }),
+              };
+            }
+            if (table === 'categories') {
+              return { select: () => Promise.resolve({ data: [{ id: 'c1', name: 'Addition', section: 'round', active: true }], error: null }) };
+            }
+            if (table === 'student_rounds') {
+              return {
+                select: () => ({
+                  eq: () => ({
+                    order: () => ({
+                      order: () => ({
+                        order: () => ({
+                          range: () => Promise.resolve({
+                            data: [
+                              { id: 'r1', student_id: 'stu-101', series_id: 's1', round_number: 1, round_date: '2026-11-08', round_type: 'Category wise', time_taken_seconds: 120 },
+                            ],
+                            error: null,
+                          }),
+                        }),
+                      }),
+                    }),
+                  }),
+                }),
+              };
+            }
+            if (table === 'results') {
+              return {
+                select: () => ({
+                  eq: () => ({
+                    in: () => ({
+                      order: () => ({
+                        order: () => ({
+                          order: () => ({
+                            range: () => Promise.resolve({
+                              data: [
+                                { id: 'res1', student_round_id: 'r1', category_id: 'c1', correct: 8, total: 10, time_seconds: 60, note: null },
+                              ],
+                              error: null,
+                            }),
+                          }),
+                        }),
+                      }),
+                    }),
+                  }),
+                }),
+              };
+            }
+            return { select: () => Promise.resolve({ data: [], error: null }) };
+          },
+        };
+
+        const controller = new ScoresheetController({
+          containerEl: null,
+          currentProfile: { id: 'stu-101', full_name: 'STU101 Student', student_code: 'STU101', role: 'student', level: 'Level 1' },
+          todayIST: '2026-11-08',
+          getSupabase: async () => mockSupabase,
+          callJmcwcApi: mockCallJmcwcApi,
+        });
+
+        await controller.loadAllStudentData();
+
+        // 1. Verify list_attempts and get_attempt_review were never called
+        assert.equal(apiCalls.length, 1);
+        assert.equal(apiCalls[0].action, 'get_practice_overview');
+        assert.ok(!apiCalls.some((c) => c.action === 'list_attempts'));
+        assert.ok(!apiCalls.some((c) => c.action === 'get_attempt_review'));
+
+        // 2. Verify state is cleanly unassigned and NOT an error
+        assert.equal(controller.onlineAssigned, false);
+        assert.equal(controller.onlineAssignmentMessage, ONLINE_UNASSIGNED_MESSAGE);
+        assert.equal(controller.loadErrors.online, null, 'Unassigned state must NOT be classified as an online load failure');
+        assert.equal(controller.onlineAttempts.length, 0);
+
+        // 3. Verify view model properties
+        const vm = controller.getViewModel();
+        assert.equal(vm.onlineAssigned, false);
+        assert.equal(vm.onlineAssignmentMessage, ONLINE_UNASSIGNED_MESSAGE);
+        assert.equal(vm.studentInfo.group, 'Unassigned');
+        assert.equal(vm.studentInfo.code, 'STU101');
+        assert.equal(hasScoresheetLoadErrors(vm), false, 'ViewModel must have zero load errors');
+
+        // 4. Source "both": Manual round appears and informative unassigned notice is rendered
+        assert.equal(vm.sheets.length, 1, 'Manual sheet must be loaded');
+        assert.equal(vm.sheets[0].type, 'manual');
+        const bothHtml = renderScoresheetHTML(vm);
+        assert.ok(bothHtml.includes('scoresheet-unassigned-notice'), 'Informative unassigned notice must be present in HTML');
+        assert.ok(bothHtml.includes(ONLINE_UNASSIGNED_MESSAGE));
+        assert.ok(!bothHtml.includes('banner-error'), 'No red error banner must appear');
+
+        // 5. PDF generation for source "both" succeeds without loading error blocks
+        const pdfBytes = buildScoresheetPdfBytes(vm);
+        assert.ok(pdfBytes instanceof Uint8Array);
+        assert.ok(pdfBytes.length > 500);
+
+        // 6. Source "online": Renders clean unassigned card without error banners
+        controller.sourceFilter = 'online';
+        const onlineVm = controller.getViewModel();
+        assert.equal(onlineVm.isEmpty, true);
+        assert.equal(onlineVm.onlineAssigned, false);
+        const onlineHtml = renderScoresheetHTML(onlineVm);
+        assert.ok(onlineHtml.includes('scoresheet-unassigned-card'));
+        assert.ok(onlineHtml.includes(ONLINE_UNASSIGNED_MESSAGE));
+        assert.ok(!onlineHtml.includes('banner-error'), 'No red error banner on unassigned online view');
+
+        // 7. PDF generation for source "online" produces single-page "Online Practice Unavailable" document
+        const onlinePdfBytes = buildScoresheetPdfBytes(onlineVm);
+        const onlinePdfText = new TextDecoder('latin1').decode(onlinePdfBytes);
+        assert.ok(onlinePdfText.includes('Online Practice Unavailable'));
+        assert.ok(onlinePdfText.includes('Online practice is unavailable until your teacher assigns your JMCWC group.'));
+
+        // 8. Source "manual": Displays manual rounds cleanly without unassigned notice
+        controller.sourceFilter = 'manual';
+        const manualVm = controller.getViewModel();
+        assert.equal(manualVm.isEmpty, false);
+        const manualHtml = renderScoresheetHTML(manualVm);
+        assert.ok(!manualHtml.includes('scoresheet-unassigned-notice'), 'Manual filter does not need unassigned notice');
+        assert.ok(!manualHtml.includes('scoresheet-unassigned-card'));
+        assert.ok(!manualHtml.includes('banner-error'));
+      });
+    });
+
+    describe('15.3 Genuine API failures in ScoresheetController', () => {
+      it('surfaces genuine 500 or network failure as online load error and blocks exports', async () => {
+        const mockCallJmcwcApi = async (payload) => {
+          if (payload.action === 'get_practice_overview') {
+            throw new Error('Connection refused: simulator service down');
+          }
+          return {};
+        };
+
+        const mockSupabase = {
+          from: () => ({
+            select: () => ({
+              order: () => Promise.resolve({ data: [], error: null }),
+              eq: () => ({
+                order: () => ({
+                  order: () => ({
+                    order: () => ({
+                      range: () => Promise.resolve({ data: [], error: null }),
+                    }),
+                  }),
+                }),
+              }),
+            }),
+          }),
+        };
+
+        const controller = new ScoresheetController({
+          containerEl: null,
+          currentProfile: { id: 'stu-alpha', full_name: 'Student Alpha', student_code: 'STU-A', role: 'student' },
+          todayIST: '2026-11-08',
+          getSupabase: async () => mockSupabase,
+          callJmcwcApi: mockCallJmcwcApi,
+        });
+
+        await controller.loadAllStudentData();
+
+        // 1. Verify loadErrors.online is set to genuine failure message
+        assert.equal(controller.loadErrors.online, 'Connection refused: simulator service down');
+
+        // 2. Verify view model flags error and blocks export
+        const vm = controller.getViewModel();
+        assert.equal(hasScoresheetLoadErrors(vm), true);
+
+        // 3. Render HTML contains error banner with retry option
+        const html = renderScoresheetHTML(vm);
+        assert.ok(html.includes('banner-error'));
+        assert.ok(html.includes('Connection refused: simulator service down'));
+        assert.ok(html.includes('btn-retry-online') || html.includes('btn-retry-scoresheet'));
+      });
     });
   });

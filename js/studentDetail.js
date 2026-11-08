@@ -329,9 +329,9 @@ function renderDemoBanner() {
   `;
 }
 
-function openSendMessageModal(profile, dashboardData) {
+export function openSendMessageModal(profile, dashboardData, options = {}) {
   const recipientEl = document.getElementById('modal-msg-recipient-text');
-  if (recipientEl) {
+  if (recipientEl && profile) {
     const fullName = profile.full_name || profile.name || 'Unnamed Student';
     const code = profile.student_code || profile.id || '—';
     const level = profile.level || '—';
@@ -350,19 +350,20 @@ function openSendMessageModal(profile, dashboardData) {
   const titleInput = document.getElementById('modal-msg-title');
   const bodyInput = document.getElementById('modal-msg-body');
 
-  if (linkTypeSelect) linkTypeSelect.value = 'general';
-  if (scoreGroup) scoreGroup.style.display = 'none';
-  if (testGroup) testGroup.style.display = 'none';
-  if (needsAttentionCb) needsAttentionCb.checked = false;
-  if (attentionReasonWrap) attentionReasonWrap.style.display = 'none';
-  if (attentionReasonInput) attentionReasonInput.value = '';
-  if (titleInput) titleInput.value = '';
-  if (bodyInput) bodyInput.value = '';
+  const initialLinkType = options.linkType || 'general';
+  if (linkTypeSelect) linkTypeSelect.value = initialLinkType;
+  if (scoreGroup) scoreGroup.style.display = initialLinkType === 'score' ? 'block' : 'none';
+  if (testGroup) testGroup.style.display = initialLinkType === 'weekly_test' ? 'block' : 'none';
+  if (needsAttentionCb) needsAttentionCb.checked = Boolean(options.needsAttention);
+  if (attentionReasonWrap) attentionReasonWrap.style.display = options.needsAttention ? 'block' : 'none';
+  if (attentionReasonInput) attentionReasonInput.value = options.attentionReason || '';
+  if (titleInput) titleInput.value = options.title || '';
+  if (bodyInput) bodyInput.value = options.body || '';
 
   // Populate scores select
   if (scoreSelect) {
     scoreSelect.innerHTML = '<option value="">Choose a recent score...</option>';
-    const results = dashboardData?.results || [];
+    const results = Array.isArray(dashboardData?.results) ? dashboardData.results : [];
     results.slice(0, 30).forEach(r => {
       const opt = document.createElement('option');
       opt.value = r.id;
@@ -370,21 +371,36 @@ function openSendMessageModal(profile, dashboardData) {
       const scoreStr = `${r.correct ?? 0}/${r.total ?? 0}`;
       const dateStr = r.entry_date ? formatDisplayDateIST(r.entry_date) : '';
       opt.textContent = `${dateStr} - ${catName} (Score: ${scoreStr})`;
+      if (options.scoreId && String(options.scoreId) === String(r.id)) {
+        opt.selected = true;
+      }
       scoreSelect.appendChild(opt);
     });
+    if (options.scoreId) {
+      scoreSelect.value = options.scoreId;
+    }
   }
 
-  // Populate weekly tests select
+  // Populate weekly tests select (Contract: weeklyTests: { tests, scores } or fallback array)
   if (testSelect) {
     testSelect.innerHTML = '<option value="">Choose a weekly test...</option>';
-    const tests = dashboardData?.weeklyTests || [];
+    const rawWeeklyTests = dashboardData?.weeklyTests;
+    const tests = Array.isArray(rawWeeklyTests?.tests)
+      ? rawWeeklyTests.tests
+      : (Array.isArray(rawWeeklyTests) ? rawWeeklyTests : []);
     tests.forEach(t => {
       const opt = document.createElement('option');
       opt.value = t.id;
       const dateStr = t.test_date ? formatDisplayDateIST(t.test_date) : '';
       opt.textContent = `${dateStr} - ${t.title || 'Weekly Test'}`;
+      if (options.testId && String(options.testId) === String(t.id)) {
+        opt.selected = true;
+      }
       testSelect.appendChild(opt);
     });
+    if (options.testId) {
+      testSelect.value = options.testId;
+    }
   }
 
   activeMessageNonce = typeof crypto !== 'undefined' && crypto.randomUUID
@@ -499,4 +515,6 @@ function setupSendMessageModalHandlers() {
   }
 }
 
-document.addEventListener('DOMContentLoaded', initStudentDetail);
+if (typeof document !== 'undefined') {
+  document.addEventListener('DOMContentLoaded', initStudentDetail);
+}
