@@ -135,7 +135,7 @@ test('desktop navigation structure matches Phase 14e pre-14d restoration for stu
   const studentInline = getInlineNavItems('student').map((item) => item.label);
   assert.deepEqual(studentInline, [
     'Today',
-    'Round scores',
+    'Main Round',
     'Weekly Test',
     'Leaderboard',
     'Monthly Report',
@@ -146,7 +146,7 @@ test('desktop navigation structure matches Phase 14e pre-14d restoration for stu
     studentDesktopEntries.map((e) => (e.type === 'dropdown' ? `${e.label} ▾` : e.item.label)),
     [
       'Today',
-      'Round scores',
+      'Main Round',
       'Practice ▾',
       'Weekly Test',
       'Leaderboard',
@@ -198,7 +198,7 @@ test('student config includes Practice group, Notifications badge key, Account, 
   assert.ok(practiceGroup, 'Expected Practice group in student nav');
   assert.deepEqual(
     practiceGroup.items.map((i) => i.label),
-    ['Round scores', 'Basics', 'Flash Anzan', 'Elements', 'Memoriad']
+    ['Main Round', 'Basics', 'Flash Anzan', 'Elements', 'Memoriad']
   );
 
   const notifItem = NAV_CONFIG.student.find((i) => i.href === '/pages/notifications.html');

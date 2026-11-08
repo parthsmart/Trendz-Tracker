@@ -48,10 +48,10 @@ export const NAV_CONFIG = Object.freeze({
       desktopPlacement: 'inline',
     }),
 
-    // Practice (Round scores top-level inline; Basics, Flash Anzan, Elements, Memoriad in Practice ▾ dropdown on desktop)
+    // Practice (Main Round top-level inline; Basics, Flash Anzan, Elements, Memoriad in Practice ▾ dropdown on desktop)
     Object.freeze({
       id: 'student-round-scores',
-      label: 'Round scores',
+      label: 'Main Round',
       href: '/pages/round-scores.html',
       group: 'Practice',
       inline: true,
@@ -382,7 +382,7 @@ export function getRoleNavItems(role, permissions = null) {
 
 /**
  * Returns the top-level inline navigation links shown on desktop (>= 1024px).
- * Student: Today, Round scores, Weekly Test, Leaderboard, Monthly Report
+ * Student: Today, Main Round, Weekly Test, Leaderboard, Monthly Report
  * Admin: Overview, Review, Students, Attendance, Weekly Tests, Leaderboard, Monthly Report, Settings
  * Teacher: Overview, My Students, Attendance, Tasks, Weekly Tests, Review, Monthly Reports
  * @param {'student' | 'teacher' | 'admin'} role
@@ -397,7 +397,7 @@ export function getInlineNavItems(role, permissions = null) {
  * derived strictly from `NAV_CONFIG` so desktop and mobile share one source of truth.
  *
  * Student desktop layout:
- *   Today, Round scores, Practice ▾ (Basics, Flash Anzan, Elements, Memoriad),
+ *   Today, Main Round, Practice ▾ (Basics, Flash Anzan, Elements, Memoriad),
  *   Weekly Test, Leaderboard, Monthly Report, Notifications bell
  *
  * Admin desktop layout:

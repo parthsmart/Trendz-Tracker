@@ -27,6 +27,7 @@ import { formatDisplayDateIST, getISTDateString } from './stats.js';
 import { DemoDB, getSupabase } from './supabaseClient.js';
 import { formatSecondsToMMSS, parseTimeToSeconds, setupEnterKeyNavigation } from './timeUtils.js';
 import { showToast } from './toast.js';
+import { ScoresheetController } from './roundScoresheet.js';
 import {
   JMCWC_UNASSIGNED_GROUP_MESSAGE,
   formatJmcwcGroupLabel,
@@ -67,6 +68,7 @@ let jmcwcCurrentSectionOrder = 1;
 let jmcwcCurrentQuestionIndex = 0;
 let pendingTakeoverAttemptId = null;
 let isSubmittingPausedAttempt = false;
+let scoresheetControllerInstance = null;
 
 /**
  * Formats database errors into clear, friendly messages for students
@@ -1980,16 +1982,40 @@ function renderCombinedRoundHistory() {
   });
 }
 
+async function ensureScoresheetMounted() {
+  const container = document.getElementById('scoresheet-container');
+  if (!container) return;
+  if (!scoresheetControllerInstance) {
+    scoresheetControllerInstance = new ScoresheetController({
+      containerEl: container,
+      currentProfile,
+      todayIST,
+      getSupabase,
+      isDemo: !isSupabaseConfigured() && isDemoMode(),
+      DemoDB,
+      callJmcwcApi,
+      showToast,
+    });
+    await scoresheetControllerInstance.init();
+  } else {
+    await scoresheetControllerInstance.loadAllStudentData();
+    scoresheetControllerInstance.render();
+  }
+}
+
 async function switchRoundScoresMode(targetMode) {
   if (targetMode === activeRoundScoresMode) return;
 
   if (activeRoundScoresMode === 'manual') {
     const unsaved = recalculateUnsavedChanges();
     if (unsaved > 0) {
-      showUnsavedLeaveBanner(() => {
+      showUnsavedLeaveBanner(async () => {
         updateUnsavedCountUI(0);
         initialRowValues.clear();
         applyModeVisibility(targetMode);
+        if (targetMode === 'preview') {
+          await ensureScoresheetMounted();
+        }
       });
       return;
     }
@@ -2001,25 +2027,39 @@ async function switchRoundScoresMode(targetMode) {
   }
 
   applyModeVisibility(targetMode);
+  if (targetMode === 'preview') {
+    await ensureScoresheetMounted();
+  }
 }
 
 function applyModeVisibility(mode) {
-  activeRoundScoresMode = mode === 'online' ? 'online' : 'manual';
+  activeRoundScoresMode = mode === 'online' ? 'online' : mode === 'preview' ? 'preview' : 'manual';
   const btnManual = document.getElementById('btn-mode-manual');
   const btnOnline = document.getElementById('btn-mode-online');
+  const btnPreview = document.getElementById('btn-mode-preview');
   const manualPane = document.getElementById('jmcwc-manual-entry-pane');
   const onlinePane = document.getElementById('jmcwc-online-practice-pane');
+  const previewPane = document.getElementById('main-round-preview-pane');
+  const historyCard = document.getElementById('jmcwc-combined-history-card');
 
   if (btnManual && btnOnline) {
-    const isOnline = activeRoundScoresMode === 'online';
-    btnManual.setAttribute('aria-selected', isOnline ? 'false' : 'true');
-    btnOnline.setAttribute('aria-selected', isOnline ? 'true' : 'false');
-    btnManual.className = isOnline ? 'btn btn-ghost btn-sm' : 'btn btn-primary btn-sm';
-    btnOnline.className = isOnline ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
+    btnManual.setAttribute('aria-selected', activeRoundScoresMode === 'manual' ? 'true' : 'false');
+    btnOnline.setAttribute('aria-selected', activeRoundScoresMode === 'online' ? 'true' : 'false');
+    if (btnPreview) {
+      btnPreview.setAttribute('aria-selected', activeRoundScoresMode === 'preview' ? 'true' : 'false');
+    }
+
+    btnManual.className = activeRoundScoresMode === 'manual' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
+    btnOnline.className = activeRoundScoresMode === 'online' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
+    if (btnPreview) {
+      btnPreview.className = activeRoundScoresMode === 'preview' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
+    }
   }
 
   if (manualPane) manualPane.style.display = activeRoundScoresMode === 'manual' ? 'block' : 'none';
   if (onlinePane) onlinePane.style.display = activeRoundScoresMode === 'online' ? 'block' : 'none';
+  if (previewPane) previewPane.style.display = activeRoundScoresMode === 'preview' ? 'block' : 'none';
+  if (historyCard) historyCard.style.display = activeRoundScoresMode === 'preview' ? 'none' : 'block';
 }
 
 function showJmcwcSubview(subviewName) {
@@ -3239,6 +3279,9 @@ function setupJmcwcOnlinePracticeUI() {
   });
   document.getElementById('btn-mode-online')?.addEventListener('click', () => {
     switchRoundScoresMode('online');
+  });
+  document.getElementById('btn-mode-preview')?.addEventListener('click', () => {
+    switchRoundScoresMode('preview');
   });
 
   // Start Flat / Category buttons
