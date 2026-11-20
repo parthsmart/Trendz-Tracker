@@ -87,7 +87,7 @@ export function renderStreakCard(streakData, todos = []) {
       shieldLblEl.textContent = shieldCount === 1 ? '1 shield ready' : `${shieldCount} shields ready`;
     } else {
       const cur = Number(streak.current_streak) || 0;
-      const nextShieldDay = Math.ceil((cur + 1) / 10) * 10;
+      const nextShieldDay = Math.ceil((cur + 1) / 7) * 7;
       shieldLblEl.textContent = `Next shield at day ${nextShieldDay}`;
     }
   }

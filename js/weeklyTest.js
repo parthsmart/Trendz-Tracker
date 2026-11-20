@@ -26,7 +26,7 @@ import { getSupabase, DemoDB } from './supabaseClient.js';
 import { isSupabaseConfigured } from './config.js';
 import { isDemoMode } from './demoDb.js';
 import { showToast } from './toast.js';
-import { getScoreFeedback } from './scoreColors.js';
+import { getScoreFeedback, getWeeklyTestScoreFeedback } from './scoreColors.js';
 import { formatSectionDuration } from './basicsSupport.js';
 import {
   sectionStatusLabel,
@@ -715,7 +715,7 @@ function renderTestCard(test, groupKind) {
                 sec.total !== null &&
                 sec.total !== undefined &&
                 Number(sec.total) > 0;
-              const fb = hasScore ? getScoreFeedback(sec.correct, sec.total) : null;
+              const fb = hasScore ? getWeeklyTestScoreFeedback(sec.correct, sec.total, sec) : null;
 
               let chipHtml = '';
               if (statusText.startsWith('Done:')) {
@@ -843,7 +843,7 @@ function renderTestCard(test, groupKind) {
                     sec.total !== null &&
                     sec.total !== undefined &&
                     Number(sec.total) > 0;
-                  const fb = hasScore ? getScoreFeedback(sec.correct, sec.total) : null;
+                  const fb = hasScore ? getWeeklyTestScoreFeedback(sec.correct, sec.total, sec) : null;
 
                   return `
                     <div data-section-item="true" data-section-id="${escapeHtml(sec.section_id || sec.id || '')}" data-category-id="${escapeHtml(sec.category_id || '')}" style="padding: var(--space-3) var(--space-4); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-surface-subtle);">
@@ -892,7 +892,7 @@ function renderTestCard(test, groupKind) {
               <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--space-3); margin-top: var(--space-3);">
                 ${scores
                   .map((sc) => {
-                    const fb = getScoreFeedback(sc.correct, sc.total);
+                    const fb = getWeeklyTestScoreFeedback(sc.correct, sc.total, sc);
                     const sourceLabel =
                       sc.source === 'online' ? 'Online' : 'Entered by teacher';
                     const labelText =

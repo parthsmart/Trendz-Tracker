@@ -30,6 +30,7 @@ import {
   generateBasicsSet,
   stripBasicsExpected,
   resolveBasicsModeSpec,
+  computeBasicsPoolForDuration,
   checkTimedBasicsSubmission,
   checkSubmission,
 } from './_drills.js';
@@ -138,11 +139,6 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
     return res.status(400).json({ error: 'Please select a basics category.' });
   }
 
-  const modeSpec = resolveBasicsModeSpec(body.mode, body.seconds);
-  if (!modeSpec.ok) {
-    return res.status(400).json({ error: modeSpec.error });
-  }
-
   // Validate category: section === 'basics', active === true, supported name
   const { data: category, error: catErr } = await adminSupabase
     .from('categories')
@@ -167,7 +163,7 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
     });
   }
 
-  // Validate daily task assignment if provided
+  // Validate daily task assignment if provided (before timing/mode determination)
   const todoTaskId = body.todo_task_id;
   const taskRes = await resolveAndValidateDailyTask(
     adminSupabase,
@@ -202,20 +198,44 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
     });
   }
 
-  // Generate the entire question pool and expected answers on the server
-  const generated = generateBasicsSet(category.name, modeSpec.pool);
-  const displayQuestions = stripBasicsExpected(generated);
-  const expectedAnswers = generated.map((q) => q.expected);
+  // Authoritatively derive mode, duration, pool, and expiry:
+  // If an assigned task specifies a duration, it strictly overrides any client-supplied mode/seconds.
+  let finalMode;
+  let finalSeconds;
+  let poolSize;
+  let finalExpiry;
 
-  let finalSeconds = modeSpec.seconds;
-  let finalMode = modeSpec.mode;
-  let finalExpiry = modeSpec.expirySeconds;
-  if (validatedTask && validatedTask.duration_seconds > 0) {
-    finalSeconds = validatedTask.duration_seconds;
+  if (
+    validatedTask &&
+    validatedTask.duration_seconds !== null &&
+    validatedTask.duration_seconds !== undefined
+  ) {
+    const taskSec = Number(validatedTask.duration_seconds);
+    if (!Number.isInteger(taskSec) || taskSec < 5 || taskSec > 3600) {
+      return res.status(400).json({
+        error: 'Assigned task has an invalid duration (must be between 5 and 3600 seconds).',
+      });
+    }
     finalMode = 'timed';
+    finalSeconds = taskSec;
+    poolSize = computeBasicsPoolForDuration(finalSeconds);
     // Exclude 3s prep from solver timer, include in server deadline + 15s transit
     finalExpiry = 3 + finalSeconds + 15;
+  } else {
+    const modeSpec = resolveBasicsModeSpec(body.mode, body.seconds);
+    if (!modeSpec.ok) {
+      return res.status(400).json({ error: modeSpec.error });
+    }
+    finalMode = modeSpec.mode;
+    finalSeconds = modeSpec.seconds;
+    poolSize = modeSpec.pool;
+    finalExpiry = modeSpec.expirySeconds;
   }
+
+  // Generate the entire question pool and expected answers on the server
+  const generated = generateBasicsSet(category.name, poolSize);
+  const displayQuestions = stripBasicsExpected(generated);
+  const expectedAnswers = generated.map((q) => q.expected);
 
   const nowMs = Date.now();
   const startedAtIso = new Date(nowMs).toISOString();
@@ -229,7 +249,7 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
     duration_seconds: finalSeconds,
     time_limit_seconds: finalSeconds,
     prep_seconds: 3,
-    pool: modeSpec.pool,
+    pool: poolSize,
     is_todo: Boolean(validatedTask),
     todo_task_id: validatedTask ? validatedTask.id : null,
     todo_section: validatedTask ? 'basics' : null,
@@ -306,7 +326,7 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
     duration_seconds: finalSeconds,
     time_limit_seconds: finalSeconds,
     prep_seconds: 3,
-    pool: modeSpec.pool,
+    pool: poolSize,
     target,
     settings: sessionSettings,
   });

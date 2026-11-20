@@ -169,11 +169,37 @@
   white-space: nowrap;
 }
 
+.history-compact-table th.th-num {
+  text-align: right;
+  white-space: nowrap;
+}
+
 .history-compact-table td {
   padding: 10px 14px;
   border-bottom: 1px solid var(--border-color, #E2E8F0);
   color: var(--text-main, #0F172A);
   vertical-align: middle;
+}
+
+.history-compact-table td.cell-score,
+.history-compact-table td.cell-accuracy,
+.history-compact-table td.cell-time {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.history-compact-table th.th-action,
+.history-compact-table td.cell-details {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.history-compact-table td.cell-date {
+  white-space: nowrap;
+}
+
+.history-compact-table .cell-category {
+  min-width: 140px;
 }
 
 .history-main-row:hover {

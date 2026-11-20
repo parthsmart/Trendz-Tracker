@@ -1238,14 +1238,14 @@ export const DemoDB = {
 
   /**
    * Mock RPC streak_for(p_student) returning fixed static sample data:
-   * Streak of 8 days, best 15, 1 shield used/ready, today active.
+   * Streak of 8 days, best 15, 1 shield used/ready, today not yet active (4 of tasks done).
    */
   async mockStreakFor(_studentId) {
     return {
       current_streak: 8,
       best_streak: 15,
       shields: 1,
-      active_today: true
+      active_today: false
     };
   },
 

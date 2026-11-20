@@ -144,10 +144,10 @@ async function ensureProgressTabLoaded(studentId) {
 }
 
 async function initStudentDashboard() {
-  // 1. Guard check: Strictly for logged-in students (or admin viewing their own student record).
+  // 1. Guard check: Strictly for logged-in students.
   // /pages/student.html must NEVER read a student id from the URL or anywhere else.
-  // It always shows the logged-in student's own data.
-  const loggedInProfile = await requireAuth(['student', 'admin']);
+  // Verified admin sessions return to /pages/admin.html; verified teachers return to /pages/teacher.html.
+  const loggedInProfile = await requireAuth(['student']);
   if (!loggedInProfile) return;
 
   const currentStudentId = loggedInProfile.id;

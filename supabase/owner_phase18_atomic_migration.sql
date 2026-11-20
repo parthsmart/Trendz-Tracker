@@ -1732,36 +1732,140 @@ BEGIN
     END LOOP;
   END IF;
 
-  -- Set positions to temporary negative values to avoid collision during reordering
-  UPDATE public.weekly_test_sections
-  SET position = -position
-  WHERE test_id = v_existing_test_id;
-
   -- Upsert sections
   FOR i IN 0..(v_sec_count - 1) LOOP
     v_sec := p_sections->i;
     v_pos := i + 1;
-    v_kind := TRIM(COALESCE(v_sec->>'kind', 'basics'));
-    IF v_kind NOT IN ('basics', 'elements', 'flash', 'memoriad', 'offline') THEN
-      RAISE EXCEPTION 'Invalid section kind "%"', v_kind USING ERRCODE = '22023';
+    v_kind := LOWER(TRIM(COALESCE(v_sec->>'kind', 'basics')));
+    IF v_kind NOT IN ('basics', 'round', 'flash', 'elements', 'memoriad') THEN
+      RAISE EXCEPTION 'Invalid section kind "%": must be basics, round, flash, elements, or memoriad', v_kind
+        USING ERRCODE = '22023';
+    END IF;
+
+    IF v_test_type = 'online' AND v_kind = 'round' THEN
+      RAISE EXCEPTION 'Round sections are available for offline tests only'
+        USING ERRCODE = '22023';
     END IF;
 
     v_sec_id := NULLIF(TRIM(COALESCE(v_sec->>'id', '')), '')::UUID;
     IF v_sec_id IS NULL THEN
       v_sec_id := gen_random_uuid();
     END IF;
+
+    IF v_sec_id = ANY(v_incoming_ids) THEN
+      RAISE EXCEPTION 'Duplicate section id in payload: %', v_sec_id
+        USING ERRCODE = '23505';
+    END IF;
     v_incoming_ids := array_append(v_incoming_ids, v_sec_id);
 
-    v_raw_cat := NULLIF(TRIM(COALESCE(v_sec->>'category_id', '')), '');
-    v_cat_id := v_raw_cat::UUID;
+    -- -------------------------------------------------------------------------
+    -- Field normalization and validation by section kind:
+    -- Strictly satisfies table check constraint wt_sections_shape_check:
+    -- - basics / round: category_id populated; activity_key, flash_*, question_count NULL.
+    -- - elements / memoriad: activity_key populated (2..40 chars); category_id, seconds, flash_*, question_count NULL.
+    -- - flash: flash_* & question_count validated; category_id, seconds, activity_key NULL.
+    -- -------------------------------------------------------------------------
+    IF v_kind IN ('basics', 'round') THEN
+      v_activity_key := NULL;
+      v_flash_digits := NULL;
+      v_flash_count := NULL;
+      v_flash_speed_ms := NULL;
+      v_flash_mode := NULL;
+      v_question_count := NULL;
 
-    v_seconds := NULLIF(TRIM(COALESCE(v_sec->>'seconds', '')), '')::INT;
-    v_activity_key := NULLIF(TRIM(COALESCE(v_sec->>'activity_key', '')), '');
-    v_flash_digits := COALESCE(NULLIF(TRIM(COALESCE(v_sec->>'flash_digits', '')), '')::INT, 1);
-    v_flash_count := COALESCE(NULLIF(TRIM(COALESCE(v_sec->>'flash_count', '')), '')::INT, 20);
-    v_flash_speed_ms := COALESCE(NULLIF(TRIM(COALESCE(v_sec->>'flash_speed_ms', '')), '')::INT, 800);
-    v_flash_mode := TRIM(COALESCE(v_sec->>'flash_mode', 'add'));
-    v_question_count := COALESCE(NULLIF(TRIM(COALESCE(v_sec->>'question_count', '')), '')::INT, 5);
+      v_raw_cat := NULLIF(TRIM(COALESCE(v_sec->>'category_id', '')), '');
+      IF v_raw_cat IS NULL THEN
+        RAISE EXCEPTION '% section requires category_id', v_kind USING ERRCODE = '22023';
+      END IF;
+      BEGIN
+        v_cat_id := v_raw_cat::UUID;
+      EXCEPTION WHEN OTHERS THEN
+        RAISE EXCEPTION 'Invalid category_id format: %', v_raw_cat USING ERRCODE = '22023';
+      END;
+
+      SELECT name, section INTO v_cat_name, v_cat_section
+        FROM public.categories
+       WHERE id = v_cat_id;
+      IF NOT FOUND THEN
+        RAISE EXCEPTION '% category % does not exist', v_kind, v_cat_id USING ERRCODE = '23503';
+      END IF;
+      IF v_cat_section IS DISTINCT FROM v_kind THEN
+        RAISE EXCEPTION 'Category "%" does not belong to % (section is "%")', v_cat_name, v_kind, v_cat_section
+          USING ERRCODE = '22023';
+      END IF;
+
+      IF v_kind = 'basics' THEN
+        IF (v_sec->>'seconds') IS NOT NULL AND TRIM(v_sec->>'seconds') <> '' THEN
+          BEGIN
+            v_seconds := (v_sec->>'seconds')::INT;
+          EXCEPTION WHEN OTHERS THEN
+            RAISE EXCEPTION 'Invalid seconds format' USING ERRCODE = '22023';
+          END;
+          IF v_seconds NOT IN (30, 60, 120, 300) THEN
+            RAISE EXCEPTION 'Basics section seconds must be 30, 60, 120, or 300 (received %)', v_seconds
+              USING ERRCODE = '22023';
+          END IF;
+        ELSE
+          v_seconds := NULL;
+        END IF;
+
+        IF v_test_type = 'online' AND v_seconds IS NULL THEN
+          RAISE EXCEPTION 'Online Basics section requires seconds duration (30, 60, 120, or 300)'
+            USING ERRCODE = '22023';
+        END IF;
+      ELSE
+        -- Round sections cannot have seconds
+        v_seconds := NULL;
+      END IF;
+
+    ELSIF v_kind IN ('elements', 'memoriad') THEN
+      v_cat_id := NULL;
+      v_seconds := NULL;
+      v_flash_digits := NULL;
+      v_flash_count := NULL;
+      v_flash_speed_ms := NULL;
+      v_flash_mode := NULL;
+      v_question_count := NULL;
+
+      v_activity_key := NULLIF(TRIM(COALESCE(v_sec->>'activity_key', '')), '');
+      IF v_activity_key IS NULL THEN
+        RAISE EXCEPTION '% section requires activity_key', v_kind USING ERRCODE = '22023';
+      END IF;
+      IF NOT (v_activity_key ~ '^[a-z0-9_]{2,40}$') THEN
+        RAISE EXCEPTION 'Invalid activity_key "%" for % section', v_activity_key, v_kind USING ERRCODE = '22023';
+      END IF;
+
+    ELSIF v_kind = 'flash' THEN
+      v_cat_id := NULL;
+      v_seconds := NULL;
+      v_activity_key := NULL;
+
+      BEGIN
+        v_flash_digits := COALESCE(NULLIF(TRIM(COALESCE(v_sec->>'flash_digits', '')), '')::INT, 1);
+        v_flash_count := COALESCE(NULLIF(TRIM(COALESCE(v_sec->>'flash_count', '')), '')::INT, 20);
+        v_flash_speed_ms := COALESCE(NULLIF(TRIM(COALESCE(v_sec->>'flash_speed_ms', '')), '')::INT, 800);
+        v_flash_mode := LOWER(TRIM(COALESCE(v_sec->>'flash_mode', 'add')));
+        v_question_count := COALESCE(NULLIF(TRIM(COALESCE(v_sec->>'question_count', '')), '')::INT, 5);
+      EXCEPTION WHEN OTHERS THEN
+        RAISE EXCEPTION 'Invalid Flash settings format' USING ERRCODE = '22023';
+      END;
+
+      IF v_flash_digits < 1 OR v_flash_digits > 5 THEN
+        RAISE EXCEPTION 'Flash digits must be between 1 and 5 (received %)', v_flash_digits USING ERRCODE = '22023';
+      END IF;
+      IF v_flash_count < 2 OR v_flash_count > 1000 THEN
+        RAISE EXCEPTION 'Flash count must be between 2 and 1000 (received %)', v_flash_count USING ERRCODE = '22023';
+      END IF;
+      IF v_flash_speed_ms < 200 OR v_flash_speed_ms > 5000 THEN
+        RAISE EXCEPTION 'Flash speed must be between 200 and 5000 ms (received %)', v_flash_speed_ms USING ERRCODE = '22023';
+      END IF;
+      IF v_flash_mode NOT IN ('add', 'add_sub') THEN
+        RAISE EXCEPTION 'Flash mode must be "add" or "add_sub" (received %)', v_flash_mode USING ERRCODE = '22023';
+      END IF;
+      IF v_question_count < 1 OR v_question_count > 10 THEN
+        RAISE EXCEPTION 'Flash question_count must be between 1 and 10 (received %)', v_question_count USING ERRCODE = '22023';
+      END IF;
+    END IF;
 
     INSERT INTO public.weekly_test_sections (
       id, test_id, position, kind, category_id, seconds, activity_key,
@@ -2815,6 +2919,7 @@ END;
 $$;
 
 -- 16b. streak_for (Authorized for student self, admin, or assigned teacher)
+-- Wraps the shared authoritative streak_calc() engine.
 CREATE OR REPLACE FUNCTION public.streak_for(p_student UUID DEFAULT NULL)
 RETURNS TABLE (
   current_streak INTEGER,
@@ -2824,19 +2929,16 @@ RETURNS TABLE (
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 STABLE
 AS $$
 DECLARE
   v_target UUID := COALESCE(p_student, auth.uid());
-  v_today DATE := public.today_ist();
-  v_active_today BOOLEAN := false;
-  v_cur INTEGER := 0;
-  v_best INTEGER := 0;
-  v_run INTEGER := 0;
-  v_prev DATE := NULL;
-  rec RECORD;
 BEGIN
+  IF v_target IS NULL THEN
+    RAISE EXCEPTION 'Target student ID is required.' USING ERRCODE = '22023';
+  END IF;
+
   IF v_target IS DISTINCT FROM auth.uid()
      AND NOT public.is_admin()
      AND NOT (
@@ -2850,52 +2952,9 @@ BEGIN
     RAISE EXCEPTION 'Forbidden: You may only view your own streak.' USING ERRCODE = '42501';
   END IF;
 
-  SELECT EXISTS (
-    SELECT 1 FROM public.results
-    WHERE student_id = v_target AND entry_date = v_today
-  ) INTO v_active_today;
-
-  FOR rec IN
-    SELECT DISTINCT entry_date
-    FROM public.results
-    WHERE student_id = v_target AND entry_date <= v_today
-    ORDER BY entry_date DESC
-  LOOP
-    IF v_prev IS NULL THEN
-      IF rec.entry_date = v_today OR rec.entry_date = (v_today - 1) THEN
-        v_cur := 1;
-        v_run := 1;
-        v_prev := rec.entry_date;
-      ELSE
-        v_cur := 0;
-        v_run := 1;
-        v_prev := rec.entry_date;
-      END IF;
-    ELSE
-      IF rec.entry_date = (v_prev - 1) THEN
-        v_run := v_run + 1;
-        IF v_cur > 0 AND v_cur = (v_run - 1) THEN
-          v_cur := v_run;
-        END IF;
-        v_prev := rec.entry_date;
-      ELSE
-        IF v_run > v_best THEN
-          v_best := v_run;
-        END IF;
-        v_run := 1;
-        v_prev := rec.entry_date;
-      END IF;
-    END IF;
-  END LOOP;
-
-  IF v_run > v_best THEN
-    v_best := v_run;
-  END IF;
-  IF v_cur > v_best THEN
-    v_best := v_cur;
-  END IF;
-
-  RETURN QUERY SELECT v_cur, v_best, 0::INTEGER, v_active_today;
+  RETURN QUERY
+  SELECT sc.current_streak, sc.best_streak, sc.shields, sc.active_today
+    FROM public.streak_calc(v_target) sc;
 END;
 $$;
 

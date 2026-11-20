@@ -488,13 +488,15 @@ COMMENT ON TABLE public.rollout_boundaries IS
   'Records authoritative milestone timestamps when system-level behavioral transitions take effect.';
 
 -- ------------------------------------------------------------------------------
--- Part 6: Update public.todo_status_on
+-- Part 6: Update public.todo_status_on & Trusted Internal Helper
 -- Preserves EXACT Phase 18 parameter signature (p_student UUID, p_day DATE DEFAULT public.today_ist()),
 -- parameter names, return columns, STABLE volatility, service-role detection with claims fallback,
 -- target student validation, and caller authorization checks.
 -- Implements backward-compatible pre-activation behavior and authoritative post-activation credit.
 -- ------------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.todo_status_on(
+
+-- 6a. Trusted internal task status calculation helper (execution restricted)
+CREATE OR REPLACE FUNCTION public._todo_status_on_internal(
   p_student UUID,
   p_day DATE DEFAULT public.today_ist()
 )
@@ -514,64 +516,14 @@ SET search_path = public, pg_temp
 STABLE
 AS $$
 DECLARE
-  v_caller UUID := auth.uid();
-  v_jwt_role TEXT := COALESCE(
-    NULLIF(current_setting('request.jwt.claim.role', true), ''),
-    (NULLIF(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role'),
-    ''
-  );
-  v_is_service BOOLEAN := (v_jwt_role = 'service_role');
   v_day DATE := COALESCE(p_day, public.today_ist());
-  v_caller_active BOOLEAN;
   v_phase19_active BOOLEAN := false;
   v_phase19_rollout TIMESTAMPTZ;
 BEGIN
-  -- Target student validation
   IF p_student IS NULL THEN
-    RAISE EXCEPTION 'Target student ID is required.' USING ERRCODE = '22023';
+    RETURN;
   END IF;
 
-  -- 1. Anonymous access check: Authentication required
-  IF v_caller IS NULL AND NOT v_is_service THEN
-    RAISE EXCEPTION 'Unauthorized: Authentication required.'
-      USING ERRCODE = '42501';
-  END IF;
-
-  -- 2. Caller active status check
-  IF NOT v_is_service AND NOT public.is_admin() THEN
-    SELECT p.active INTO v_caller_active
-    FROM public.profiles p
-    WHERE p.id = v_caller;
-
-    IF v_caller_active IS NOT TRUE THEN
-      RAISE EXCEPTION 'Forbidden: Inactive or invalid user.'
-        USING ERRCODE = '42501';
-    END IF;
-  END IF;
-
-  -- 3. Caller authorization: Student self, active administrator, or authorized assigned teacher
-  IF NOT v_is_service AND v_caller IS DISTINCT FROM p_student AND NOT public.is_admin() THEN
-    IF public.is_teacher(v_caller) THEN
-      IF NOT (
-        public.has_teacher_permission(v_caller, 'view_students')
-        AND public.has_teacher_permission(v_caller, 'manage_tasks')
-        AND public.is_teacher_assigned_to_student(v_caller, p_student)
-      ) THEN
-        RAISE EXCEPTION 'Forbidden: You do not have permission to view daily tasks for this student.'
-          USING ERRCODE = '42501';
-      END IF;
-    ELSE
-      RAISE EXCEPTION 'Forbidden: You may only view your own daily tasks.'
-        USING ERRCODE = '42501';
-    END IF;
-  END IF;
-
-  -- 4. Rollout milestone boundary inspection:
-  -- Deterministic behavior: if the boundary is missing, or status <> 'active', or activated_at IS NULL,
-  -- enforcement is INACTIVE (v_phase19_active := false).
-  -- In this unactivated state, existing production workflows and old-code submissions continue earning credit.
-  -- Once activated via owner_phase19_activation.sql, v_phase19_rollout holds the fixed activated_at timestamp,
-  -- enforcing session-linked credit for new online submissions while preserving legacy records before that boundary.
   BEGIN
     SELECT (status = 'active' AND activated_at IS NOT NULL), activated_at
       INTO v_phase19_active, v_phase19_rollout
@@ -713,8 +665,142 @@ BEGIN
 END;
 $$;
 
+REVOKE ALL ON FUNCTION public._todo_status_on_internal(UUID, DATE) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public._todo_status_on_internal(UUID, DATE) TO service_role;
+
+-- 6b. Public authorized RPC delegating to internal calculation engine
+CREATE OR REPLACE FUNCTION public.todo_status_on(
+  p_student UUID,
+  p_day DATE DEFAULT public.today_ist()
+)
+RETURNS TABLE (
+  task_id UUID,
+  task_title TEXT,
+  task_section TEXT,
+  task_category_id UUID,
+  task_activity_key TEXT,
+  required_count INTEGER,
+  done_count INTEGER,
+  done BOOLEAN
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+STABLE
+AS $$
+DECLARE
+  v_caller UUID := auth.uid();
+  v_jwt_role TEXT := COALESCE(
+    NULLIF(current_setting('request.jwt.claim.role', true), ''),
+    (NULLIF(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role'),
+    ''
+  );
+  v_is_service BOOLEAN := (v_jwt_role = 'service_role');
+  v_day DATE := COALESCE(p_day, public.today_ist());
+  v_caller_active BOOLEAN;
+BEGIN
+  -- Target student validation
+  IF p_student IS NULL THEN
+    RAISE EXCEPTION 'Target student ID is required.' USING ERRCODE = '22023';
+  END IF;
+
+  -- 1. Anonymous access check: Authentication required
+  IF v_caller IS NULL AND NOT v_is_service THEN
+    RAISE EXCEPTION 'Unauthorized: Authentication required.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- 2. Caller active status check
+  IF NOT v_is_service AND NOT public.is_admin() THEN
+    SELECT p.active INTO v_caller_active
+    FROM public.profiles p
+    WHERE p.id = v_caller;
+
+    IF v_caller_active IS NOT TRUE THEN
+      RAISE EXCEPTION 'Forbidden: Inactive or invalid user.'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  -- 3. Caller authorization: Student self, active administrator, or authorized assigned teacher
+  IF NOT v_is_service AND v_caller IS DISTINCT FROM p_student AND NOT public.is_admin() THEN
+    IF public.is_teacher(v_caller) THEN
+      IF NOT (
+        public.has_teacher_permission(v_caller, 'view_students')
+        AND public.has_teacher_permission(v_caller, 'manage_tasks')
+        AND public.is_teacher_assigned_to_student(v_caller, p_student)
+      ) THEN
+        RAISE EXCEPTION 'Forbidden: You do not have permission to view daily tasks for this student.'
+          USING ERRCODE = '42501';
+      END IF;
+    ELSE
+      RAISE EXCEPTION 'Forbidden: You may only view your own daily tasks.'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  RETURN QUERY
+  SELECT * FROM public._todo_status_on_internal(p_student, v_day);
+END;
+$$;
+
 REVOKE ALL ON FUNCTION public.todo_status_on(UUID, DATE) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.todo_status_on(UUID, DATE) TO authenticated, service_role;
+
+-- 6c. Update streak and to-do helpers to calculate aggregates via internal engine
+CREATE OR REPLACE FUNCTION public.streak_day_counts(p_student UUID, p_day DATE, p_has_practice BOOLEAN)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+STABLE
+AS $$
+DECLARE
+  v_start DATE;
+  v_log RECORD;
+  v_total INTEGER;
+  v_done INTEGER;
+BEGIN
+  SELECT cs.value::DATE INTO v_start
+    FROM public.competition_settings cs WHERE cs.key = 'todo_streak_start';
+
+  IF v_start IS NULL OR p_day < v_start THEN
+    RETURN p_has_practice;
+  END IF;
+
+  IF p_day < public.today_ist() THEN
+    SELECT l.tasks_total, l.all_done INTO v_log
+      FROM public.daily_todo_log l WHERE l.student_id = p_student AND l.day = p_day;
+    IF FOUND THEN
+      IF v_log.tasks_total = 0 THEN RETURN p_has_practice; END IF;
+      RETURN v_log.all_done;
+    END IF;
+  END IF;
+
+  SELECT count(*)::INTEGER, (count(*) FILTER (WHERE s.done))::INTEGER
+    INTO v_total, v_done
+    FROM public._todo_status_on_internal(p_student, p_day) s;
+  IF v_total = 0 THEN RETURN p_has_practice; END IF;
+  RETURN v_done = v_total;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.streak_day_counts(UUID, DATE, BOOLEAN) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.streak_day_counts(UUID, DATE, BOOLEAN) TO authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION public.todo_all_done_on(p_student UUID, p_day DATE)
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+STABLE
+AS $$
+  SELECT COALESCE(count(*) > 0 AND bool_and(s.done), false)
+    FROM public._todo_status_on_internal(p_student, p_day) s;
+$$;
+
+REVOKE ALL ON FUNCTION public.todo_all_done_on(UUID, DATE) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.todo_all_done_on(UUID, DATE) TO authenticated, service_role;
 
 COMMIT;
 

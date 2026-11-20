@@ -12,4 +12,5 @@ export {
   getScoreColorName,
   getScoreColorHex,
   getScoreFeedback,
+  getWeeklyTestScoreFeedback,
 } from '../shared/scoreColors.js';

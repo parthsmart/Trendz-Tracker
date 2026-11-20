@@ -465,7 +465,8 @@ describe('Phase 19 — Real PostgreSQL (PGlite) Migration & Baseline Upgrade Ver
         sort_order INT NOT NULL DEFAULT 1,
         active BOOLEAN NOT NULL DEFAULT true,
         created_by UUID NULL,
-        target_scope TEXT NOT NULL DEFAULT 'all'
+        target_scope TEXT NOT NULL DEFAULT 'all',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
       );
 
       CREATE TABLE IF NOT EXISTS public.daily_task_recipients (
@@ -2090,7 +2091,8 @@ describe('Phase 19 — Real Endpoint Handlers (drillHandler & memoriadHandler) V
         sort_order INT NOT NULL DEFAULT 1,
         active BOOLEAN NOT NULL DEFAULT true,
         created_by UUID NULL,
-        target_scope TEXT NOT NULL DEFAULT 'all'
+        target_scope TEXT NOT NULL DEFAULT 'all',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
       );
 
       CREATE TABLE IF NOT EXISTS public.daily_task_recipients (
