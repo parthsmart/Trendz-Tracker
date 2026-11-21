@@ -427,6 +427,28 @@ export function setupHeaderNavigation(profile = null) {
       </div>
       <div class="header-nav-groups">
         ${groupsHtml}
+        <div class="header-nav-group header-nav-pwa-group" role="group" aria-label="Application" style="display: none;" hidden>
+          <div class="header-nav-group-title">App</div>
+          <div class="header-nav-group-list">
+            <a
+              href="#install-app"
+              class="header-nav-item header-nav-install-item"
+              data-nav-id="common-install-pwa"
+              data-nav-action="install-pwa"
+              role="button"
+              aria-label="Install Trendz Tracker as a web app"
+            >
+              <span class="header-nav-item-label" style="display: inline-flex; align-items: center; gap: 8px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                Install App
+              </span>
+            </a>
+          </div>
+        </div>
       </div>
     </nav>
   `;
@@ -577,6 +599,34 @@ export function setupHeaderNavigation(profile = null) {
       logoutBtn.style.display = '';
       logoutBtn.textContent = 'Sign out';
       logoutBtn.classList.add('header-signout-btn');
+    }
+
+    let installBtn = document.getElementById('btn-header-pwa-install');
+    if (!installBtn) {
+      installBtn = document.createElement('button');
+      installBtn.type = 'button';
+      installBtn.id = 'btn-header-pwa-install';
+      installBtn.className = 'btn btn-ghost btn-sm header-pwa-install-btn';
+      installBtn.style.display = 'none';
+      installBtn.setAttribute('aria-label', 'Install Trendz Tracker as a web app');
+      installBtn.innerHTML = `
+        <svg class="pwa-install-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right: 4px;">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+        <span>Install App</span>
+      `;
+      installBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const { triggerPwaInstall } = await import('./pwaInstall.js');
+        await triggerPwaInstall();
+      });
+      if (logoutBtn && logoutBtn.parentNode) {
+        logoutBtn.parentNode.insertBefore(installBtn, logoutBtn);
+      } else {
+        actionsZone.appendChild(installBtn);
+      }
     }
   }
 
@@ -785,6 +835,14 @@ export function setupHeaderNavigation(profile = null) {
         return;
       }
 
+      if (action === 'install-pwa') {
+        e.preventDefault();
+        closeMenu({ returnFocus: false });
+        const { triggerPwaInstall } = await import('./pwaInstall.js');
+        await triggerPwaInstall();
+        return;
+      }
+
       // Standard page link: close menu before navigating
       closeMenu({ returnFocus: false });
     });
@@ -955,4 +1013,14 @@ export function setupHeaderNavigation(profile = null) {
   }
 
   attachLinkPrefetchListeners(header);
+
+  // Initialize PWA installation controller & sync trigger visibility
+  import('./pwaInstall.js')
+    .then(({ initPwaController, updateAllInstallTriggers }) => {
+      initPwaController();
+      updateAllInstallTriggers();
+    })
+    .catch((err) => {
+      console.warn('[headerNav] PWA install controller initialization note:', err);
+    });
 }

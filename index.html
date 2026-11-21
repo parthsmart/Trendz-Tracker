@@ -11,6 +11,15 @@
     
     <!-- Design tokens & unified styles -->
     <link rel="stylesheet" href="/css/style.css" />
+      <!-- Progressive Web App & Icons -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#2563EB" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Trendz Tracker" />
   </head>
   <body>
     <div class="login-page-wrapper">
@@ -56,6 +65,24 @@
           <button type="submit" id="btn-submit-login" class="btn btn-primary btn-full">
             <span id="login-btn-text">Sign In</span>
           </button>
+
+          <!-- Compact Install Option (shown when beforeinstallprompt or iOS Safari is active) -->
+          <div id="login-pwa-install-container" class="login-pwa-install-zone" style="display: none; margin-top: var(--space-3); text-align: center;">
+            <button
+              type="button"
+              id="btn-login-pwa-install"
+              class="btn btn-ghost btn-sm btn-pwa-install"
+              aria-label="Install Trendz Tracker as a web app"
+              style="width: 100%; display: none; align-items: center; justify-content: center; gap: 8px; font-size: var(--text-sm); color: var(--primary-blue, #2563EB); border: 1px dashed var(--border-color, #CBD5E1); padding: 8px 12px; border-radius: var(--radius-md, 8px);"
+            >
+              <svg class="pwa-install-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              <span>Install Trendz Tracker</span>
+            </button>
+          </div>
         </form>
       </main>
     </div>
@@ -68,6 +95,10 @@
       import { loginWithStudentId, redirectByRole } from '/js/auth.js';
       import { requireNoAuth } from '/js/guard.js';
       import { showToast } from '/js/toast.js';
+      import { mountLoginPwaInstall } from '/js/pwaInstall.js';
+
+      // Mount compact PWA install trigger if available
+      mountLoginPwaInstall();
 
       // Check if already authenticated
       await requireNoAuth();
