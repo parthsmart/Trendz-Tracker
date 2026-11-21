@@ -5818,7 +5818,11 @@ export const DemoDB = {
 
   getHighestRecords(section, options = {}, callerProfile = null) {
     const currentStudentId = callerProfile?.id || 'usr-101';
-    const students = (this.getStudents ? this.getStudents() : []).filter(s => s.active !== false && s.leaderboard_visible !== false);
+    const isMyBest = options.view === 'my_best';
+    const students = (this.getStudents ? this.getStudents() : []).filter(s => {
+      if (isMyBest) return s.id === currentStudentId && s.active !== false;
+      return s.active !== false && s.leaderboard_visible !== false;
+    });
 
     if (section === 'basics') {
       const cats = this.getCategories().filter(c => c.section === 'basics');
@@ -5826,8 +5830,28 @@ export const DemoDB = {
       const duration = Number(options.durationSeconds) || 60;
 
       return cats.map(cat => {
-        const catResults = results.filter(r => r.category_id === cat.id && Number(r.time_seconds) === duration);
+        let catResults = results.filter(r => r.category_id === cat.id && Number(r.time_seconds) === duration);
+        if (isMyBest) {
+          catResults = catResults.filter(r => r.student_id === currentStudentId);
+        }
         if (catResults.length === 0) {
+          if (isMyBest) {
+            return {
+              id: cat.id,
+              section: 'basics',
+              title: cat.name,
+              durationSeconds: duration,
+              settingsSummary: `${duration} seconds`,
+              hasRecord: false,
+              scoreDisplay: 'No personal record yet',
+              scoreNumeric: 0,
+              wrongCount: 0,
+              holders: [],
+              isHeldByMe: false,
+              attemptUrl: `/pages/basics-practice.html?cat=${encodeURIComponent(cat.id)}&seconds=${duration}`,
+              attemptLabel: 'Attempt online'
+            };
+          }
           const sampleCorrect = duration === 30 ? 22 : duration === 60 ? 44 : duration === 120 ? 82 : 180;
           return {
             id: cat.id,
@@ -5891,59 +5915,145 @@ export const DemoDB = {
         { key: 'days_to_seconds', title: 'Days --> Seconds', questions: 10, time: 180, score: 10, holder: 'Rohan M.' }
       ];
 
-      return DRILLS_SAMPLE.map(d => ({
-        id: d.key,
-        section: 'element',
-        title: d.title,
-        settingsSummary: `${d.questions} Qs · 60s limit`,
-        hasRecord: true,
-        scoreDisplay: `${d.score} / ${d.questions} in ${d.time}s`,
-        scoreNumeric: d.score,
-        timeSeconds: d.time,
-        holders: [
-          {
-            student_id: d.holder.startsWith('Aarav') ? 'usr-101' : 'usr-102',
-            student_code: d.holder.startsWith('Aarav') ? 'STU101' : 'STU102',
-            display_name: d.holder,
-            is_me: (d.holder.startsWith('Aarav') && currentStudentId === 'usr-101')
-          }
-        ],
-        isHeldByMe: (d.holder.startsWith('Aarav') && currentStudentId === 'usr-101'),
-        attemptUrl: `/pages/element-drill.html?drill=${d.key}`,
-        attemptLabel: (d.holder.startsWith('Aarav') && currentStudentId === 'usr-101') ? 'Defend record' : 'Attempt online'
-      }));
-    }
-
-    if (section === 'flash') {
-      const BENCHMARKS_SAMPLE = [
-        { key: 'flash_1d_10n_1000ms_add', title: '1 Digit · 10 Numbers · 1.0s · Add', tries: 24, acc: 96, holder: 'Aarav S.', digits: 1, count: 10, speed_ms: 1000, mode: 'add' },
-        { key: 'flash_2d_10n_1000ms_add', title: '2 Digits · 10 Numbers · 1.0s · Add', tries: 18, acc: 94, holder: 'Diya P.', digits: 2, count: 10, speed_ms: 1000, mode: 'add' },
-        { key: 'flash_2d_15n_1000ms_add', title: '2 Digits · 15 Numbers · 1.0s · Add', tries: 12, acc: 92, holder: 'Kabir V.', digits: 2, count: 15, speed_ms: 1000, mode: 'add' },
-        { key: 'flash_2d_15n_800ms_add', title: '2 Digits · 15 Numbers · 0.8s · Add', tries: 8, acc: 88, holder: 'Aarav S.', digits: 2, count: 15, speed_ms: 800, mode: 'add' },
-        { key: 'flash_3d_10n_1000ms_add', title: '3 Digits · 10 Numbers · 1.0s · Add', tries: 6, acc: 83, holder: 'Rohan M.', digits: 3, count: 10, speed_ms: 1000, mode: 'add' },
-        { key: 'flash_2d_10n_1000ms_add_sub', title: '2 Digits · 10 Numbers · 1.0s · Add & Subtract', tries: 10, acc: 90, holder: 'Diya P.', digits: 2, count: 10, speed_ms: 1000, mode: 'add_sub' },
-      ];
-
-      return BENCHMARKS_SAMPLE.map(b => {
-        const isMe = b.holder.startsWith('Aarav') && currentStudentId === 'usr-101';
+      return DRILLS_SAMPLE.map(d => {
+        const isMe = (d.holder.startsWith('Aarav') && currentStudentId === 'usr-101') || (d.holder.startsWith('Diya') && currentStudentId === 'usr-102');
+        if (isMyBest && !isMe) {
+          return {
+            id: d.key,
+            section: 'element',
+            title: d.title,
+            settingsSummary: `${d.questions} Qs · 60s limit`,
+            hasRecord: false,
+            scoreDisplay: 'No personal record yet',
+            scoreNumeric: 0,
+            timeSeconds: null,
+            holders: [],
+            isHeldByMe: false,
+            attemptUrl: `/pages/element-drill.html?drill=${d.key}`,
+            attemptLabel: 'Attempt online'
+          };
+        }
         return {
-          id: b.key,
-          section: 'flash',
-          title: b.title,
-          settingsSummary: `${b.digits}d · ${b.count}n · ${b.speed_ms / 1000}s`,
-          rawSettings: { digits: b.digits, count: b.count, speed_ms: b.speed_ms, mode: b.mode },
+          id: d.key,
+          section: 'element',
+          title: d.title,
+          settingsSummary: `${d.questions} Qs · 60s limit`,
           hasRecord: true,
-          scoreDisplay: `${b.tries} correct tries (${b.acc}%)`,
-          scoreNumeric: b.tries,
+          scoreDisplay: `${d.score} / ${d.questions} in ${d.time}s`,
+          scoreNumeric: d.score,
+          timeSeconds: d.time,
           holders: [
             {
-              student_id: isMe ? 'usr-101' : 'usr-102',
-              student_code: isMe ? 'STU101' : 'STU102',
-              display_name: b.holder,
+              student_id: d.holder.startsWith('Aarav') ? 'usr-101' : 'usr-102',
+              student_code: d.holder.startsWith('Aarav') ? 'STU101' : 'STU102',
+              display_name: d.holder,
               is_me: isMe
             }
           ],
           isHeldByMe: isMe,
+          attemptUrl: `/pages/element-drill.html?drill=${d.key}`,
+          attemptLabel: isMe ? 'Defend record' : 'Attempt online'
+        };
+      });
+    }
+
+    if (section === 'flash') {
+      const isPerDigit = options.format === 'per_digit' || options.layout === 'per_digit';
+      if (!isPerDigit && !options.speed_ms && !options.mode) {
+        const BENCHMARKS_SAMPLE = [
+          { digits: 1, count: 10, mode: 'add', speed_ms: 400, holder: 'Aarav S.' },
+          { digits: 2, count: 10, mode: 'add', speed_ms: 600, holder: 'Diya P.' },
+          { digits: 2, count: 15, mode: 'add', speed_ms: 700, holder: 'Kabir V.' },
+          { digits: 3, count: 10, mode: 'add', speed_ms: 900, holder: 'Aarav S.' },
+          { digits: 2, count: 10, mode: 'add_sub', speed_ms: 800, holder: 'Rohan M.' },
+        ];
+        return BENCHMARKS_SAMPLE.map((b) => {
+          const isMe = (b.holder.startsWith('Aarav') && currentStudentId === 'usr-101') || (b.holder.startsWith('Diya') && currentStudentId === 'usr-102');
+          return {
+            id: `flash_${b.digits}d_${b.count}n_${b.mode}`,
+            digits: b.digits,
+            count: b.count,
+            mode: b.mode,
+            speed_ms: b.speed_ms,
+            speed_seconds: b.speed_ms / 1000,
+            title: `${b.digits} Digit${b.digits > 1 ? 's' : ''} · ${b.count} Numbers · ${b.mode === 'add_sub' ? 'Add & Subtract' : 'Add'}`,
+            settingsSummary: `${b.digits}d · ${b.count}n · ${b.mode === 'add_sub' ? 'Add & Sub' : 'Add'}`,
+            hasRecord: true,
+            scoreDisplay: `${(b.speed_ms / 1000).toFixed(2)}s per number (${b.speed_ms}ms)`,
+            scoreNumeric: b.speed_ms,
+            holders: [
+              {
+                student_id: isMe ? currentStudentId : 'usr-102',
+                student_code: isMe ? (currentStudentId === 'usr-101' ? 'STU101' : 'STU102') : 'STU102',
+                display_name: b.holder,
+                is_me: isMe,
+              },
+            ],
+            isHeldByMe: isMe,
+            attemptUrl: `/pages/flash.html?digits=${b.digits}&count=${b.count}&speed=${b.speed_ms}&mode=${b.mode}`,
+            attemptLabel: isMe ? 'Defend record' : 'Attempt online',
+          };
+        });
+      }
+
+      const targetSpeedMs = Number(options.speed_ms) || 300;
+      const targetMode = options.mode || 'add';
+      const speedSec = (targetSpeedMs / 1000).toFixed(1);
+      const modeLabel = targetMode === 'add_sub' ? 'Add & Sub' : 'Add';
+
+      const FLASH_SAMPLE = [
+        { digits: 1, count: 150, holder: 'Aarav S.', speed_ms: 300, mode: 'add' },
+        { digits: 2, count: 80, holder: 'Diya P.', speed_ms: 300, mode: 'add' },
+        { digits: 3, count: 40, holder: 'Kabir V.', speed_ms: 300, mode: 'add' },
+        { digits: 4, count: 20, holder: 'Aarav S.', speed_ms: 300, mode: 'add' },
+        { digits: 5, count: 12, holder: 'Rohan M.', speed_ms: 300, mode: 'add' },
+      ];
+
+      return [1, 2, 3, 4, 5].map(digits => {
+        const match = FLASH_SAMPLE.find(s => s.digits === digits && s.speed_ms === targetSpeedMs && s.mode === targetMode);
+        const isMe = match ? ((match.holder.startsWith('Aarav') && currentStudentId === 'usr-101') || (match.holder.startsWith('Diya') && currentStudentId === 'usr-102')) : false;
+
+        if (!match || (isMyBest && !isMe)) {
+          return {
+            id: `flash_${digits}d`,
+            digits,
+            section: 'flash',
+            title: `${digits} Digit${digits > 1 ? 's' : ''}`,
+            settingsSummary: `${digits}d · ${speedSec}s · ${modeLabel}`,
+            rawSettings: { digits, count: 10, speed_ms: targetSpeedMs, mode: targetMode },
+            hasRecord: false,
+            scoreDisplay: isMyBest ? 'No personal record yet' : 'No record yet',
+            scoreNumeric: 0,
+            holders: [],
+            isHeldByMe: false,
+            attemptUrl: `/pages/flash.html?digits=${digits}&count=10&speed=${targetSpeedMs}&mode=${targetMode}`,
+            attemptLabel: 'Attempt online'
+          };
+        }
+
+        return {
+          id: `flash_${digits}d`,
+          digits,
+          count: match.count,
+          speed_ms: targetSpeedMs,
+          mode: targetMode,
+          section: 'flash',
+          title: `${digits} Digit${digits > 1 ? 's' : ''}`,
+          settingsSummary: `${digits}d · ${speedSec}s · ${modeLabel}`,
+          rawSettings: { digits, count: match.count, speed_ms: targetSpeedMs, mode: targetMode },
+          hasRecord: true,
+          scoreDisplay: `${match.count} numbers`,
+          scoreNumeric: match.count,
+          holders: [
+            {
+              student_id: isMe ? currentStudentId : 'usr-102',
+              student_code: isMe ? (currentStudentId === 'usr-101' ? 'STU101' : 'STU102') : 'STU102',
+              display_name: match.holder,
+              is_me: isMe
+            }
+          ],
+          isHeldByMe: isMe,
+          attemptUrl: `/pages/flash.html?digits=${digits}&count=${match.count}&speed=${targetSpeedMs}&mode=${targetMode}`,
           attemptLabel: isMe ? 'Defend record' : 'Attempt online'
         };
       });
@@ -5958,7 +6068,23 @@ export const DemoDB = {
       ];
 
       return MODULES_SAMPLE.map(m => {
-        const isMe = m.holder.startsWith('Aarav') && currentStudentId === 'usr-101';
+        const isMe = (m.holder.startsWith('Aarav') && currentStudentId === 'usr-101') || (m.holder.startsWith('Diya') && currentStudentId === 'usr-102');
+        if (isMyBest && !isMe) {
+          return {
+            id: m.key,
+            section: 'memoriad',
+            title: m.title,
+            settingsSummary: `${m.badge} · ${m.time}s`,
+            hasRecord: false,
+            scoreDisplay: 'No personal record yet',
+            scoreNumeric: 0,
+            timeSeconds: null,
+            holders: [],
+            isHeldByMe: false,
+            attemptUrl: `/pages/memoriad-play.html?module=${m.key}`,
+            attemptLabel: 'Attempt online'
+          };
+        }
         return {
           id: m.key,
           section: 'memoriad',
@@ -5970,8 +6096,8 @@ export const DemoDB = {
           timeSeconds: m.time,
           holders: [
             {
-              student_id: isMe ? 'usr-101' : 'usr-102',
-              student_code: isMe ? 'STU101' : 'STU102',
+              student_id: isMe ? currentStudentId : 'usr-102',
+              student_code: isMe ? (currentStudentId === 'usr-101' ? 'STU101' : 'STU102') : 'STU102',
               display_name: m.holder,
               is_me: isMe
             }

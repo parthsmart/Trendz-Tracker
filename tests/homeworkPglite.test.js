@@ -720,9 +720,12 @@ describe('Homework & Highest Records PGlite Integration Suite', () => {
     assert.ok(finalComp[0].notes.includes('100% correct'));
   });
 
-  it('6. Authoritative practice_highest_records RPC across all 4 branches with Flash fastest speed', async () => {
+  it('6. Authoritative practice_highest_records RPC: Baseline benchmark results and Incremental Upgrade dual-contract verification', async () => {
     const db = await setupBaseStagingDb();
     const recSql = fs.readFileSync(path.join(ROOT_DIR, 'supabase', 'staging_practice_highest_records.sql'), 'utf8');
+    const upSql = fs.readFileSync(path.join(ROOT_DIR, 'supabase', 'staging_upgrade_practice_highest_records.sql'), 'utf8');
+
+    // 1. Install baseline migration
     await db.exec(`SET app.target_environment = 'staging_xhgzbbkvwojwfbexvcmh'; ${recSql}`);
 
     const stu1 = '11111111-0000-0000-0000-000000000001';
@@ -733,24 +736,172 @@ describe('Homework & Highest Records PGlite Integration Suite', () => {
     await db.exec(`
       INSERT INTO public.profiles (id, student_code, full_name, role, level, active, leaderboard_visible) VALUES
         ('${stu1}', 'STU1', 'Aarav Sharma', 'student', 'Level 2', true, true),
-        ('${stu2}', 'STU2', 'Diya Patel', 'student', 'Level 2', true, true),
+        ('${stu2}', 'STU2', 'Diya Patel', 'student', 'Level 3', true, true),
         ('${stuPrivate}', 'STU9', 'Secret Student', 'student', 'Level 2', true, false);
 
       INSERT INTO public.categories (id, name, section, sort_order) VALUES
         ('${catAdd}', 'Addition 60s', 'basics', 1);
+
+      -- Baseline benchmark Flash runs
+      INSERT INTO public.activity_results (id, student_id, activity_type, correct, total, settings) VALUES
+        ('f0000001-0000-0000-0000-000000000001', '${stu1}', 'flash_anzan', 1, 1, '{"digits": 1, "count": 10, "speed_ms": 400, "mode": "add", "session_id": "sess-base1"}'::jsonb),
+        ('f0000002-0000-0000-0000-000000000002', '${stu2}', 'flash_anzan', 1, 1, '{"digits": 1, "count": 10, "speed_ms": 600, "mode": "add", "session_id": "sess-base2"}'::jsonb);
+
+      INSERT INTO public.drill_sessions (id, student_id, activity_type, status, settings, started_at, result_id) VALUES
+        ('d0000001-0000-0000-0000-000000000001', '${stu1}', 'flash_anzan', 'submitted', '{"digits": 1, "count": 10, "speed_ms": 400, "mode": "add"}'::jsonb, now(), 'f0000001-0000-0000-0000-000000000001'),
+        ('d0000002-0000-0000-0000-000000000002', '${stu2}', 'flash_anzan', 'submitted', '{"digits": 1, "count": 10, "speed_ms": 600, "mode": "add"}'::jsonb, now(), 'f0000002-0000-0000-0000-000000000002');
     `);
 
-    // 6a. Basics: stu1 has 40 correct (1 wrong); stu2 has 45 correct (0 wrong). Private stu9 has 99 correct.
+    // Verify baseline RPC returns legacy benchmark format ranked by fastest speed
+    await asUser(db, stu1, 'authenticated', async () => {
+      const { rows } = await db.query(`SELECT public.practice_highest_records('flash') AS res;`);
+      const baseFlash = rows[0].res;
+      assert.ok(baseFlash.length >= 1, 'Baseline returns benchmark records');
+      const b1 = baseFlash.find((r) => r.digits === 1 && r.count === 10);
+      assert.ok(b1);
+      assert.equal(b1.speed_ms, 400, 'Baseline ranks by fastest speed (400ms beats 600ms)');
+      assert.equal(b1.holders[0].student_code, 'STU1');
+    });
+
+    // 2. Apply incremental upgrade migration
+    await db.exec(`SET app.target_environment = 'staging_xhgzbbkvwojwfbexvcmh'; ${upSql}`);
+
+    // Insert additional test scores:
+    // - Basics scores
+    // - Flash runs at 0.3s (300ms): 150 numbers, 100 numbers, 45 numbers, 200 numbers
+    // - Missing-mode run: 250 numbers without mode
+    // - Malformed-settings run: non-numeric settings
+    // - Incorrect runs: correct = 0 and correct < total (300 numbers)
     const res1 = 'c1111111-1111-0000-0000-000000000001';
     const res2 = 'c2222222-2222-0000-0000-000000000002';
     const res9 = 'c9999999-9999-0000-0000-000000000009';
+
+    const actF1a = 'f1111111-1111-0000-0000-00000000001a';
+    const actF1b = 'f1111111-1111-0000-0000-00000000001b';
+    const actF2_1d = 'f2222222-2222-0000-0000-00000000001d';
+    const actF2_2d = 'f2222222-2222-0000-0000-00000000002d';
+    const actF9 = 'f9999999-9999-0000-0000-000000000009';
+    const actF_no_mode = 'f0000000-0000-0000-0000-000000000099';
+    const actF_malformed = 'f0000000-0000-0000-0000-000000000088';
+    const actF_inc1 = 'f0000000-0000-0000-0000-000000000077';
+    const actF_inc2 = 'f0000000-0000-0000-0000-000000000066';
+    const actF_disagree = 'f0000000-0000-0000-0000-000000000055';
+    const actF_no_link = 'f0000000-0000-0000-0000-000000000044';
+    const actF_overflow = 'f0000000-0000-0000-0000-000000000033';
+    const actF_odd_speed = 'f0000000-0000-0000-0000-000000000022';
+
     await db.exec(`
       INSERT INTO public.results (id, student_id, category_id, correct, total, time_seconds, verified) VALUES
         ('${res1}', '${stu1}', '${catAdd}', 40, 41, 60, true),
         ('${res2}', '${stu2}', '${catAdd}', 45, 45, 60, true),
         ('${res9}', '${stuPrivate}', '${catAdd}', 99, 99, 60, true);
+
+      INSERT INTO public.activity_results (id, student_id, activity_type, correct, total, settings) VALUES
+        ('${actF1a}', '${stu1}', 'flash_anzan', 1, 1, '{"digits": 1, "count": 150, "speed_ms": 300, "mode": "add", "session_id": "sess-f1a"}'::jsonb),
+        ('${actF1b}', '${stu1}', 'flash_anzan', 1, 1, '{"digits": 1, "count": 150, "speed_ms": 300, "mode": "add", "session_id": "sess-f1b"}'::jsonb),
+        ('${actF2_1d}', '${stu2}', 'flash_anzan', 1, 1, '{"digits": 1, "count": 100, "speed_ms": 300, "mode": "add", "session_id": "sess-f2-1d"}'::jsonb),
+        ('${actF2_2d}', '${stu2}', 'flash_anzan', 1, 1, '{"digits": 2, "count": 45, "speed_ms": 300, "mode": "add", "session_id": "sess-f2-2d"}'::jsonb),
+        ('${actF9}', '${stuPrivate}', 'flash_anzan', 1, 1, '{"digits": 1, "count": 200, "speed_ms": 300, "mode": "add", "session_id": "sess-f9"}'::jsonb),
+        ('${actF_no_mode}', '${stu1}', 'flash_anzan', 1, 1, '{"digits": 1, "count": 250, "speed_ms": 300, "session_id": "sess-f-nomode"}'::jsonb),
+        ('${actF_malformed}', '${stu1}', 'flash_anzan', 1, 1, '{"digits": "bad", "count": "none", "speed_ms": -50, "mode": "add", "session_id": "sess-f-mal"}'::jsonb),
+        ('${actF_inc1}', '${stu1}', 'flash_anzan', 0, 1, '{"digits": 1, "count": 300, "speed_ms": 300, "mode": "add", "session_id": "sess-f-inc1"}'::jsonb),
+        ('${actF_inc2}', '${stu1}', 'flash_anzan', 1, 2, '{"digits": 1, "count": 300, "speed_ms": 300, "mode": "add", "session_id": "sess-f-inc2"}'::jsonb),
+        ('${actF_disagree}', '${stu2}', 'flash_anzan', 1, 1, '{"digits": 1, "count": 500, "speed_ms": 300, "mode": "add", "session_id": "sess-f-disagree"}'::jsonb),
+        ('${actF_no_link}', '${stu2}', 'flash_anzan', 1, 1, '{"digits": 1, "count": 220, "speed_ms": 300, "mode": "add", "session_id": "sess-f-orphan"}'::jsonb),
+        ('${actF_overflow}', '${stu1}', 'flash_anzan', 1, 1, '{"digits": 1, "count": 150, "speed_ms": 300, "mode": "add", "session_id": "sess-f-overflow"}'::jsonb),
+        ('${actF_odd_speed}', '${stu1}', 'flash_anzan', 1, 1, '{"digits": 1, "count": 300, "speed_ms": 250, "mode": "add", "session_id": "sess-f-oddspeed"}'::jsonb);
+
+      INSERT INTO public.drill_sessions (id, student_id, activity_type, status, settings, started_at, result_id) VALUES
+        ('d1111111-1111-0000-0000-00000000001a', '${stu1}', 'flash_anzan', 'submitted', '{"digits": 1, "count": 150, "speed_ms": 300, "mode": "add"}'::jsonb, now(), '${actF1a}'),
+        ('d1111111-1111-0000-0000-00000000001b', '${stu1}', 'flash_anzan', 'submitted', '{"digits": 1, "count": 150, "speed_ms": 300, "mode": "add"}'::jsonb, now(), '${actF1b}'),
+        ('d2222222-2222-0000-0000-00000000001d', '${stu2}', 'flash_anzan', 'submitted', '{"digits": 1, "count": 100, "speed_ms": 300, "mode": "add"}'::jsonb, now(), '${actF2_1d}'),
+        ('d2222222-2222-0000-0000-00000000002d', '${stu2}', 'flash_anzan', 'submitted', '{"digits": 2, "count": 45, "speed_ms": 300, "mode": "add"}'::jsonb, now(), '${actF2_2d}'),
+        ('d9999999-9999-0000-0000-000000000009', '${stuPrivate}', 'flash_anzan', 'submitted', '{"digits": 1, "count": 200, "speed_ms": 300, "mode": "add"}'::jsonb, now(), '${actF9}'),
+        ('d0000000-0000-0000-0000-000000000099', '${stu1}', 'flash_anzan', 'submitted', '{"digits": 1, "count": 250, "speed_ms": 300}'::jsonb, now(), '${actF_no_mode}'),
+        ('d0000000-0000-0000-0000-000000000088', '${stu1}', 'flash_anzan', 'submitted', '{"digits": "bad"}'::jsonb, now(), '${actF_malformed}'),
+        ('d0000000-0000-0000-0000-000000000077', '${stu1}', 'flash_anzan', 'submitted', '{"digits": 1, "count": 300, "speed_ms": 300, "mode": "add"}'::jsonb, now(), '${actF_inc1}'),
+        ('d0000000-0000-0000-0000-000000000066', '${stu1}', 'flash_anzan', 'submitted', '{"digits": 1, "count": 300, "speed_ms": 300, "mode": "add"}'::jsonb, now(), '${actF_inc2}'),
+        ('d0000000-0000-0000-0000-000000000055', '${stu2}', 'flash_anzan', 'submitted', '{"digits": 1, "count": 50, "speed_ms": 300, "mode": "add"}'::jsonb, now(), '${actF_disagree}'),
+        ('d0000000-0000-0000-0000-000000000044', '${stu2}', 'flash_anzan', 'submitted', '{"digits": 1, "count": 220, "speed_ms": 300, "mode": "add"}'::jsonb, now(), null),
+        ('d0000000-0000-0000-0000-000000000033', '${stu1}', 'flash_anzan', 'submitted', '{"digits": 1, "count": "9999999999999999999999999999999999999999", "speed_ms": "9999999999999999999999999999999999999999", "mode": "add"}'::jsonb, now(), '${actF_overflow}'),
+        ('d0000000-0000-0000-0000-000000000022', '${stu1}', 'flash_anzan', 'submitted', '{"digits": 1, "count": 300, "speed_ms": 250, "mode": "add"}'::jsonb, now(), '${actF_odd_speed}');
     `);
 
+    // 3. Dual-Contract Verification:
+    // 3a. Old request (without format: 'per_digit') still returns previous benchmark results!
+    await asUser(db, stu1, 'authenticated', async () => {
+      const { rows } = await db.query(`SELECT public.practice_highest_records('flash') AS res;`);
+      const legacyFlash = rows[0].res;
+      assert.ok(legacyFlash.length >= 1, 'Legacy callers still receive benchmark results');
+      const b1 = legacyFlash.find((r) => r.digits === 1 && r.count === 10);
+      assert.ok(b1);
+      assert.equal(b1.speed_ms, 400, 'Legacy callers retain fastest-speed ranking');
+    });
+
+    // 3b. New request (with format: 'per_digit') returns one card per digit at selected speed & mode
+    await asUser(db, stu1, 'authenticated', async () => {
+      const { rows } = await db.query(`
+        SELECT public.practice_highest_records('flash', '{"format": "per_digit", "speed_ms": 300, "mode": "add"}'::jsonb) AS res;
+      `);
+      const flash = rows[0].res;
+      assert.equal(flash.length, 5, 'Must return exactly 5 cards for digits 1..5');
+
+      // 1 Digit card:
+      // - Correct 150-number run beats 100-number run
+      // - Score with disagreeing settings (claimed 500, session had 50) evaluated as 50
+      // - Score lacking canonical session link (session result_id was null) excluded
+      // - Session with 40-digit overflow string safely skipped without integer overflow error
+      // - Session with 250ms odd speed increment excluded
+      // - Missing-mode 250 run rejected (did NOT default to Addition)
+      // - Malformed-settings run skipped safely without failing the query
+      // - Incorrect 300 runs excluded
+      // - stu1 deduplicated to appear once
+      const f1d = flash.find((c) => c.digits === 1);
+      assert.equal(f1d.count, 150, '150 numbers beats 100 numbers; disagreeing (50), unlinked, overflow, and odd speed runs excluded');
+      assert.equal(f1d.score_display, '150 numbers');
+      assert.equal(f1d.holders.length, 1);
+      assert.equal(f1d.holders[0].student_code, 'STU1');
+      assert.equal(f1d.isHeldByMe, true);
+
+      // Caller passing oversized numeric setting in p_options safely defaults without raising 22003
+      const { rows: overflowQueryRows } = await db.query(`
+        SELECT public.practice_highest_records('flash', '{"format": "per_digit", "speed_ms": "9999999999999999999999999999999999999999", "mode": "add"}'::jsonb) AS res;
+      `);
+      assert.equal(overflowQueryRows[0].res.length, 5, 'Oversized caller option safely defaults without throwing 22003');
+
+      // 2 Digits card: stu2 holds it with 45 numbers
+      const f2d = flash.find((c) => c.digits === 2);
+      assert.equal(f2d.count, 45);
+      assert.equal(f2d.holders[0].student_code, 'STU2');
+      assert.equal(f2d.isHeldByMe, false);
+
+      // 3 Digits card: No record yet
+      const f3d = flash.find((c) => c.digits === 3);
+      assert.equal(f3d.has_record, false);
+      assert.equal(f3d.score_display, 'No record yet');
+
+      // stu1 queries My Best for Flash:
+      const { rows: myFRows } = await db.query(`
+        SELECT public.practice_highest_records('flash', '{"view": "my_best", "format": "per_digit", "speed_ms": 300, "mode": "add"}'::jsonb) AS res;
+      `);
+      const myFlash = myFRows[0].res;
+      assert.equal(myFlash[0].count, 150);
+      assert.equal(myFlash[0].isHeldByMe, true);
+      assert.equal(myFlash[1].has_record, false);
+      assert.equal(myFlash[1].score_display, 'No personal record yet');
+    });
+
+    // 3c. My Best privacy: Hidden student sees own 200 numbers in My Best, but is excluded from All Students
+    await asUser(db, stuPrivate, 'authenticated', async () => {
+      const { rows: privFRows } = await db.query(`
+        SELECT public.practice_highest_records('flash', '{"view": "my_best", "format": "per_digit", "speed_ms": 300, "mode": "add"}'::jsonb) AS res;
+      `);
+      const privFlash = privFRows[0].res;
+      assert.equal(privFlash[0].count, 200);
+      assert.equal(privFlash[0].isHeldByMe, true);
+    });
+
+    // 4. Basics Verification across All Students and My Best
     await asUser(db, stu1, 'authenticated', async () => {
       const { rows } = await db.query(`
         SELECT public.practice_highest_records('basics', '{"durationSeconds": 60}'::jsonb) AS res;
@@ -760,35 +911,42 @@ describe('Homework & Highest Records PGlite Integration Suite', () => {
       assert.equal(basics[0].correct, 45); // stu2 wins
       assert.equal(basics[0].holders.length, 1);
       assert.equal(basics[0].holders[0].student_code, 'STU2');
-      assert.equal(basics[0].holders[0].display_name, 'Diya P.');
+
+      const { rows: ownLevelRows } = await db.query(`
+        SELECT public.practice_highest_records('basics', '{"scope": "level", "durationSeconds": 60}'::jsonb) AS res;
+      `);
+      assert.equal(ownLevelRows[0].res[0].correct, 40);
+
+      // stu1 queries My Best: sees stu1's own 40 correct
+      const { rows: myRows } = await db.query(`
+        SELECT public.practice_highest_records('basics', '{"view": "my_best", "durationSeconds": 60}'::jsonb) AS res;
+      `);
+      const myBasics = myRows[0].res;
+      assert.equal(myBasics[0].correct, 40);
+      assert.equal(myBasics[0].isHeldByMe, true);
     });
 
-    // 6b. Flash Anzan: Workload (2 digits, 10 numbers, add)
-    // stu1 cleared at 1000ms. stu2 cleared at 800ms. Both have 1 correct.
-    // stu2 wins because 800ms is fastest flashing speed!
-    const actF1 = 'f1111111-1111-0000-0000-000000000001';
-    const actF2 = 'f2222222-2222-0000-0000-000000000002';
-    await db.exec(`
-      INSERT INTO public.activity_results (id, student_id, activity_type, correct, total, settings) VALUES
-        ('${actF1}', '${stu1}', 'flash_anzan', 1, 1, '{"digits": 2, "count": 10, "speed_ms": 1000, "mode": "add", "session_id": "sess-f1"}'::jsonb),
-        ('${actF2}', '${stu2}', 'flash_anzan', 1, 1, '{"digits": 2, "count": 10, "speed_ms": 800, "mode": "add", "session_id": "sess-f2"}'::jsonb);
-
-      INSERT INTO public.drill_sessions (id, student_id, activity_type, status, settings, started_at, result_id) VALUES
-        ('d1111111-1111-0000-0000-000000000001', '${stu1}', 'flash_anzan', 'submitted', '{"digits": 2, "count": 10, "speed_ms": 1000, "mode": "add"}'::jsonb, now(), '${actF1}'),
-        ('d2222222-2222-0000-0000-000000000002', '${stu2}', 'flash_anzan', 'submitted', '{"digits": 2, "count": 10, "speed_ms": 800, "mode": "add"}'::jsonb, now(), '${actF2}');
-    `);
-
+    await db.exec("UPDATE public.competition_settings SET value = 'off' WHERE key = 'global_leaderboard';");
     await asUser(db, stu1, 'authenticated', async () => {
-      const { rows } = await db.query(`
-        SELECT public.practice_highest_records('flash') AS res;
+      const { rows } = await db.query(`SELECT public.practice_highest_records('basics') AS res;`);
+      assert.equal(rows[0].res[0].correct, 40);
+    });
+    await db.exec("UPDATE public.competition_settings SET value = 'on' WHERE key = 'global_leaderboard';");
+
+    await assert.rejects(
+      () => asUser(db, 'aaaaaaaa-0000-0000-0000-000000000000', 'authenticated', async () =>
+        db.query(`SELECT public.practice_highest_records('basics');`)),
+      /Active account required/,
+    );
+
+    // Hidden student sees own 99 correct in Basics My Best
+    await asUser(db, stuPrivate, 'authenticated', async () => {
+      const { rows: privRows } = await db.query(`
+        SELECT public.practice_highest_records('basics', '{"view": "my_best", "durationSeconds": 60}'::jsonb) AS res;
       `);
-      const flash = rows[0].res;
-      assert.equal(flash.length, 1);
-      assert.equal(flash[0].digits, 2);
-      assert.equal(flash[0].count, 10);
-      assert.equal(flash[0].speed_ms, 800); // 800ms is fastest
-      assert.equal(flash[0].holders.length, 1);
-      assert.equal(flash[0].holders[0].student_code, 'STU2');
+      const privBasics = privRows[0].res;
+      assert.equal(privBasics[0].correct, 99);
+      assert.equal(privBasics[0].isHeldByMe, true);
     });
 
     // 6c. Elements: Squares Stage 1
