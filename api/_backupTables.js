@@ -164,6 +164,12 @@ export const SNAPSHOT_TABLES = [
     primaryKey: ['id'],
     cursorColumn: null,
   },
+  {
+    name: 'homework_assignments',
+    mode: 'snapshot',
+    primaryKey: ['id'],
+    cursorColumn: null,
+  },
 ];
 
 /**
@@ -217,6 +223,13 @@ export const APPEND_TABLES = [
     mode: 'append',
     primaryKey: ['id'],
     cursorColumn: 'created_at',
+  },
+  {
+    name: 'homework_completions',
+    mode: 'append',
+    primaryKey: ['id'],
+    fallbackPrimaryKey: ['assignment_id', 'student_id'],
+    cursorColumn: 'updated_at',
   },
 ];
 
@@ -342,24 +355,31 @@ export const JMCWC_BACKUP_TABLES = [
 
 export const JMCWC_BACKUP_TABLE_MAP = new Map(JMCWC_BACKUP_TABLES.map((t) => [t.name, t]));
 
-/**
- * Tables that must NEVER be exposed in public backups or Google Sheets mirrors
- * because they contain private answer keys (`jmcwc_payloads.questions[*].answer_key`).
- */
-export const FORBIDDEN_PUBLIC_OR_MIRROR_TABLES = Object.freeze(['jmcwc_payloads']);
+const HOMEWORK_BINDINGS_BACKUP = {
+  name: 'homework_bound_sessions',
+  mode: 'snapshot',
+  primaryKey: ['id'],
+  dependsOn: ['profiles', 'homework_assignments'],
+  privateServerOnly: true,
+};
 
 /**
- * All 38 tables covered by private server-side admin backups (`BACKUP_TABLES` + `JMCWC_BACKUP_TABLES`).
+ * Tables kept out of browser exports and Google Sheets mirrors.
  */
-export const PRIVATE_SERVER_BACKUP_TABLES = [...BACKUP_TABLES, ...JMCWC_BACKUP_TABLES];
+export const FORBIDDEN_PUBLIC_OR_MIRROR_TABLES = Object.freeze(['jmcwc_payloads', HOMEWORK_BINDINGS_BACKUP.name]);
+
+/**
+ * Tables included in the private Main Round backup, including links to homework.
+ */
+export const PRIVATE_JMCWC_BACKUP_TABLES = [...JMCWC_BACKUP_TABLES, HOMEWORK_BINDINGS_BACKUP];
+export const PRIVATE_SERVER_BACKUP_TABLES = [...BACKUP_TABLES, ...PRIVATE_JMCWC_BACKUP_TABLES];
 
 export const PRIVATE_SERVER_BACKUP_TABLE_MAP = new Map(
   PRIVATE_SERVER_BACKUP_TABLES.map((t) => [t.name, t])
 );
 
 /**
- * Authoritative foreign-key-safe restore sequence across all 38 application tables
- * (31 core tables + 7 JMCWC tables in PRIVATE_SERVER_BACKUP_TABLES).
+ * Authoritative foreign-key-safe restore sequence for PRIVATE_SERVER_BACKUP_TABLES.
  *
  * Foreign-key dependencies strictly enforced:
  * - Tier 1: Root tables (profiles, categories, round_series, jmcwc_papers)
@@ -390,6 +410,7 @@ export const RESTORE_TABLE_ORDER = Object.freeze([
   'teacher_student_assignments',
   'weekly_test_removals',
   'student_rounds',
+  'homework_assignments',
   'jmcwc_categories',
   'jmcwc_assignments',
 
@@ -405,6 +426,7 @@ export const RESTORE_TABLE_ORDER = Object.freeze([
   'activity_results',
   'attendance',
   'score_correction_requests',
+  'homework_completions',
   'jmcwc_targets',
   'jmcwc_attempts',
 
@@ -414,10 +436,11 @@ export const RESTORE_TABLE_ORDER = Object.freeze([
   'result_audit',
   'jmcwc_payloads',
   'jmcwc_scores',
+  'homework_bound_sessions',
 ]);
 
 /**
- * Strips `jmcwc_payloads` and any nested `answer_key` properties from a table map
+ * Strips private tables and any nested `answer_key` properties from a table map
  * before any public export or Google Sheets mirror operation.
  *
  * @param {Record<string, Array<Record<string, any>>>} tablesMap
@@ -511,7 +534,7 @@ export function computeStudentDeletionJmcwcCounts(studentId, tables = {}) {
 }
 
 /**
- * Validates and restores all 7 JMCWC tables from a private server backup payload
+ * Validates and prepares all JMCWC tables from a private server backup payload
  * in strict foreign-key order (`jmcwc_papers` -> `jmcwc_categories` -> `jmcwc_targets`
  * -> `jmcwc_assignments` -> `jmcwc_attempts` -> `jmcwc_payloads` -> `jmcwc_scores`).
  *
@@ -607,6 +630,29 @@ export function restoreJmcwcTablesFromPrivateBackup(backupPayload) {
         `Restore FK violation in jmcwc_scores: orphan attempt_id "${score.attempt_id}".`
       );
     }
+  }
+
+  // Older exports predate homework links. New exports list them in restore_order.
+  const bindingsTable = HOMEWORK_BINDINGS_BACKUP.name;
+  const declaresBindings = Array.isArray(backupPayload?.restore_order) && backupPayload.restore_order.includes(bindingsTable);
+  if (declaresBindings || Object.hasOwn(sourceTables, bindingsTable)) {
+    if (!Array.isArray(sourceTables[bindingsTable])) {
+      throw new Error('Incomplete private backup: missing homework_bound_sessions rows.');
+    }
+    const ownersByAttempt = new Map(restored.jmcwc_attempts.map((row) => [row.id, row.student_id]));
+    const linkedIds = new Set();
+    for (const link of sourceTables[bindingsTable]) {
+      if (!link?.id || !link.assignment_id || !link.student_id || !link.session_id || linkedIds.has(link.session_id)) {
+        throw new Error('Invalid or duplicate homework session link in private backup.');
+      }
+      if (ownersByAttempt.has(link.session_id) && ownersByAttempt.get(link.session_id) !== link.student_id) {
+        throw new Error('Homework session link does not match the Main Round attempt owner.');
+      }
+      linkedIds.add(link.session_id);
+    }
+    orderedNames.push(bindingsTable);
+    restored[bindingsTable] = JSON.parse(JSON.stringify(sourceTables[bindingsTable]));
+    counts[bindingsTable] = restored[bindingsTable].length;
   }
 
   return {

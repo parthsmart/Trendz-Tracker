@@ -31,6 +31,7 @@ import {
   setupProgressChartsController
 } from './dashboardComponents.js';
 import { loadAndRenderLeaderboardCard } from './leaderboardCard.js';
+import { loadAndRenderStudentHomework } from './studentHomeworkView.js';
 import { renderElementsCard } from './elementsCard.js';
 import { renderMemoriadCard } from './memoriadCard.js';
 import { fetchMyNotificationsCached } from './notificationBadge.js';
@@ -144,10 +145,10 @@ async function ensureProgressTabLoaded(studentId) {
 }
 
 async function initStudentDashboard() {
-  // 1. Guard check: Strictly for logged-in students (or admin viewing their own student record).
+  // 1. Guard check: Strictly for logged-in students.
   // /pages/student.html must NEVER read a student id from the URL or anywhere else.
-  // It always shows the logged-in student's own data.
-  const loggedInProfile = await requireAuth(['student', 'admin']);
+  // Verified admin sessions return to /pages/admin.html; verified teachers return to /pages/teacher.html.
+  const loggedInProfile = await requireAuth(['student']);
   if (!loggedInProfile) return;
 
   const currentStudentId = loggedInProfile.id;
@@ -180,6 +181,9 @@ async function initStudentDashboard() {
 
     // Today's Plan (To-Do List)
     renderTodoList(data.todos, 'todo-list-container', false, data.categories);
+
+    // Today's Homework (Phase 20 - Independent of Streaks)
+    loadAndRenderStudentHomework(currentStudentId, loggedInProfile.level);
 
     // Compact Streak & Shield Card
     renderStreakCard(data.streak, data.todos);

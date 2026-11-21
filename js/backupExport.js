@@ -38,7 +38,8 @@ export const EXPORT_TABLES = [
   { name: 'announcement_recipients', mode: 'snapshot', primaryKey: ['announcement_id', 'student_id'], defaultColumns: ['announcement_id', 'student_id'] },
   { name: 'resource_recipients', mode: 'snapshot', primaryKey: ['resource_id', 'student_id'], defaultColumns: ['resource_id', 'student_id'] },
   { name: 'score_correction_requests', mode: 'snapshot', primaryKey: ['id'], defaultColumns: ['id', 'teacher_id', 'student_id', 'result_id', 'activity_result_id', 'table_name', 'original_score_snapshot', 'proposed_correct', 'proposed_total', 'proposed_time_seconds', 'reason', 'status', 'decided_by', 'decided_at', 'decision_note', 'created_at'] },
-  // 8 Append tables
+  { name: 'homework_assignments', mode: 'snapshot', primaryKey: ['id'], defaultColumns: ['id', 'title', 'instructions', 'assigned_by', 'target_type', 'target_level', 'target_student_id', 'activity_type', 'category_id', 'settings', 'required_count', 'due_date', 'created_at', 'updated_at'] },
+  // Append tables
   { name: 'student_rounds', mode: 'append', primaryKey: ['id'], defaultColumns: ['id', 'student_id', 'series_id', 'round_number', 'round_date', 'round_type', 'time_taken_seconds', 'import_batch_id', 'created_at', 'updated_at'] },
   { name: 'results', mode: 'append', primaryKey: ['id'], defaultColumns: ['id', 'student_id', 'category_id', 'student_round_id', 'round_number', 'correct', 'total', 'time_seconds', 'entry_date', 'note', 'verified', 'verified_at', 'verified_by', 'flagged', 'flag_note', 'corrected_at', 'corrected_by', 'import_batch_id', 'created_at', 'updated_at'] },
   { name: 'weekly_test_scores', mode: 'append', primaryKey: ['id'], defaultColumns: ['id', 'test_id', 'student_id', 'category_id', 'correct', 'total', 'time_seconds', 'source', 'created_at', 'updated_at'] },
@@ -47,6 +48,7 @@ export const EXPORT_TABLES = [
   { name: 'result_audit', mode: 'append', primaryKey: ['id'], defaultColumns: ['id', 'result_id', 'action', 'old_values', 'new_values', 'reason', 'changed_by', 'changed_at'] },
   { name: 'attendance_audit', mode: 'append', primaryKey: ['id'], defaultColumns: ['id', 'attendance_id', 'session_id', 'student_id', 'changed_by', 'action', 'old_status', 'new_status', 'old_note', 'new_note', 'reason', 'changed_at'] },
   { name: 'teacher_audit_log', mode: 'append', primaryKey: ['id'], defaultColumns: ['id', 'teacher_id', 'actor_id', 'action', 'details', 'created_at'] },
+  { name: 'homework_completions', mode: 'append', primaryKey: ['id'], fallbackPrimaryKey: ['assignment_id', 'student_id'], defaultColumns: ['id', 'assignment_id', 'student_id', 'progress_count', 'completed_at', 'session_id', 'status', 'notes', 'created_at', 'updated_at'] },
 ];
 
 const PLAIN_NUMBER_REGEX = /^[+-]?(?:\d+\.?\d*|\.\d+)$/;

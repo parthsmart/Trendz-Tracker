@@ -22,6 +22,7 @@
 
 import { getDrillServerClient, verifyStudentCaller } from './_supabaseAdmin.js';
 import { resolveAndValidateDailyTask } from './_dailyTasks.js';
+import { resolveAndValidateHomework } from './_homework.js';
 import {
   DRILLS,
   buildDrillStartResponse,
@@ -30,6 +31,7 @@ import {
   generateBasicsSet,
   stripBasicsExpected,
   resolveBasicsModeSpec,
+  computeBasicsPoolForDuration,
   checkTimedBasicsSubmission,
   checkSubmission,
 } from './_drills.js';
@@ -138,11 +140,6 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
     return res.status(400).json({ error: 'Please select a basics category.' });
   }
 
-  const modeSpec = resolveBasicsModeSpec(body.mode, body.seconds);
-  if (!modeSpec.ok) {
-    return res.status(400).json({ error: modeSpec.error });
-  }
-
   // Validate category: section === 'basics', active === true, supported name
   const { data: category, error: catErr } = await adminSupabase
     .from('categories')
@@ -167,7 +164,7 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
     });
   }
 
-  // Validate daily task assignment if provided
+  // Validate daily task assignment if provided (before timing/mode determination)
   const todoTaskId = body.todo_task_id;
   const taskRes = await resolveAndValidateDailyTask(
     adminSupabase,
@@ -180,6 +177,20 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
     return res.status(taskRes.statusCode || 400).json({ error: taskRes.error });
   }
   const validatedTask = taskRes.task;
+
+  // Validate homework assignment if provided
+  const homeworkId = body.homework_id;
+  const hwRes = await resolveAndValidateHomework(
+    adminSupabase,
+    homeworkId,
+    student,
+    'basics',
+    categoryId
+  );
+  if (!hwRes.ok) {
+    return res.status(hwRes.statusCode || 400).json({ error: hwRes.error });
+  }
+  const validatedHomework = hwRes.homework;
 
   // Rate limit: 60 starts per hour per student (activity_type = 'basics')
   const oneHourAgoIso = new Date(Date.now() - 3600 * 1000).toISOString();
@@ -202,20 +213,59 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
     });
   }
 
-  // Generate the entire question pool and expected answers on the server
-  const generated = generateBasicsSet(category.name, modeSpec.pool);
-  const displayQuestions = stripBasicsExpected(generated);
-  const expectedAnswers = generated.map((q) => q.expected);
+  // Authoritatively derive mode, duration, pool, and expiry:
+  // If an assigned task or homework specifies a duration, it strictly overrides any client-supplied mode/seconds.
+  let finalMode;
+  let finalSeconds;
+  let poolSize;
+  let finalExpiry;
 
-  let finalSeconds = modeSpec.seconds;
-  let finalMode = modeSpec.mode;
-  let finalExpiry = modeSpec.expirySeconds;
-  if (validatedTask && validatedTask.duration_seconds > 0) {
-    finalSeconds = validatedTask.duration_seconds;
+  if (
+    validatedTask &&
+    validatedTask.duration_seconds !== null &&
+    validatedTask.duration_seconds !== undefined
+  ) {
+    const taskSec = Number(validatedTask.duration_seconds);
+    if (!Number.isInteger(taskSec) || taskSec < 5 || taskSec > 3600) {
+      return res.status(400).json({
+        error: 'Assigned task has an invalid duration (must be between 5 and 3600 seconds).',
+      });
+    }
     finalMode = 'timed';
+    finalSeconds = taskSec;
+    poolSize = computeBasicsPoolForDuration(finalSeconds);
     // Exclude 3s prep from solver timer, include in server deadline + 15s transit
     finalExpiry = 3 + finalSeconds + 15;
+  } else if (
+    validatedHomework &&
+    validatedHomework.duration_seconds !== null &&
+    validatedHomework.duration_seconds !== undefined
+  ) {
+    const hwSec = Number(validatedHomework.duration_seconds);
+    if (!Number.isInteger(hwSec) || hwSec < 5 || hwSec > 3600) {
+      return res.status(400).json({
+        error: 'Assigned homework has an invalid duration (must be between 5 and 3600 seconds).',
+      });
+    }
+    finalMode = 'timed';
+    finalSeconds = hwSec;
+    poolSize = computeBasicsPoolForDuration(finalSeconds);
+    finalExpiry = 3 + finalSeconds + 15;
+  } else {
+    const modeSpec = resolveBasicsModeSpec(body.mode, body.seconds);
+    if (!modeSpec.ok) {
+      return res.status(400).json({ error: modeSpec.error });
+    }
+    finalMode = modeSpec.mode;
+    finalSeconds = modeSpec.seconds;
+    poolSize = modeSpec.pool;
+    finalExpiry = modeSpec.expirySeconds;
   }
+
+  // Generate the entire question pool and expected answers on the server
+  const generated = generateBasicsSet(category.name, poolSize);
+  const displayQuestions = stripBasicsExpected(generated);
+  const expectedAnswers = generated.map((q) => q.expected);
 
   const nowMs = Date.now();
   const startedAtIso = new Date(nowMs).toISOString();
@@ -229,11 +279,12 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
     duration_seconds: finalSeconds,
     time_limit_seconds: finalSeconds,
     prep_seconds: 3,
-    pool: modeSpec.pool,
+    pool: poolSize,
     is_todo: Boolean(validatedTask),
     todo_task_id: validatedTask ? validatedTask.id : null,
     todo_section: validatedTask ? 'basics' : null,
     todo_category_id: validatedTask ? category.id : null,
+    homework_id: validatedHomework ? validatedHomework.id : null,
   };
 
   const { data: sessionRow, error: insertErr } = await adminSupabase
@@ -257,6 +308,20 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
     return res.status(500).json({
       error: 'Could not start the basics practice session. Please try again.',
     });
+  }
+
+  if (validatedHomework) {
+    const { error: bindErr } = await adminSupabase.rpc('bind_homework_session', {
+      p_assignment_id: validatedHomework.id,
+      p_session_id: sessionRow.id,
+    });
+    if (bindErr) {
+      await adminSupabase.from('drill_sessions').delete().eq('id', sessionRow.id);
+      return res.status(400).json({
+        error: `Could not link practice session to homework: ${bindErr.message || 'Linking failed'}`,
+        code: 'HOMEWORK_LINK_FAILED',
+      });
+    }
   }
 
   // Look up target from basics_thresholds for the student's level (or default)
@@ -306,7 +371,7 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
     duration_seconds: finalSeconds,
     time_limit_seconds: finalSeconds,
     prep_seconds: 3,
-    pool: modeSpec.pool,
+    pool: poolSize,
     target,
     settings: sessionSettings,
   });
@@ -366,9 +431,25 @@ async function handleStartDrill({ body, student, adminSupabase, res }) {
   }
   const validatedTask = taskRes.task;
 
+  // Validate homework assignment if provided
+  const homeworkId = body.homework_id;
+  const hwRes = await resolveAndValidateHomework(
+    adminSupabase,
+    homeworkId,
+    student,
+    'element',
+    drillKey
+  );
+  if (!hwRes.ok) {
+    return res.status(hwRes.statusCode || 400).json({ error: hwRes.error });
+  }
+  const validatedHomework = hwRes.homework;
+
   let finalTimeLimit = drillObj.time_limit_seconds;
   if (validatedTask && validatedTask.duration_seconds > 0) {
     finalTimeLimit = validatedTask.duration_seconds;
+  } else if (validatedHomework && validatedHomework.duration_seconds > 0) {
+    finalTimeLimit = validatedHomework.duration_seconds;
   }
 
   const PREP_SECONDS = 3;
@@ -389,6 +470,7 @@ async function handleStartDrill({ body, student, adminSupabase, res }) {
     todo_task_id: validatedTask ? validatedTask.id : null,
     todo_section: validatedTask ? 'elements' : null,
     todo_activity_key: validatedTask ? drillKey : null,
+    homework_id: validatedHomework ? validatedHomework.id : null,
   };
 
   const { data: sessionRow, error: insertErr } = await adminSupabase
@@ -412,6 +494,20 @@ async function handleStartDrill({ body, student, adminSupabase, res }) {
     return res.status(500).json({
       error: 'Could not start the drill session. Please try again.',
     });
+  }
+
+  if (validatedHomework) {
+    const { error: bindErr } = await adminSupabase.rpc('bind_homework_session', {
+      p_assignment_id: validatedHomework.id,
+      p_session_id: sessionRow.id,
+    });
+    if (bindErr) {
+      await adminSupabase.from('drill_sessions').delete().eq('id', sessionRow.id);
+      return res.status(400).json({
+        error: `Could not link drill session to homework: ${bindErr.message || 'Linking failed'}`,
+        code: 'HOMEWORK_LINK_FAILED',
+      });
+    }
   }
 
   const safeResponse = buildDrillStartResponse({

@@ -12,6 +12,7 @@ import { DemoDB, getSupabase } from './supabaseClient.js';
 import { formatSecondsToMMSS, parseTimeToSeconds } from './timeUtils.js';
 import { formatSecondsToTime } from './stats.js';
 import { isBasicsOnlineAvailable } from './practiceStats.js';
+import { setupPracticeRecordsSection } from './practiceRecordsCard.js';
 import { showToast } from './toast.js';
 import {
   toISTDateString,
@@ -286,35 +287,27 @@ async function loadBasicsCategories() {
 }
 
 /**
- * Renders a "Practice online" button for each basics category that is available online
+ * Renders the "Highest records ever" section in place of the old online buttons card,
+ * preserving access to every online practice category with selected duration.
  */
 function renderOnlinePracticeButtons() {
   const cardEl = document.getElementById('online-practice-categories-card') || document.getElementById('basics-online-practice-card');
-  const listEl = document.getElementById('online-practice-buttons-list');
-  if (!cardEl || !listEl) return;
+  if (!cardEl) return;
 
   if (isViewingOtherStudent()) {
     cardEl.style.display = 'none';
-    listEl.innerHTML = '';
+    cardEl.innerHTML = '';
     return;
   }
 
   const onlineCats = basicsCategories.filter(c => isBasicsOnlineAvailable(c));
   if (onlineCats.length === 0) {
     cardEl.style.display = 'none';
-    listEl.innerHTML = '';
+    cardEl.innerHTML = '';
     return;
   }
 
-  listEl.innerHTML = onlineCats.map(c => `
-    <a
-      href="/pages/basics-practice.html?cat=${encodeURIComponent(c.id)}"
-      class="btn btn-primary btn-sm"
-      style="text-decoration: none;"
-    >
-      ${escapeHtml(c.name)} &middot; Practice online
-    </a>
-  `).join('');
+  setupPracticeRecordsSection(cardEl, 'basics', currentProfile);
   cardEl.style.display = 'block';
 }
 

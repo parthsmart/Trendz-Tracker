@@ -17,6 +17,7 @@
 
 import { getDrillServerClient, verifyStudentCaller } from './_supabaseAdmin.js';
 import { resolveAndValidateDailyTask } from './_dailyTasks.js';
+import { resolveAndValidateHomework } from './_homework.js';
 import {
   MODULES,
   validateMemoriadSettings,
@@ -78,9 +79,8 @@ export default async function handler(req, res) {
 
 async function handleStart(body, student, adminClient, res) {
   const moduleKey = typeof body.module === 'string' ? body.module.trim().toLowerCase() : '';
-  const validation = validateMemoriadSettings(moduleKey, body.settings);
-  if (!validation.ok) {
-    return res.status(400).json({ error: validation.error });
+  if (!moduleKey || !MODULES[moduleKey] || MODULES[moduleKey].comingSoon) {
+    return res.status(400).json({ error: 'This competition module is not available yet.' });
   }
 
   // Rate limit: at most 60 starts per hour per student
@@ -104,9 +104,7 @@ async function handleStart(body, student, adminClient, res) {
     });
   }
 
-  const generated = generateMemoriadSet(moduleKey, validation.settings);
-
-  // Validate daily task assignment if provided
+  // Validate daily task assignment if provided (before generating questions)
   const todoTaskId = body.todo_task_id;
   const taskRes = await resolveAndValidateDailyTask(
     adminClient,
@@ -120,10 +118,50 @@ async function handleStart(body, student, adminClient, res) {
   }
   const validatedTask = taskRes.task;
 
+  // Validate homework assignment if provided (before generating questions)
+  const homeworkId = body.homework_id;
+  const hwRes = await resolveAndValidateHomework(
+    adminClient,
+    homeworkId,
+    student,
+    'memoriad',
+    moduleKey
+  );
+  if (!hwRes.ok) {
+    return res.status(hwRes.statusCode || 400).json({ error: hwRes.error });
+  }
+  const validatedHomework = hwRes.homework;
+
+  // Authoritatively derive settings: assigned homework and task settings strictly override conflicting client inputs
+  const rawClientSettings = body.settings && typeof body.settings === 'object' ? { ...body.settings } : {};
+  let authoritativeSettings = { ...rawClientSettings };
+
+  if (validatedTask?.settings && typeof validatedTask.settings === 'object') {
+    authoritativeSettings = { ...authoritativeSettings, ...validatedTask.settings };
+  }
+
+  if (validatedHomework?.settings && typeof validatedHomework.settings === 'object') {
+    authoritativeSettings = { ...authoritativeSettings, ...validatedHomework.settings };
+  }
+
+  // Support date_count -> dates mapping for calendar module
+  if (authoritativeSettings.date_count !== undefined && authoritativeSettings.dates === undefined) {
+    authoritativeSettings.dates = authoritativeSettings.date_count;
+  }
+
+  const validation = validateMemoriadSettings(moduleKey, authoritativeSettings);
+  if (!validation.ok) {
+    return res.status(400).json({ error: validation.error });
+  }
+
   let finalTimeLimit = getMemoriadTimeLimit(moduleKey);
   if (validatedTask && validatedTask.duration_seconds > 0) {
     finalTimeLimit = validatedTask.duration_seconds;
+  } else if (validatedHomework && validatedHomework.duration_seconds > 0) {
+    finalTimeLimit = validatedHomework.duration_seconds;
   }
+
+  const generated = generateMemoriadSet(moduleKey, validation.settings);
 
   const nowMs = Date.now();
   const startedAtIso = new Date(nowMs).toISOString();
@@ -140,6 +178,7 @@ async function handleStart(body, student, adminClient, res) {
     todo_task_id: validatedTask ? validatedTask.id : null,
     todo_section: validatedTask ? 'memoriad' : null,
     todo_activity_key: validatedTask ? moduleKey : null,
+    homework_id: validatedHomework ? validatedHomework.id : null,
   };
 
   const { data: sessionRow, error: insertError } = await adminClient
@@ -163,6 +202,20 @@ async function handleStart(body, student, adminClient, res) {
     return res.status(500).json({
       error: 'Could not start the competition practice session. Please try again.',
     });
+  }
+
+  if (validatedHomework) {
+    const { error: bindErr } = await adminClient.rpc('bind_homework_session', {
+      p_assignment_id: validatedHomework.id,
+      p_session_id: sessionRow.id,
+    });
+    if (bindErr) {
+      await adminClient.from('drill_sessions').delete().eq('id', sessionRow.id);
+      return res.status(400).json({
+        error: `Could not link competition session to homework: ${bindErr.message || 'Linking failed'}`,
+        code: 'HOMEWORK_LINK_FAILED',
+      });
+    }
   }
 
   return res.status(200).json(

@@ -76,10 +76,10 @@ import {
 } from '../js/backupExport.js';
 
 describe('Phase 5c — 1. Table Configuration & Sheet Value Helpers (api/_backupTables.js)', () => {
-  it('defines all 31 tables (23 snapshot + 8 append) in exact order', () => {
-    assert.equal(BACKUP_TABLES.length, 31);
-    assert.equal(SNAPSHOT_TABLES.length, 23);
-    assert.equal(APPEND_TABLES.length, 8);
+  it('defines all 33 tables (24 snapshot + 9 append) in exact order', () => {
+    assert.equal(BACKUP_TABLES.length, 33);
+    assert.equal(SNAPSHOT_TABLES.length, 24);
+    assert.equal(APPEND_TABLES.length, 9);
 
     const expectedSnapshot = [
       'profiles',
@@ -105,6 +105,7 @@ describe('Phase 5c — 1. Table Configuration & Sheet Value Helpers (api/_backup
       'announcement_recipients',
       'resource_recipients',
       'score_correction_requests',
+      'homework_assignments',
     ];
     assert.deepEqual(
       SNAPSHOT_TABLES.map((t) => t.name),
@@ -120,6 +121,7 @@ describe('Phase 5c — 1. Table Configuration & Sheet Value Helpers (api/_backup
       'result_audit',
       'attendance_audit',
       'teacher_audit_log',
+      'homework_completions',
     ];
     assert.deepEqual(
       APPEND_TABLES.map((t) => t.name),
@@ -127,7 +129,7 @@ describe('Phase 5c — 1. Table Configuration & Sheet Value Helpers (api/_backup
     );
   });
 
-  it('assigns cursorColumn updated_at to 5 append tables, changed_at to result_audit & attendance_audit, and created_at to teacher_audit_log', () => {
+  it('assigns cursorColumn updated_at to 6 append tables, changed_at to result_audit & attendance_audit, and created_at to teacher_audit_log', () => {
     for (const t of SNAPSHOT_TABLES) {
       assert.equal(t.cursorColumn, null, `Snapshot table ${t.name} must have null cursorColumn`);
       assert.ok(Array.isArray(t.primaryKey) && t.primaryKey.length >= 1);
@@ -1373,14 +1375,19 @@ describe('Phase 5c — 4. Backup Endpoint Auth, Lock & Pass Execution (api/backu
       JMCWC_BACKUP_TABLES.map((t) => t.name),
       expectedJmcwcTables
     );
-    assert.equal(PRIVATE_SERVER_BACKUP_TABLES.length, 38);
-    assert.equal(RESTORE_TABLE_ORDER.length, 38);
+    assert.equal(PRIVATE_SERVER_BACKUP_TABLES.length, 41);
+    assert.equal(RESTORE_TABLE_ORDER.length, 41);
 
     // Public/Google Sheets BACKUP_TABLES and browser EXPORT_TABLES must never include jmcwc_payloads
     assert.ok(!BACKUP_TABLES.some((t) => t.name === 'jmcwc_payloads'));
     assert.ok(!EXPORT_TABLES.some((t) => t.name === 'jmcwc_payloads'));
-    assert.deepEqual(FORBIDDEN_PUBLIC_OR_MIRROR_TABLES, ['jmcwc_payloads']);
-    assert.deepEqual(MIRROR_FORBIDDEN_TABLES, ['jmcwc_payloads']);
+    assert.deepEqual(FORBIDDEN_PUBLIC_OR_MIRROR_TABLES, ['jmcwc_payloads', 'homework_bound_sessions']);
+    assert.deepEqual(MIRROR_FORBIDDEN_TABLES, FORBIDDEN_PUBLIC_OR_MIRROR_TABLES);
+    assert.ok(!BACKUP_TABLES.some((t) => t.name === 'homework_bound_sessions'));
+    assert.ok(!EXPORT_TABLES.some((t) => t.name === 'homework_bound_sessions'));
+    for (const parent of ['profiles', 'homework_assignments', 'jmcwc_attempts']) {
+      assert.ok(RESTORE_TABLE_ORDER.indexOf(parent) < RESTORE_TABLE_ORDER.indexOf('homework_bound_sessions'));
+    }
 
     const sanitized = sanitizeTablesForPublicBackupOrMirror({
       profiles: [{ id: 's1' }],
@@ -1418,8 +1425,8 @@ describe('Phase 5c — 4. Backup Endpoint Auth, Lock & Pass Execution (api/backu
     assert.equal(privRes.httpStatus, 200);
     assert.equal(privRes.body.ok, true);
     assert.equal(privRes.body.private_server_only, true);
-    assert.deepEqual(privRes.body.restore_order, expectedJmcwcTables);
-    assert.equal(Object.keys(privRes.body.tables).length, 7);
+    assert.deepEqual(privRes.body.restore_order, [...expectedJmcwcTables, 'homework_bound_sessions']);
+    assert.equal(Object.keys(privRes.body.tables).length, 8);
 
     // Student deletion counts include student-owned JMCWC rows and preserve shared tables
     const delSummary = computeStudentDeletionJmcwcCounts('stu-1', {
@@ -1543,6 +1550,9 @@ describe('Phase 5c — 4. Backup Endpoint Auth, Lock & Pass Execution (api/backu
         },
       ],
       jmcwc_scores: [],
+      homework_bound_sessions: [
+        { id: 'binding-1', assignment_id: 'homework-1', student_id: 'stu-restore-1', session_id: 'att-unfinished-1' },
+      ],
     };
 
     const mockSupabaseForExport = {
@@ -1577,6 +1587,8 @@ describe('Phase 5c — 4. Backup Endpoint Auth, Lock & Pass Execution (api/backu
     //    and also demonstrating why excluding private payloads from every backup would lose saved papers)
     const publicSanitized = sanitizeTablesForPublicBackupOrMirror(backupRes.body.tables);
     assert.equal('jmcwc_payloads' in publicSanitized, false);
+    assert.equal('homework_bound_sessions' in publicSanitized, false);
+    assert.throws(() => assertMirrorExcludesPayloads({ homework_bound_sessions: [] }), /Security violation: homework_bound_sessions/);
     assert.throws(
       () => restoreJmcwcTablesFromPrivateBackup(publicSanitized),
       /Incomplete JMCWC backup: missing table "jmcwc_payloads"/
@@ -1593,7 +1605,12 @@ describe('Phase 5c — 4. Backup Endpoint Auth, Lock & Pass Execution (api/backu
       'jmcwc_attempts',
       'jmcwc_payloads',
       'jmcwc_scores',
+      'homework_bound_sessions',
     ]);
+    assert.deepEqual(restored.tables.homework_bound_sessions, liveDbState.homework_bound_sessions);
+    const { homework_bound_sessions: removedBindings, ...legacyTables } = backupRes.body.tables;
+    assert.throws(() => restoreJmcwcTablesFromPrivateBackup({ ...backupRes.body, tables: legacyTables }), /missing homework_bound_sessions/);
+    assert.ok(restoreJmcwcTablesFromPrivateBackup(legacyTables).ok, 'Pre-homework exports remain valid');
 
     // 4. Verify the restored unfinished attempt can be resumed, answered, and graded accurately
     const restoredAttempt = restored.tables.jmcwc_attempts[0];

@@ -42,7 +42,9 @@ import { getScoreFeedback } from './scoreColors.js';
 import { formatSecondsToTime } from './stats.js';
 import { DemoDB, getSupabase } from './supabaseClient.js';
 import { showToast } from './toast.js';
+import { submitHomeworkCompletion } from './homeworkData.js';
 import { flashSummary } from './todoForm.js';
+import { setupPracticeRecordsSection } from './practiceRecordsCard.js';
 import {
   parseTestRunnerQuery,
   flashProgressText,
@@ -486,11 +488,14 @@ function showScreen(screenName) {
  * Calls `flash_start(p_settings)` on Supabase (or DemoDB in demo mode)
  */
 async function callFlashStartRpc(settings) {
+  const urlParams = new URLSearchParams(window.location.search);
+  const hwIdFromUrl = urlParams.get('homework_id');
   const payload = {
     digits: settings.digits,
     count: settings.count,
     speed_ms: settings.speed_ms,
     mode: settings.mode,
+    ...(hwIdFromUrl ? { homework_id: hwIdFromUrl } : {}),
   };
   if (activeTodoTaskId) {
     payload.todo_task_id = activeTodoTaskId;
@@ -925,6 +930,24 @@ async function submitTryAnswer(answerValue) {
 
     renderTryResultScreen(result, finishedTry);
     showScreen('results');
+
+    // Check for homework assignment linking
+    const urlParams = new URLSearchParams(window.location.search);
+    const homeworkId = urlParams.get('homework_id');
+    if (homeworkId && finishedTry?.session_id) {
+      try {
+        const hwRes = await submitHomeworkCompletion(homeworkId, {
+          sessionId: finishedTry.session_id,
+          activityResultId: result?.result_id || null,
+        });
+        if (hwRes?.success) {
+          showToast('success', `Homework credited (${hwRes.progress_count || 1} of ${hwRes.required_count || 1} completed)`);
+        }
+      } catch (hwErr) {
+        console.warn('Homework submission crediting failed:', hwErr);
+      }
+    }
+
     await loadFlashHistory();
   } catch (err) {
     const exactMessage = isTestMode
@@ -1747,6 +1770,22 @@ async function initFlashTrainerPage() {
 
   currentProfile = profile;
   renderHeaderUser(profile);
+
+  // Expose global helper for benchmark record cards
+  if (typeof window !== 'undefined') {
+    window.applyFlashSettingsToForm = (settings) => {
+      if (!settings) return;
+      currentSettings = clampFlashSettings({ ...currentSettings, ...settings });
+      syncSetupControlsUI();
+      savePreferences();
+      document.getElementById('flash-setup-screen')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
+
+  const recordsContainer = document.getElementById('flash-records-container');
+  if (recordsContainer) {
+    setupPracticeRecordsSection(recordsContainer, 'flash', currentProfile);
+  }
 
   // 1. Load last-used settings from localStorage
   loadSavedPreferences();

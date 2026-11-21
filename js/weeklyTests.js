@@ -27,7 +27,7 @@ import { getSupabase, DemoDB } from './supabaseClient.js';
 import { isSupabaseConfigured } from './config.js';
 import { isDemoMode } from './demoDb.js';
 import { showToast } from './toast.js';
-import { getScoreFeedback } from './scoreColors.js';
+import { getScoreFeedback, getWeeklyTestScoreFeedback } from './scoreColors.js';
 import {
   isBasicsOnlineAvailable,
   WEEKLY_TEST_DURATION_OPTIONS,
@@ -1107,7 +1107,7 @@ function renderOnlineResultsTable(test, sections, attempts, scores) {
                   ? Number(att.seconds_used)
                   : null;
             const timeLabel = timeSec != null ? formatSecondsToTime(timeSec) : '—';
-            const fb = total > 0 ? getScoreFeedback(correct, total) : null;
+            const fb = total > 0 ? getWeeklyTestScoreFeedback(correct, total, { ...sec, ...att, ...sc }) : null;
             const flashTriesText =
               kind === 'flash'
                 ? ` &middot; tries ${Number(att?.tries_started ?? total) || 0} of ${Number(sec.question_count) || total || 5}`
@@ -1477,7 +1477,7 @@ function renderScoresTable() {
       score.total !== null &&
       score.total !== undefined &&
       Number(score.total) > 0;
-    const feedback = hasData ? getScoreFeedback(score.correct, score.total) : null;
+    const feedback = hasData ? getWeeklyTestScoreFeedback(score.correct, score.total, score) : null;
 
     const statusBadge = hasData
       ? score.source === 'online'
@@ -1600,7 +1600,7 @@ function attachScoreInputHandlers() {
       if (tVal !== '' && Number(tVal) > 0 && cVal !== '') {
         const numC = Number(cVal);
         const numT = Number(tVal);
-        const fb = getScoreFeedback(numC, numT);
+        const fb = getWeeklyTestScoreFeedback(numC, numT);
         if (feedbackCell) {
           feedbackCell.innerHTML = `
             <span class="status-chip ${fb.badgeClass}" style="color: ${fb.colorVar}; background: ${fb.bgVar}; font-size: 11px;">

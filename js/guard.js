@@ -66,12 +66,14 @@ export async function requireAuth(allowedRoles = ['student', 'teacher', 'admin']
     allowCached,
     onRevalidated: (freshProfile) => {
       if (!freshProfile || !allowedRoles.includes(freshProfile.role)) {
-        if (freshProfile?.role === 'student') {
-          window.location.href = '/pages/student.html';
+        if (freshProfile?.role === 'admin') {
+          window.location.replace('/pages/admin.html');
         } else if (freshProfile?.role === 'teacher') {
-          window.location.href = '/pages/teacher.html';
+          window.location.replace('/pages/teacher.html');
+        } else if (freshProfile?.role === 'student') {
+          window.location.replace('/pages/student.html');
         } else {
-          window.location.href = '/index.html';
+          window.location.replace('/index.html');
         }
         return;
       }
@@ -82,22 +84,27 @@ export async function requireAuth(allowedRoles = ['student', 'teacher', 'admin']
 
   if (!profile) {
     // Save attempted URL or redirect to login
-    window.location.href = '/index.html';
+    window.location.replace('/index.html');
     return null;
   }
 
   if (!allowedRoles.includes(profile.role)) {
-    // If student attempts to view teacher/admin page:
-    if (profile.role === 'student') {
-      window.location.href = '/pages/student.html';
+    // If admin attempts to view student-only or teacher-only page:
+    if (profile.role === 'admin') {
+      window.location.replace('/pages/admin.html');
       return null;
     }
     // If teacher attempts to view admin or student-only page:
     if (profile.role === 'teacher') {
-      window.location.href = '/pages/teacher.html';
+      window.location.replace('/pages/teacher.html');
       return null;
     }
-    window.location.href = '/index.html';
+    // If student attempts to view teacher/admin page:
+    if (profile.role === 'student') {
+      window.location.replace('/pages/student.html');
+      return null;
+    }
+    window.location.replace('/index.html');
     return null;
   }
 

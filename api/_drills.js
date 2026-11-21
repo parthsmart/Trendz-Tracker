@@ -1793,6 +1793,29 @@ export function resolveBasicsModeSpec(rawMode, rawSeconds) {
 }
 
 /**
+ * Computes an appropriate question pool size for a given duration in seconds.
+ * - Standard presets (30s, 60s, 120s, 300s) map to BASICS_TIMED_POOLS (50, 100, 200, 500).
+ * - For arbitrary durations (5..3600s), scales at 100 questions / 60 seconds (5/3 q/s),
+ *   bounded by a minimum of 20 questions and a maximum of BASICS_UNLIMITED_POOL (1000).
+ *
+ * @param {unknown} seconds
+ * @returns {number}
+ */
+export function computeBasicsPoolForDuration(seconds) {
+  const sec = Number(seconds);
+  if (!Number.isFinite(sec) || sec <= 0) {
+    return BASICS_DEFAULT_QUESTIONS;
+  }
+  if (sec in BASICS_TIMED_POOLS) {
+    return BASICS_TIMED_POOLS[sec];
+  }
+  return Math.min(
+    BASICS_UNLIMITED_POOL,
+    Math.max(20, Math.ceil(sec * (5 / 3)))
+  );
+}
+
+/**
  * Strips `expected` from generated Basics questions before storing in `drill_sessions.questions`
  * or returning to the browser on `start`.
  *

@@ -9,6 +9,8 @@
  */
 
 import { requireAuth } from './guard.js';
+import { isSupabaseConfigured } from './config.js';
+import { getSupabase, DemoDB } from './supabaseClient.js';
 import { isDemoMode } from './demoDb.js';
 import { setupAdminNav, openModal, closeModal } from './modal.js';
 import { initProfileEditor, openEditProfileModal, openProfileAuditDrawer } from './profileEditor.js';
@@ -329,6 +331,335 @@ function renderDemoBanner() {
   `;
 }
 
+// Request-generation cancellation guard for async modal selector loads
+let activeMessageRequestGen = 0;
+let activeModalTargetStudentId = null;
+
+/**
+ * Dynamically fetches eligible practice scores across all sections
+ * (results: Basics & Round; activity_results: Elements, Flash Anzan, Memoriad)
+ * for a specific student with request-generation race condition guards.
+ */
+export async function loadEligibleScoresForStudent(studentId, preselectedId = null) {
+  const scoreSelect = document.getElementById('modal-msg-score-select');
+  const retryBtn = document.getElementById('btn-retry-load-scores');
+  if (!scoreSelect) return;
+
+  const currentGen = ++activeMessageRequestGen;
+  activeModalTargetStudentId = studentId;
+
+  if (retryBtn) retryBtn.style.display = 'none';
+  scoreSelect.innerHTML = '<option value="" disabled selected>Loading eligible practice scores...</option>';
+
+  try {
+    let combinedScores = [];
+
+    if (isSupabaseConfigured()) {
+      const supabase = await getSupabase();
+      if (supabase) {
+        const [resQuery, actQuery, jmcwcQuery] = await Promise.all([
+          supabase
+            .from('results')
+            .select('id, student_id, category_id, correct, total, entry_date, created_at, categories (id, name, section)')
+            .eq('student_id', studentId)
+            .order('entry_date', { ascending: false })
+            .limit(100),
+          supabase
+            .from('activity_results')
+            .select('id, student_id, activity_type, activity_name, correct, total, time_seconds, settings, created_at')
+            .eq('student_id', studentId)
+            .order('created_at', { ascending: false })
+            .limit(100),
+          supabase
+            .from('jmcwc_attempts')
+            .select('id, student_id, group_key, mode, category_key, status, created_at, finished_at')
+            .eq('student_id', studentId)
+            .eq('status', 'submitted')
+            .order('created_at', { ascending: false })
+            .limit(100)
+            .catch((err) => ({ data: null, error: err })),
+        ]);
+
+        if (resQuery.error) throw resQuery.error;
+        if (actQuery.error) throw actQuery.error;
+        if (jmcwcQuery?.error) {
+          const isTableMissing =
+            jmcwcQuery.error.code === '42P01' ||
+            jmcwcQuery.error.code === 'PGRST204' ||
+            jmcwcQuery.error.code === 'PGRST200' ||
+            String(jmcwcQuery.error.message || '').includes('does not exist') ||
+            String(jmcwcQuery.error.message || '').includes('relation "public.jmcwc_attempts" does not exist');
+          if (!isTableMissing) {
+            throw jmcwcQuery.error;
+          }
+        }
+
+        const resultsList = (resQuery.data || []).map((r) => {
+          const sectionLabel = r.categories?.section === 'round' ? 'Round' : 'Basics';
+          const name = r.categories?.name || r.category_name || 'Practice';
+          const dateStr = r.entry_date ? formatDisplayDateIST(r.entry_date) : '';
+          return {
+            id: r.id,
+            type: sectionLabel,
+            label: `[${sectionLabel}] ${dateStr} - ${name} (${r.correct ?? 0}/${r.total ?? 0})`,
+            timestamp: new Date(r.created_at || r.entry_date || 0).getTime(),
+          };
+        });
+
+        const actList = (actQuery.data || []).map((a) => {
+          let typeLabel = 'Elements';
+          if (a.activity_type === 'flash_anzan') typeLabel = 'Flash';
+          else if (a.activity_type === 'memoriad') typeLabel = 'Memoriad';
+
+          const dateStr = a.created_at ? formatDisplayDateIST(a.created_at) : '';
+          return {
+            id: a.id,
+            type: typeLabel,
+            label: `[${typeLabel}] ${dateStr} - ${a.activity_name || typeLabel} (${a.correct ?? 0}/${a.total ?? 0})`,
+            timestamp: new Date(a.created_at || 0).getTime(),
+          };
+        });
+
+        const jmcwcList = (jmcwcQuery?.data || []).map((j) => {
+          const dateStr = j.created_at ? formatDisplayDateIST(j.created_at) : '';
+          return {
+            id: j.id,
+            type: 'Main Round',
+            label: `[Main Round] ${dateStr} - JMCWC Simulator (${j.group_key || 'Championship'})`,
+            timestamp: new Date(j.created_at || 0).getTime(),
+          };
+        });
+
+        combinedScores = [...resultsList, ...actList, ...jmcwcList].sort((a, b) => b.timestamp - a.timestamp);
+
+        // If a specific preselected score is requested but not in the recent 100, fetch it directly
+        if (preselectedId && !combinedScores.some((s) => String(s.id) === String(preselectedId))) {
+          try {
+            const [singleRes, singleAct, singleJmcwc] = await Promise.all([
+              supabase.from('results').select('id, category_id, correct, total, entry_date, created_at, categories (name, section)').eq('id', preselectedId).single().catch(() => ({ data: null })),
+              supabase.from('activity_results').select('id, activity_type, activity_name, correct, total, created_at').eq('id', preselectedId).single().catch(() => ({ data: null })),
+              supabase.from('jmcwc_attempts').select('id, group_key, created_at').eq('id', preselectedId).single().catch(() => ({ data: null })),
+            ]);
+
+            if (singleRes?.data) {
+              const r = singleRes.data;
+              const sectionLabel = r.categories?.section === 'round' ? 'Round' : 'Basics';
+              const name = r.categories?.name || 'Practice';
+              const dateStr = r.entry_date ? formatDisplayDateIST(r.entry_date) : '';
+              combinedScores.unshift({
+                id: r.id,
+                type: sectionLabel,
+                label: `[${sectionLabel}] ${dateStr} - ${name} (${r.correct ?? 0}/${r.total ?? 0})`,
+                timestamp: new Date(r.created_at || r.entry_date || 0).getTime(),
+              });
+            } else if (singleAct?.data) {
+              const a = singleAct.data;
+              let typeLabel = 'Elements';
+              if (a.activity_type === 'flash_anzan') typeLabel = 'Flash';
+              else if (a.activity_type === 'memoriad') typeLabel = 'Memoriad';
+              const dateStr = a.created_at ? formatDisplayDateIST(a.created_at) : '';
+              combinedScores.unshift({
+                id: a.id,
+                type: typeLabel,
+                label: `[${typeLabel}] ${dateStr} - ${a.activity_name || typeLabel} (${a.correct ?? 0}/${a.total ?? 0})`,
+                timestamp: new Date(a.created_at || 0).getTime(),
+              });
+            } else if (singleJmcwc?.data) {
+              const j = singleJmcwc.data;
+              const dateStr = j.created_at ? formatDisplayDateIST(j.created_at) : '';
+              combinedScores.unshift({
+                id: j.id,
+                type: 'Main Round',
+                label: `[Main Round] ${dateStr} - JMCWC Simulator (${j.group_key || 'Championship'})`,
+                timestamp: new Date(j.created_at || 0).getTime(),
+              });
+            }
+          } catch {
+            // non-blocking fallback
+          }
+        }
+      }
+    } else if (isDemoMode() && DemoDB) {
+      const allRes = DemoDB.getResults ? DemoDB.getResults() : [];
+      const cats = DemoDB.getCategories ? DemoDB.getCategories() : [];
+      const catMap = new Map(cats.map((c) => [c.id, c]));
+
+      const resultsList = allRes
+        .filter((r) => r.student_id === studentId)
+        .map((r) => {
+          const cat = catMap.get(r.category_id);
+          const sectionLabel = cat?.section === 'round' ? 'Round' : 'Basics';
+          const name = cat?.name || r.category_name || 'Practice';
+          const dateStr = r.entry_date ? formatDisplayDateIST(r.entry_date) : '';
+          return {
+            id: r.id,
+            type: sectionLabel,
+            label: `[${sectionLabel}] ${dateStr} - ${name} (${r.correct ?? 0}/${r.total ?? 0})`,
+            timestamp: new Date(r.created_at || r.entry_date || 0).getTime(),
+          };
+        });
+
+      const allActs = DemoDB.getActivityResults ? DemoDB.getActivityResults(studentId) : [];
+      const actList = (Array.isArray(allActs) ? allActs : [])
+        .filter((a) => a.student_id === studentId)
+        .map((a) => {
+          let typeLabel = 'Elements';
+          if (a.activity_type === 'flash_anzan') typeLabel = 'Flash';
+          else if (a.activity_type === 'memoriad') typeLabel = 'Memoriad';
+          const dateStr = a.created_at ? formatDisplayDateIST(a.created_at) : '';
+          return {
+            id: a.id,
+            type: typeLabel,
+            label: `[${typeLabel}] ${dateStr} - ${a.activity_name || typeLabel} (${a.correct ?? 0}/${a.total ?? 0})`,
+            timestamp: new Date(a.created_at || 0).getTime(),
+          };
+        });
+
+      const allJmcwc = DemoDB.getJmcwcAttempts ? DemoDB.getJmcwcAttempts(studentId) : [];
+      const jmcwcList = (Array.isArray(allJmcwc) ? allJmcwc : [])
+        .filter((j) => j.student_id === studentId)
+        .map((j) => {
+          const dateStr = j.created_at ? formatDisplayDateIST(j.created_at) : '';
+          return {
+            id: j.id,
+            type: 'Main Round',
+            label: `[Main Round] ${dateStr} - JMCWC Simulator (${j.group_key || 'Championship'})`,
+            timestamp: new Date(j.created_at || 0).getTime(),
+          };
+        });
+
+      combinedScores = [...resultsList, ...actList, ...jmcwcList].sort((a, b) => b.timestamp - a.timestamp);
+    }
+
+    // Cancellation / Race condition check: ignore response if newer request was launched or target student switched
+    if (currentGen !== activeMessageRequestGen || activeModalTargetStudentId !== studentId) {
+      return;
+    }
+
+    if (combinedScores.length === 0) {
+      scoreSelect.innerHTML = '<option value="" disabled selected>No eligible practice scores found for this student</option>';
+      return;
+    }
+
+    scoreSelect.innerHTML = '<option value="">Choose a practice score...</option>';
+
+    // Build options, guaranteeing that preselectedId is included even if it falls beyond the initial slice
+    let visibleScores = combinedScores.slice(0, 100);
+    if (preselectedId && !visibleScores.some((s) => String(s.id) === String(preselectedId))) {
+      const foundOlder = combinedScores.find((s) => String(s.id) === String(preselectedId));
+      if (foundOlder) {
+        visibleScores.unshift(foundOlder);
+      }
+    }
+
+    visibleScores.forEach((item) => {
+      const opt = document.createElement('option');
+      opt.value = item.id;
+      opt.textContent = item.label;
+      if (preselectedId && String(preselectedId) === String(item.id)) {
+        opt.selected = true;
+      }
+      scoreSelect.appendChild(opt);
+    });
+
+    if (preselectedId) {
+      scoreSelect.value = preselectedId;
+    }
+  } catch (err) {
+    if (currentGen !== activeMessageRequestGen || activeModalTargetStudentId !== studentId) {
+      return;
+    }
+    console.error('Failed to load eligible scores for student message:', err);
+    scoreSelect.innerHTML = '<option value="" disabled selected>Could not load practice scores</option>';
+    if (retryBtn) {
+      retryBtn.style.display = 'inline-block';
+      retryBtn.onclick = () => loadEligibleScoresForStudent(studentId, preselectedId);
+    }
+  }
+}
+
+/**
+ * Dynamically fetches eligible weekly tests for a specific student,
+ * filtered by audience level and accessibility, with race condition guards.
+ */
+export async function loadEligibleTestsForStudent(studentId, preselectedId = null) {
+  const testSelect = document.getElementById('modal-msg-test-select');
+  const retryBtn = document.getElementById('btn-retry-load-tests');
+  if (!testSelect) return;
+
+  const currentGen = ++activeMessageRequestGen;
+  activeModalTargetStudentId = studentId;
+
+  if (retryBtn) retryBtn.style.display = 'none';
+  testSelect.innerHTML = '<option value="" disabled selected>Loading weekly tests...</option>';
+
+  try {
+    let tests = [];
+    const studentLevel = (currentStudentProfile?.level || '').trim().toLowerCase();
+
+    if (isSupabaseConfigured()) {
+      const supabase = await getSupabase();
+      if (supabase) {
+        const { data, error } = await supabase
+          .from('weekly_tests')
+          .select('id, title, test_date, audience_level')
+          .order('test_date', { ascending: false })
+          .limit(100);
+
+        if (error) throw error;
+        tests = data || [];
+      }
+    } else if (isDemoMode() && DemoDB) {
+      const rawTests = DemoDB.getWeeklyTests ? DemoDB.getWeeklyTests() : [];
+      tests = Array.isArray(rawTests?.tests) ? rawTests.tests : (Array.isArray(rawTests) ? rawTests : []);
+    }
+
+    // Filter by student recipient level accessibility
+    if (studentLevel) {
+      tests = tests.filter((t) => {
+        if (!t.audience_level || t.audience_level === 'all') return true;
+        return t.audience_level.trim().toLowerCase() === studentLevel;
+      });
+    }
+
+    // Cancellation / Race condition check
+    if (currentGen !== activeMessageRequestGen || activeModalTargetStudentId !== studentId) {
+      return;
+    }
+
+    if (tests.length === 0) {
+      testSelect.innerHTML = '<option value="" disabled selected>No weekly tests found for this student</option>';
+      return;
+    }
+
+    testSelect.innerHTML = '<option value="">Choose a weekly test...</option>';
+    tests.slice(0, 100).forEach((t) => {
+      const opt = document.createElement('option');
+      opt.value = t.id;
+      const dateStr = t.test_date ? formatDisplayDateIST(t.test_date) : '';
+      opt.textContent = `${dateStr} - ${t.title || 'Weekly Test'}`;
+      if (preselectedId && String(preselectedId) === String(t.id)) {
+        opt.selected = true;
+      }
+      testSelect.appendChild(opt);
+    });
+
+    if (preselectedId) {
+      testSelect.value = preselectedId;
+    }
+  } catch (err) {
+    if (currentGen !== activeMessageRequestGen || activeModalTargetStudentId !== studentId) {
+      return;
+    }
+    console.error('Failed to load eligible weekly tests for student message:', err);
+    testSelect.innerHTML = '<option value="" disabled selected>Could not load weekly tests</option>';
+    if (retryBtn) {
+      retryBtn.style.display = 'inline-block';
+      retryBtn.onclick = () => loadEligibleTestsForStudent(studentId, preselectedId);
+    }
+  }
+}
+
 export function openSendMessageModal(profile, dashboardData, options = {}) {
   const recipientEl = document.getElementById('modal-msg-recipient-text');
   if (recipientEl && profile) {
@@ -423,6 +754,26 @@ function setupSendMessageModalHandlers() {
       const val = linkTypeSelect.value;
       if (scoreGroup) scoreGroup.style.display = val === 'score' ? 'block' : 'none';
       if (testGroup) testGroup.style.display = val === 'weekly_test' ? 'block' : 'none';
+
+      // Clear alternate selector and trigger dynamic load
+      if (val === 'score') {
+        const testSel = document.getElementById('modal-msg-test-select');
+        if (testSel) testSel.value = '';
+        if (currentStudentProfile?.id) {
+          loadEligibleScoresForStudent(currentStudentProfile.id);
+        }
+      } else if (val === 'weekly_test') {
+        const scoreSel = document.getElementById('modal-msg-score-select');
+        if (scoreSel) scoreSel.value = '';
+        if (currentStudentProfile?.id) {
+          loadEligibleTestsForStudent(currentStudentProfile.id);
+        }
+      } else {
+        const scoreSel = document.getElementById('modal-msg-score-select');
+        if (scoreSel) scoreSel.value = '';
+        const testSel = document.getElementById('modal-msg-test-select');
+        if (testSel) testSel.value = '';
+      }
     });
   }
 

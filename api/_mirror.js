@@ -15,6 +15,7 @@
 
 import { getScoreColorHex } from '../shared/scoreColors.js';
 import { isFlatRound } from '../js/roundType.js';
+import { FORBIDDEN_PUBLIC_OR_MIRROR_TABLES } from './_backupTables.js';
 
 export const MIRROR_FROZEN_ROWS = 4;
 export const MIRROR_FROZEN_COLUMNS = 3;
@@ -23,12 +24,14 @@ export const MIRROR_FROZEN_COLUMNS = 3;
  * Security boundary: `jmcwc_payloads` contains generated question `answer_key` values
  * and must never be included in Google Sheets mirrors or public backups.
  */
-export const MIRROR_FORBIDDEN_TABLES = Object.freeze(['jmcwc_payloads']);
+export const MIRROR_FORBIDDEN_TABLES = FORBIDDEN_PUBLIC_OR_MIRROR_TABLES;
 
 export function assertMirrorExcludesPayloads(data) {
   if (!data || typeof data !== 'object') return true;
-  if (Object.prototype.hasOwnProperty.call(data, 'jmcwc_payloads')) {
-    throw new Error('Security violation: jmcwc_payloads must never be passed to Google Sheets mirror.');
+  for (const table of MIRROR_FORBIDDEN_TABLES) {
+    if (Object.hasOwn(data, table)) {
+      throw new Error(`Security violation: ${table} must never be passed to Google Sheets mirror.`);
+    }
   }
   return true;
 }
