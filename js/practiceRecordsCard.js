@@ -21,6 +21,9 @@
 import {
   BASICS_RECORD_DURATIONS,
   DEFAULT_BASICS_RECORD_DURATION,
+  FLASH_RECORD_SPEEDS,
+  DEFAULT_FLASH_RECORD_SPEED_MS,
+  DEFAULT_FLASH_RECORD_MODE,
   loadPracticeHighestRecords,
 } from './practiceRecords.js';
 
@@ -39,13 +42,13 @@ function escapeHtml(str) {
  */
 export function getRecordsRulesExplanation(section) {
   const commonRules =
-    'Only completed online drills or teacher-verified paper drills are eligible. Students with private or inactive accounts are excluded. Display names follow student privacy settings.';
+    'Only completed online drills or teacher-verified paper drills are eligible. Students with private or inactive accounts are excluded from All Students leaderboards, but can always view their own personal bests. Display names follow student privacy settings.';
 
   switch (section) {
     case 'basics':
       return `Basics rankings compare drills within the exact same category and fixed duration (30s, 60s, 120s, or 300s). Sorted by most correct answers, with fewest errors as tie-breaker. Genuine ties share the record. ${commonRules}`;
     case 'flash':
-      return `Flash Anzan rankings evaluate standard competition benchmark presets with identical digits, numbers count, speed per number, and addition/subtraction mode. Shows total verified completions and accuracy. Genuine ties share the record. ${commonRules}`;
+      return `Flash Anzan rankings evaluate the longest correctly completed sequence at each digit level (1 to 5 digits) at the chosen speed and mode. Equal counts share the record. Genuine ties share the record. ${commonRules}`;
     case 'element':
       return `Elements rankings compare attempts on the exact same worksheet drill configuration. Sorted by highest score, with fastest completion time as tie-breaker. Genuine ties share the record. ${commonRules}`;
     case 'memoriad':
@@ -61,30 +64,48 @@ export function getRecordsRulesExplanation(section) {
 export function renderRecordCardHtml(record) {
   const isHeldByMe = Boolean(record.isHeldByMe);
   const hasRecord = Boolean(record.hasRecord);
+  const isMyBest = record.view === 'my_best' || record.scoreDisplay === 'No personal record yet';
 
   let holdersHtml = '';
-  if (hasRecord && Array.isArray(record.holders) && record.holders.length > 0) {
-    const names = record.holders.map((h) => escapeHtml(h.display_name)).join(', ');
-    const label = record.holders.length > 1 ? 'Record holders (Tied)' : 'Record holder';
-    holdersHtml = `
-      <div class="record-card-holder-row" style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 4px;">
-        <span style="font-weight: 600;">${label}:</span>
-        <span class="record-holder-name" style="font-weight: 700; color: var(--text-main);">${names}</span>
-      </div>
-    `;
-  } else if (!hasRecord) {
-    holdersHtml = `
-      <div class="record-card-holder-row" style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 4px;">
-        <span>No holder yet &mdash; be the first!</span>
-      </div>
-    `;
+  if (isMyBest) {
+    if (hasRecord) {
+      holdersHtml = `
+        <div class="record-card-holder-row" style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 4px;">
+          <span style="font-weight: 600;">Personal Record:</span>
+          <span class="record-holder-name" style="font-weight: 700; color: var(--text-main);">${escapeHtml(record.holders[0]?.display_name || 'You')}</span>
+        </div>
+      `;
+    } else {
+      holdersHtml = `
+        <div class="record-card-holder-row" style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 4px;">
+          <span>No personal record yet</span>
+        </div>
+      `;
+    }
+  } else {
+    if (hasRecord && Array.isArray(record.holders) && record.holders.length > 0) {
+      const names = record.holders.map((h) => escapeHtml(h.display_name)).join(', ');
+      const label = record.holders.length > 1 ? 'Record holders (Tied)' : 'Record holder';
+      holdersHtml = `
+        <div class="record-card-holder-row" style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 4px;">
+          <span style="font-weight: 600;">${label}:</span>
+          <span class="record-holder-name" style="font-weight: 700; color: var(--text-main);">${names}</span>
+        </div>
+      `;
+    } else if (!hasRecord) {
+      holdersHtml = `
+        <div class="record-card-holder-row" style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 4px;">
+          <span>No holder yet &mdash; be the first!</span>
+        </div>
+      `;
+    }
   }
 
   const youHoldItBadge = isHeldByMe
     ? `
       <div class="record-you-hold-badge" style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: var(--radius-full, 9999px); background: #fef3c7; color: #92400e; font-size: 11px; font-weight: 700; margin-bottom: 6px; border: 1px solid #fde68a;">
         <span aria-hidden="true">⭐</span>
-        <span>${record.holders.length > 1 ? 'You share this record!' : 'You hold this record!'}</span>
+        <span>${isMyBest ? 'Your Personal Best' : (record.holders?.length > 1 ? 'You share this record!' : 'You hold this record!')}</span>
       </div>
     `
     : '';
@@ -94,15 +115,18 @@ export function renderRecordCardHtml(record) {
     ? 'font-size: var(--text-lg); font-weight: 700; color: var(--color-primary); line-height: 1.2;'
     : 'font-size: var(--text-sm); font-weight: 600; color: var(--text-muted); font-style: italic;';
 
+  const emptyScoreText = isMyBest ? 'No personal record yet' : 'No record yet';
+  const headerScoreLabel = hasRecord ? (isMyBest ? 'Personal Best' : 'Highest Record') : 'Status';
+
   const actionButton = record.section === 'flash'
     ? `
       <button
         type="button"
         class="btn btn-primary btn-sm btn-flash-attempt-record"
-        data-digits="${record.rawSettings?.digits || 1}"
-        data-count="${record.rawSettings?.count || 10}"
-        data-speed="${record.rawSettings?.speed_ms || 1000}"
-        data-mode="${record.rawSettings?.mode || 'add'}"
+        data-digits="${record.rawSettings?.digits || record.digits || 1}"
+        data-count="${record.rawSettings?.count || record.count || 10}"
+        data-speed="${record.rawSettings?.speed_ms || record.speed_ms || DEFAULT_FLASH_RECORD_SPEED_MS}"
+        data-mode="${record.rawSettings?.mode || record.mode || DEFAULT_FLASH_RECORD_MODE}"
         style="width: 100%; justify-content: center;"
       >
         ${escapeHtml(record.attemptLabel || 'Attempt online')} &rarr;
@@ -138,10 +162,10 @@ export function renderRecordCardHtml(record) {
 
         <div style="margin: var(--space-2) 0;">
           <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600;">
-            ${hasRecord ? 'Highest Record' : 'Status'}
+            ${headerScoreLabel}
           </div>
           <div class="${scoreClass} num" style="${scoreStyle}">
-            ${hasRecord ? escapeHtml(record.scoreDisplay) : 'No record yet'}
+            ${hasRecord ? escapeHtml(record.scoreDisplay) : emptyScoreText}
           </div>
         </div>
 
@@ -171,7 +195,10 @@ export async function setupPracticeRecordsSection(
 ) {
   if (!containerEl) return;
 
+  let currentView = options.defaultView || 'all';
   let currentDuration = options.defaultDuration || DEFAULT_BASICS_RECORD_DURATION;
+  let currentSpeedMs = options.defaultSpeedMs || DEFAULT_FLASH_RECORD_SPEED_MS;
+  let currentMode = options.defaultMode || DEFAULT_FLASH_RECORD_MODE;
 
   function renderSkeleton() {
     containerEl.innerHTML = `
@@ -193,17 +220,26 @@ export async function setupPracticeRecordsSection(
     renderSkeleton();
 
     try {
+      const queryOptions = {
+        view: currentView,
+        durationSeconds: currentDuration,
+        speed_ms: currentSpeedMs,
+        mode: currentMode,
+        ...(section === 'flash' ? { format: 'per_digit' } : {}),
+      };
+
       const records = await loadPracticeHighestRecords(
         section,
-        { durationSeconds: currentDuration },
+        queryOptions,
         callerProfile
       );
 
+      const speedSec = (currentSpeedMs / 1000).toFixed(1);
       const sectionTitle =
         section === 'basics'
           ? 'Highest Records Ever'
           : section === 'flash'
-            ? 'Highest Records Ever — Benchmarks'
+            ? `Highest Records Ever — Best at ${speedSec}s`
             : section === 'element'
               ? 'Highest Records Ever — Elements'
               : 'Highest Records Ever — Memoriad';
@@ -212,18 +248,42 @@ export async function setupPracticeRecordsSection(
         section === 'basics'
           ? 'All-time best scores across standard timed online & verified drills.'
           : section === 'flash'
-            ? 'Benchmark visualization records with identical digits, count, and speed.'
+            ? `Longest correctly completed sequence at ${speedSec}s (${currentMode === 'add_sub' ? 'Add & Subtract' : 'Addition'}).`
             : section === 'element'
               ? 'All-time best scores across standard Elements worksheet drills.'
               : 'All-time best scores across Memoriad competition modules.';
 
       const popoverContent = getRecordsRulesExplanation(section);
 
-      // Duration selector pills for basics
-      let durationSelectorHtml = '';
+      // View toggle: All Students | My Best
+      const viewToggleHtml = `
+        <div class="records-view-toggle" role="radiogroup" aria-label="Records scope" style="display: inline-flex; background: var(--bg-surface-soft, #f1f5f9); padding: 2px; border-radius: var(--radius-sm, 6px); border: 1px solid var(--border-hairline, #e2e8f0);">
+          <button
+            type="button"
+            class="btn-view-toggle btn-view-all ${currentView === 'all' ? 'active' : ''}"
+            data-view="all"
+            aria-pressed="${currentView === 'all' ? 'true' : 'false'}"
+            style="padding: 2px 8px; font-size: var(--text-xs); font-weight: 600; border-radius: 4px; border: none; cursor: pointer; background: ${currentView === 'all' ? 'var(--color-surface, #fff)' : 'transparent'}; color: ${currentView === 'all' ? 'var(--color-primary, #4338ca)' : 'var(--text-muted, #64748b)'}; box-shadow: ${currentView === 'all' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none'};"
+          >
+            All Students
+          </button>
+          <button
+            type="button"
+            class="btn-view-toggle btn-view-my-best ${currentView === 'my_best' ? 'active' : ''}"
+            data-view="my_best"
+            aria-pressed="${currentView === 'my_best' ? 'true' : 'false'}"
+            style="padding: 2px 8px; font-size: var(--text-xs); font-weight: 600; border-radius: 4px; border: none; cursor: pointer; background: ${currentView === 'my_best' ? 'var(--color-surface, #fff)' : 'transparent'}; color: ${currentView === 'my_best' ? 'var(--color-primary, #4338ca)' : 'var(--text-muted, #64748b)'}; box-shadow: ${currentView === 'my_best' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none'};"
+          >
+            My Best
+          </button>
+        </div>
+      `;
+
+      // Specific section filters
+      let sectionFiltersHtml = '';
       if (section === 'basics') {
-        durationSelectorHtml = `
-          <div class="basics-duration-pills" role="radiogroup" aria-label="Select record duration" style="display: flex; gap: var(--space-1); flex-wrap: wrap;">
+        sectionFiltersHtml = `
+          <div class="basics-duration-pills" role="radiogroup" aria-label="Select record duration" style="display: inline-flex; gap: 3px; flex-wrap: wrap;">
             ${BASICS_RECORD_DURATIONS.map(
               (sec) => `
               <button
@@ -231,7 +291,7 @@ export async function setupPracticeRecordsSection(
                 class="btn btn-sm ${sec === currentDuration ? 'btn-primary' : 'btn-outline'} btn-duration-pill"
                 data-seconds="${sec}"
                 aria-pressed="${sec === currentDuration ? 'true' : 'false'}"
-                style="padding: 2px 10px; font-size: var(--text-xs); font-weight: 700;"
+                style="padding: 2px 8px; font-size: var(--text-xs); font-weight: 700; height: 26px;"
               >
                 ${sec}s
               </button>
@@ -239,17 +299,55 @@ export async function setupPracticeRecordsSection(
             ).join('')}
           </div>
         `;
+      } else if (section === 'flash') {
+        sectionFiltersHtml = `
+          <div class="flash-records-filters" style="display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+            <div style="display: inline-flex; align-items: center; gap: 4px;">
+              <label for="flash-records-speed" style="font-size: var(--text-xs); color: var(--text-muted); font-weight: 600;">Speed:</label>
+              <select
+                id="flash-records-speed"
+                class="form-select num flash-records-speed-select"
+                aria-label="Filter Flash records by speed"
+                style="padding: 2px 6px; font-size: var(--text-xs); font-weight: 600; height: 26px; border-radius: var(--radius-sm, 4px); border: 1px solid var(--border-hairline, #cbd5e1); background: var(--color-surface, #fff);"
+              >
+                ${FLASH_RECORD_SPEEDS.map((s) => `
+                  <option value="${s.ms}" ${s.ms === currentSpeedMs ? 'selected' : ''}>${s.label}</option>
+                `).join('')}
+              </select>
+            </div>
+            <div class="flash-mode-pills" role="radiogroup" aria-label="Flash mode" style="display: inline-flex; background: var(--bg-surface-soft, #f1f5f9); padding: 2px; border-radius: var(--radius-sm, 6px); border: 1px solid var(--border-hairline, #e2e8f0);">
+              <button
+                type="button"
+                class="btn-mode-pill ${currentMode === 'add' ? 'active' : ''}"
+                data-mode="add"
+                aria-pressed="${currentMode === 'add' ? 'true' : 'false'}"
+                style="padding: 2px 8px; font-size: var(--text-xs); font-weight: 600; border-radius: 4px; border: none; cursor: pointer; background: ${currentMode === 'add' ? 'var(--color-surface, #fff)' : 'transparent'}; color: ${currentMode === 'add' ? 'var(--color-primary, #4338ca)' : 'var(--text-muted, #64748b)'}; box-shadow: ${currentMode === 'add' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none'};"
+              >
+                Add
+              </button>
+              <button
+                type="button"
+                class="btn-mode-pill ${currentMode === 'add_sub' ? 'active' : ''}"
+                data-mode="add_sub"
+                aria-pressed="${currentMode === 'add_sub' ? 'true' : 'false'}"
+                style="padding: 2px 8px; font-size: var(--text-xs); font-weight: 600; border-radius: 4px; border: none; cursor: pointer; background: ${currentMode === 'add_sub' ? 'var(--color-surface, #fff)' : 'transparent'}; color: ${currentMode === 'add_sub' ? 'var(--color-primary, #4338ca)' : 'var(--text-muted, #64748b)'}; box-shadow: ${currentMode === 'add_sub' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none'};"
+              >
+                Add &amp; Sub
+              </button>
+            </div>
+          </div>
+        `;
       }
 
       const cardsGridHtml = records.length > 0
         ? `
           <div class="practice-records-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--space-3); margin-top: var(--space-3);">
-            ${records.map((r) => renderRecordCardHtml(r)).join('')}
+            ${records.map((r) => renderRecordCardHtml({ ...r, view: currentView })).join('')}
           </div>
         `
         : `
           <div style="text-align: center; padding: var(--space-5); color: var(--text-muted); font-size: var(--text-sm);">
-            No records found for this section.
+            ${currentView === 'my_best' ? 'No personal records found.' : 'No records found for this section.'}
           </div>
         `;
 
@@ -280,19 +378,56 @@ export async function setupPracticeRecordsSection(
                 ${escapeHtml(sectionSubtitle)}
               </p>
             </div>
-            ${durationSelectorHtml}
+            <div class="practice-records-toolbar" style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+              ${viewToggleHtml}
+              ${sectionFiltersHtml}
+            </div>
           </div>
 
           ${cardsGridHtml}
         </div>
       `;
 
-      // Event listener for duration pills
+      // Event listener for view toggle (All Students | My Best)
+      containerEl.querySelectorAll('.btn-view-toggle').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const v = btn.getAttribute('data-view');
+          if (v && v !== currentView) {
+            currentView = v;
+            await loadAndRender();
+          }
+        });
+      });
+
+      // Event listener for duration pills (Basics)
       containerEl.querySelectorAll('.btn-duration-pill').forEach((btn) => {
         btn.addEventListener('click', async () => {
           const sec = Number(btn.getAttribute('data-seconds'));
           if (sec && sec !== currentDuration) {
             currentDuration = sec;
+            await loadAndRender();
+          }
+        });
+      });
+
+      // Event listener for Flash speed select
+      const speedSelect = containerEl.querySelector('.flash-records-speed-select');
+      if (speedSelect) {
+        speedSelect.addEventListener('change', async () => {
+          const ms = Number(speedSelect.value);
+          if (ms && ms !== currentSpeedMs) {
+            currentSpeedMs = ms;
+            await loadAndRender();
+          }
+        });
+      }
+
+      // Event listener for Flash mode pills
+      containerEl.querySelectorAll('.btn-mode-pill').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const m = btn.getAttribute('data-mode');
+          if (m && m !== currentMode) {
+            currentMode = m;
             await loadAndRender();
           }
         });

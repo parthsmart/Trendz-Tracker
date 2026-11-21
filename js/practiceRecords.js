@@ -23,8 +23,32 @@ import { MEMORIAD_MODULE_CATALOG } from './memoriadStats.js';
 export const BASICS_RECORD_DURATIONS = Object.freeze([30, 60, 120, 300]);
 export const DEFAULT_BASICS_RECORD_DURATION = 60;
 
+export const FLASH_SUPPORTED_DIGITS = Object.freeze([1, 2, 3, 4, 5]);
+
+export const FLASH_RECORD_SPEEDS = Object.freeze([
+  { ms: 200, label: '0.2s' },
+  { ms: 300, label: '0.3s' },
+  { ms: 400, label: '0.4s' },
+  { ms: 500, label: '0.5s' },
+  { ms: 600, label: '0.6s' },
+  { ms: 700, label: '0.7s' },
+  { ms: 800, label: '0.8s' },
+  { ms: 900, label: '0.9s' },
+  { ms: 1000, label: '1.0s' },
+  { ms: 1200, label: '1.2s' },
+  { ms: 1500, label: '1.5s' },
+  { ms: 2000, label: '2.0s' },
+  { ms: 2500, label: '2.5s' },
+  { ms: 3000, label: '3.0s' },
+  { ms: 4000, label: '4.0s' },
+  { ms: 5000, label: '5.0s' },
+]);
+
+export const DEFAULT_FLASH_RECORD_SPEED_MS = 300;
+export const DEFAULT_FLASH_RECORD_MODE = 'add';
+
 /**
- * Standard Flash Anzan benchmark presets for strictly comparable workloads.
+ * Standard Flash Anzan benchmark presets (legacy compatibility).
  */
 export const FLASH_RECORD_BENCHMARKS = Object.freeze([
   {
@@ -131,11 +155,19 @@ export function computeBasicsRecords({
   profiles = [],
   durationSeconds = DEFAULT_BASICS_RECORD_DURATION,
   currentStudentId = null,
+  view = 'all',
 } = {}) {
   const profileMap = new Map();
   for (const p of profiles) {
-    if (p && p.id && isStudentEligibleForRecords(p)) {
-      profileMap.set(p.id, p);
+    if (!p || !p.id) continue;
+    if (view === 'my_best') {
+      if (p.id === currentStudentId && p.active !== false) {
+        profileMap.set(p.id, p);
+      }
+    } else {
+      if (isStudentEligibleForRecords(p)) {
+        profileMap.set(p.id, p);
+      }
     }
   }
 
@@ -159,6 +191,7 @@ export function computeBasicsRecords({
     const catResults = resultsByCat.get(cat.id) || [];
 
     if (catResults.length === 0) {
+      const emptyScoreDisplay = view === 'my_best' ? 'No personal record yet' : '—';
       return {
         id: cat.id,
         category: cat,
@@ -167,7 +200,7 @@ export function computeBasicsRecords({
         durationSeconds,
         settingsSummary: `${durationSeconds} seconds`,
         hasRecord: false,
-        scoreDisplay: '—',
+        scoreDisplay: emptyScoreDisplay,
         scoreNumeric: 0,
         wrongCount: 0,
         holders: [],
@@ -238,11 +271,19 @@ export function computeElementsRecords({
   activityResults = [],
   profiles = [],
   currentStudentId = null,
+  view = 'all',
 } = {}) {
   const profileMap = new Map();
   for (const p of profiles) {
-    if (p && p.id && isStudentEligibleForRecords(p)) {
-      profileMap.set(p.id, p);
+    if (!p || !p.id) continue;
+    if (view === 'my_best') {
+      if (p.id === currentStudentId && p.active !== false) {
+        profileMap.set(p.id, p);
+      }
+    } else {
+      if (isStudentEligibleForRecords(p)) {
+        profileMap.set(p.id, p);
+      }
     }
   }
 
@@ -265,6 +306,7 @@ export function computeElementsRecords({
     const drillRows = rowsByDrill.get(drill.key) || [];
 
     if (drillRows.length === 0) {
+      const emptyScoreDisplay = view === 'my_best' ? 'No personal record yet' : '—';
       return {
         id: drill.key,
         drill,
@@ -274,7 +316,7 @@ export function computeElementsRecords({
         subgroup: drill.subgroup,
         settingsSummary: `${drill.questions} Qs · ${drill.time_limit_seconds}s limit`,
         hasRecord: false,
-        scoreDisplay: '—',
+        scoreDisplay: emptyScoreDisplay,
         scoreNumeric: 0,
         timeSeconds: null,
         holders: [],
@@ -340,79 +382,146 @@ export function computeElementsRecords({
 }
 
 /**
- * Computes strictly comparable Flash Anzan individual highest performance records.
- *
- * Ranking Rule (Independent Review Requirement):
- * Compare identical workloads (digits, count, mode).
- * Rank by fastest cleared flashing speed (MIN speed_ms with correct >= 1).
- * Genuine ties share the record.
+ * Computes simplified Flash Anzan records: one card per supported digit level (1..5).
+ * Ranked by longest correctly completed sequence (MAX count with correct >= 1)
+ * at a fixed speed per number and mode.
  */
 export function computeFlashRecords({
   activityResults = [],
   profiles = [],
+  drillSessions = [],
   currentStudentId = null,
+  speed_ms = DEFAULT_FLASH_RECORD_SPEED_MS,
+  mode = DEFAULT_FLASH_RECORD_MODE,
+  view = 'all',
 } = {}) {
+  const targetSpeedMs = Number(speed_ms) || DEFAULT_FLASH_RECORD_SPEED_MS;
+  const targetMode = mode === 'add_sub' ? 'add_sub' : 'add';
+
   const profileMap = new Map();
   for (const p of profiles) {
-    if (p && p.id && isStudentEligibleForRecords(p)) {
-      profileMap.set(p.id, p);
+    if (!p || !p.id) continue;
+    if (view === 'my_best') {
+      if (p.id === currentStudentId && p.active !== false) {
+        profileMap.set(p.id, p);
+      }
+    } else {
+      if (isStudentEligibleForRecords(p)) {
+        profileMap.set(p.id, p);
+      }
     }
   }
 
-  const eligibleRows = activityResults.filter((r) => {
-    if (!r || !r.student_id || r.activity_type !== 'flash_anzan') return false;
-    if (Number(r.correct) < 1) return false; // Must be a cleared try
-    if (!profileMap.has(r.student_id)) return false;
-    if (!isScoreEligibleForRecords(r)) return false;
-    return true;
-  });
+  // Authoritative drill session lookup: index by result_id and result_row_id
+  const hasDrillSessions = Array.isArray(drillSessions) && drillSessions.length > 0;
+  const sessionByResultId = new Map();
+  if (hasDrillSessions) {
+    for (const ds of drillSessions) {
+      if (!ds || ds.status !== 'submitted' || ds.activity_type !== 'flash_anzan') continue;
+      if (ds.result_id) sessionByResultId.set(String(ds.result_id), ds);
+      if (ds.result_row_id) sessionByResultId.set(String(ds.result_row_id), ds);
+    }
+  }
 
-  return FLASH_RECORD_BENCHMARKS.map((bm) => {
-    const matchedRows = eligibleRows.filter((r) => {
-      const s = r.settings || {};
-      const d = Number(s.digits);
-      const c = Number(s.count);
-      const m = s.mode === 'add_sub' ? 'add_sub' : 'add';
-      return d === bm.digits && c === bm.count && m === bm.mode;
+  const eligibleRows = [];
+  for (const r of activityResults) {
+    if (!r || !r.student_id || r.activity_type !== 'flash_anzan') continue;
+    if (!profileMap.has(r.student_id)) continue;
+
+    // Confirm the submitted sequence was answered correctly before it can set a record
+    const correct = Number(r.correct);
+    const total = Number(r.total ?? 1);
+    if (!Number.isFinite(correct) || correct < 1) continue;
+    if (!Number.isFinite(total) || total < 1 || correct < total) continue;
+
+    // Read digits, count, speed_ms, and mode from the submitted drill session's saved settings.
+    // Require the session's result_id or result_row_id to point to the exact score being ranked.
+    // A session_id in the score's JSON alone is insufficient.
+    let s = null;
+    if (hasDrillSessions) {
+      const ds = sessionByResultId.get(String(r.id));
+      if (!ds || ds.student_id !== r.student_id) continue;
+      s = ds.settings;
+    } else {
+      if (!isScoreEligibleForRecords(r)) continue;
+      s = r.settings;
+    }
+
+    if (!s || typeof s !== 'object') continue;
+
+    // Safely validate settings before casting/using. Enforce trainer's supported ranges and speed increments.
+    // 1. Digits: whole number 1..5
+    const digitsRaw = String(s.digits ?? '').trim();
+    if (!/^[1-5]$/.test(digitsRaw)) continue;
+    const digits = Number(digitsRaw);
+
+    // 2. Count: whole number 2..1000 (at most 4 digits to prevent integer overflow)
+    const countRaw = String(s.count ?? '').trim();
+    if (!/^[0-9]{1,4}$/.test(countRaw)) continue;
+    const count = Number(countRaw);
+    if (!Number.isInteger(count) || count < 2 || count > 1000) continue;
+
+    // 3. Speed: whole number 200..5000 in 100ms increments
+    const speedRaw = String(s.speed_ms ?? '').trim();
+    if (!/^[0-9]{3,4}$/.test(speedRaw)) continue;
+    const speedMs = Number(speedRaw);
+    if (!Number.isInteger(speedMs) || speedMs < 200 || speedMs > 5000 || speedMs % 100 !== 0) continue;
+    if (speedMs !== targetSpeedMs) continue;
+
+    // 4. Strict mode check: A missing mode must NOT default to Addition!
+    const modeVal = typeof s.mode === 'string' ? s.mode.trim() : '';
+    if (modeVal !== 'add' && modeVal !== 'add_sub') continue;
+    if (modeVal !== targetMode) continue;
+
+    eligibleRows.push({
+      ...r,
+      _flashDigits: digits,
+      _flashCount: count,
+      _flashSpeedMs: speedMs,
+      _flashMode: modeVal,
     });
+  }
 
-    if (matchedRows.length === 0) {
+  return FLASH_SUPPORTED_DIGITS.map((digits) => {
+    const matchingRows = eligibleRows.filter((r) => r._flashDigits === digits);
+    const title = `${digits} Digit${digits > 1 ? 's' : ''}`;
+    const speedSec = (targetSpeedMs / 1000).toFixed(1);
+    const modeLabel = targetMode === 'add_sub' ? 'Add & Sub' : 'Add';
+    const settingsSummary = `${digits}d · ${speedSec}s · ${modeLabel}`;
+
+    if (matchingRows.length === 0) {
+      const emptyScoreDisplay = view === 'my_best' ? 'No personal record yet' : 'No record yet';
       return {
-        id: bm.key,
-        benchmark: bm,
+        id: `flash_${digits}d`,
+        digits,
         section: 'flash',
-        title: bm.title,
-        description: bm.description,
-        settingsSummary: `${bm.digits}d · ${bm.count}n · ${bm.mode === 'add_sub' ? 'Add & Sub' : 'Add'}`,
+        title,
+        settingsSummary,
         rawSettings: {
-          digits: bm.digits,
-          count: bm.count,
-          mode: bm.mode,
+          digits,
+          count: 10,
+          speed_ms: targetSpeedMs,
+          mode: targetMode,
         },
         hasRecord: false,
-        scoreDisplay: '—',
+        scoreDisplay: emptyScoreDisplay,
         scoreNumeric: 0,
         holders: [],
         isHeldByMe: false,
-        attemptLabel: 'Set the record',
+        attemptUrl: `/pages/flash.html?digits=${digits}&count=10&speed=${targetSpeedMs}&mode=${targetMode}`,
+        attemptLabel: 'Attempt online',
       };
     }
 
-    // Sort by fastest speed (speed_ms ASC)
-    matchedRows.sort((a, b) => {
-      const spA = Number(a.settings?.speed_ms) || 9999;
-      const spB = Number(b.settings?.speed_ms) || 9999;
-      return spA - spB;
-    });
+    // Rank by longest correctly completed sequence (count DESC)
+    matchingRows.sort((a, b) => b._flashCount - a._flashCount);
 
-    const bestSpeed = Number(matchedRows[0].settings?.speed_ms) || 1000;
+    const maxCount = matchingRows[0]._flashCount;
 
-    // Genuine ties: all students who cleared at the best speed
-    const tiedRows = matchedRows.filter((r) => {
-      const sp = Number(r.settings?.speed_ms) || 1000;
-      return sp === bestSpeed;
-    });
+    // Genuine ties: all students who achieved maxCount
+    const tiedRows = matchingRows.filter((r) => r._flashCount === maxCount);
 
+    // Deduplicate repeat runs: each student listed at most once
     const holderStudentIds = Array.from(new Set(tiedRows.map((r) => r.student_id)));
     const holders = holderStudentIds
       .map((sid) => {
@@ -430,23 +539,26 @@ export function computeFlashRecords({
     const isHeldByMe = holders.some((h) => h.is_me);
 
     return {
-      id: bm.key,
-      benchmark: bm,
+      id: `flash_${digits}d`,
+      digits,
+      count: maxCount,
+      speed_ms: targetSpeedMs,
+      mode: targetMode,
       section: 'flash',
-      title: bm.title,
-      description: bm.description,
-      settingsSummary: `${bm.digits}d · ${bm.count}n · ${(bestSpeed / 1000).toFixed(1)}s`,
+      title,
+      settingsSummary,
       rawSettings: {
-        digits: bm.digits,
-        count: bm.count,
-        speed_ms: bestSpeed,
-        mode: bm.mode,
+        digits,
+        count: maxCount,
+        speed_ms: targetSpeedMs,
+        mode: targetMode,
       },
       hasRecord: true,
-      scoreDisplay: `${bestSpeed}ms / number (${(bestSpeed / 1000).toFixed(1)}s)`,
-      scoreNumeric: bestSpeed,
+      scoreDisplay: `${maxCount} numbers`,
+      scoreNumeric: maxCount,
       holders,
       isHeldByMe,
+      attemptUrl: `/pages/flash.html?digits=${digits}&count=${maxCount}&speed=${targetSpeedMs}&mode=${targetMode}`,
       attemptLabel: isHeldByMe ? 'Defend record' : 'Attempt online',
     };
   });
@@ -459,11 +571,19 @@ export function computeMemoriadRecords({
   activityResults = [],
   profiles = [],
   currentStudentId = null,
+  view = 'all',
 } = {}) {
   const profileMap = new Map();
   for (const p of profiles) {
-    if (p && p.id && isStudentEligibleForRecords(p)) {
-      profileMap.set(p.id, p);
+    if (!p || !p.id) continue;
+    if (view === 'my_best') {
+      if (p.id === currentStudentId && p.active !== false) {
+        profileMap.set(p.id, p);
+      }
+    } else {
+      if (isStudentEligibleForRecords(p)) {
+        profileMap.set(p.id, p);
+      }
     }
   }
 
@@ -486,6 +606,7 @@ export function computeMemoriadRecords({
     const modRows = rowsByModule.get(mod.key) || [];
 
     if (modRows.length === 0) {
+      const emptyScoreDisplay = view === 'my_best' ? 'No personal record yet' : '—';
       return {
         id: mod.key,
         module: mod,
@@ -494,7 +615,7 @@ export function computeMemoriadRecords({
         badge: mod.badge,
         settingsSummary: mod.badge,
         hasRecord: false,
-        scoreDisplay: '—',
+        scoreDisplay: emptyScoreDisplay,
         scoreNumeric: 0,
         holders: [],
         isHeldByMe: false,
@@ -585,12 +706,15 @@ export function normalizeRecordForRenderer(r, section, currentStudentId = null, 
   const hasRecord = Boolean(
     r.hasRecord ??
     r.has_record ??
-    (r.correct != null || r.score != null || r.speed_ms != null)
+    (r.correct != null || r.score != null || r.count != null)
   );
+
+  const view = options.view || r.view || 'all';
+  const emptyDefault = view === 'my_best' ? 'No personal record yet' : 'No record yet';
 
   let title = r.title || r.category_name || r.drill_key || r.module_key || 'Record';
   let settingsSummary = r.settingsSummary || r.settings_summary || '';
-  let scoreDisplay = r.scoreDisplay || r.score_display || (hasRecord ? 'Recorded' : 'No record yet');
+  let scoreDisplay = r.scoreDisplay || r.score_display || (hasRecord ? 'Recorded' : emptyDefault);
   let attemptUrl = r.attemptUrl || r.attempt_url || '#';
   let attemptLabel = r.attemptLabel || r.attempt_label || (isHeldByMe ? 'Defend record' : 'Attempt online');
   let rawSettings = r.rawSettings || r.raw_settings || {};
@@ -603,25 +727,53 @@ export function normalizeRecordForRenderer(r, section, currentStudentId = null, 
     }
     if (hasRecord && !r.scoreDisplay && !r.score_display) {
       scoreDisplay = `${r.correct ?? 0} correct (${r.wrong ?? 0} wrong)`;
+    } else if (!hasRecord) {
+      scoreDisplay = emptyDefault;
     }
   } else if (section === 'flash') {
+    const isPerDigit = options.format === 'per_digit' ||
+      options.layout === 'per_digit' ||
+      r.format === 'per_digit' ||
+      Boolean(String(r.id || '').match(/^flash_\d+d$/)) ||
+      (options.format !== 'benchmarks' && options.format !== 'legacy' && !r.title?.includes('Numbers'));
     const digits = r.digits ?? rawSettings.digits ?? 1;
-    const count = r.count ?? rawSettings.count ?? 10;
-    const mode = r.mode ?? rawSettings.mode ?? 'add';
-    const speedMs = r.speed_ms ?? rawSettings.speed_ms;
-    if (!title || title === 'Record') {
-      title = `${digits} Digit${digits > 1 ? 's' : ''} · ${count} Numbers · ${mode === 'add_sub' ? 'Add & Subtract' : 'Add'}`;
-    }
-    if (!settingsSummary) settingsSummary = `${digits}d · ${count}n · ${mode}`;
-    if (!rawSettings.digits) {
-      rawSettings = { digits, count, mode, speed_ms: speedMs || 1000 };
-    }
-    if (!attemptUrl || attemptUrl === '#') {
-      attemptUrl = `/pages/flash.html?digits=${digits}&count=${count}&speed=${speedMs || 1000}&mode=${mode}`;
-    }
-    if (hasRecord && !r.scoreDisplay && !r.score_display) {
-      const sec = speedMs ? (speedMs / 1000).toFixed(3) : '—';
-      scoreDisplay = `${sec}s (${speedMs || '—'} ms)`;
+    const count = r.count ?? rawSettings.count ?? null;
+    const mode = r.mode ?? rawSettings.mode ?? options.mode ?? DEFAULT_FLASH_RECORD_MODE;
+    const speedMs = r.speed_ms ?? rawSettings.speed_ms ?? options.speed_ms ?? DEFAULT_FLASH_RECORD_SPEED_MS;
+
+    if (isPerDigit) {
+      if (!title || title === 'Record' || title.includes('Numbers')) {
+        title = `${digits} Digit${digits > 1 ? 's' : ''}`;
+      }
+      const speedSec = (speedMs / 1000).toFixed(1);
+      const modeLabel = mode === 'add_sub' ? 'Add & Sub' : 'Add';
+      if (!settingsSummary) settingsSummary = `${digits}d · ${speedSec}s · ${modeLabel}`;
+      rawSettings = { digits, count: count || 10, mode, speed_ms: speedMs };
+      if (!attemptUrl || attemptUrl === '#') {
+        attemptUrl = `/pages/flash.html?digits=${digits}&count=${count || 10}&speed=${speedMs}&mode=${mode}`;
+      }
+      if (hasRecord && !r.scoreDisplay && !r.score_display) {
+        scoreDisplay = `${count} numbers`;
+      } else if (!hasRecord) {
+        scoreDisplay = emptyDefault;
+      }
+    } else {
+      // Legacy benchmark format: preserved for existing callers
+      if (!title || title === 'Record') {
+        title = `${digits} Digit${digits > 1 ? 's' : ''} · ${count || 10} Numbers · ${mode === 'add_sub' ? 'Add & Subtract' : 'Add'}`;
+      }
+      const speedSec = (speedMs / 1000).toFixed(2);
+      const modeLabel = mode === 'add_sub' ? 'Add & Sub' : 'Add';
+      if (!settingsSummary) settingsSummary = `${digits}d · ${count || 10}n · ${modeLabel}`;
+      rawSettings = { digits, count: count || 10, mode, speed_ms: speedMs };
+      if (!attemptUrl || attemptUrl === '#') {
+        attemptUrl = `/pages/flash.html?digits=${digits}&count=${count || 10}&speed=${speedMs}&mode=${mode}`;
+      }
+      if (hasRecord && !r.scoreDisplay && !r.score_display) {
+        scoreDisplay = `${speedSec}s per number (${speedMs}ms)`;
+      } else if (!hasRecord) {
+        scoreDisplay = emptyDefault;
+      }
     }
   } else if (section === 'element') {
     const drill = r.drill_key || r.id;
@@ -635,6 +787,8 @@ export function normalizeRecordForRenderer(r, section, currentStudentId = null, 
     }
     if (hasRecord && !r.scoreDisplay && !r.score_display) {
       scoreDisplay = `${r.correct ?? 0} correct · ${r.time_seconds ?? 0}s`;
+    } else if (!hasRecord) {
+      scoreDisplay = emptyDefault;
     }
   } else if (section === 'memoriad') {
     const mod = r.module_key || r.id;
@@ -651,6 +805,8 @@ export function normalizeRecordForRenderer(r, section, currentStudentId = null, 
     }
     if (hasRecord && !r.scoreDisplay && !r.score_display) {
       scoreDisplay = `${r.score ?? r.official_score ?? 0} pts · ${r.used_seconds ?? 0}s`;
+    } else if (!hasRecord) {
+      scoreDisplay = emptyDefault;
     }
   }
 
