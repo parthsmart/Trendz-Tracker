@@ -65,9 +65,9 @@ import { DemoDB } from '../js/demoDb.js';
 // ============================================================================
 describe('1. Complete RESTORE_TABLE_ORDER & Backup Registry Coverage', () => {
   it('includes every table from PRIVATE_SERVER_BACKUP_TABLES exactly once with zero missing or extra tables', () => {
-    assert.equal(PRIVATE_SERVER_BACKUP_TABLES.length, 40, 'PRIVATE_SERVER_BACKUP_TABLES must have 40 tables');
-    assert.equal(RESTORE_TABLE_ORDER.length, 40, 'RESTORE_TABLE_ORDER must have exactly 40 tables');
-    assert.equal(new Set(RESTORE_TABLE_ORDER).size, 40, 'Must have zero duplicate tables');
+    assert.equal(PRIVATE_SERVER_BACKUP_TABLES.length, 41, 'PRIVATE_SERVER_BACKUP_TABLES must have 41 tables');
+    assert.equal(RESTORE_TABLE_ORDER.length, 41, 'RESTORE_TABLE_ORDER must have exactly 41 tables');
+    assert.equal(new Set(RESTORE_TABLE_ORDER).size, 41, 'Must have zero duplicate tables');
 
     const backupNames = PRIVATE_SERVER_BACKUP_TABLES.map((t) => t.name);
     assert.deepEqual(

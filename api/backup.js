@@ -23,7 +23,7 @@ import {
   BACKUP_TABLES,
   SNAPSHOT_TABLES,
   APPEND_TABLES,
-  JMCWC_BACKUP_TABLES,
+  PRIVATE_JMCWC_BACKUP_TABLES,
   FORBIDDEN_PUBLIC_OR_MIRROR_TABLES,
   RESTORE_TABLE_ORDER,
   SNAPSHOT_MAX_ROWS,
@@ -1091,14 +1091,22 @@ export async function executeBackupRunPass({
 }
 
 /**
- * Exports all 7 JMCWC tables in strict foreign-key restore order for private server-side admin backup.
- * Never writes `jmcwc_payloads` to Google Sheets or public backups.
+ * Exports Main Round data and its homework links for private server-side admin backup.
  */
 export async function handlePrivateJmcwcBackup({ supabase }) {
   const tables = {};
   const counts = {};
 
-  for (const spec of JMCWC_BACKUP_TABLES) {
+  for (const spec of PRIVATE_JMCWC_BACKUP_TABLES) {
+    if (spec.name === 'homework_bound_sessions') {
+      const result = await fetchSnapshotTableRows(supabase, spec, () => false);
+      if (result.tooLarge) {
+        throw new Error(`Cannot export all homework session links: row limit is ${SNAPSHOT_MAX_ROWS}.`);
+      }
+      tables[spec.name] = result.rows;
+      counts[spec.name] = result.rows.length;
+      continue;
+    }
     let query = supabase.from(spec.name).select('*');
     const orderCols = Array.isArray(spec.orderBy) ? spec.orderBy : [];
     for (const ord of orderCols) {
@@ -1119,7 +1127,7 @@ export async function handlePrivateJmcwcBackup({ supabase }) {
     ok: true,
     private_server_only: true,
     private_server_backup: true,
-    restore_order: JMCWC_BACKUP_TABLES.map((t) => t.name),
+    restore_order: PRIVATE_JMCWC_BACKUP_TABLES.map((t) => t.name),
     full_restore_order: RESTORE_TABLE_ORDER,
     excluded_from_public_and_sheets: FORBIDDEN_PUBLIC_OR_MIRROR_TABLES,
     counts,

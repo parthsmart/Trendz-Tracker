@@ -129,8 +129,8 @@ CREATE TABLE IF NOT EXISTS public.homework_bound_sessions (
 CREATE INDEX IF NOT EXISTS idx_homework_bound_sessions_lookup
   ON public.homework_bound_sessions (assignment_id, student_id, session_id);
 
+REVOKE ALL ON TABLE public.homework_bound_sessions FROM PUBLIC, anon, authenticated;
 GRANT ALL ON TABLE public.homework_bound_sessions TO service_role, postgres;
-GRANT SELECT ON TABLE public.homework_bound_sessions TO authenticated;
 
 -- -----------------------------------------------------------------------------
 -- 3. Triggers: updated_at maintenance
@@ -527,15 +527,6 @@ CREATE POLICY "homework_completions_select"
 ALTER TABLE public.homework_bound_sessions ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "homework_bound_sessions_select" ON public.homework_bound_sessions;
-CREATE POLICY "homework_bound_sessions_select"
-  ON public.homework_bound_sessions
-  FOR SELECT TO authenticated
-  USING (
-    student_id = auth.uid()
-    OR EXISTS (
-      SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'teacher') AND active = true
-    )
-  );
 
 -- -----------------------------------------------------------------------------
 -- 6b. Authoritative RPC: public.bind_homework_session

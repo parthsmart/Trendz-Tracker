@@ -46,6 +46,7 @@ import { resolveAndValidateHomework } from '../api/_homework.js';
 import { createJmcwcServer } from '../api/_jmcwcServer.js';
 import { JMCWC_PAPERS } from '../api/_jmcwcBlueprints.js';
 import { generateQuestionsFromBlueprint } from '../api/_jmcwcGenerate.js';
+import { buildHomeworkReleaseSql } from '../scripts/buildHomeworkReleaseSql.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -441,6 +442,39 @@ describe('Homework & Highest Records PGlite Integration Suite', () => {
       ORDER BY table_name;
     `);
     assert.equal(tRows.length, 2);
+  });
+
+  it('Production SQL requires an explicit latch and upgrades the existing Main Round signatures', async () => {
+    const db = await setupBaseStagingDb();
+    try {
+      const sql = buildHomeworkReleaseSql();
+      await assert.rejects(db.exec(sql), /Production release latch is missing or incorrect/);
+      await db.exec('ROLLBACK;');
+
+      const flashSource = fs.readFileSync(path.join(ROOT_DIR, 'supabase', 'owner_phase19_improvements_migration.sql'), 'utf8');
+      const messageSource = fs.readFileSync(path.join(ROOT_DIR, 'supabase', 'migrations', '15_phase17_private_student_messages.sql'), 'utf8');
+      const flashDefinition = flashSource.match(/CREATE OR REPLACE FUNCTION public\.flash_start\([\s\S]*?\$\$;/)[0];
+      const messageDefinition = messageSource.match(/CREATE OR REPLACE FUNCTION public\.admin_send_student_message\([\s\S]*?\$\$;/)[0];
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS public.daily_task_recipients (task_id uuid, student_id uuid);
+        DROP FUNCTION public.format_leaderboard_name(text, text, text);
+        ${flashDefinition}
+        ${messageDefinition}
+        SET app.target_environment = 'production_kgzivhavpsvitwrscrrj';
+        ${sql}
+      `);
+      await db.exec(`
+        PREPARE ordinary_create(uuid, uuid, uuid, text, text, jsonb)
+          AS SELECT public.jmcwc_create_attempt($1,$2,$3,$4,$5,$6);
+        PREPARE homework_create(uuid, uuid, uuid, text, text, jsonb, uuid)
+          AS SELECT public.jmcwc_create_attempt($1,$2,$3,$4,$5,$6,$7);
+      `);
+      assert.equal((await db.query(`
+        SELECT has_table_privilege('authenticated', 'public.homework_bound_sessions', 'SELECT') AS client_can_read
+      `)).rows[0].client_can_read, false);
+    } finally {
+      await db.close();
+    }
   });
 
   it('3. RLS authorization: teacher roster scoping and student direct write blocking', async () => {
@@ -2570,6 +2604,13 @@ describe('Homework & Highest Records PGlite Integration Suite', () => {
     assert.equal(boundRows1[0].assignment_id, hw1Id);
     assert.equal(boundRows1[0].student_id, student1);
 
+    const savedLink = JSON.stringify(boundRows1[0]);
+    await db.query('DELETE FROM public.homework_bound_sessions WHERE session_id = $1', [createdAttemptId]);
+    await db.query(`
+      INSERT INTO public.homework_bound_sessions
+      SELECT * FROM jsonb_populate_record(NULL::public.homework_bound_sessions, $1::jsonb)
+    `, [savedLink]);
+
     // Matching Homework retry (same request_id, same homework_id)
     const resRetryMatch = await callEndpoint({
       body: {
@@ -2623,6 +2664,8 @@ describe('Homework & Highest Records PGlite Integration Suite', () => {
       mode: 'flat',
       seed: 202611,
     });
+    const payloadCount = async () => (await db.query('SELECT count(*) AS total FROM public.jmcwc_payloads')).rows[0].total;
+    const payloadsBeforeRollback = await payloadCount();
 
     await assert.rejects(async () => {
       // Direct call to 7-argument jmcwc_create_attempt as trusted service_role
@@ -2649,12 +2692,7 @@ describe('Homework & Highest Records PGlite Integration Suite', () => {
     );
     assert.equal(attRollbackRows.length, 0, 'No partial jmcwc_attempts record should remain after binding failure');
 
-    const { rows: payRollbackRows } = await db.query(`
-      SELECT * FROM public.jmcwc_payloads WHERE attempt_id IN (
-        SELECT id FROM public.jmcwc_attempts WHERE request_id = '${reqIdRollback}'
-      );
-    `);
-    assert.equal(payRollbackRows.length, 0, 'No partial jmcwc_payloads record should remain after binding failure');
+    assert.equal(await payloadCount(), payloadsBeforeRollback, 'No partial jmcwc_payloads record should remain after binding failure');
 
     const { rows: boundRollbackRows } = await db.query(
       `SELECT * FROM public.homework_bound_sessions WHERE assignment_id = '${hw2Id}' AND student_id = '${student1}';`
