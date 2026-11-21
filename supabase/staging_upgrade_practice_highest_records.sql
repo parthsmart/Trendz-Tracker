@@ -135,24 +135,27 @@ BEGIN
   IF v_flash_mode NOT IN ('add', 'add_sub') THEN
     v_flash_mode := 'add';
   END IF;
-  -- Strict caller profile validation
-  IF v_caller IS NOT NULL THEN
-    SELECT role, level, active INTO v_caller_role, v_caller_level, v_caller_active
-    FROM public.profiles
-    WHERE id = v_caller;
-
-    IF v_caller_active IS FALSE THEN
-      RAISE EXCEPTION 'Caller profile is inactive' USING ERRCODE = '42501';
-    END IF;
+  IF v_caller IS NULL THEN
+    RAISE EXCEPTION 'Authentication required.' USING ERRCODE = '28000';
   END IF;
 
-  -- Competition Settings
+  SELECT role, level, active INTO v_caller_role, v_caller_level, v_caller_active
+  FROM public.profiles WHERE id = v_caller;
+
+  IF NOT FOUND OR v_caller_active IS NOT TRUE THEN
+    RAISE EXCEPTION 'Active account required.' USING ERRCODE = '42501';
+  END IF;
+
   SELECT COALESCE(
-    (SELECT value = 'true' FROM public.competition_settings WHERE key = 'global_leaderboard'),
+    (SELECT value = 'on' FROM public.competition_settings WHERE key = 'global_leaderboard'),
     true
   ) INTO v_global_enabled;
 
-  v_is_global := (v_caller_role IN ('admin', 'teacher')) OR v_global_enabled;
+  IF v_caller_role = 'student' AND NOT v_global_enabled THEN
+    v_is_global := false;
+  ELSIF (p_options->>'scope') = 'level' THEN
+    v_is_global := false;
+  END IF;
 
   SELECT COALESCE(
     (SELECT value FROM public.competition_settings WHERE key = 'leaderboard_names'),

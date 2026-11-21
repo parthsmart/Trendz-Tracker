@@ -736,7 +736,7 @@ describe('Homework & Highest Records PGlite Integration Suite', () => {
     await db.exec(`
       INSERT INTO public.profiles (id, student_code, full_name, role, level, active, leaderboard_visible) VALUES
         ('${stu1}', 'STU1', 'Aarav Sharma', 'student', 'Level 2', true, true),
-        ('${stu2}', 'STU2', 'Diya Patel', 'student', 'Level 2', true, true),
+        ('${stu2}', 'STU2', 'Diya Patel', 'student', 'Level 3', true, true),
         ('${stuPrivate}', 'STU9', 'Secret Student', 'student', 'Level 2', true, false);
 
       INSERT INTO public.categories (id, name, section, sort_order) VALUES
@@ -912,6 +912,11 @@ describe('Homework & Highest Records PGlite Integration Suite', () => {
       assert.equal(basics[0].holders.length, 1);
       assert.equal(basics[0].holders[0].student_code, 'STU2');
 
+      const { rows: ownLevelRows } = await db.query(`
+        SELECT public.practice_highest_records('basics', '{"scope": "level", "durationSeconds": 60}'::jsonb) AS res;
+      `);
+      assert.equal(ownLevelRows[0].res[0].correct, 40);
+
       // stu1 queries My Best: sees stu1's own 40 correct
       const { rows: myRows } = await db.query(`
         SELECT public.practice_highest_records('basics', '{"view": "my_best", "durationSeconds": 60}'::jsonb) AS res;
@@ -920,6 +925,19 @@ describe('Homework & Highest Records PGlite Integration Suite', () => {
       assert.equal(myBasics[0].correct, 40);
       assert.equal(myBasics[0].isHeldByMe, true);
     });
+
+    await db.exec("UPDATE public.competition_settings SET value = 'off' WHERE key = 'global_leaderboard';");
+    await asUser(db, stu1, 'authenticated', async () => {
+      const { rows } = await db.query(`SELECT public.practice_highest_records('basics') AS res;`);
+      assert.equal(rows[0].res[0].correct, 40);
+    });
+    await db.exec("UPDATE public.competition_settings SET value = 'on' WHERE key = 'global_leaderboard';");
+
+    await assert.rejects(
+      () => asUser(db, 'aaaaaaaa-0000-0000-0000-000000000000', 'authenticated', async () =>
+        db.query(`SELECT public.practice_highest_records('basics');`)),
+      /Active account required/,
+    );
 
     // Hidden student sees own 99 correct in Basics My Best
     await asUser(db, stuPrivate, 'authenticated', async () => {
