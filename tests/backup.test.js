@@ -76,10 +76,10 @@ import {
 } from '../js/backupExport.js';
 
 describe('Phase 5c — 1. Table Configuration & Sheet Value Helpers (api/_backupTables.js)', () => {
-  it('defines all 31 tables (23 snapshot + 8 append) in exact order', () => {
-    assert.equal(BACKUP_TABLES.length, 31);
-    assert.equal(SNAPSHOT_TABLES.length, 23);
-    assert.equal(APPEND_TABLES.length, 8);
+  it('defines all 33 tables (24 snapshot + 9 append) in exact order', () => {
+    assert.equal(BACKUP_TABLES.length, 33);
+    assert.equal(SNAPSHOT_TABLES.length, 24);
+    assert.equal(APPEND_TABLES.length, 9);
 
     const expectedSnapshot = [
       'profiles',
@@ -105,6 +105,7 @@ describe('Phase 5c — 1. Table Configuration & Sheet Value Helpers (api/_backup
       'announcement_recipients',
       'resource_recipients',
       'score_correction_requests',
+      'homework_assignments',
     ];
     assert.deepEqual(
       SNAPSHOT_TABLES.map((t) => t.name),
@@ -120,6 +121,7 @@ describe('Phase 5c — 1. Table Configuration & Sheet Value Helpers (api/_backup
       'result_audit',
       'attendance_audit',
       'teacher_audit_log',
+      'homework_completions',
     ];
     assert.deepEqual(
       APPEND_TABLES.map((t) => t.name),
@@ -127,7 +129,7 @@ describe('Phase 5c — 1. Table Configuration & Sheet Value Helpers (api/_backup
     );
   });
 
-  it('assigns cursorColumn updated_at to 5 append tables, changed_at to result_audit & attendance_audit, and created_at to teacher_audit_log', () => {
+  it('assigns cursorColumn updated_at to 6 append tables, changed_at to result_audit & attendance_audit, and created_at to teacher_audit_log', () => {
     for (const t of SNAPSHOT_TABLES) {
       assert.equal(t.cursorColumn, null, `Snapshot table ${t.name} must have null cursorColumn`);
       assert.ok(Array.isArray(t.primaryKey) && t.primaryKey.length >= 1);
@@ -1373,8 +1375,8 @@ describe('Phase 5c — 4. Backup Endpoint Auth, Lock & Pass Execution (api/backu
       JMCWC_BACKUP_TABLES.map((t) => t.name),
       expectedJmcwcTables
     );
-    assert.equal(PRIVATE_SERVER_BACKUP_TABLES.length, 38);
-    assert.equal(RESTORE_TABLE_ORDER.length, 38);
+    assert.equal(PRIVATE_SERVER_BACKUP_TABLES.length, 40);
+    assert.equal(RESTORE_TABLE_ORDER.length, 40);
 
     // Public/Google Sheets BACKUP_TABLES and browser EXPORT_TABLES must never include jmcwc_payloads
     assert.ok(!BACKUP_TABLES.some((t) => t.name === 'jmcwc_payloads'));

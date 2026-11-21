@@ -28,6 +28,7 @@ import { DemoDB, getSupabase } from './supabaseClient.js';
 import { formatSecondsToMMSS, parseTimeToSeconds, setupEnterKeyNavigation } from './timeUtils.js';
 import { showToast } from './toast.js';
 import { ScoresheetController } from './roundScoresheet.js';
+import { submitHomeworkCompletion } from './homeworkData.js';
 import {
   JMCWC_UNASSIGNED_GROUP_MESSAGE,
   formatJmcwcGroupLabel,
@@ -2296,6 +2297,12 @@ async function triggerFlatExpiry() {
 
   try {
     await jmcwcRunner.handleFlatExpiry();
+    const urlParams = new URLSearchParams(window.location.search);
+    const homeworkId = urlParams.get('homework_id');
+    const attId = jmcwcRunner?.getState()?.attempt?.id || jmcwcRunner?.activeAttempt?.id;
+    if (homeworkId && attId) {
+      creditJmcwcHomework(attId, homeworkId);
+    }
   } catch (err) {
     console.error('handleFlatExpiry error:', err);
   } finally {
@@ -2314,6 +2321,12 @@ function renderJmcwcRunnerState(state) {
       review_questions: state.reviewQuestions || [],
       targetSeconds: resolveAttemptTargetSeconds(state.attempt),
     });
+    const urlParams = new URLSearchParams(window.location.search);
+    const homeworkId = urlParams.get('homework_id') || state.homeworkId;
+    const attId = state.attempt?.id;
+    if (homeworkId && attId) {
+      creditJmcwcHomework(attId, homeworkId);
+    }
     showJmcwcSubview('review');
     loadJmcwcOverviewAndAttempts();
     return;
@@ -3081,12 +3094,74 @@ function isTakeoverConflict(err) {
   );
 }
 
+const creditedHomeworkAttempts = new Set();
+const inFlightHomeworkCredits = new Set();
+
+export async function creditJmcwcHomework(attId, homeworkId) {
+  if (!attId || !homeworkId) return;
+  const creditKey = `${homeworkId}:${attId}`;
+  if (creditedHomeworkAttempts.has(creditKey) || inFlightHomeworkCredits.has(creditKey)) {
+    return;
+  }
+  inFlightHomeworkCredits.add(creditKey);
+
+  const existingBanner = document.getElementById('jmcwc-hw-credit-retry-banner');
+  if (existingBanner) existingBanner.remove();
+
+  try {
+    const hwRes = await submitHomeworkCompletion(homeworkId, {
+      sessionId: attId,
+      resultId: attId,
+    });
+    creditedHomeworkAttempts.add(creditKey);
+    if (hwRes?.success) {
+      showToast('success', `Homework credited (${hwRes.progress_count || 1} of ${hwRes.required_count || 1} completed)`);
+    }
+  } catch (hwErr) {
+    console.error('JMCWC homework crediting failed:', hwErr);
+    showToast('error', `Homework credit failed: ${hwErr.message || 'Could not record credit.'} You can retry.`);
+
+    const targetContainer = document.getElementById('jmcwc-review-container') ||
+      document.getElementById('jmcwc-runner-active-workspace') ||
+      document.querySelector('.round-scores-main') ||
+      document.body;
+
+    if (targetContainer && !document.getElementById('jmcwc-hw-credit-retry-banner')) {
+      const banner = document.createElement('div');
+      banner.id = 'jmcwc-hw-credit-retry-banner';
+      banner.className = 'alert alert-danger';
+      banner.style.margin = '1rem 0';
+      banner.style.padding = '12px 16px';
+      banner.style.borderRadius = '8px';
+      banner.style.display = 'flex';
+      banner.style.alignItems = 'center';
+      banner.style.justifyContent = 'space-between';
+      banner.style.gap = '12px';
+      banner.innerHTML = `
+        <div>
+          <strong>Homework Credit Failed:</strong> ${hwErr.message || 'Could not record credit on server.'}
+        </div>
+        <button type="button" id="btn-retry-credit-hw" class="btn btn-sm btn-primary">Retry Crediting</button>
+      `;
+      targetContainer.prepend(banner);
+      document.getElementById('btn-retry-credit-hw')?.addEventListener('click', () => {
+        inFlightHomeworkCredits.delete(creditKey);
+        creditJmcwcHomework(attId, homeworkId);
+      });
+    }
+  } finally {
+    inFlightHomeworkCredits.delete(creditKey);
+  }
+}
+
 async function handleStartOnlineFlatRound() {
   showJmcwcOnlineError('');
   const runner = ensureJmcwcRunnerInstance();
   try {
     jmcwcCurrentQuestionIndex = 0;
-    await runner.startAttempt({ mode: 'flat', categoryId: null });
+    const urlParams = new URLSearchParams(window.location.search);
+    const homeworkId = urlParams.get('homework_id') || null;
+    await runner.startAttempt({ mode: 'flat', categoryId: null, homeworkId });
     await loadJmcwcOverviewAndAttempts();
   } catch (err) {
     if (isTakeoverConflict(err)) {
@@ -3114,7 +3189,9 @@ async function handleStartOnlineCategoryPractice() {
   const runner = ensureJmcwcRunnerInstance();
   try {
     jmcwcCurrentQuestionIndex = 0;
-    await runner.startAttempt({ mode: 'category', categoryId });
+    const urlParams = new URLSearchParams(window.location.search);
+    const homeworkId = urlParams.get('homework_id') || null;
+    await runner.startAttempt({ mode: 'category', categoryId, homeworkId });
     await loadJmcwcOverviewAndAttempts();
   } catch (err) {
     if (isTakeoverConflict(err)) {
@@ -3380,8 +3457,15 @@ function setupJmcwcOnlinePracticeUI() {
     const btn = document.getElementById('btn-jmcwc-confirm-submit');
     if (btn) btn.disabled = true;
     try {
-      await jmcwcRunner.submitAttempt({ resumeIfPaused: isSubmittingPausedAttempt });
+      const submitRes = await jmcwcRunner.submitAttempt({ resumeIfPaused: isSubmittingPausedAttempt });
       closeInlineModal('jmcwc-submit-confirm-modal');
+
+      const urlParams = new URLSearchParams(window.location.search);
+      const homeworkId = urlParams.get('homework_id');
+      const attId = submitRes?.attempt_id || jmcwcRunner?.activeAttempt?.id;
+      if (homeworkId && attId) {
+        await creditJmcwcHomework(attId, homeworkId);
+      }
     } catch (err) {
       closeInlineModal('jmcwc-submit-confirm-modal');
       showJmcwcOnlineError(err.message);

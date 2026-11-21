@@ -40,6 +40,7 @@ import { getScoreFeedback } from './scoreColors.js';
 import { DemoDB, getSupabase } from './supabaseClient.js';
 import { formatSecondsToMMSS } from './timeUtils.js';
 import { showToast } from './toast.js';
+import { submitHomeworkCompletion } from './homeworkData.js';
 import {
   RUNNER_EXIT_CONFIRM_TEXT,
   parseTestRunnerQuery,
@@ -717,6 +718,8 @@ async function startPracticeSession() {
 
     if (isSupabaseConfigured()) {
       const token = await getAccessToken();
+      const urlParams = new URLSearchParams(window.location.search);
+      const hwIdFromUrl = urlParams.get('homework_id');
       const resp = await fetch('/api/drill', {
         method: 'POST',
         headers: {
@@ -730,6 +733,7 @@ async function startPracticeSession() {
           mode: selectedMode,
           seconds: selectedMode === 'timed' ? selectedSeconds : null,
           todo_task_id: todoTaskId || undefined,
+          ...(hwIdFromUrl ? { homework_id: hwIdFromUrl } : {}),
         }),
       });
 
@@ -920,6 +924,24 @@ async function submitCompletedPracticeSet(answersArray, recordedDuration = null)
 
     pendingSubmissionAnswers = null;
     pendingSubmissionRecordedDuration = null;
+
+    // Check for homework assignment linking
+    const urlParams = new URLSearchParams(window.location.search);
+    const homeworkId = urlParams.get('homework_id');
+    if (homeworkId && activeSessionId) {
+      try {
+        const hwRes = await submitHomeworkCompletion(homeworkId, {
+          sessionId: activeSessionId,
+          resultId: resultData?.result_id || null,
+        });
+        if (hwRes?.success) {
+          showToast('success', `Homework credited (${hwRes.progress_count || 1} of ${hwRes.required_count || 1} completed)`);
+        }
+      } catch (hwErr) {
+        console.warn('Homework submission crediting failed:', hwErr);
+      }
+    }
+
     await refreshCategoryResults();
     renderSetupSummary();
     await renderResultsScreen(resultData);

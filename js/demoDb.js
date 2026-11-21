@@ -5815,5 +5815,416 @@ export const DemoDB = {
     saveDB(db);
     return newMsg;
   },
+
+  getHighestRecords(section, options = {}, callerProfile = null) {
+    const currentStudentId = callerProfile?.id || 'usr-101';
+    const students = (this.getStudents ? this.getStudents() : []).filter(s => s.active !== false && s.leaderboard_visible !== false);
+
+    if (section === 'basics') {
+      const cats = this.getCategories().filter(c => c.section === 'basics');
+      const results = this.getResults ? this.getResults() : [];
+      const duration = Number(options.durationSeconds) || 60;
+
+      return cats.map(cat => {
+        const catResults = results.filter(r => r.category_id === cat.id && Number(r.time_seconds) === duration);
+        if (catResults.length === 0) {
+          const sampleCorrect = duration === 30 ? 22 : duration === 60 ? 44 : duration === 120 ? 82 : 180;
+          return {
+            id: cat.id,
+            section: 'basics',
+            title: cat.name,
+            durationSeconds: duration,
+            settingsSummary: `${duration} seconds`,
+            hasRecord: true,
+            scoreDisplay: `${sampleCorrect} correct (0 wrong)`,
+            scoreNumeric: sampleCorrect,
+            wrongCount: 0,
+            holders: [
+              {
+                student_id: 'usr-102',
+                student_code: 'STU102',
+                display_name: 'Diya P.',
+                is_me: (currentStudentId === 'usr-102')
+              }
+            ],
+            isHeldByMe: (currentStudentId === 'usr-102'),
+            attemptUrl: `/pages/basics-practice.html?cat=${encodeURIComponent(cat.id)}&seconds=${duration}`,
+            attemptLabel: (currentStudentId === 'usr-102') ? 'Defend record' : 'Attempt online'
+          };
+        }
+
+        catResults.sort((a, b) => (b.correct || 0) - (a.correct || 0));
+        const best = catResults[0];
+        const holder = students.find(s => s.id === best.student_id) || { id: best.student_id, full_name: 'Aarav Sharma', student_code: 'STU101' };
+        const isMe = holder.id === currentStudentId;
+
+        return {
+          id: cat.id,
+          section: 'basics',
+          title: cat.name,
+          durationSeconds: duration,
+          settingsSummary: `${duration} seconds`,
+          hasRecord: true,
+          scoreDisplay: `${best.correct} correct (${Math.max(0, (best.total || 0) - (best.correct || 0))} wrong)`,
+          scoreNumeric: best.correct,
+          wrongCount: Math.max(0, (best.total || 0) - (best.correct || 0)),
+          holders: [
+            {
+              student_id: holder.id,
+              student_code: holder.student_code,
+              display_name: holder.full_name ? `${holder.full_name.split(' ')[0]} ${holder.full_name.split(' ')[1] ? holder.full_name.split(' ')[1][0] + '.' : ''}` : holder.student_code,
+              is_me: isMe
+            }
+          ],
+          isHeldByMe: isMe,
+          attemptUrl: `/pages/basics-practice.html?cat=${encodeURIComponent(cat.id)}&seconds=${duration}`,
+          attemptLabel: isMe ? 'Defend record' : 'Attempt online'
+        };
+      });
+    }
+
+    if (section === 'element') {
+      const DRILLS_SAMPLE = [
+        { key: 'squares_stage_1', title: 'Square - Stage 1 (1-25)', questions: 25, time: 42, score: 25, holder: 'Aarav S.' },
+        { key: 'cubes_stage_1', title: 'Cube - Stage 1 (1-25)', questions: 25, time: 55, score: 25, holder: 'Diya P.' },
+        { key: 'divide_by_4', title: 'Division by 4', questions: 50, time: 48, score: 50, holder: 'Kabir V.' },
+        { key: 'days_to_seconds', title: 'Days --> Seconds', questions: 10, time: 180, score: 10, holder: 'Rohan M.' }
+      ];
+
+      return DRILLS_SAMPLE.map(d => ({
+        id: d.key,
+        section: 'element',
+        title: d.title,
+        settingsSummary: `${d.questions} Qs · 60s limit`,
+        hasRecord: true,
+        scoreDisplay: `${d.score} / ${d.questions} in ${d.time}s`,
+        scoreNumeric: d.score,
+        timeSeconds: d.time,
+        holders: [
+          {
+            student_id: d.holder.startsWith('Aarav') ? 'usr-101' : 'usr-102',
+            student_code: d.holder.startsWith('Aarav') ? 'STU101' : 'STU102',
+            display_name: d.holder,
+            is_me: (d.holder.startsWith('Aarav') && currentStudentId === 'usr-101')
+          }
+        ],
+        isHeldByMe: (d.holder.startsWith('Aarav') && currentStudentId === 'usr-101'),
+        attemptUrl: `/pages/element-drill.html?drill=${d.key}`,
+        attemptLabel: (d.holder.startsWith('Aarav') && currentStudentId === 'usr-101') ? 'Defend record' : 'Attempt online'
+      }));
+    }
+
+    if (section === 'flash') {
+      const BENCHMARKS_SAMPLE = [
+        { key: 'flash_1d_10n_1000ms_add', title: '1 Digit · 10 Numbers · 1.0s · Add', tries: 24, acc: 96, holder: 'Aarav S.', digits: 1, count: 10, speed_ms: 1000, mode: 'add' },
+        { key: 'flash_2d_10n_1000ms_add', title: '2 Digits · 10 Numbers · 1.0s · Add', tries: 18, acc: 94, holder: 'Diya P.', digits: 2, count: 10, speed_ms: 1000, mode: 'add' },
+        { key: 'flash_2d_15n_1000ms_add', title: '2 Digits · 15 Numbers · 1.0s · Add', tries: 12, acc: 92, holder: 'Kabir V.', digits: 2, count: 15, speed_ms: 1000, mode: 'add' },
+        { key: 'flash_2d_15n_800ms_add', title: '2 Digits · 15 Numbers · 0.8s · Add', tries: 8, acc: 88, holder: 'Aarav S.', digits: 2, count: 15, speed_ms: 800, mode: 'add' },
+        { key: 'flash_3d_10n_1000ms_add', title: '3 Digits · 10 Numbers · 1.0s · Add', tries: 6, acc: 83, holder: 'Rohan M.', digits: 3, count: 10, speed_ms: 1000, mode: 'add' },
+        { key: 'flash_2d_10n_1000ms_add_sub', title: '2 Digits · 10 Numbers · 1.0s · Add & Subtract', tries: 10, acc: 90, holder: 'Diya P.', digits: 2, count: 10, speed_ms: 1000, mode: 'add_sub' },
+      ];
+
+      return BENCHMARKS_SAMPLE.map(b => {
+        const isMe = b.holder.startsWith('Aarav') && currentStudentId === 'usr-101';
+        return {
+          id: b.key,
+          section: 'flash',
+          title: b.title,
+          settingsSummary: `${b.digits}d · ${b.count}n · ${b.speed_ms / 1000}s`,
+          rawSettings: { digits: b.digits, count: b.count, speed_ms: b.speed_ms, mode: b.mode },
+          hasRecord: true,
+          scoreDisplay: `${b.tries} correct tries (${b.acc}%)`,
+          scoreNumeric: b.tries,
+          holders: [
+            {
+              student_id: isMe ? 'usr-101' : 'usr-102',
+              student_code: isMe ? 'STU101' : 'STU102',
+              display_name: b.holder,
+              is_me: isMe
+            }
+          ],
+          isHeldByMe: isMe,
+          attemptLabel: isMe ? 'Defend record' : 'Attempt online'
+        };
+      });
+    }
+
+    if (section === 'memoriad') {
+      const MODULES_SAMPLE = [
+        { key: 'calendar', title: 'Mental Calendar Dates', badge: '125 Dates', score: 48, time: 275, holder: 'Aarav S.' },
+        { key: 'additions', title: 'Mental Additions', badge: '10 × (10 × 10d)', score: 9, time: 210, holder: 'Diya P.' },
+        { key: 'multiplications', title: 'Mental Multiplications', badge: '10 × (8d × 8d)', score: 8, time: 240, holder: 'Kabir V.' },
+        { key: 'square_roots', title: 'Mental Square Roots', badge: '10 × 6d Roots', score: 8, time: 260, holder: 'Aarav S.' },
+      ];
+
+      return MODULES_SAMPLE.map(m => {
+        const isMe = m.holder.startsWith('Aarav') && currentStudentId === 'usr-101';
+        return {
+          id: m.key,
+          section: 'memoriad',
+          title: m.title,
+          settingsSummary: `${m.badge} · ${m.time}s`,
+          hasRecord: true,
+          scoreDisplay: m.key === 'calendar' ? `${m.score} dates in ${m.time}s` : `${m.score} / 10 in ${m.time}s`,
+          scoreNumeric: m.score,
+          timeSeconds: m.time,
+          holders: [
+            {
+              student_id: isMe ? 'usr-101' : 'usr-102',
+              student_code: isMe ? 'STU101' : 'STU102',
+              display_name: m.holder,
+              is_me: isMe
+            }
+          ],
+          isHeldByMe: isMe,
+          attemptUrl: `/pages/memoriad-play.html?module=${m.key}`,
+          attemptLabel: isMe ? 'Defend record' : 'Attempt online'
+        };
+      });
+    }
+
+    return [];
+  },
+
+  getStudentHomework(studentId, studentLevel = null) {
+    initDemoStorage();
+    const key = 'trendz_demo_homework_v1';
+    let hwData = JSON.parse(localStorage.getItem(key) || 'null');
+    if (!hwData) {
+      hwData = {
+        assignments: [
+          {
+            id: 'hw-demo-1',
+            title: 'Daily Addition Drill (60s)',
+            instructions: 'Complete 2 sets of Basics Addition at 60s.',
+            assigned_by: 'teacher-demo-1',
+            target_type: 'all',
+            activity_type: 'basics',
+            required_count: 2,
+            due_date: '2026-11-25',
+            created_at: new Date(Date.now() - 86400000).toISOString(),
+            assigner: { full_name: 'Priya Teacher', student_code: 'TCH01' }
+          },
+          {
+            id: 'hw-demo-2',
+            title: 'Flash Anzan Benchmark Practice',
+            instructions: 'Practice 2 Digits 10 Numbers at 1.0 second.',
+            assigned_by: 'teacher-demo-1',
+            target_type: 'level',
+            target_level: 'Level 3',
+            activity_type: 'flash',
+            required_count: 5,
+            due_date: '2026-11-26',
+            created_at: new Date(Date.now() - 43200000).toISOString(),
+            assigner: { full_name: 'Priya Teacher', student_code: 'TCH01' }
+          },
+          {
+            id: 'hw-demo-3',
+            title: 'Abacus Workbook Chapter 4',
+            instructions: 'Solve questions 1 through 20 on page 42.',
+            assigned_by: 'admin-demo-uuid',
+            target_type: 'all',
+            activity_type: 'paper',
+            required_count: 1,
+            due_date: '2026-11-28',
+            created_at: new Date(Date.now() - 10000000).toISOString(),
+            assigner: { full_name: 'Head Administrator', student_code: 'ADM01' }
+          }
+        ],
+        completions: [
+          {
+            assignment_id: 'hw-demo-1',
+            student_id: 'usr-101',
+            progress_count: 2,
+            status: 'completed',
+            completed_at: new Date(Date.now() - 3600000).toISOString()
+          }
+        ]
+      };
+      localStorage.setItem(key, JSON.stringify(hwData));
+    }
+
+    const applicable = (hwData.assignments || []).filter(a => {
+      if (a.target_type === 'all') return true;
+      if (a.target_type === 'student' && a.target_student_id === studentId) return true;
+      if (a.target_type === 'level' && studentLevel && a.target_level === studentLevel) return true;
+      return false;
+    });
+
+    const compMap = new Map();
+    for (const c of hwData.completions || []) {
+      if (c.student_id === studentId) {
+        compMap.set(c.assignment_id, c);
+      }
+    }
+
+    return applicable.map(a => {
+      const comp = compMap.get(a.id) || null;
+      return {
+        ...a,
+        completion: comp,
+        isCompleted: Boolean(comp && comp.status === 'completed'),
+        progressCount: comp ? comp.progress_count : 0
+      };
+    });
+  },
+
+  submitHomeworkCompletion(assignmentId, details = {}) {
+    initDemoStorage();
+    const key = 'trendz_demo_homework_v1';
+    let hwData = JSON.parse(localStorage.getItem(key) || '{"assignments":[],"completions":[]}');
+    if (!hwData.completions) hwData.completions = [];
+
+    const assign = (hwData.assignments || []).find((a) => a.id === assignmentId);
+    if (!assign) throw new Error('Homework assignment not found.');
+
+    const studentId = 'usr-101'; // Default demo student
+    const existingIdx = hwData.completions.findIndex((c) => c.assignment_id === assignmentId && c.student_id === studentId);
+    let comp = existingIdx >= 0 ? hwData.completions[existingIdx] : null;
+
+    const reqCount = assign.required_count || 1;
+    let currProgress = comp ? Number(comp.progress_count) || 0 : 0;
+    let history = comp?.submission_history || [];
+
+    if (['basics', 'flash', 'element', 'memoriad', 'round'].includes(assign.activity_type)) {
+      if (!details.sessionId) {
+        throw new Error('Online homework completion requires a valid session_id.');
+      }
+      if (history.some((h) => h.session_id === details.sessionId)) {
+        throw new Error('This practice session has already been submitted for this homework.');
+      }
+      const alreadyCreditedOther = (hwData.completions || []).some(
+        (c) => c.assignment_id !== assignmentId && Array.isArray(c.submission_history) && c.submission_history.some((h) => h.session_id === details.sessionId)
+      );
+      if (alreadyCreditedOther) {
+        throw new Error('This session has already been credited to another homework assignment.');
+      }
+      history.push({
+        session_id: details.sessionId,
+        submitted_at: new Date().toISOString(),
+      });
+      currProgress += 1;
+      const isCompleted = currProgress >= reqCount;
+      const updatedComp = {
+        id: comp ? comp.id : `comp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        assignment_id: assignmentId,
+        student_id: studentId,
+        progress_count: currProgress,
+        status: isCompleted ? 'completed' : 'in_progress',
+        session_id: details.sessionId,
+        submission_history: history,
+        completed_at: isCompleted ? new Date().toISOString() : null,
+        updated_at: new Date().toISOString(),
+      };
+      if (existingIdx >= 0) hwData.completions[existingIdx] = updatedComp;
+      else hwData.completions.push(updatedComp);
+      localStorage.setItem(key, JSON.stringify(hwData));
+      return { success: true, status: updatedComp.status, progress_count: currProgress, required_count: reqCount };
+    } else {
+      // Offline / Paper
+      const updatedComp = {
+        id: comp ? comp.id : `comp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        assignment_id: assignmentId,
+        student_id: studentId,
+        progress_count: 1,
+        status: 'pending_review',
+        notes: details.notes || null,
+        updated_at: new Date().toISOString(),
+      };
+      if (existingIdx >= 0) hwData.completions[existingIdx] = updatedComp;
+      else hwData.completions.push(updatedComp);
+      localStorage.setItem(key, JSON.stringify(hwData));
+      return { success: true, status: 'pending_review', progress_count: 1, required_count: reqCount };
+    }
+  },
+
+  verifyHomeworkCompletion(completionId, decision = 'approve', notes = null) {
+    initDemoStorage();
+    const key = 'trendz_demo_homework_v1';
+    let hwData = JSON.parse(localStorage.getItem(key) || '{"assignments":[],"completions":[]}');
+    const comp = (hwData.completions || []).find((c) => c.id === completionId);
+    if (!comp) throw new Error('Completion record not found.');
+    const assign = (hwData.assignments || []).find((a) => a.id === comp.assignment_id);
+    if (assign && ['basics', 'flash', 'element', 'memoriad', 'round'].includes(assign.activity_type)) {
+      throw new Error('Cannot manually verify online homework. Online drills must be completed through practice sessions.');
+    }
+    if (comp.status !== 'pending_review') {
+      throw new Error('Homework has not been submitted for review.');
+    }
+    comp.status = decision === 'approve' ? 'completed' : 'in_progress';
+    if (decision === 'approve') {
+      comp.progress_count = Math.max(Number(comp.progress_count) || 0, Number(assign?.required_count) || 1);
+    }
+    comp.verified_at = new Date().toISOString();
+    comp.verified_by = 'admin-demo-uuid';
+    if (notes) comp.notes = notes;
+    localStorage.setItem(key, JSON.stringify(hwData));
+    return { success: true, completion_id: completionId, decision };
+  },
+
+  recordHomeworkCompletion(assignmentId, studentId, details = {}) {
+    initDemoStorage();
+    const key = 'trendz_demo_homework_v1';
+    let hwData = JSON.parse(localStorage.getItem(key) || '{"assignments":[],"completions":[]}');
+    if (!hwData.completions) hwData.completions = [];
+
+    const existingIdx = hwData.completions.findIndex(c => c.assignment_id === assignmentId && c.student_id === studentId);
+    const newComp = {
+      id: `comp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      assignment_id: assignmentId,
+      student_id: studentId,
+      progress_count: details.progressCount || 1,
+      status: details.status || 'completed',
+      session_id: details.sessionId || null,
+      notes: details.notes || null,
+      completed_at: new Date().toISOString()
+    };
+
+    if (existingIdx >= 0) {
+      hwData.completions[existingIdx] = { ...hwData.completions[existingIdx], ...newComp };
+    } else {
+      hwData.completions.push(newComp);
+    }
+
+    localStorage.setItem(key, JSON.stringify(hwData));
+    return newComp;
+  },
+
+  createHomeworkAssignment(payload, callerProfile) {
+    initDemoStorage();
+    const key = 'trendz_demo_homework_v1';
+    let hwData = JSON.parse(localStorage.getItem(key) || '{"assignments":[],"completions":[]}');
+    if (!hwData.assignments) hwData.assignments = [];
+
+    const newAssignment = {
+      id: `hw-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      title: payload.title,
+      instructions: payload.instructions || null,
+      assigned_by: callerProfile?.id || 'admin-demo-uuid',
+      target_type: payload.targetType || 'all',
+      target_level: payload.targetLevel || null,
+      target_student_id: payload.targetStudentId || null,
+      activity_type: payload.activityType || 'paper',
+      required_count: payload.requiredCount || 1,
+      due_date: payload.dueDate || null,
+      created_at: new Date().toISOString(),
+      assigner: { full_name: callerProfile?.full_name || 'Teacher', student_code: callerProfile?.student_code || 'TCH' }
+    };
+
+    hwData.assignments.unshift(newAssignment);
+    localStorage.setItem(key, JSON.stringify(hwData));
+    return newAssignment;
+  },
+
+  getHomeworkAssignments(callerProfile = null) {
+    initDemoStorage();
+    const key = 'trendz_demo_homework_v1';
+    const hwData = JSON.parse(localStorage.getItem(key) || '{"assignments":[],"completions":[]}');
+    let assignments = hwData.assignments || [];
+    if (callerProfile?.role === 'teacher') {
+      assignments = assignments.filter(a => a.assigned_by === callerProfile.id);
+    }
+    return assignments;
+  },
 };
 

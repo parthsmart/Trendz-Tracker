@@ -654,6 +654,8 @@ function createContractDatabaseHarness({ initialClockMs = 1_762_000_000_000 } = 
           return [...jmcwc_payloads.values()];
         case 'jmcwc_scores':
           return [...jmcwc_scores.values()];
+        case 'homework_bound_sessions':
+          return [];
         default:
           throw new Error(`Unknown table: ${tableName}`);
       }

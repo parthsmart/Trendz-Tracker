@@ -92,10 +92,21 @@
               <span class="stat-label">Active Students</span>
               <span class="stat-value" id="stat-active-students">—</span>
             </div>
-            <div class="stat-card">
-              <span class="stat-label">Entered Today</span>
+            <button
+              type="button"
+              class="stat-card stat-card-clickable"
+              id="btn-entered-today-card"
+              aria-haspopup="dialog"
+              aria-controls="modal-entered-today"
+              aria-label="Entered Today: View students with qualifying practice today"
+              style="text-align: left; background: var(--bg-surface); border: 1px solid var(--border-hairline); cursor: pointer; width: 100%; transition: border-color var(--transition-fast), box-shadow var(--transition-fast);"
+            >
+              <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                <span class="stat-label">Entered Today</span>
+                <span style="font-size: 11px; color: var(--color-primary); font-weight: 600;">View &rarr;</span>
+              </div>
               <span class="stat-value" id="stat-entered-today" style="color: var(--color-accent-text);">—</span>
-            </div>
+            </button>
             <div class="stat-card">
               <span class="stat-label">Not Entered Today</span>
               <span class="stat-value" id="stat-not-entered" style="color: var(--color-warning-text);">—</span>
@@ -327,6 +338,61 @@
           </button>
           <button type="button" class="btn btn-primary" id="btn-modal-send-weekly-report">
             Send Report Email
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Entered Today Details (Phase 20 - Accessible Dialog) -->
+    <div
+      id="modal-entered-today"
+      class="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-entered-today-title"
+      style="display: none;"
+    >
+      <div class="modal-card" style="max-width: 780px; max-height: 85vh; display: flex; flex-direction: column; width: 95%;">
+        <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-hairline); padding: var(--space-4) var(--space-5);">
+          <div>
+            <h3 id="modal-entered-today-title" style="margin: 0; font-size: var(--text-lg); font-weight: 700; color: var(--text-main);">
+              Students Entered Today (IST)
+            </h3>
+            <p id="modal-entered-today-subtitle" style="margin: 2px 0 0 0; font-size: var(--text-xs); color: var(--text-muted);">
+              Deduplicated students with qualifying practice today.
+            </p>
+          </div>
+          <button
+            type="button"
+            id="btn-close-entered-today-modal"
+            class="btn btn-outline btn-sm"
+            aria-label="Close dialog"
+            style="min-width: 32px; padding: 4px 8px;"
+          >
+            &times;
+          </button>
+        </div>
+
+        <div style="padding: var(--space-3) var(--space-5); border-bottom: 1px solid var(--border-hairline); background: var(--bg-surface-subtle);">
+          <input
+            type="text"
+            id="search-entered-today-modal"
+            class="form-input"
+            placeholder="Search entered students by name or code..."
+            aria-label="Search entered students"
+            style="width: 100%;"
+          />
+        </div>
+
+        <div class="modal-body" style="overflow-y: auto; padding: var(--space-4) var(--space-5); flex: 1;">
+          <div id="entered-today-modal-content">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; padding: var(--space-3) var(--space-5); border-top: 1px solid var(--border-hairline);">
+          <button type="button" id="btn-done-entered-today-modal" class="btn btn-secondary btn-sm">
+            Close
           </button>
         </div>
       </div>

@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Homework Management &mdash; Trendz Tracker</title>
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- App Header -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <a href="/pages/admin.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+          <nav class="nav-zone" id="admin-nav-zone" aria-label="Primary Navigation"></nav>
+          <div class="actions-zone">
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Content -->
+      <main class="main-content">
+        <div class="container">
+          <!-- Breadcrumb navigation -->
+          <nav aria-label="Breadcrumb" style="margin-bottom: var(--space-4);">
+            <div style="font-size: var(--text-xs); color: var(--text-muted); display: flex; align-items: center; gap: 6px;">
+              <a href="/pages/settings.html" style="color: var(--color-primary); text-decoration: none;">Settings</a>
+              <span>&rsaquo;</span>
+              <a href="/pages/todos.html" style="color: var(--color-primary); text-decoration: none;">Tasks</a>
+              <span>&rsaquo;</span>
+              <span style="font-weight: 700; color: var(--text-main);">Homework</span>
+            </div>
+          </nav>
+
+          <!-- Navigation Sub-Bar (Tasks vs Homework) -->
+          <div style="display: flex; gap: var(--space-2); margin-bottom: var(--space-4);">
+            <a href="/pages/todos.html" class="btn btn-sm btn-outline">&larr; Daily Tasks (Streaks)</a>
+            <a href="/pages/homework.html" class="btn btn-sm btn-primary" aria-current="page">Homework Assignments</a>
+          </div>
+
+          <!-- Page Header -->
+          <div class="section-header-row" style="margin-bottom: var(--space-5);">
+            <div>
+              <h1 class="page-title">Homework Assignments</h1>
+              <p class="page-subtitle">
+                Assign practice tasks to students independently of Daily To-Do streak requirements.
+              </p>
+            </div>
+          </div>
+
+          <!-- Assignment Form Card -->
+          <div class="card" style="margin-bottom: var(--space-6); padding: var(--space-5);">
+            <h2 style="font-size: var(--text-base); font-weight: 700; margin-bottom: var(--space-4);">
+              Create Homework Assignment
+            </h2>
+            <form id="form-create-homework" novalidate>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-4); margin-bottom: var(--space-4);">
+                <!-- Title -->
+                <div class="form-group" style="grid-column: 1 / -1;">
+                  <label for="hw-title" class="form-label">Homework Title *</label>
+                  <input
+                    type="text"
+                    id="hw-title"
+                    class="form-input"
+                    placeholder="e.g. Week 4 Basics Addition & Subtraction Drill"
+                    maxlength="120"
+                    required
+                  />
+                </div>
+
+                <!-- Target Audience -->
+                <div class="form-group">
+                  <label for="hw-target-type" class="form-label">Target Audience *</label>
+                  <select id="hw-target-type" class="form-select" required>
+                    <option value="all">All Active Students</option>
+                    <option value="level">By Level</option>
+                    <option value="student">Specific Student</option>
+                  </select>
+                </div>
+
+                <!-- Target Level (conditional) -->
+                <div class="form-group" id="group-target-level" style="display: none;">
+                  <label for="hw-target-level" class="form-label">Select Level *</label>
+                  <select id="hw-target-level" class="form-select">
+                    <option value="Level 1">Level 1</option>
+                    <option value="Level 2">Level 2</option>
+                    <option value="Level 3">Level 3</option>
+                    <option value="Level 4">Level 4</option>
+                    <option value="Master">Master</option>
+                  </select>
+                </div>
+
+                <!-- Target Student (conditional) -->
+                <div class="form-group" id="group-target-student" style="display: none;">
+                  <label for="hw-target-student" class="form-label">Select Student *</label>
+                  <select id="hw-target-student" class="form-select">
+                    <option value="">Choose a student...</option>
+                  </select>
+                </div>
+
+                <!-- Activity Type -->
+                <div class="form-group">
+                  <label for="hw-activity-type" class="form-label">Activity Type *</label>
+                  <select id="hw-activity-type" class="form-select" required>
+                    <option value="basics">Basics Online Practice</option>
+                    <option value="flash">Flash Anzan</option>
+                    <option value="element">Elements Worksheet</option>
+                    <option value="memoriad">Memoriad Module</option>
+                    <option value="round">Main Round (Scoresheet)</option>
+                    <option value="paper">Paper Worksheet / Textbook</option>
+                    <option value="custom">Custom / Special Task</option>
+                  </select>
+                </div>
+
+                <!-- Category Selector (for Basics & Round) -->
+                <div class="form-group" id="group-hw-category">
+                  <label for="hw-category" class="form-label">Category</label>
+                  <select id="hw-category" class="form-select">
+                    <option value="">Any / General Category</option>
+                  </select>
+                </div>
+
+                <!-- Duration Selector (where supported) -->
+                <div class="form-group" id="group-hw-duration">
+                  <label for="hw-duration" class="form-label">Assigned Duration</label>
+                  <select id="hw-duration" class="form-select">
+                    <option value="60">60 seconds (1 minute - Standard)</option>
+                    <option value="30">30 seconds</option>
+                    <option value="120">120 seconds (2 minutes)</option>
+                    <option value="300">300 seconds (5 minutes)</option>
+                  </select>
+                </div>
+
+                <!-- Flash Settings (conditional) -->
+                <div class="form-group" id="group-hw-flash" style="display: none;">
+                  <label class="form-label">Flash Anzan Preset</label>
+                  <div style="display: flex; gap: 8px;">
+                    <select id="hw-flash-digits" class="form-select" style="flex: 1;">
+                      <option value="1">1 Digit</option>
+                      <option value="2" selected>2 Digits</option>
+                      <option value="3">3 Digits</option>
+                    </select>
+                    <select id="hw-flash-count" class="form-select" style="flex: 1;">
+                      <option value="5">5 Numbers</option>
+                      <option value="10" selected>10 Numbers</option>
+                      <option value="15">15 Numbers</option>
+                    </select>
+                    <select id="hw-flash-speed" class="form-select" style="flex: 1;">
+                      <option value="1000" selected>1.0s</option>
+                      <option value="800">0.8s</option>
+                      <option value="500">0.5s</option>
+                    </select>
+                  </div>
+                </div>
+
+                <!-- Elements Drill Selector (conditional) -->
+                <div class="form-group" id="group-hw-element" style="display: none;">
+                  <label for="hw-element-drill" class="form-label">Elements Drill</label>
+                  <select id="hw-element-drill" class="form-select">
+                    <option value="addition_stage_1">Addition Stage 1</option>
+                    <option value="addition_stage_2">Addition Stage 2</option>
+                    <option value="subtraction_stage_1">Subtraction Stage 1</option>
+                    <option value="multiplication_stage_1">Multiplication Stage 1</option>
+                    <option value="division_stage_1">Division Stage 1</option>
+                  </select>
+                </div>
+
+                <!-- Memoriad Module Selector (conditional) -->
+                <div class="form-group" id="group-hw-memoriad" style="display: none;">
+                  <label for="hw-memoriad-module" class="form-label">Memoriad Module</label>
+                  <select id="hw-memoriad-module" class="form-select">
+                    <option value="calendar">Calendar Dates</option>
+                    <option value="flash_numbers">Flash Numbers</option>
+                    <option value="speed_addition">Speed Addition</option>
+                    <option value="multiplication">Mental Multiplication</option>
+                    <option value="square_roots">Square Roots</option>
+                  </select>
+                </div>
+
+                <!-- Required Count -->
+                <div class="form-group">
+                  <label for="hw-required-count" class="form-label">Required Count *</label>
+                  <input
+                    type="number"
+                    id="hw-required-count"
+                    class="form-input num"
+                    min="1"
+                    max="100"
+                    value="1"
+                    required
+                  />
+                  <span class="form-hint">Number of times drill must be completed.</span>
+                </div>
+
+                <!-- Assigned IST Date -->
+                <div class="form-group">
+                  <label for="hw-assigned-date" class="form-label">Assigned Date (IST) *</label>
+                  <input type="date" id="hw-assigned-date" class="form-input num" required />
+                </div>
+
+                <!-- Due Date -->
+                <div class="form-group">
+                  <label for="hw-due-date" class="form-label">Due Date (Optional)</label>
+                  <input type="date" id="hw-due-date" class="form-input num" />
+                </div>
+              </div>
+
+              <!-- Instructions -->
+              <div class="form-group" style="margin-bottom: var(--space-4);">
+                <label for="hw-instructions" class="form-label">Instructions &amp; Guidance</label>
+                <textarea
+                  id="hw-instructions"
+                  class="form-input"
+                  rows="3"
+                  placeholder="e.g. Complete 2 rounds of 60s Addition practice before Saturday class."
+                ></textarea>
+              </div>
+
+              <div style="display: flex; justify-content: flex-end; gap: var(--space-2);">
+                <button type="submit" id="btn-submit-homework" class="btn btn-primary">
+                  Assign Homework &rarr;
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Existing Assignments List with Tab Controls -->
+          <div class="card" style="padding: var(--space-5);">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3); margin-bottom: var(--space-4);">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <h2 style="font-size: var(--text-base); font-weight: 700; margin: 0;">
+                  Assignments
+                </h2>
+                <div class="tab-pill-group" role="tablist" style="display: flex; gap: 4px;">
+                  <button type="button" id="tab-hw-active" class="btn btn-xs btn-primary tab-hw-toggle" aria-selected="true">
+                    Active / Today
+                  </button>
+                  <button type="button" id="tab-hw-history" class="btn btn-xs btn-outline tab-hw-toggle" aria-selected="false">
+                    All History
+                  </button>
+                </div>
+              </div>
+              <span id="homework-count-badge" class="badge">Loading...</span>
+            </div>
+
+            <div class="table-container">
+              <table class="data-table" aria-label="Homework Assignments">
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>Target</th>
+                    <th>Activity Type</th>
+                    <th>Settings / Category</th>
+                    <th>Required</th>
+                    <th>Assigned (IST)</th>
+                    <th>Due Date</th>
+                  </tr>
+                </thead>
+                <tbody id="homework-table-body">
+                  <tr>
+                    <td colspan="7" style="text-align: center; color: var(--text-muted); padding: var(--space-4);">
+                      Loading assignments...
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script type="module" src="/js/homework.js"></script>
+  </body>
+</html>

@@ -164,6 +164,12 @@ export const SNAPSHOT_TABLES = [
     primaryKey: ['id'],
     cursorColumn: null,
   },
+  {
+    name: 'homework_assignments',
+    mode: 'snapshot',
+    primaryKey: ['id'],
+    cursorColumn: null,
+  },
 ];
 
 /**
@@ -217,6 +223,13 @@ export const APPEND_TABLES = [
     mode: 'append',
     primaryKey: ['id'],
     cursorColumn: 'created_at',
+  },
+  {
+    name: 'homework_completions',
+    mode: 'append',
+    primaryKey: ['id'],
+    fallbackPrimaryKey: ['assignment_id', 'student_id'],
+    cursorColumn: 'updated_at',
   },
 ];
 
@@ -390,6 +403,7 @@ export const RESTORE_TABLE_ORDER = Object.freeze([
   'teacher_student_assignments',
   'weekly_test_removals',
   'student_rounds',
+  'homework_assignments',
   'jmcwc_categories',
   'jmcwc_assignments',
 
@@ -405,6 +419,7 @@ export const RESTORE_TABLE_ORDER = Object.freeze([
   'activity_results',
   'attendance',
   'score_correction_requests',
+  'homework_completions',
   'jmcwc_targets',
   'jmcwc_attempts',
 

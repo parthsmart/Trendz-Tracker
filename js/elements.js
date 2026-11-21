@@ -49,6 +49,7 @@ import { isSupabaseConfigured } from './config.js';
 import { isDemoMode, DemoDB } from './demoDb.js';
 import { getSupabase } from './supabaseClient.js';
 import { showToast } from './toast.js';
+import { setupPracticeRecordsSection } from './practiceRecordsCard.js';
 
 function escapeHtml(str) {
   if (str === null || str === undefined) return '';
@@ -121,6 +122,11 @@ async function initElementsCatalogPage() {
 
   const pillContainer = document.getElementById('user-pill-container');
   if (pillContainer) pillContainer.style.display = 'flex';
+
+  const recordsContainer = document.getElementById('elements-records-container');
+  if (recordsContainer) {
+    setupPracticeRecordsSection(recordsContainer, 'element', currentUser);
+  }
 
   await loadAndRenderCatalog();
 }

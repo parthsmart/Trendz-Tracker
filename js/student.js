@@ -31,6 +31,7 @@ import {
   setupProgressChartsController
 } from './dashboardComponents.js';
 import { loadAndRenderLeaderboardCard } from './leaderboardCard.js';
+import { loadAndRenderStudentHomework } from './studentHomeworkView.js';
 import { renderElementsCard } from './elementsCard.js';
 import { renderMemoriadCard } from './memoriadCard.js';
 import { fetchMyNotificationsCached } from './notificationBadge.js';
@@ -180,6 +181,9 @@ async function initStudentDashboard() {
 
     // Today's Plan (To-Do List)
     renderTodoList(data.todos, 'todo-list-container', false, data.categories);
+
+    // Today's Homework (Phase 20 - Independent of Streaks)
+    loadAndRenderStudentHomework(currentStudentId, loggedInProfile.level);
 
     // Compact Streak & Shield Card
     renderStreakCard(data.streak, data.todos);

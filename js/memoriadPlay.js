@@ -53,6 +53,8 @@ import {
   parseTestRunnerQuery,
   RUNNER_EXIT_CONFIRM_TEXT,
 } from './weeklyTestRunner.js';
+import { submitHomeworkCompletion } from './homeworkData.js';
+import { showToast } from './toast.js';
 
 const STORAGE_PREFIX = 'trendz_memoriad_settings_v1_';
 
@@ -737,9 +739,12 @@ async function handleStartFromSettings() {
   }
 
   try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const hwIdFromUrl = urlParams.get('homework_id');
     const apiSettings = {
       concentration_seconds: currentSettings.concentration_seconds,
       ...(activeModuleKey === 'calendar' ? { dates: currentSettings.dates } : {}),
+      ...(hwIdFromUrl ? { homework_id: hwIdFromUrl } : {}),
     };
 
     const started = await callMemoriadApi({
@@ -747,6 +752,7 @@ async function handleStartFromSettings() {
       module: activeModuleKey,
       settings: apiSettings,
       todo_task_id: activeTodoTaskId || undefined,
+      ...(hwIdFromUrl ? { homework_id: hwIdFromUrl } : {}),
     });
 
     // Store questions in JS memory only; do not render them until Concentration finishes
@@ -2535,6 +2541,24 @@ async function submitCurrentSession(finishedBy = lastFinishedBy || 'finish') {
     }
     lastSubmissionResult = response;
     lastSubmissionError = null;
+
+    // Check for homework assignment linking
+    const urlParams = new URLSearchParams(window.location.search);
+    const homeworkId = urlParams.get('homework_id');
+    if (homeworkId && activeSessionId) {
+      try {
+        const hwRes = await submitHomeworkCompletion(homeworkId, {
+          sessionId: activeSessionId,
+          activityResultId: response?.result_id || null,
+        });
+        if (hwRes?.success) {
+          showToast('success', `Homework credited (${hwRes.progress_count || 1} of ${hwRes.required_count || 1} completed)`);
+        }
+      } catch (hwErr) {
+        console.warn('Homework submission crediting failed:', hwErr);
+      }
+    }
+
     isSubmitting = false;
     renderResultsView();
   } catch (err) {

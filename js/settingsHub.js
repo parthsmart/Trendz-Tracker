@@ -55,6 +55,15 @@ export const SETTINGS_ENTRIES = Object.freeze([
     href: '/pages/resources.html',
     description: 'Manage reference sheets, formula guides, and practice links for students.',
   },
+  {
+    id: 'homework',
+    group: 'practice',
+    groupLabel: 'Practice',
+    title: 'Homework',
+    breadcrumbTitle: 'Homework',
+    href: '/pages/homework.html',
+    description: 'Assign offline or online homework drills independently of daily streak requirements.',
+  },
 
   // Competition
   {

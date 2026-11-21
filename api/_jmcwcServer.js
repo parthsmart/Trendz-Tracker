@@ -32,6 +32,7 @@ import {
   sanitizeAnswerPatchObject,
 } from './_jmcwcSaveQueue.js';
 import { getAdminClient } from './_supabaseAdmin.js';
+import { resolveAndValidateHomework } from './_homework.js';
 
 export { JMCWC_MAX_PAUSE_BODY_BYTES, buildPauseKeepalivePayload };
 export const JMCWC_MAX_BODY_BYTES = 256 * 1024; // 256 KB
@@ -86,6 +87,16 @@ export function createHttpError(statusCode, message, code = 'JMCWC_ERROR', extra
  */
 export function mapDatabaseErrorToHttp(dbErr) {
   const msg = String(dbErr?.message || dbErr?.details || dbErr || 'Database operation failed.');
+
+  if (
+    msg.includes('homework') ||
+    msg.includes('Homework') ||
+    msg.includes('session is already bound') ||
+    msg.includes('recipient of this homework')
+  ) {
+    const status = msg.includes('Access denied') ? 403 : (code === '23505' || msg.includes('mismatch') ? 409 : 400);
+    return createHttpError(status, msg, 'HOMEWORK_LINK_FAILED');
+  }
 
   if (msg.includes('An active student account is required.')) {
     return createHttpError(403, 'An active student account is required.', 'INACTIVE_OR_NON_STUDENT');
@@ -862,10 +873,10 @@ export function createJmcwcServer({
     };
   }
 
-  async function handleStudentCreate(supabase, studentId, body) {
+  async function handleStudentCreate(supabase, studentId, body, caller = null) {
     const requestId = body?.request_id;
-    const mode = body?.mode;
-    const categoryKey = body?.category_key ?? null;
+    let mode = body?.mode;
+    let categoryKey = body?.category_key ?? null;
 
     if (!isUuid(requestId)) {
       throw createHttpError(400, 'Invalid request: request_id must be a UUID.', 'INVALID_REQUEST');
@@ -892,6 +903,33 @@ export function createJmcwcServer({
       throw mapDatabaseErrorToHttp(checkErr);
     }
 
+    // Validate homework assignment if provided
+    let validatedHomework = null;
+    if (body?.homework_id) {
+      const hwRes = await resolveAndValidateHomework(
+        supabase,
+        body.homework_id,
+        caller || { id: studentId },
+        'round',
+        categoryKey
+      );
+      if (!hwRes.ok) {
+        throw createHttpError(hwRes.statusCode || 400, hwRes.error, 'HOMEWORK_VALIDATION_ERROR');
+      }
+      validatedHomework = hwRes.homework;
+
+      // Authoritatively enforce homework settings
+      if (validatedHomework?.settings?.mode && mode !== validatedHomework.settings.mode) {
+        throw createHttpError(400, `Homework requires ${validatedHomework.settings.mode} mode.`, 'HOMEWORK_SETTING_MISMATCH');
+      }
+      if (validatedHomework?.settings?.category_key && categoryKey !== validatedHomework.settings.category_key) {
+        throw createHttpError(400, `Homework requires category ${validatedHomework.settings.category_key}.`, 'HOMEWORK_SETTING_MISMATCH');
+      }
+      if (validatedHomework?.settings?.group_key && assignedGroup !== validatedHomework.settings.group_key) {
+        throw createHttpError(400, 'Competition attempt group mismatch with assigned homework.', 'HOMEWORK_SETTING_MISMATCH');
+      }
+    }
+
     // Check if (student_id, request_id) already exists for idempotent retry
     const { data: existingAttempt } = await supabase
       .from('jmcwc_attempts')
@@ -901,15 +939,43 @@ export function createJmcwcServer({
       .maybeSingle();
 
     if (existingAttempt) {
+      // Check existing homework binding for idempotent retry
+      const { data: boundRow, error: boundErr } = await supabase
+        .from('homework_bound_sessions')
+        .select('assignment_id')
+        .eq('session_id', existingAttempt.id)
+        .maybeSingle();
+
+      if (boundErr) {
+        throw createHttpError(
+          500,
+          `Failed to lookup homework session binding: ${boundErr.message || 'Database error'}`,
+          'HOMEWORK_LINK_LOOKUP_FAILED'
+        );
+      }
+
+      const existingHwId = boundRow?.assignment_id || null;
+      const requestedHwId = validatedHomework?.id || null;
+
+      if (existingHwId !== requestedHwId) {
+        throw createHttpError(
+          409,
+          'Idempotent retry homework mismatch: attempt was not created for this homework assignment.',
+          'HOMEWORK_LINK_FAILED'
+        );
+      }
+
       const privateQuestions = await fetchAttemptQuestions(supabase, existingAttempt.id);
       const maxMarks = computeQuestionsMaxMarks(privateQuestions);
+      const attPayload = whitelistAttemptForPaused(
+        existingAttempt,
+        maxMarks,
+        Array.isArray(privateQuestions) ? privateQuestions.length : null
+      );
+      if (validatedHomework) attPayload.homework_id = validatedHomework.id;
       return {
         idempotent_replay: true,
-        attempt: whitelistAttemptForPaused(
-          existingAttempt,
-          maxMarks,
-          Array.isArray(privateQuestions) ? privateQuestions.length : null
-        ),
+        attempt: attPayload,
       };
     }
 
@@ -953,14 +1019,19 @@ export function createJmcwcServer({
       seed,
     });
 
-    const { data: attemptId, error: createErr } = await supabase.rpc('jmcwc_create_attempt', {
+    const rpcParams = {
       p_student: studentId,
       p_request: requestId,
       p_paper: paper.id,
       p_mode: mode,
       p_category: mode === 'category' ? categoryKey : null,
       p_questions: privateQuestions,
-    });
+    };
+    if (validatedHomework) {
+      rpcParams.p_homework_id = validatedHomework.id;
+    }
+
+    const { data: attemptId, error: createErr } = await supabase.rpc('jmcwc_create_attempt', rpcParams);
     if (createErr) {
       throw mapDatabaseErrorToHttp(createErr);
     }
@@ -976,13 +1047,16 @@ export function createJmcwcServer({
       throw createHttpError(500, 'Failed to load created attempt.', 'CREATE_LOAD_ERROR');
     }
 
+    const attPayload = whitelistAttemptForPaused(
+      createdAttempt,
+      total_max_marks,
+      privateQuestions.length
+    );
+    if (validatedHomework) attPayload.homework_id = validatedHomework.id;
+
     return {
       idempotent_replay: false,
-      attempt: whitelistAttemptForPaused(
-        createdAttempt,
-        total_max_marks,
-        privateQuestions.length
-      ),
+      attempt: attPayload,
     };
   }
 
@@ -2033,7 +2107,7 @@ export function createJmcwcServer({
           break;
         }
         case 'create':
-          result = await handleStudentCreate(supabase, studentId, body);
+          result = await handleStudentCreate(supabase, studentId, body, caller);
           break;
         case 'read':
         case 'get_attempt_review':

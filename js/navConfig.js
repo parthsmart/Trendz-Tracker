@@ -20,6 +20,7 @@ export const SETTINGS_SUBPAGE_PATHS = Object.freeze([
   '/pages/targets.html',
   '/pages/competition.html',
   '/pages/announcements.html',
+  '/pages/homework.html',
   '/pages/import.html',
   '/pages/backup.html',
 ]);

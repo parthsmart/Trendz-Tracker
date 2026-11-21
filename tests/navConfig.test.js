@@ -227,7 +227,7 @@ test('admin config has exactly one Settings entry linking to /pages/settings.htm
   assert.equal(monthlyReportItems.length, 1, 'Expected exactly one Monthly Report item in admin nav');
 
   // Verify all setup tools are in SETTINGS_SUBPAGE_PATHS and reachable
-  assert.equal(SETTINGS_SUBPAGE_PATHS.length, 9);
+  assert.equal(SETTINGS_SUBPAGE_PATHS.length, 10);
   for (const subPath of SETTINGS_SUBPAGE_PATHS) {
     assert.ok(
       SETTINGS_ENTRIES.some((e) => e.href === subPath),

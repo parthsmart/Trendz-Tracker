@@ -430,7 +430,10 @@
 
             <!-- Linked Score Selector (dynamic) -->
             <div id="modal-msg-score-group" style="display: none;">
-              <label for="modal-msg-score-select" style="font-size: var(--text-xs); font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Select Practice Score</label>
+              <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                <label for="modal-msg-score-select" style="font-size: var(--text-xs); font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Select Practice Score</label>
+                <button type="button" id="btn-retry-load-scores" class="btn btn-outline btn-xs" style="display: none; padding: 1px 6px; font-size: 10px;">Retry</button>
+              </div>
               <select id="modal-msg-score-select" class="input" style="width: 100%; margin-top: 4px;">
                 <option value="">Choose a recent score...</option>
               </select>
@@ -438,7 +441,10 @@
 
             <!-- Linked Weekly Test Selector (dynamic) -->
             <div id="modal-msg-test-group" style="display: none;">
-              <label for="modal-msg-test-select" style="font-size: var(--text-xs); font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Select Weekly Test</label>
+              <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                <label for="modal-msg-test-select" style="font-size: var(--text-xs); font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Select Weekly Test</label>
+                <button type="button" id="btn-retry-load-tests" class="btn btn-outline btn-xs" style="display: none; padding: 1px 6px; font-size: 10px;">Retry</button>
+              </div>
               <select id="modal-msg-test-select" class="input" style="width: 100%; margin-top: 4px;">
                 <option value="">Choose a weekly test...</option>
               </select>

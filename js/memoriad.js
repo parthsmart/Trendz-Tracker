@@ -16,6 +16,7 @@ import { isDemoMode, DemoDB } from './demoDb.js';
 import { getSupabase } from './supabaseClient.js';
 import { isSupabaseConfigured } from './config.js';
 import { showToast } from './toast.js';
+import { setupPracticeRecordsSection } from './practiceRecordsCard.js';
 import { fetchStudentMemoriadResults } from './memoriadCard.js';
 import { MEMORIAD_MODULE_CATALOG, summarizeAllMemoriad } from './memoriadStats.js';
 import { getScoreFeedback } from './scoreColors.js';
@@ -114,6 +115,11 @@ async function initMemoriadHub() {
   if (!targetResult.isSelf && activeHistoryStudent) {
     const bannerPlaceholder = document.getElementById('config-banner-placeholder');
     renderTargetStudentBanner(bannerPlaceholder, activeHistoryStudent);
+  }
+
+  const recordsContainer = document.getElementById('memoriad-records-container');
+  if (recordsContainer) {
+    setupPracticeRecordsSection(recordsContainer, 'memoriad', currentUser);
   }
 
   const container = document.getElementById('memoriad-modules-container');

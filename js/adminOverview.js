@@ -19,7 +19,7 @@
 import { isSupabaseConfigured } from './config.js';
 import { isDemoMode } from './demoDb.js';
 import { requireAuth } from './guard.js';
-import { setupAdminNav, setupModalListeners, openModal } from './modal.js';
+import { setupAdminNav, setupModalListeners, openModal, closeModal } from './modal.js';
 import {
   fetchAdminMilestones,
   fetchReportLogs,
@@ -31,6 +31,18 @@ import {
 import { getISTDateString, formatDisplayDateIST } from './stats.js';
 import { getSupabase, DemoDB } from './supabaseClient.js';
 import { showToast } from './toast.js';
+
+export function formatTimeIST(dateVal) {
+  if (!dateVal) return 'Unavailable';
+  const d = dateVal instanceof Date ? dateVal : new Date(dateVal);
+  if (isNaN(d.getTime())) return 'Unavailable';
+  return new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  }).format(d);
+}
 
 const PAGE_SIZE = 25;
 
@@ -306,7 +318,7 @@ function subtractDaysIST(dateStr, days) {
  * Enriches admin_overview rows with recent activity_results (Elements, Flash Anzan, Memoriad)
  * and 7-day results so last_entry_date, entered_today, entries_7d, and accuracy_7d reflect all practice.
  */
-function enrichOverviewRows(overviewRows, activityRows, resultRows, currentTodayIST) {
+export function enrichOverviewRows(overviewRows, activityRows, resultRows, currentTodayIST) {
   if (!Array.isArray(overviewRows)) return [];
   const sevenDaysAgoIST = subtractDaysIST(currentTodayIST, 6);
 
@@ -349,7 +361,7 @@ function enrichOverviewRows(overviewRows, activityRows, resultRows, currentToday
     let latestResDate = student.last_entry_date || null;
     const res7d = [];
     for (const r of stuRes) {
-      const dStr = r.entry_date ? String(r.entry_date).slice(0, 10) : null;
+      const dStr = r.entry_date ? String(r.entry_date).slice(0, 10) : (r.created_at ? getISTDateString(r.created_at) : null);
       if (!dStr) continue;
       if (!latestResDate || dStr > latestResDate) {
         latestResDate = dStr;
@@ -388,12 +400,49 @@ function enrichOverviewRows(overviewRows, activityRows, resultRows, currentToday
       student.entered_today || (effectiveLastDate && effectiveLastDate === currentTodayIST)
     );
 
+    // Compute actual first/latest entry timestamps within IST boundaries for todayIST
+    let firstEntryTime = student.first_entry_time || 'Unavailable';
+    let latestEntryTime = student.latest_entry_time || 'Unavailable';
+
+    const [tYear, tMonth, tDay] = currentTodayIST.split('-').map(Number);
+    if (tYear && tMonth && tDay) {
+      // IST is UTC + 5:30 (5.5 hours = 19,800,000 ms)
+      const startOfTodayISTMs = Date.UTC(tYear, tMonth - 1, tDay, 0, 0, 0) - (5.5 * 3600 * 1000);
+      const endOfTodayISTMs = Date.UTC(tYear, tMonth - 1, tDay, 23, 59, 59, 999) - (5.5 * 3600 * 1000);
+
+      const todayEntries = [];
+      for (const a of stuActs) {
+        if (a && a.created_at) {
+          const ms = new Date(a.created_at).getTime();
+          if (!isNaN(ms) && ms >= startOfTodayISTMs && ms <= endOfTodayISTMs) {
+            todayEntries.push(new Date(ms));
+          }
+        }
+      }
+      for (const r of stuRes) {
+        if (r && r.created_at) {
+          const ms = new Date(r.created_at).getTime();
+          if (!isNaN(ms) && ms >= startOfTodayISTMs && ms <= endOfTodayISTMs) {
+            todayEntries.push(new Date(ms));
+          }
+        }
+      }
+      todayEntries.sort((a, b) => a.getTime() - b.getTime());
+
+      if (todayEntries.length > 0) {
+        firstEntryTime = formatTimeIST(todayEntries[0]);
+        latestEntryTime = formatTimeIST(todayEntries[todayEntries.length - 1]);
+      }
+    }
+
     return {
       ...student,
       last_entry_date: effectiveLastDate,
       entered_today: effectiveEnteredToday,
       entries_7d: effectiveEntries7d,
       accuracy_7d: effectiveAccuracy7d,
+      first_entry_time: firstEntryTime,
+      latest_entry_time: latestEntryTime,
     };
   });
 }
@@ -468,8 +517,8 @@ async function loadOverviewData() {
             try {
               return await supabase
                 .from('results')
-                .select('student_id, correct, total, entry_date')
-                .order('entry_date', { ascending: false })
+                .select('student_id, correct, total, entry_date, created_at')
+                .order('created_at', { ascending: false })
                 .limit(2000);
             } catch {
               return { data: null };
@@ -985,6 +1034,232 @@ function attachEventListeners() {
       textWrap.style.display = 'block';
     });
   }
+
+  // Entered Today Clickable Card & Modal Handlers
+  const btnEnteredCard = document.getElementById('btn-entered-today-card');
+  const modalEntered = document.getElementById('modal-entered-today');
+  const btnCloseEntered = document.getElementById('btn-close-entered-today-modal');
+  const btnDoneEntered = document.getElementById('btn-done-entered-today-modal');
+  const searchInputEntered = document.getElementById('search-entered-today-modal');
+
+  if (btnEnteredCard) {
+    btnEnteredCard.addEventListener('click', () => {
+      openEnteredTodayModal();
+    });
+  }
+
+  const closeEnteredModal = () => {
+    closeModal('modal-entered-today');
+    btnEnteredCard?.focus();
+  };
+
+  btnCloseEntered?.addEventListener('click', closeEnteredModal);
+  btnDoneEntered?.addEventListener('click', closeEnteredModal);
+
+  // Search input inside modal
+  searchInputEntered?.addEventListener('input', (e) => {
+    enteredTodaySearchQuery = e.target.value.trim();
+    renderEnteredTodayList();
+  });
+
+  // Escape key listener for accessible dismissal
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && modalEntered && modalEntered.style.display !== 'none') {
+      closeEnteredModal();
+    }
+  });
+}
+
+let enteredTodaySearchQuery = '';
+let cachedEnteredTodayStudents = [];
+
+function openEnteredTodayModal() {
+  const modal = document.getElementById('modal-entered-today');
+  if (!modal) return;
+
+  openModal('modal-entered-today');
+  loadEnteredTodayModalContent();
+}
+
+async function loadEnteredTodayModalContent() {
+  const contentEl = document.getElementById('entered-today-modal-content');
+  const subtitleEl = document.getElementById('modal-entered-today-subtitle');
+  if (!contentEl) return;
+
+  contentEl.innerHTML = '<div class="loading-state" style="padding: var(--space-4);">Loading entered students...</div>';
+
+  const enteredStudents = allOverviewData.filter((s) => Boolean(s.active && s.entered_today));
+
+  if (subtitleEl) {
+    subtitleEl.textContent = `${enteredStudents.length} active ${enteredStudents.length === 1 ? 'student has' : 'students have'} recorded qualifying practice today (${formatDisplayDateIST(todayIST)}).`;
+  }
+
+  // Authoritative to-do progress resolution for entered students today
+  // daily_todo_log schema: (student_id, day) PRIMARY KEY with tasks_done, tasks_total, all_done
+  const todoLogByStudent = new Map();
+  let todoFetchError = null;
+
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = await getSupabase();
+      if (supabase && todayIST) {
+        const { data: logs, error: todoErr } = await supabase
+          .from('daily_todo_log')
+          .select('student_id, tasks_done, tasks_total, all_done')
+          .eq('day', todayIST);
+
+        if (todoErr) {
+          console.error('Failed to query daily_todo_log for today:', todoErr);
+          todoFetchError = todoErr.message || 'Database error querying to-do log';
+        } else if (Array.isArray(logs)) {
+          for (const l of logs) {
+            if (!l || !l.student_id) continue;
+            todoLogByStudent.set(l.student_id, {
+              tasks_done: Number(l.tasks_done) || 0,
+              tasks_total: Number(l.tasks_total) || 0,
+              all_done: Boolean(l.all_done),
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error in daily_todo_log retrieval:', err);
+      todoFetchError = err.message || 'Error loading to-do progress';
+    }
+  } else if (isDemoMode() && DemoDB && DemoDB.getDailyTodoLog) {
+    try {
+      const logs = DemoDB.getDailyTodoLog();
+      if (Array.isArray(logs)) {
+        for (const l of logs) {
+          const logDay = l?.day || l?.completed_date;
+          if (l && logDay === todayIST && l.student_id) {
+            todoLogByStudent.set(l.student_id, {
+              tasks_done: Number(l.tasks_done ?? l.count ?? 0),
+              tasks_total: Number(l.tasks_total ?? 0),
+              all_done: Boolean(l.all_done),
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('DemoDB daily_todo_log error:', err);
+    }
+  }
+
+  cachedEnteredTodayStudents = enteredStudents.map((s) => {
+    const todoEntry = todoLogByStudent.get(s.student_id);
+
+    let doneCount = null;
+    let totalCount = null;
+    let isTodoComplete = false;
+
+    if (todoEntry) {
+      doneCount = todoEntry.tasks_done;
+      totalCount = todoEntry.tasks_total;
+      isTodoComplete = Boolean(todoEntry.all_done || (totalCount > 0 && doneCount >= totalCount));
+    } else if (typeof s.todo_done_count === 'number' && typeof s.todo_total_count === 'number') {
+      doneCount = s.todo_done_count;
+      totalCount = s.todo_total_count;
+      isTodoComplete = Boolean(totalCount > 0 && doneCount >= totalCount);
+    } else if (typeof s.daily_tasks_count === 'number') {
+      totalCount = s.daily_tasks_count;
+      doneCount = 0;
+      isTodoComplete = false;
+    }
+
+    return {
+      student_id: s.student_id,
+      student_code: s.student_code,
+      full_name: s.full_name,
+      level: s.level || '—',
+      first_entry_time: s.first_entry_time || 'Unavailable',
+      latest_entry_time: s.latest_entry_time || 'Unavailable',
+      todo_done_count: doneCount,
+      todo_total_count: totalCount,
+      is_todo_complete: isTodoComplete,
+      todo_fetch_error: todoFetchError,
+    };
+  });
+
+  renderEnteredTodayList();
+}
+
+function renderEnteredTodayList() {
+  const contentEl = document.getElementById('entered-today-modal-content');
+  if (!contentEl) return;
+
+  const query = enteredTodaySearchQuery.toLowerCase();
+  const filtered = cachedEnteredTodayStudents.filter((s) => {
+    if (!query) return true;
+    const nameMatch = (s.full_name || '').toLowerCase().includes(query);
+    const codeMatch = (s.student_code || '').toLowerCase().includes(query);
+    return nameMatch || codeMatch;
+  });
+
+  if (filtered.length === 0) {
+    contentEl.innerHTML = `
+      <div style="text-align: center; color: var(--text-muted); padding: var(--space-5); font-size: var(--text-sm);">
+        ${enteredTodaySearchQuery ? 'No matching students found.' : 'No students have recorded practice yet today.'}
+      </div>
+    `;
+    return;
+  }
+
+  contentEl.innerHTML = `
+    <div class="table-container" style="border: none;">
+      <table class="data-table" aria-label="Students Entered Today" style="width: 100%;">
+        <thead>
+          <tr>
+            <th>Student</th>
+            <th>Level</th>
+            <th>First Entry (IST)</th>
+            <th>Latest Entry (IST)</th>
+            <th>Daily To-Do Progress</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${filtered.map((s) => {
+            let statusBadge = '<span class="badge" style="background: var(--color-surface-sunken); color: var(--text-muted); font-size: 11px;">Practice only</span>';
+            let progressText = 'Unavailable';
+
+            if (s.todo_fetch_error) {
+              progressText = 'Error loading';
+              statusBadge = '<span class="badge badge-warning" style="font-size: 11px;">Unavailable</span>';
+            } else if (s.todo_total_count !== null && s.todo_done_count !== null) {
+              if (s.todo_total_count > 0) {
+                progressText = `${s.todo_done_count} / ${s.todo_total_count}`;
+                if (s.is_todo_complete) {
+                  statusBadge = `<span class="badge badge-success" style="background: #ecfdf5; color: #047857; font-weight: 700; font-size: 11px;">✓ All done (${s.todo_done_count}/${s.todo_total_count})</span>`;
+                } else {
+                  statusBadge = `<span class="badge" style="background: #eff6ff; color: var(--color-primary); font-weight: 700; font-size: 11px;">${s.todo_done_count} of ${s.todo_total_count} done</span>`;
+                }
+              } else {
+                progressText = 'No to-dos assigned';
+                statusBadge = '<span class="badge" style="background: var(--color-surface-sunken); color: var(--text-muted); font-size: 11px;">No tasks</span>';
+              }
+            }
+
+            return `
+              <tr>
+                <td>
+                  <a href="/pages/student-detail.html?id=${encodeURIComponent(s.student_id)}" style="font-weight: 700; color: var(--color-primary); text-decoration: none;">
+                    ${escapeHtml(s.full_name)}
+                  </a>
+                  <div class="num" style="font-size: 11px; color: var(--text-muted);">${escapeHtml(s.student_code)}</div>
+                </td>
+                <td><span class="badge" style="font-size: 11px;">${escapeHtml(s.level)}</span></td>
+                <td class="num" style="font-size: var(--text-xs); color: var(--text-muted);">${escapeHtml(s.first_entry_time)}</td>
+                <td class="num" style="font-size: var(--text-xs); color: var(--text-muted);">${escapeHtml(s.latest_entry_time)}</td>
+                <td class="num" style="font-size: var(--text-xs); font-weight: 600;">${escapeHtml(progressText)}</td>
+                <td>${statusBadge}</td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
 }
 
 /**

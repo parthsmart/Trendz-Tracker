@@ -1574,6 +1574,7 @@ export function createJmcwcRunnerController({
     requestId = null,
     confirmTakeover = false,
     takeover = false,
+    homeworkId = null,
   } = {}) {
     const reqUuid =
       requestId ||
@@ -1581,15 +1582,22 @@ export function createJmcwcRunnerController({
         ? crypto.randomUUID()
         : '10000000-1000-4000-8000-' + String(Date.now()).padStart(12, '0').slice(-12));
     const cat = mode === 'category' ? categoryKey || categoryId : null;
-    const createRes = await callApi({
+    const createPayload = {
       action: 'create',
       request_id: reqUuid,
       mode,
       category_key: cat,
-    });
+    };
+    if (homeworkId) {
+      createPayload.homework_id = homeworkId;
+    }
+    const createRes = await callApi(createPayload);
     const createdId = createRes?.attempt?.id;
     if (!createdId) {
       throw new Error('Failed to create attempt.');
+    }
+    if (homeworkId) {
+      state.homeworkId = homeworkId;
     }
     try {
       return await resumeAttempt(createdId, { confirmTakeover: Boolean(confirmTakeover || takeover) });

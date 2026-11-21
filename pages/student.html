@@ -177,6 +177,48 @@
               </div>
             </section>
 
+            <!-- Today's Homework Section (Phase 20 - Independent of Streaks) -->
+            <section class="card" id="todays-homework-card" style="margin-bottom: var(--space-5);" aria-labelledby="homework-heading">
+              <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border-hairline);">
+                <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                  <h2 id="homework-heading" class="card-title" style="display: flex; align-items: center; gap: 8px; font-size: var(--text-base); margin: 0;">
+                    <span aria-hidden="true">📚</span>
+                    <span>Today's Homework</span>
+                  </h2>
+                  <span id="homework-progress-badge" class="badge" style="font-size: var(--text-xs); font-weight: 700;">
+                    Loading homework...
+                  </span>
+                </div>
+              </div>
+              <div class="card-body" style="padding: var(--space-4) var(--space-5);">
+                <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 0 0 var(--space-3) 0;">
+                  Practice drills assigned by your teacher. Homework is tracked separately and does not affect your daily streak.
+                </p>
+                <div id="homework-list-container">
+                  <div class="loading-state" style="padding: var(--space-3);">Loading assigned homework...</div>
+                </div>
+
+                <!-- Homework History Collapsible -->
+                <div style="margin-top: var(--space-4); border-top: 1px solid var(--border-hairline); padding-top: var(--space-3);">
+                  <button
+                    type="button"
+                    id="btn-toggle-hw-history"
+                    class="btn btn-outline btn-sm"
+                    aria-expanded="false"
+                    aria-controls="hw-history-list"
+                    style="font-size: var(--text-xs);"
+                  >
+                    View Homework History &darr;
+                  </button>
+                  <div id="hw-history-list" style="display: none; margin-top: var(--space-3);">
+                    <div style="font-size: var(--text-xs); color: var(--text-muted);">
+                      Loading past homework...
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
             <!-- 3. Quick Online Practice Modes Strip -->
             <section class="card" id="explore-practice-card" style="margin-bottom: var(--space-5); padding: var(--space-4) var(--space-5);" aria-labelledby="explore-modes-heading">
               <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3);">

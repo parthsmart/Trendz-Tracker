@@ -40,6 +40,8 @@ import {
   parseTestRunnerQuery,
   RUNNER_EXIT_CONFIRM_TEXT,
 } from './weeklyTestRunner.js';
+import { submitHomeworkCompletion } from './homeworkData.js';
+import { showToast } from './toast.js';
 
 const TIMER_INTERVAL_MS = 250;
 const EXPIRY_GRACE_SECONDS = 30;
@@ -431,6 +433,8 @@ async function handleStartDrill() {
         throw new Error('Your sign-in has expired. Please sign in again.');
       }
 
+      const urlParams = new URLSearchParams(window.location.search);
+      const hwIdFromUrl = urlParams.get('homework_id');
       const res = await fetch('/api/drill', {
         method: 'POST',
         headers: {
@@ -441,6 +445,7 @@ async function handleStartDrill() {
           action: 'start',
           drill: currentDrillKey,
           todo_task_id: todoTaskId || undefined,
+          ...(hwIdFromUrl ? { homework_id: hwIdFromUrl } : {}),
         }),
       });
 
@@ -1034,6 +1039,24 @@ async function submitWorksheet(isAutoOrRetry = false) {
 
     hasSubmitted = true;
     if (retryBanner) retryBanner.style.display = 'none';
+
+    // Check for homework assignment linking
+    const urlParams = new URLSearchParams(window.location.search);
+    const homeworkId = urlParams.get('homework_id');
+    if (homeworkId && activeSessionId) {
+      try {
+        const hwRes = await submitHomeworkCompletion(homeworkId, {
+          sessionId: activeSessionId,
+          activityResultId: resultData?.result_id || null,
+        });
+        if (hwRes?.success) {
+          showToast('success', `Homework credited (${hwRes.progress_count || 1} of ${hwRes.required_count || 1} completed)`);
+        }
+      } catch (hwErr) {
+        console.warn('Homework submission crediting failed:', hwErr);
+      }
+    }
+
     renderResultScreen(resultData);
   } catch (err) {
     isSubmitting = false;
