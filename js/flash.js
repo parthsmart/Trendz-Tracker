@@ -487,8 +487,11 @@ function showScreen(screenName) {
 /**
  * Calls `flash_start(p_settings)` on Supabase (or DemoDB in demo mode)
  */
-async function callFlashStartRpc(settings) {
-  const urlParams = new URLSearchParams(window.location.search);
+export async function callFlashStartRpc(settings, { supabase = null, urlSearch = null } = {}) {
+  const urlSearchStr = urlSearch !== null
+    ? urlSearch
+    : (typeof window !== 'undefined' && window.location ? window.location.search : '');
+  const urlParams = new URLSearchParams(urlSearchStr);
   const hwIdFromUrl = urlParams.get('homework_id');
   const payload = {
     digits: settings.digits,
@@ -497,20 +500,20 @@ async function callFlashStartRpc(settings) {
     mode: settings.mode,
     ...(hwIdFromUrl ? { homework_id: hwIdFromUrl } : {}),
   };
-  if (activeTodoTaskId) {
+  if (typeof activeTodoTaskId !== 'undefined' && activeTodoTaskId) {
     payload.todo_task_id = activeTodoTaskId;
   }
 
-  if (isDemoMode() && !isSupabaseConfigured()) {
-    return DemoDB.mockFlashStart(payload, currentProfile?.id);
+  if (isDemoMode() && !isSupabaseConfigured() && !supabase) {
+    return DemoDB.mockFlashStart(payload, typeof currentProfile !== 'undefined' ? currentProfile?.id : 'usr-101');
   }
 
-  const supabase = await getSupabase();
-  if (!supabase) {
+  const client = supabase || (await getSupabase());
+  if (!client) {
     throw new Error('Database connection is not available.');
   }
 
-  const { data, error } = await supabase.rpc('flash_start', {
+  const { data, error } = await client.rpc('flash_start', {
     p_settings: payload,
   });
 
@@ -1826,7 +1829,29 @@ async function initFlashTrainerPage() {
 
   syncSetupControlsUI();
   setupEventListeners();
+
+  // Check practice access for student free practice
+  if (currentProfile?.role === 'student' && !isTestMode && !activeTodoTaskId && !urlParams.get('homework_id')) {
+    try {
+      const { fetchStudentEffectiveAccess } = await import('./studentAccess.js');
+      const isDemo = isDemoMode();
+      const accessRes = await fetchStudentEffectiveAccess(currentProfile.id, { supabase, isDemo, DemoDB });
+      if (accessRes?.ok && accessRes?.settings?.flash && accessRes.settings.flash.allowed === false) {
+        showErrorBanner('Flash Anzan practice is not permitted for your current access level. You can still view your past scores and history below.');
+        const startBtn = document.getElementById('btn-flash-start');
+        if (startBtn) {
+          startBtn.disabled = true;
+          startBtn.textContent = 'Practice Restricted';
+        }
+      }
+    } catch {
+      // Non-blocking fallback
+    }
+  }
+
   await loadFlashHistory();
 }
 
-document.addEventListener('DOMContentLoaded', initFlashTrainerPage);
+if (typeof document !== 'undefined' && document.addEventListener) {
+  document.addEventListener('DOMContentLoaded', initFlashTrainerPage);
+}

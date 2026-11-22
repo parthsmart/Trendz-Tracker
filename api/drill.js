@@ -24,6 +24,11 @@ import { getDrillServerClient, verifyStudentCaller } from './_supabaseAdmin.js';
 import { resolveAndValidateDailyTask } from './_dailyTasks.js';
 import { resolveAndValidateHomework } from './_homework.js';
 import {
+  isBasicsCategoryAllowed,
+  isElementDrillAllowed,
+  fetchStudentEffectiveAccess,
+} from '../js/studentAccess.js';
+import {
   DRILLS,
   buildDrillStartResponse,
   gradeDrillSubmission,
@@ -191,6 +196,25 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
     return res.status(hwRes.statusCode || 400).json({ error: hwRes.error });
   }
   const validatedHomework = hwRes.homework;
+
+  // Validate student practice access for free practice
+  if (!validatedTask && !validatedHomework) {
+    const accessRes = await fetchStudentEffectiveAccess(student.id, { supabase: adminSupabase });
+    if (!accessRes || accessRes.ok === false) {
+      return res.status(503).json({
+        error: accessRes?.error || 'Failed to verify practice access. Please try again.',
+        code: 'PRACTICE_ACCESS_LOOKUP_FAILED',
+      });
+    }
+    if (accessRes?.settings?.basics) {
+      if (!isBasicsCategoryAllowed(category, accessRes.settings.basics)) {
+        return res.status(403).json({
+          error: 'This category is not currently permitted for your practice access.',
+          code: 'PRACTICE_ACCESS_RESTRICTED',
+        });
+      }
+    }
+  }
 
   // Rate limit: 60 starts per hour per student (activity_type = 'basics')
   const oneHourAgoIso = new Date(Date.now() - 3600 * 1000).toISOString();
@@ -444,6 +468,25 @@ async function handleStartDrill({ body, student, adminSupabase, res }) {
     return res.status(hwRes.statusCode || 400).json({ error: hwRes.error });
   }
   const validatedHomework = hwRes.homework;
+
+  // Validate student practice access for free practice
+  if (!validatedTask && !validatedHomework) {
+    const accessRes = await fetchStudentEffectiveAccess(student.id, { supabase: adminSupabase });
+    if (!accessRes || accessRes.ok === false) {
+      return res.status(503).json({
+        error: accessRes?.error || 'Failed to verify practice access. Please try again.',
+        code: 'PRACTICE_ACCESS_LOOKUP_FAILED',
+      });
+    }
+    if (accessRes?.settings?.elements) {
+      if (!isElementDrillAllowed(drillKey, accessRes.settings.elements)) {
+        return res.status(403).json({
+          error: 'This drill is not currently permitted for your practice access.',
+          code: 'PRACTICE_ACCESS_RESTRICTED',
+        });
+      }
+    }
+  }
 
   let finalTimeLimit = drillObj.time_limit_seconds;
   if (validatedTask && validatedTask.duration_seconds > 0) {

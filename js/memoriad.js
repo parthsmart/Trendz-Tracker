@@ -19,6 +19,7 @@ import { showToast } from './toast.js';
 import { setupPracticeRecordsSection } from './practiceRecordsCard.js';
 import { fetchStudentMemoriadResults } from './memoriadCard.js';
 import { MEMORIAD_MODULE_CATALOG, summarizeAllMemoriad } from './memoriadStats.js';
+import { fetchStudentEffectiveAccess, isMemoriadAllowed } from './studentAccess.js';
 import { getScoreFeedback } from './scoreColors.js';
 import {
   filterAndSortHistory,
@@ -50,6 +51,7 @@ function escapeHtml(str) {
 
 let currentUser = null;
 let activeHistoryStudent = null;
+let currentStudentAccess = null;
 
 export function getActiveMemoriadStudent() {
   return activeHistoryStudent;
@@ -120,6 +122,17 @@ async function initMemoriadHub() {
   const recordsContainer = document.getElementById('memoriad-records-container');
   if (recordsContainer) {
     setupPracticeRecordsSection(recordsContainer, 'memoriad', currentUser);
+  }
+
+  if (currentUser?.role === 'student' && (!activeHistoryStudent || activeHistoryStudent.id === currentUser.id)) {
+    try {
+      const accessRes = await fetchStudentEffectiveAccess(currentUser.id, { supabase, isDemo: isDemoMode(), DemoDB });
+      if (accessRes?.ok) {
+        currentStudentAccess = accessRes.settings?.memoriad || null;
+      }
+    } catch {
+      // Non-blocking fallback
+    }
   }
 
   const container = document.getElementById('memoriad-modules-container');
@@ -294,10 +307,17 @@ function renderLastFiveTable(mod, modSummary) {
 function renderModuleCard(mod, modSummary) {
   const badgeClass = mod.available ? 'badge badge-active' : 'badge badge-inactive';
   const isViewingOther = activeHistoryStudent && activeHistoryStudent.id !== currentUser?.id;
+  const isAllowed = !currentStudentAccess || isMemoriadAllowed(mod.key, null, currentStudentAccess);
   const actionHtml = !mod.available
     ? `
       <button type="button" class="btn btn-outline" style="width: 100%; justify-content: center;" disabled>
         Coming soon
+      </button>
+    `
+    : !isAllowed
+    ? `
+      <button type="button" class="btn btn-outline" style="width: 100%; justify-content: center; opacity: 0.6;" disabled>
+        Restricted
       </button>
     `
     : isViewingOther

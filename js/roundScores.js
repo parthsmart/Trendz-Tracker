@@ -29,6 +29,7 @@ import { formatSecondsToMMSS, parseTimeToSeconds, setupEnterKeyNavigation } from
 import { showToast } from './toast.js';
 import { ScoresheetController } from './roundScoresheet.js';
 import { submitHomeworkCompletion } from './homeworkData.js';
+import { fetchStudentEffectiveAccess, isMainRoundCategoryAllowed } from './studentAccess.js';
 import {
   JMCWC_UNASSIGNED_GROUP_MESSAGE,
   formatJmcwcGroupLabel,
@@ -70,6 +71,7 @@ let jmcwcCurrentQuestionIndex = 0;
 let pendingTakeoverAttemptId = null;
 let isSubmittingPausedAttempt = false;
 let scoresheetControllerInstance = null;
+let jmcwcEffectiveAccess = null;
 
 /**
  * Formats database errors into clear, friendly messages for students
@@ -400,6 +402,11 @@ async function handleStartTodayRound() {
   btnText.innerHTML = '<span class="spinner" style="margin-right: 6px;"></span> Starting...';
 
   try {
+    if (jmcwcEffectiveAccess && (jmcwcEffectiveAccess.main_round_eligible === false || jmcwcEffectiveAccess.settings?.main_round?.eligible === false)) {
+      showToast('error', 'Main Round competition practice is currently restricted for your account.');
+      return;
+    }
+
     const typeSelect = document.getElementById('input-round-type');
     const preferredType = typeSelect?.value || 'Category wise';
     let roundId = null;
@@ -1156,6 +1163,26 @@ async function saveRoundScores() {
       return;
     }
 
+    // Validate student practice access for Main Round
+    const accessRes = isSupabaseConfigured()
+      ? await fetchStudentEffectiveAccess(currentProfile.id, { supabase: await getSupabase() })
+      : DemoDB?.getStudentEffectiveAccess?.(currentProfile.id);
+    if (accessRes?.ok) {
+      if (accessRes.main_round_eligible === false || accessRes.settings?.main_round?.eligible === false) {
+        throw new Error('You are not currently eligible for Main Round competition practice.');
+      }
+      const roundRule = accessRes.settings?.main_round;
+      if (roundRule && roundRule.all === false) {
+        for (const ins of inserts) {
+          const cat = roundCategories.find((c) => c.id === ins.category_id);
+          const catName = cat?.name || ins.category_id;
+          if (!isMainRoundCategoryAllowed(catName, roundRule, true)) {
+            throw new Error(`Category ${catName} is not permitted for your practice access.`);
+          }
+        }
+      }
+    }
+
     if (isSupabaseConfigured()) {
       const supabase = await getSupabase();
 
@@ -1581,6 +1608,14 @@ export async function callJmcwcApi(payload) {
 
 async function loadJmcwcOverviewAndAttempts() {
   const groupBadge = document.getElementById('jmcwc-assigned-group-badge');
+  if (currentProfile?.id) {
+    try {
+      jmcwcEffectiveAccess = await fetchStudentEffectiveAccess(currentProfile.id);
+    } catch (accessErr) {
+      console.warn('Could not load student effective access for JMCWC:', accessErr);
+    }
+  }
+
   if (!isSupabaseConfigured()) {
     // In Demo Mode or unconfigured environment, online practice remains unavailable
     jmcwcOverviewData = {
@@ -1647,7 +1682,11 @@ function showJmcwcOnlineError(msg) {
 }
 
 function renderJmcwcLandingState() {
-  const vm = buildLandingPageViewModel(jmcwcOverviewData || {}, jmcwcOnlineAttempts || []);
+  const vm = buildLandingPageViewModel(
+    jmcwcOverviewData || {},
+    jmcwcOnlineAttempts || [],
+    jmcwcEffectiveAccess
+  );
 
   const topGroupBadge = document.getElementById('jmcwc-assigned-group-badge');
   const onlineGroupLabel = document.getElementById('jmcwc-online-group-label');
@@ -1657,17 +1696,25 @@ function renderJmcwcLandingState() {
   const unavailableText = document.getElementById('jmcwc-unavailable-text');
 
   if (topGroupBadge) {
-    topGroupBadge.textContent = vm.hasGroup
-      ? `JMCWC Group: ${vm.groupLabel}`
-      : 'JMCWC Group: Unassigned';
-    topGroupBadge.className = vm.hasGroup ? 'badge badge-primary' : 'badge badge-neutral';
+    if (vm.mainRoundRestricted) {
+      topGroupBadge.textContent = 'JMCWC: Practice Restricted';
+      topGroupBadge.className = 'badge badge-warning';
+    } else {
+      topGroupBadge.textContent = vm.hasGroup
+        ? `JMCWC Group: ${vm.groupLabel}`
+        : 'JMCWC Group: Unassigned';
+      topGroupBadge.className = vm.hasGroup ? 'badge badge-primary' : 'badge badge-neutral';
+    }
   }
   if (onlineGroupLabel) {
     onlineGroupLabel.textContent = vm.groupLabel;
   }
 
   if (unassignedBanner && unassignedText) {
-    if (!vm.hasGroup) {
+    if (vm.mainRoundRestricted) {
+      unassignedText.textContent = vm.mainRoundRestrictedMessage || 'Main Round competition practice is currently restricted for your account.';
+      unassignedBanner.style.display = 'flex';
+    } else if (!vm.hasGroup) {
       unassignedText.textContent = vm.unassignedMessage || JMCWC_UNASSIGNED_GROUP_MESSAGE;
       unassignedBanner.style.display = 'flex';
     } else {
@@ -1767,6 +1814,7 @@ function renderJmcwcLandingState() {
 
   if (btnStartCat) {
     btnStartCat.disabled = !vm.canStartCategory || vm.categories.length === 0;
+    btnStartCat.title = vm.categoryDisabledReason || (vm.categories.length === 0 ? 'No categories available' : 'Start category practice');
   }
 
   // Unfinished Flat Round cards

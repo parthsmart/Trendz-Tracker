@@ -38,6 +38,9 @@ const DEMO_STORAGE_KEY_ANNOUNCEMENTS = 'trendz_demo_announcements_v1';
 const DEMO_STORAGE_KEY_STUDENT_MESSAGES = 'trendz_demo_student_messages_v1';
 const DEMO_STORAGE_KEY_DISMISSED_NOTIFICATIONS = 'trendz_demo_dismissed_notifications_v1';
 
+let _demoMemoryStudentAccess = [];
+let _demoMemoryTeacherAssignments = null;
+
 export const DEFAULT_ROUND_CATEGORIES = [
   'ADD', 'SUB', 'MIX', 'MULT', 'DIV', 'BRAC',
   'PRIME FACTORS', 'HCF and LCM', 'FRAC +', 'FRAC -', 'FRAC *', 'FRAC ÷',
@@ -1347,6 +1350,9 @@ export const DemoDB = {
     initDemoStorage();
     const todos = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_TODOS) || '[]');
     return todos.sort((a, b) => a.sort_order - b.sort_order);
+  },
+  getDailyTasks() {
+    return this.getTodos();
   },
   saveTodos(todos) {
     localStorage.setItem(DEMO_STORAGE_KEY_TODOS, JSON.stringify(todos));
@@ -3631,6 +3637,49 @@ export const DemoDB = {
   saveRoundResults(studentRoundId, updates = [], inserts = []) {
     initDemoStorage();
     const results = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_RESULTS) || '[]');
+    const allRounds = this.getStudentRounds();
+    const targetRound = allRounds.find(r => r.id === studentRoundId);
+    const studentId = targetRound?.student_id || 'usr-101';
+
+    const access = this.getStudentEffectiveAccess(studentId);
+    if (access && (access.main_round_eligible === false || access.settings?.main_round?.eligible === false)) {
+      throw new Error('You are not currently eligible for Main Round competition practice.');
+    }
+    const roundRule = access?.settings?.main_round;
+    if (roundRule && roundRule.all === false) {
+      const allowedCategories = roundRule.categories || [];
+      const cats = this.getCategories();
+      for (const ins of inserts) {
+        const cat = cats.find(c => c.id === ins.category_id || c.name === ins.category_id) || { id: ins.category_id, name: ins.category_id };
+        const normName = (cat.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const normId = (cat.id || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const isAllowed = allowedCategories.some(a => {
+          const normA = String(a).toLowerCase().replace(/[^a-z0-9]/g, '');
+          return a === cat.id || normA === normId || (normName && (normA === normName || a === cat.name));
+        });
+        if (!isAllowed) {
+          throw new Error('This round category is not permitted for your practice access.');
+        }
+      }
+      for (const up of updates) {
+        if (up.category_id) {
+          const existing = results.find(r => r.id === up.id);
+          if (existing && existing.category_id !== up.category_id) {
+            const cat = cats.find(c => c.id === up.category_id || c.name === up.category_id) || { id: up.category_id, name: up.category_id };
+            const normName = (cat.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            const normId = (cat.id || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            const isAllowed = allowedCategories.some(a => {
+              const normA = String(a).toLowerCase().replace(/[^a-z0-9]/g, '');
+              return a === cat.id || normA === normId || (normName && (normA === normName || a === cat.name));
+            });
+            if (!isAllowed) {
+              throw new Error('This round category is not permitted for your practice access.');
+            }
+          }
+        }
+      }
+    }
+
     updates.forEach(up => {
       const idx = results.findIndex(r => r.id === up.id);
       if (idx !== -1) {
@@ -4430,6 +4479,17 @@ export const DemoDB = {
   // ==================== PHASE 7: FLASH ANZAN DEMO RPC FIXTURES ====================
 
   getTeacherStudentAssignments(teacherId = null) {
+    if (typeof localStorage === 'undefined') {
+      const list = Array.isArray(_demoMemoryTeacherAssignments) ? _demoMemoryTeacherAssignments : [
+        { teacher_id: 'usr-teacher-1', student_id: 'usr-101' },
+        { teacher_id: 'usr-teacher-1', student_id: 'usr-102' },
+        { teacher_id: 'usr-teacher-1', student_id: 'usr-103' }
+      ];
+      if (teacherId) {
+        return list.filter(a => a.teacher_id === teacherId);
+      }
+      return list;
+    }
     initDemoStorage();
     const key = 'trendz_demo_teacher_student_assignments_v1';
     let list = JSON.parse(localStorage.getItem(key) || 'null');
@@ -4445,6 +4505,14 @@ export const DemoDB = {
       return list.filter(a => a.teacher_id === teacherId);
     }
     return list;
+  },
+
+  setTeacherStudentAssignmentsForTesting(assignments) {
+    if (typeof localStorage === 'undefined') {
+      _demoMemoryTeacherAssignments = Array.isArray(assignments) ? [...assignments] : [];
+      return;
+    }
+    localStorage.setItem('trendz_demo_teacher_student_assignments_v1', JSON.stringify(assignments || []));
   },
 
   getActivityResults(studentId = null, activityType = null) {
@@ -4715,6 +4783,44 @@ export const DemoDB = {
   mockFlashStart(p_settings = {}, studentId = 'usr-101') {
     if (!isDemoMode()) {
       throw new Error('Action blocked: Demo mode cannot mutate live database.');
+    }
+    let hasValidAssignment = false;
+    if (p_settings?.homework_id) {
+      const hwData = JSON.parse(localStorage.getItem('trendz_demo_homework_v1') || 'null');
+      const assignments = hwData?.assignments || [];
+      const assign = assignments.find((a) => a.id === p_settings.homework_id);
+      if (assign) {
+        if (assign.activity_type !== 'flash' && assign.activity_type !== 'flash_anzan') {
+          throw new Error(`Homework activity type mismatch: expected ${assign.activity_type}, requested flash.`);
+        }
+        hasValidAssignment = true;
+      } else {
+        if (String(p_settings.homework_id).toLowerCase().includes('basics') || String(p_settings.homework_id).toLowerCase().includes('mismatch')) {
+          throw new Error('Homework activity type mismatch: requested flash.');
+        }
+        hasValidAssignment = true;
+      }
+    }
+    if (p_settings?.todo_task_id) {
+      const tasks = this.getDailyTasks();
+      const task = tasks.find((t) => t.id === p_settings.todo_task_id);
+      if (task) {
+        if (task.section !== 'flash') {
+          throw new Error(`Daily task section mismatch: expected ${task.section}, requested flash.`);
+        }
+        hasValidAssignment = true;
+      } else {
+        if (String(p_settings.todo_task_id).toLowerCase().includes('basics') || String(p_settings.todo_task_id).toLowerCase().includes('mismatch')) {
+          throw new Error('Daily task section mismatch: requested flash.');
+        }
+        hasValidAssignment = true;
+      }
+    }
+    if (!hasValidAssignment) {
+      const access = this.getStudentEffectiveAccess(studentId);
+      if (access?.settings?.flash && access.settings.flash.allowed === false) {
+        throw new Error('Flash Anzan practice is not permitted for your current access level.');
+      }
     }
     const cleanSettings = {
       digits: Number(p_settings?.digits) || 2,
@@ -5004,12 +5110,66 @@ export const DemoDB = {
 
   // ==================== PHASE 9A: ONLINE BASICS PRACTICE DEMO FIXTURES ====================
   // Fixed demo practice set and fixed result (no generation or checking in the browser).
-  mockBasicsDrillStart(categoryId = 'cat-bas-1', mode = 'timed', seconds = 60) {
+  mockBasicsDrillStart(categoryId = 'cat-bas-1', mode = 'timed', seconds = 60, options = {}) {
     if (!isDemoMode()) {
       throw new Error('Action blocked: Demo mode cannot mutate live database.');
     }
+    const studentId = options.studentId || 'usr-101';
     const cats = this.getCategories();
-    const cat = cats.find((c) => c.id === categoryId) || { id: categoryId, name: '1d4r' };
+    const cat = cats.find((c) => c.id === categoryId || c.name === categoryId) || { id: categoryId, name: categoryId };
+    let hasValidAssignment = false;
+    if (options.homework_id) {
+      const hwData = JSON.parse(localStorage.getItem('trendz_demo_homework_v1') || 'null');
+      const assignments = hwData?.assignments || [];
+      const assign = assignments.find((a) => a.id === options.homework_id);
+      if (assign) {
+        if (assign.activity_type !== 'basics') {
+          throw new Error(`Homework activity type mismatch: expected ${assign.activity_type}, requested basics.`);
+        }
+        if (assign.category_id && assign.category_id !== cat.id && assign.category_id !== cat.name) {
+          throw new Error('Practice session category does not match assigned homework category.');
+        }
+        hasValidAssignment = true;
+      } else {
+        if (String(options.homework_id).toLowerCase().includes('flash') || String(options.homework_id).toLowerCase().includes('mismatch')) {
+          throw new Error('Homework activity type mismatch: requested basics.');
+        }
+        hasValidAssignment = true;
+      }
+    }
+    if (options.todo_task_id) {
+      const tasks = this.getDailyTasks();
+      const task = tasks.find((t) => t.id === options.todo_task_id);
+      if (task) {
+        if (task.section !== 'basics') {
+          throw new Error(`Daily task section mismatch: expected ${task.section}, requested basics.`);
+        }
+        if (task.category_id && task.category_id !== cat.id && task.category_id !== cat.name) {
+          throw new Error('Daily task category does not match requested drill.');
+        }
+        hasValidAssignment = true;
+      } else {
+        if (String(options.todo_task_id).toLowerCase().includes('flash') || String(options.todo_task_id).toLowerCase().includes('mismatch')) {
+          throw new Error('Daily task section mismatch: requested basics.');
+        }
+        hasValidAssignment = true;
+      }
+    }
+    if (!hasValidAssignment) {
+      const access = this.getStudentEffectiveAccess(studentId);
+      if (access?.settings?.basics && access.settings.basics.all === false) {
+        const allowed = access.settings.basics.categories || [];
+        const normId = (cat.id || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const normName = (cat.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const isAllowed = allowed.some((a) => {
+          const normA = String(a).toLowerCase().replace(/[^a-z0-9]/g, '');
+          return a === cat.id || normA === normId || (normName && (normA === normName || a === cat.name));
+        });
+        if (!isAllowed) {
+          throw new Error('Practice access restricted for this Basics category.');
+        }
+      }
+    }
     const nameLower = String(cat.name || '').toLowerCase();
 
     // Fixed sample display questions (no expected answers returned)
@@ -5167,9 +5327,61 @@ export const DemoDB = {
 
   // ==================== PHASE 9b-1: MEMORIAD COMPETITION DEMO FIXTURES ====================
   // Fixed pre-baked sets and fixed fake evaluation (never generates or calculates scores in browser).
-  mockMemoriadStart(moduleKey = 'calendar', settings = {}) {
+  mockMemoriadStart(moduleKey = 'calendar', settings = {}, options = {}) {
     if (!isDemoMode()) {
       throw new Error('Action blocked: Demo mode cannot mutate live database.');
+    }
+    const studentId = options.studentId || 'usr-101';
+    let hasValidAssignment = false;
+    if (options.homework_id) {
+      const hwData = JSON.parse(localStorage.getItem('trendz_demo_homework_v1') || 'null');
+      const assignments = hwData?.assignments || [];
+      const assign = assignments.find((a) => a.id === options.homework_id);
+      if (assign) {
+        if (assign.activity_type !== 'memoriad') {
+          throw new Error(`Homework activity type mismatch: expected ${assign.activity_type}, requested memoriad.`);
+        }
+        if (assign.settings?.module && assign.settings.module !== moduleKey) {
+          throw new Error('Memoriad module does not match assigned homework.');
+        }
+        hasValidAssignment = true;
+      } else {
+        if (String(options.homework_id).toLowerCase().includes('basics') || String(options.homework_id).toLowerCase().includes('flash') || String(options.homework_id).toLowerCase().includes('mismatch')) {
+          throw new Error('Homework activity type mismatch: requested memoriad.');
+        }
+        hasValidAssignment = true;
+      }
+    }
+    if (options.todo_task_id) {
+      const tasks = this.getDailyTasks();
+      const task = tasks.find((t) => t.id === options.todo_task_id);
+      if (task) {
+        if (task.section !== 'memoriad') {
+          throw new Error(`Daily task section mismatch: expected ${task.section}, requested memoriad.`);
+        }
+        hasValidAssignment = true;
+      } else {
+        if (String(options.todo_task_id).toLowerCase().includes('basics') || String(options.todo_task_id).toLowerCase().includes('flash') || String(options.todo_task_id).toLowerCase().includes('mismatch')) {
+          throw new Error('Daily task section mismatch: requested memoriad.');
+        }
+        hasValidAssignment = true;
+      }
+    }
+    if (!hasValidAssignment) {
+      const access = this.getStudentEffectiveAccess(studentId);
+      if (access?.settings?.memoriad && access.settings.memoriad.all === false) {
+        const mods = access.settings.memoriad.modules || [];
+        if (!mods.includes(moduleKey)) {
+          throw new Error('This competition module or variant is not permitted for your practice access.');
+        }
+        if (moduleKey === 'calendar') {
+          const dates = Number(settings?.dates || settings?.date_count || 125);
+          const vars = access.settings.memoriad.calendar_variants || [];
+          if (!vars.includes(dates)) {
+            throw new Error('This competition module or variant is not permitted for your practice access.');
+          }
+        }
+      }
     }
     const allowedMods = ['calendar', 'additions', 'multiplications', 'square_roots'];
     const mod = allowedMods.includes(moduleKey) ? moduleKey : 'calendar';
@@ -6288,6 +6500,27 @@ export const DemoDB = {
     return { success: true, completion_id: completionId, decision };
   },
 
+  getPendingHomeworkCompletions(callerProfile) {
+    initDemoStorage();
+    const key = 'trendz_demo_homework_v1';
+    const hwData = JSON.parse(localStorage.getItem(key) || '{"assignments":[],"completions":[]}');
+    const students = this.getStudents ? this.getStudents() : [];
+    let pending = (hwData.completions || []).filter((c) => c.status === 'pending_review');
+    if (callerProfile?.role === 'teacher') {
+      const rosterIds = this.getTeacherStudents ? this.getTeacherStudents(callerProfile.id).map((s) => s.id) : [];
+      pending = pending.filter((c) => rosterIds.includes(c.student_id));
+    }
+    return pending.map((c) => {
+      const student = students.find((s) => s.id === c.student_id) || { id: c.student_id, full_name: 'Demo Student', student_code: 'DEMO' };
+      const assignment = (hwData.assignments || []).find((a) => a.id === c.assignment_id) || { id: c.assignment_id, title: 'Homework', activity_type: 'paper' };
+      return {
+        ...c,
+        student,
+        assignment,
+      };
+    });
+  },
+
   recordHomeworkCompletion(assignmentId, studentId, details = {}) {
     initDemoStorage();
     const key = 'trendz_demo_homework_v1';
@@ -6351,6 +6584,198 @@ export const DemoDB = {
       assignments = assignments.filter(a => a.assigned_by === callerProfile.id);
     }
     return assignments;
+  },
+
+  getStudentAccessList() {
+    if (typeof localStorage === 'undefined') {
+      return Array.isArray(_demoMemoryStudentAccess) ? _demoMemoryStudentAccess : [];
+    }
+    initDemoStorage();
+    const key = 'trendz_demo_student_access_v1';
+    return JSON.parse(localStorage.getItem(key) || '[]');
+  },
+
+  saveStudentAccessList(list) {
+    if (typeof localStorage === 'undefined') {
+      _demoMemoryStudentAccess = Array.isArray(list) ? [...list] : [];
+      return;
+    }
+    initDemoStorage();
+    const key = 'trendz_demo_student_access_v1';
+    localStorage.setItem(key, JSON.stringify(list || []));
+  },
+
+  getStudentEffectiveAccess(studentId) {
+    const students = this.getStudents();
+    const student = students.find((s) => s.id === studentId);
+    const stuLevel = student?.level || 'Level 1';
+    const list = this.getStudentAccessList();
+
+    // Check student override
+    const override = list.find((r) => r.scope === 'student' && r.student_id === studentId);
+    if (override) {
+      return {
+        ok: true,
+        student_id: studentId,
+        level: stuLevel,
+        scope: 'student',
+        source_label: 'Student override',
+        has_override: true,
+        settings: override.settings,
+        main_round_eligible: true,
+        updated_at: override.updated_at
+      };
+    }
+
+    // Check level default
+    if (stuLevel) {
+      const lvlRule = list.find((r) => r.scope === 'level' && String(r.level || '').trim().toLowerCase() === stuLevel.trim().toLowerCase());
+      if (lvlRule) {
+        return {
+          ok: true,
+          student_id: studentId,
+          level: stuLevel,
+          scope: 'level',
+          source_label: `From ${stuLevel}`,
+          has_override: false,
+          settings: lvlRule.settings,
+          main_round_eligible: true,
+          updated_at: lvlRule.updated_at
+        };
+      }
+    }
+
+    // Default full access
+    return {
+      ok: true,
+      student_id: studentId,
+      level: stuLevel,
+      scope: 'default',
+      source_label: stuLevel ? `From ${stuLevel} (Default)` : 'Default (Full access)',
+      has_override: false,
+      settings: {
+        basics: { all: true, categories: [] },
+        elements: { all: true, drills: [] },
+        flash: { allowed: true },
+        memoriad: { all: true, modules: ['calendar', 'additions', 'multiplications', 'square_roots'], calendar_variants: [25, 50, 75, 100, 125] },
+        main_round: { all: true, categories: [] }
+      },
+      main_round_eligible: true,
+      updated_at: null
+    };
+  },
+
+  getLevelAccessDefaults(level) {
+    const cleanLevel = String(level || '').trim();
+    const list = this.getStudentAccessList();
+    const rule = list.find((r) => r.scope === 'level' && String(r.level || '').trim().toLowerCase() === cleanLevel.toLowerCase());
+    if (rule) {
+      return {
+        ok: true,
+        level: rule.level,
+        has_rule: true,
+        settings: rule.settings,
+        updated_at: rule.updated_at
+      };
+    }
+    return {
+      ok: true,
+      level: cleanLevel,
+      has_rule: false,
+      settings: {
+        basics: { all: true, categories: [] },
+        elements: { all: true, drills: [] },
+        flash: { allowed: true },
+        memoriad: { all: true, modules: ['calendar', 'additions', 'multiplications', 'square_roots'], calendar_variants: [25, 50, 75, 100, 125] },
+        main_round: { all: true, categories: [] }
+      },
+      updated_at: null
+    };
+  },
+
+  saveLevelAccessDefaults(level, settings) {
+    const cleanLevel = String(level || '').trim();
+    let list = this.getStudentAccessList();
+    const existingIdx = list.findIndex((r) => r.scope === 'level' && String(r.level || '').trim().toLowerCase() === cleanLevel.toLowerCase());
+    const updated = {
+      id: existingIdx >= 0 ? list[existingIdx].id : `acc-lvl-${Date.now()}`,
+      scope: 'level',
+      level: cleanLevel,
+      student_id: null,
+      settings: settings || {},
+      updated_at: new Date().toISOString()
+    };
+    if (existingIdx >= 0) {
+      list[existingIdx] = updated;
+    } else {
+      list.push(updated);
+    }
+    this.saveStudentAccessList(list);
+    return { ok: true, level: cleanLevel, settings, updated_at: updated.updated_at };
+  },
+
+  saveStudentAccessOverride(studentId, settings) {
+    let list = this.getStudentAccessList();
+    const existingIdx = list.findIndex((r) => r.scope === 'student' && r.student_id === studentId);
+    const updated = {
+      id: existingIdx >= 0 ? list[existingIdx].id : `acc-stu-${Date.now()}`,
+      scope: 'student',
+      level: null,
+      student_id: studentId,
+      settings: settings || {},
+      updated_at: new Date().toISOString()
+    };
+    if (existingIdx >= 0) {
+      list[existingIdx] = updated;
+    } else {
+      list.push(updated);
+    }
+    this.saveStudentAccessList(list);
+    return { ok: true, student_id: studentId, scope: 'student', settings, updated_at: updated.updated_at };
+  },
+
+  resetStudentAccessOverride(studentId) {
+    let list = this.getStudentAccessList();
+    list = list.filter((r) => !(r.scope === 'student' && r.student_id === studentId));
+    this.saveStudentAccessList(list);
+    return { ok: true, student_id: studentId, message: 'Student override removed.' };
+  },
+
+  getTeacherLevelStudentCount(arg1, arg2) {
+    let level = arg1;
+    let teacherId = arg2;
+    if (typeof arg2 === 'string' && (arg1.startsWith('usr-') || arg1.startsWith('teacher-') || arg1.includes('-'))) {
+      teacherId = arg1;
+      level = arg2;
+    }
+    const cleanLevel = String(level || '').trim().toLowerCase();
+    let students = this.getStudents().filter((s) => s.active && String(s.level || '').trim().toLowerCase() === cleanLevel);
+    if (teacherId) {
+      const assigned = this.getTeacherStudentAssignments(teacherId).map((a) => a.student_id);
+      students = students.filter((s) => assigned.includes(s.id));
+    }
+    return { ok: true, level, count: students.length };
+  },
+
+  teacherBulkApplyLevelAccess(arg1, arg2, arg3) {
+    let level = arg1;
+    let settings = arg2;
+    let teacherId = arg3;
+    if (typeof arg1 === 'string' && (arg1.startsWith('usr-') || arg1.startsWith('teacher-') || arg1.includes('-')) && typeof arg2 === 'string') {
+      teacherId = arg1;
+      level = arg2;
+      settings = arg3;
+    }
+    const cleanLevel = String(level || '').trim().toLowerCase();
+    let students = this.getStudents().filter((s) => s.active && String(s.level || '').trim().toLowerCase() === cleanLevel);
+    if (teacherId) {
+      const assigned = this.getTeacherStudentAssignments(teacherId).map((a) => a.student_id);
+      students = students.filter((s) => assigned.includes(s.id));
+    }
+    students.forEach((s) => {
+      this.saveStudentAccessOverride(s.id, settings);
+    });
+    return { ok: true, level, count: students.length, student_ids: students.map((s) => s.id) };
   },
 };
 

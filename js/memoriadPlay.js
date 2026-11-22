@@ -38,6 +38,7 @@ import {
   toAnswerString,
 } from './answerSlots.js';
 import { highlightedColumns, normalizeColumnsPerStep } from './columnHighlight.js';
+import { fetchStudentEffectiveAccess, isMemoriadAllowed } from './studentAccess.js';
 import {
   pressMultStepKey,
   getMultCheckedBoxes,
@@ -158,6 +159,7 @@ let activeModuleKey = 'calendar';
 let currentSettings = {};
 let phase = 'settings'; // 'settings' | 'concentration' | 'stage' | 'results'
 let activeTodoTaskId = null;
+let memoriadAccessSettings = null;
 
 // Weekly Test runner state (?test=<id>&section=<id>)
 let isTestMode = false;
@@ -256,6 +258,20 @@ async function initMemoriadPlay() {
 
   activeModuleKey = requestedModule;
   currentSettings = loadModuleSettings(activeModuleKey);
+
+  const hasAssignmentException = Boolean(activeTodoTaskId) || Boolean(params.get('homework_id'));
+  if (currentProfile?.role === 'student' && !isTestMode && !hasAssignmentException) {
+    try {
+      const isDemo = isDemoMode();
+      const supabase = isSupabaseConfigured() ? await getSupabase() : null;
+      const accessRes = await fetchStudentEffectiveAccess(currentProfile.id, { supabase, isDemo, DemoDB });
+      if (accessRes?.ok) {
+        memoriadAccessSettings = accessRes.settings?.memoriad || null;
+      }
+    } catch {
+      // Non-blocking fallback
+    }
+  }
 
   window.addEventListener('keydown', handleGlobalStageKeydown);
   if (activeTodoTaskId) {
@@ -439,6 +455,23 @@ function renderSettingsView() {
 
   const meta = MODULE_META[activeModuleKey];
 
+  if (memoriadAccessSettings && !isMemoriadAllowed(activeModuleKey, null, memoriadAccessSettings)) {
+    viewRoot.innerHTML = `
+      <div style="max-width: 680px; margin: var(--space-6) auto; padding: 0 var(--space-4);">
+        <div class="card" style="padding: var(--space-6); text-align: center;">
+          <h1 style="font-size: 1.35rem; margin-bottom: var(--space-2);">${escapeHtml(meta.title)}</h1>
+          <div class="banner banner-error" style="margin-bottom: var(--space-4);">
+            This competition module is not permitted for your current practice access.
+          </div>
+          <a href="/pages/memoriad.html" class="btn btn-primary" style="text-decoration: none;">
+            &larr; Back to Memoriad
+          </a>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
   const dayOptionsHtml = (selectedIdx) =>
     DAY_LABELS.full
       .map(
@@ -451,12 +484,18 @@ function renderSettingsView() {
 
   if (activeModuleKey === 'calendar') {
     const s = currentSettings;
+    const allowedDates = memoriadAccessSettings && memoriadAccessSettings.all === false && Array.isArray(memoriadAccessSettings.calendar_variants) && memoriadAccessSettings.calendar_variants.length > 0
+      ? memoriadAccessSettings.calendar_variants
+      : [25, 50, 75, 100, 125];
+    if (!allowedDates.includes(Number(s.dates))) {
+      s.dates = allowedDates[0];
+    }
     moduleSpecificFieldsHtml = `
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--space-4);">
         <div class="form-group">
           <label for="setting-dates" class="form-label">Number of dates</label>
           <select id="setting-dates" class="form-control">
-            ${[25, 50, 75, 100, 125]
+            ${allowedDates
               .map(
                 (n) =>
                   `<option value="${n}" ${Number(s.dates) === n ? 'selected' : ''}>${n} dates</option>`

@@ -339,7 +339,11 @@ export function computeMonotonicTimerState({
 /**
  * Builds the landing page view-model from the server `status` response.
  */
-export function buildLandingPageViewModel(statusPayload = {}, extraAttempts = null) {
+export function buildLandingPageViewModel(
+  statusPayload = {},
+  extraAttempts = null,
+  studentAccess = null
+) {
   const rawGroup = statusPayload?.group_key ?? statusPayload?.assigned_group ?? null;
   const assigned = Boolean(
     (statusPayload?.assigned !== false && rawGroup) ||
@@ -416,6 +420,34 @@ export function buildLandingPageViewModel(statusPayload = {}, extraAttempts = nu
     };
   });
 
+  const isEligible = studentAccess
+    ? studentAccess.main_round_eligible !== false &&
+      studentAccess.settings?.main_round?.eligible !== false
+    : true;
+
+  let effectiveCategories = categories;
+  let categoryAccessRestricted = false;
+  let flatPaperAccessRestricted = false;
+
+  if (isEligible && studentAccess?.settings?.main_round?.categories && Array.isArray(studentAccess.settings.main_round.categories)) {
+    const allowedCatKeys = studentAccess.settings.main_round.categories.map((k) => String(k).trim().toLowerCase());
+    effectiveCategories = categories.filter((c) =>
+      allowedCatKeys.includes(String(c.key).trim().toLowerCase()) ||
+      allowedCatKeys.includes(String(c.id).trim().toLowerCase())
+    );
+    if (effectiveCategories.length === 0) {
+      categoryAccessRestricted = true;
+    }
+
+    const paperCatKeys = paperSections.length > 0
+      ? paperSections.map((s) => String(s.category_key || s.key).trim().toLowerCase())
+      : categories.map((c) => String(c.key).trim().toLowerCase());
+    const hasAll = paperCatKeys.length > 0 && paperCatKeys.every((k) => allowedCatKeys.includes(k));
+    if (!hasAll) {
+      flatPaperAccessRestricted = true;
+    }
+  }
+
   const unfinishedFlatAttempts = attempts.filter(
     (a) => a && a.mode === 'flat' && a.status !== 'submitted'
   );
@@ -426,17 +458,32 @@ export function buildLandingPageViewModel(statusPayload = {}, extraAttempts = nu
 
   const unfinishedFlatCount = unfinishedFlatAttempts.length;
   const flatCapReached = unfinishedFlatCount >= JMCWC_FLAT_CAP_LIMIT;
-  const canStartNewFlat = assigned && paperAvailable && !flatCapReached;
-  const canStartCategory = assigned && paperAvailable && categories.length > 0;
+  const canStartNewFlat = assigned && paperAvailable && !flatCapReached && isEligible && !flatPaperAccessRestricted;
+  const canStartCategory = assigned && paperAvailable && effectiveCategories.length > 0 && isEligible;
 
   let flatDisabledReason = null;
-  if (!assigned) {
+  if (!isEligible) {
+    flatDisabledReason = 'Main Round competition practice is currently restricted for your account.';
+  } else if (!assigned) {
     flatDisabledReason = JMCWC_UNASSIGNED_MESSAGE;
   } else if (!paperAvailable) {
     flatDisabledReason =
       statusPayload?.message || 'Online practice is currently unavailable while papers await publication.';
   } else if (flatCapReached) {
     flatDisabledReason = JMCWC_FLAT_CAP_MESSAGE;
+  } else if (flatPaperAccessRestricted) {
+    flatDisabledReason = 'Full paper practice requires access to all categories in this paper. Some categories are currently restricted.';
+  }
+
+  let categoryDisabledReason = null;
+  if (!isEligible) {
+    categoryDisabledReason = 'Main Round competition practice is currently restricted for your account.';
+  } else if (!assigned) {
+    categoryDisabledReason = JMCWC_UNASSIGNED_MESSAGE;
+  } else if (!paperAvailable) {
+    categoryDisabledReason = 'Online practice is currently unavailable while papers await publication.';
+  } else if (categoryAccessRestricted) {
+    categoryDisabledReason = 'No Main Round categories are currently permitted for your practice access.';
   }
 
   const unfinishedFlatCards = unfinishedFlatAttempts.map((att) => {
@@ -515,11 +562,16 @@ export function buildLandingPageViewModel(statusPayload = {}, extraAttempts = nu
     canStartCategory,
     flatDisabledReason,
     newFlatDisabledReason: flatDisabledReason,
+    categoryDisabledReason,
+    mainRoundRestricted: !isEligible,
+    mainRoundRestrictedMessage: !isEligible
+      ? 'Main Round competition practice is currently restricted for your account.'
+      : null,
     unfinishedFlatCards,
     unfinishedCategoryAttempts,
     unfinishedCategoryCards,
     submittedAttempts,
-    categories,
+    categories: effectiveCategories,
     targets,
   };
 }

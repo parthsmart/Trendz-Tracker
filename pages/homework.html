@@ -5,11 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Homework Management &mdash; Trendz Tracker</title>
     <link rel="stylesheet" href="/css/style.css" />
+      <!-- Progressive Web App & Icons -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#2563EB" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Trendz Tracker" />
@@ -236,6 +237,39 @@
                 </button>
               </div>
             </form>
+          </div>
+
+          <!-- Pending Homework Submissions Card -->
+          <div class="card" id="card-pending-homework" style="margin-bottom: var(--space-6); padding: var(--space-5);">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3); margin-bottom: var(--space-4);">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <h2 style="font-size: var(--text-base); font-weight: 700; margin: 0;">
+                  Pending Homework Submissions
+                </h2>
+              </div>
+              <span id="pending-homework-count-badge" class="badge">Loading...</span>
+            </div>
+
+            <div class="table-container">
+              <table class="data-table" aria-label="Pending Homework Submissions">
+                <thead>
+                  <tr>
+                    <th>Student</th>
+                    <th>Assignment Title</th>
+                    <th>Submitted (IST)</th>
+                    <th>Notes / Evidence</th>
+                    <th style="text-align: right;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="pending-homework-table-body">
+                  <tr>
+                    <td colspan="5" style="text-align: center; color: var(--text-muted); padding: var(--space-4);">
+                      Loading pending submissions...
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
 
           <!-- Existing Assignments List with Tab Controls -->

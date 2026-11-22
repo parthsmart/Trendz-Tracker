@@ -368,6 +368,24 @@ function createTestAdminSupabase(db) {
         const res = await db.query('SELECT public.today_ist()::TEXT AS d;');
         return { data: String(res.rows[0].d).trim(), error: null };
       }
+      if (fn === 'get_student_effective_access') {
+        return {
+          data: {
+            ok: true,
+            student_id: args?.p_student_id,
+            scope: 'default',
+            source_label: 'Default (Full access)',
+            settings: {
+              basics: { all: true, categories: [] },
+              elements: { all: true, drills: [] },
+              flash: { allowed: true },
+              memoriad: { all: true, modules: [], calendar_variants: [25, 50, 75, 100, 125] },
+              main_round: { all: true, categories: [] },
+            },
+          },
+          error: null,
+        };
+      }
       return { data: null, error: null };
     },
     setNextUpdateError(table, error) {

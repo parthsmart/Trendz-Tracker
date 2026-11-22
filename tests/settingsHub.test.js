@@ -29,7 +29,7 @@ test('filterSettingsEntries filters by group and search query case-insensitively
   const practice = filterSettingsEntries(SETTINGS_ENTRIES, '', 'practice');
   assert.deepEqual(
     practice.map(e => e.id),
-    ['todos', 'targets', 'categories', 'resources', 'homework']
+    ['todos', 'targets', 'categories', 'resources', 'homework', 'student-access']
   );
 
   const backupQuery = filterSettingsEntries(SETTINGS_ENTRIES, 'JSON', 'all');
