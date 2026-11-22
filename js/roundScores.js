@@ -402,9 +402,24 @@ async function handleStartTodayRound() {
   btnText.innerHTML = '<span class="spinner" style="margin-right: 6px;"></span> Starting...';
 
   try {
-    if (jmcwcEffectiveAccess && (jmcwcEffectiveAccess.main_round_eligible === false || jmcwcEffectiveAccess.settings?.main_round?.eligible === false)) {
-      showToast('error', 'Main Round competition practice is currently restricted for your account.');
-      return;
+    if (isSupabaseConfigured()) {
+      if (!jmcwcEffectiveAccess || jmcwcEffectiveAccess.ok === false) {
+        showToast('error', 'Could not verify practice access. Please try again.');
+        return;
+      }
+      if (jmcwcEffectiveAccess.main_round_eligible === false || jmcwcEffectiveAccess.settings?.main_round?.eligible === false) {
+        showToast('error', 'Main Round competition practice is currently restricted for your account.');
+        return;
+      }
+    } else if (jmcwcEffectiveAccess) {
+      if (jmcwcEffectiveAccess.ok === false) {
+        showToast('error', 'Could not verify practice access. Please try again.');
+        return;
+      }
+      if (jmcwcEffectiveAccess.main_round_eligible === false || jmcwcEffectiveAccess.settings?.main_round?.eligible === false) {
+        showToast('error', 'Main Round competition practice is currently restricted for your account.');
+        return;
+      }
     }
 
     const typeSelect = document.getElementById('input-round-type');
@@ -1164,9 +1179,13 @@ async function saveRoundScores() {
     }
 
     // Validate student practice access for Main Round
+    const client = isSupabaseConfigured() ? await getSupabase() : null;
     const accessRes = isSupabaseConfigured()
-      ? await fetchStudentEffectiveAccess(currentProfile.id, { supabase: await getSupabase() })
+      ? await fetchStudentEffectiveAccess(currentProfile.id, { supabase: client, isDemo: !isSupabaseConfigured(), DemoDB })
       : DemoDB?.getStudentEffectiveAccess?.(currentProfile.id);
+    if (accessRes && accessRes.ok === false) {
+      throw new Error(accessRes.error || 'Could not verify practice access. Please try again.');
+    }
     if (accessRes?.ok) {
       if (accessRes.main_round_eligible === false || accessRes.settings?.main_round?.eligible === false) {
         throw new Error('You are not currently eligible for Main Round competition practice.');
@@ -1606,13 +1625,74 @@ export async function callJmcwcApi(payload) {
   return data;
 }
 
+function showJmcwcAccessRetryBanner(msg) {
+  let banner = document.getElementById('jmcwc-access-retry-banner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'jmcwc-access-retry-banner';
+    banner.className = 'banner banner-warning';
+    banner.style.margin = 'var(--space-3) 0';
+    banner.style.display = 'flex';
+    banner.style.justifyContent = 'space-between';
+    banner.style.alignItems = 'center';
+    banner.style.flexWrap = 'wrap';
+    banner.style.gap = 'var(--space-2)';
+    const tablist = document.querySelector('div[role="tablist"][aria-label="Main Round Mode"]');
+    if (tablist && tablist.parentNode) {
+      tablist.parentNode.insertBefore(banner, tablist.nextSibling);
+    } else {
+      const pane = document.getElementById('jmcwc-manual-entry-pane') || document.getElementById('jmcwc-online-practice-pane');
+      if (pane && pane.parentNode) {
+        pane.parentNode.insertBefore(banner, pane);
+      }
+    }
+  }
+  banner.innerHTML = `
+    <div style="display: flex; align-items: center; gap: var(--space-2);">
+      <span class="banner-icon" aria-hidden="true">⚠️</span>
+      <span>${escapeHtml(msg || 'Could not verify Main Round practice access.')}</span>
+    </div>
+    <button type="button" id="btn-retry-jmcwc-access" class="btn btn-outline btn-xs" style="background: var(--bg-surface); font-weight: 700;">
+      Retry
+    </button>
+  `;
+  banner.style.display = 'flex';
+  const retryBtn = document.getElementById('btn-retry-jmcwc-access');
+  if (retryBtn) {
+    retryBtn.onclick = async () => {
+      retryBtn.disabled = true;
+      retryBtn.textContent = 'Retrying...';
+      await loadJmcwcOverviewAndAttempts();
+    };
+  }
+}
+
+function hideJmcwcAccessRetryBanner() {
+  const banner = document.getElementById('jmcwc-access-retry-banner');
+  if (banner) {
+    banner.style.display = 'none';
+  }
+}
+
 async function loadJmcwcOverviewAndAttempts() {
   const groupBadge = document.getElementById('jmcwc-assigned-group-badge');
   if (currentProfile?.id) {
     try {
-      jmcwcEffectiveAccess = await fetchStudentEffectiveAccess(currentProfile.id);
+      const client = isSupabaseConfigured() ? await getSupabase() : null;
+      jmcwcEffectiveAccess = await fetchStudentEffectiveAccess(currentProfile.id, {
+        supabase: client,
+        isDemo: !isSupabaseConfigured(),
+        DemoDB,
+      });
+      if (jmcwcEffectiveAccess && jmcwcEffectiveAccess.ok === false) {
+        showJmcwcAccessRetryBanner(jmcwcEffectiveAccess.error || 'Failed to verify practice access.');
+      } else {
+        hideJmcwcAccessRetryBanner();
+      }
     } catch (accessErr) {
       console.warn('Could not load student effective access for JMCWC:', accessErr);
+      jmcwcEffectiveAccess = { ok: false, error: accessErr?.message || 'Failed to verify practice access.' };
+      showJmcwcAccessRetryBanner(jmcwcEffectiveAccess.error);
     }
   }
 

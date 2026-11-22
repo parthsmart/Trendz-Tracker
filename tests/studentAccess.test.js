@@ -66,6 +66,7 @@ import {
   isMainRoundCategoryAllowed,
   isMainRoundFullPaperAllowed,
   resolveAccessProvenance,
+  fetchStudentEffectiveAccess,
 } from '../js/studentAccess.js';
 
 import { DemoDB } from '../js/demoDb.js';
@@ -440,6 +441,154 @@ describe('Student Access — Client-side Navigation & View Models', () => {
     assert.strictEqual(vm3.canStartCategory, true);
     assert.strictEqual(vm3.categories.length, 3);
     assert.strictEqual(vm3.canStartNewFlat, true);
+  });
+
+  it('fetchStudentEffectiveAccess rejects missing or invalid Supabase client when demo mode is not explicitly enabled', async () => {
+    const studentId = 'test-stu-101';
+
+    // 1. Missing supabase client with isDemo: false (or omitted)
+    const resNoClient = await fetchStudentEffectiveAccess(studentId, { supabase: null, isDemo: false });
+    assert.strictEqual(resNoClient.ok, false);
+    assert.match(resNoClient.error, /Live Supabase client is missing or invalid/i);
+
+    // 2. Invalid supabase client (no rpc method) with isDemo: false
+    const resInvalidClient = await fetchStudentEffectiveAccess(studentId, { supabase: {}, isDemo: false });
+    assert.strictEqual(resInvalidClient.ok, false);
+    assert.match(resInvalidClient.error, /Live Supabase client is missing or invalid/i);
+
+    // 3. Empty options bag
+    const resEmptyOptions = await fetchStudentEffectiveAccess(studentId, {});
+    assert.strictEqual(resEmptyOptions.ok, false);
+    assert.match(resEmptyOptions.error, /Live Supabase client is missing or invalid/i);
+
+    // 4. No options provided at all
+    const resNoOptions = await fetchStudentEffectiveAccess(studentId);
+    assert.strictEqual(resNoOptions.ok, false);
+    assert.match(resNoOptions.error, /Live Supabase client is missing or invalid/i);
+
+    // 5. Demo defaults are allowed ONLY when isDemo is explicitly true
+    const resExplicitDemo = await fetchStudentEffectiveAccess(studentId, { isDemo: true });
+    assert.strictEqual(resExplicitDemo.ok, true);
+    assert.strictEqual(resExplicitDemo.main_round_eligible, true);
+    assert.strictEqual(resExplicitDemo.source_label, 'Default (Full access)');
+
+    // 6. DemoDB is used when isDemo is explicitly true with DemoDB
+    DemoDB.saveStudentAccessOverride(studentId, {
+      basics: { all: false, categories: ['1D 3R'] },
+      main_round: { eligible: false, categories: [] },
+    });
+    const resDemoDb = await fetchStudentEffectiveAccess(studentId, { isDemo: true, DemoDB });
+    assert.strictEqual(resDemoDb.ok, true);
+    assert.strictEqual(resDemoDb.settings.basics.categories[0], '1D 3R');
+    assert.strictEqual(resDemoDb.main_round_eligible, false);
+  });
+
+  it('lookup failure blocks Main Round and Basics controls; retrying successfully reloads student actual permissions', async () => {
+    const studentId = 'test-stu-202';
+    const mockOverview = {
+      assigned: true,
+      group_key: 'group_a',
+      paper_available: true,
+      paper: {
+        id: 'paper-101',
+        spec: {
+          sections: [
+            { key: 'addition', title: 'Addition' },
+            { key: 'multiplication', title: 'Multiplication' },
+          ],
+        },
+      },
+      categories: [
+        { key: 'addition', name: 'Addition' },
+        { key: 'multiplication', name: 'Multiplication' },
+      ],
+      attempts: [],
+    };
+
+    // Step 1: Initial load failure due to missing live Supabase client
+    const failedAccess = await fetchStudentEffectiveAccess(studentId, { supabase: null, isDemo: false });
+    assert.strictEqual(failedAccess.ok, false);
+
+    // Verify Main Round view model is completely restricted on failure
+    const failedLandingVm = buildLandingPageViewModel(mockOverview, [], failedAccess);
+    assert.strictEqual(failedLandingVm.mainRoundRestricted, true);
+    assert.strictEqual(failedLandingVm.canStartNewFlat, false);
+    assert.strictEqual(failedLandingVm.canStartCategory, false);
+    assert.strictEqual(failedLandingVm.flatDisabledReason, failedAccess.error);
+    assert.strictEqual(failedLandingVm.categoryDisabledReason, failedAccess.error);
+
+    // Verify Basics category filtering logic on failure
+    const catalogCategories = [
+      { id: 'cat-1', name: '1D 3R' },
+      { id: 'cat-2', name: '2D 4R' },
+      { id: 'cat-3', name: 'Staging Basics Fixture (Category 1)' },
+    ];
+    assert.strictEqual(failedAccess.ok, false);
+
+    // Step 2: Retry with valid Supabase client providing actual student permissions
+    // Student actually has: Level 1 with only '1D 3R' allowed, and Main Round eligible for addition
+    const mockSupabaseClient = {
+      rpc: async (fn, args) => {
+        assert.strictEqual(fn, 'get_student_effective_access');
+        assert.strictEqual(args.p_student_id, studentId);
+        return {
+          data: {
+            ok: true,
+            student_id: studentId,
+            level: 'Level 1',
+            scope: 'level',
+            source_label: 'From Level 1',
+            has_override: false,
+            settings: {
+              basics: { all: false, categories: ['1D 3R'] },
+              main_round: { eligible: true, categories: ['addition'] },
+            },
+            main_round_eligible: true,
+          },
+          error: null,
+        };
+      },
+    };
+
+    const reloadedAccess = await fetchStudentEffectiveAccess(studentId, {
+      supabase: mockSupabaseClient,
+      isDemo: false,
+    });
+    assert.strictEqual(reloadedAccess.ok, true);
+    assert.strictEqual(reloadedAccess.level, 'Level 1');
+    assert.strictEqual(reloadedAccess.main_round_eligible, true);
+
+    // Verify Main Round view model reflects reloaded permissions
+    const reloadedLandingVm = buildLandingPageViewModel(mockOverview, [], reloadedAccess);
+    assert.strictEqual(reloadedLandingVm.mainRoundRestricted, false);
+    assert.strictEqual(reloadedLandingVm.canStartCategory, true);
+    // Flat requires all categories in paper (addition + multiplication), but student only has addition
+    assert.strictEqual(reloadedLandingVm.canStartNewFlat, false);
+    assert.ok(reloadedLandingVm.flatDisabledReason?.includes('all categories'));
+
+    // Verify Basics category filtering on reloaded permissions:
+    // Case A: Ordinary practice filters out restricted categories
+    const ordinaryAllowed = catalogCategories.filter((c) =>
+      isBasicsCategoryAllowed(c.name, reloadedAccess.settings.basics, true)
+    );
+    assert.deepStrictEqual(
+      ordinaryAllowed.map((c) => c.name),
+      ['1D 3R']
+    );
+
+    // Case B: Assigned Basics path (isAssignment && catParam) preserves assigned category exception
+    const assignedCatParam = 'Staging Basics Fixture (Category 1)';
+    const isAssignment = true;
+    const assignmentAllowed = catalogCategories.filter((c) => {
+      if (isAssignment && assignedCatParam && (c.id === assignedCatParam || c.name === assignedCatParam)) {
+        return true;
+      }
+      return isBasicsCategoryAllowed(c.name, reloadedAccess.settings.basics, true);
+    });
+    assert.deepStrictEqual(
+      assignmentAllowed.map((c) => c.name),
+      ['1D 3R', 'Staging Basics Fixture (Category 1)']
+    );
   });
 });
 

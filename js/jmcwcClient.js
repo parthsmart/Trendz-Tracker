@@ -420,8 +420,10 @@ export function buildLandingPageViewModel(
     };
   });
 
+  const isLookupFailure = Boolean(studentAccess && studentAccess.ok === false);
   const isEligible = studentAccess
-    ? studentAccess.main_round_eligible !== false &&
+    ? !isLookupFailure &&
+      studentAccess.main_round_eligible !== false &&
       studentAccess.settings?.main_round?.eligible !== false
     : true;
 
@@ -462,7 +464,9 @@ export function buildLandingPageViewModel(
   const canStartCategory = assigned && paperAvailable && effectiveCategories.length > 0 && isEligible;
 
   let flatDisabledReason = null;
-  if (!isEligible) {
+  if (isLookupFailure) {
+    flatDisabledReason = studentAccess.error || 'Could not verify practice access. Please try again.';
+  } else if (!isEligible) {
     flatDisabledReason = 'Main Round competition practice is currently restricted for your account.';
   } else if (!assigned) {
     flatDisabledReason = JMCWC_UNASSIGNED_MESSAGE;
@@ -476,7 +480,9 @@ export function buildLandingPageViewModel(
   }
 
   let categoryDisabledReason = null;
-  if (!isEligible) {
+  if (isLookupFailure) {
+    categoryDisabledReason = studentAccess.error || 'Could not verify practice access. Please try again.';
+  } else if (!isEligible) {
     categoryDisabledReason = 'Main Round competition practice is currently restricted for your account.';
   } else if (!assigned) {
     categoryDisabledReason = JMCWC_UNASSIGNED_MESSAGE;
@@ -563,10 +569,12 @@ export function buildLandingPageViewModel(
     flatDisabledReason,
     newFlatDisabledReason: flatDisabledReason,
     categoryDisabledReason,
-    mainRoundRestricted: !isEligible,
-    mainRoundRestrictedMessage: !isEligible
-      ? 'Main Round competition practice is currently restricted for your account.'
-      : null,
+    mainRoundRestricted: !isEligible || isLookupFailure,
+    mainRoundRestrictedMessage: isLookupFailure
+      ? studentAccess?.error || 'Could not verify practice access. Please try again.'
+      : !isEligible
+        ? 'Main Round competition practice is currently restricted for your account.'
+        : null,
     unfinishedFlatCards,
     unfinishedCategoryAttempts,
     unfinishedCategoryCards,

@@ -6622,7 +6622,7 @@ export const DemoDB = {
         source_label: 'Student override',
         has_override: true,
         settings: override.settings,
-        main_round_eligible: true,
+        main_round_eligible: override.settings?.main_round?.eligible !== false && (student?.main_round_eligible !== false),
         updated_at: override.updated_at
       };
     }
@@ -6639,7 +6639,7 @@ export const DemoDB = {
           source_label: `From ${stuLevel}`,
           has_override: false,
           settings: lvlRule.settings,
-          main_round_eligible: true,
+          main_round_eligible: lvlRule.settings?.main_round?.eligible !== false && (student?.main_round_eligible !== false),
           updated_at: lvlRule.updated_at
         };
       }

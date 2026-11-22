@@ -209,10 +209,24 @@ export function isMainRoundFullPaperAllowed(paperCategories, mainRoundRule, isEl
   return true;
 }
 
+if (typeof window !== 'undefined' && !window.__simulatedAccessRetryListenerAttached) {
+  window.__simulatedAccessRetryListenerAttached = true;
+  window.addEventListener('click', (e) => {
+    if (e.target && (e.target.id === 'btn-retry-basics-access' || e.target.id === 'btn-retry-jmcwc-access' || (e.target.closest && e.target.closest('#btn-retry-basics-access, #btn-retry-jmcwc-access')))) {
+      window.__SIMULATE_ACCESS_RETRY_CLICKED = true;
+      try {
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete('simulate_access_failure');
+        window.history.replaceState({}, '', cleanUrl.toString());
+      } catch (_) {}
+    }
+  }, true);
+}
+
 /**
  * Fetches the effective practice access for a student.
  */
-export async function fetchStudentEffectiveAccess(studentId, { supabase, isDemo = false, DemoDB = null }) {
+export async function fetchStudentEffectiveAccess(studentId, options = {}) {
   if (!studentId) {
     return {
       ok: false,
@@ -220,9 +234,34 @@ export async function fetchStudentEffectiveAccess(studentId, { supabase, isDemo 
     };
   }
 
-  if (isDemo || !supabase || typeof supabase.rpc !== 'function') {
-    if (DemoDB && typeof DemoDB.getStudentEffectiveAccess === 'function') {
-      return DemoDB.getStudentEffectiveAccess(studentId);
+  const urlParam = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('simulate_access_failure') : null;
+  const isRetry = typeof window !== 'undefined' && window.__SIMULATE_ACCESS_RETRY_CLICKED;
+  if (!isRetry && typeof window !== 'undefined' && (
+    window.__SIMULATE_ACCESS_LOOKUP_FAILURE ||
+    window.sessionStorage?.getItem('simulate_access_failure') === '1' ||
+    urlParam === '1'
+  )) {
+    return {
+      ok: false,
+      error: 'Simulated network failure: Could not verify practice access.',
+    };
+  }
+
+  let supabase = null;
+  let isDemo = false;
+  let demoDbInstance = null;
+
+  if (options && typeof options.rpc === 'function') {
+    supabase = options;
+  } else if (options && typeof options === 'object') {
+    supabase = options.supabase || null;
+    isDemo = Boolean(options.isDemo);
+    demoDbInstance = options.DemoDB || null;
+  }
+
+  if (isDemo) {
+    if (demoDbInstance && typeof demoDbInstance.getStudentEffectiveAccess === 'function') {
+      return demoDbInstance.getStudentEffectiveAccess(studentId);
     }
     return {
       ok: true,
@@ -233,6 +272,13 @@ export async function fetchStudentEffectiveAccess(studentId, { supabase, isDemo 
       has_override: false,
       settings: JSON.parse(JSON.stringify(PRESET_FULL_ACCESS)),
       main_round_eligible: true,
+    };
+  }
+
+  if (!supabase || typeof supabase.rpc !== 'function') {
+    return {
+      ok: false,
+      error: 'Live Supabase client is missing or invalid',
     };
   }
 

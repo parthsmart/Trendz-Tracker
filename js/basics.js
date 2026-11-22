@@ -212,6 +212,50 @@ function setupDateLimits(todayDateStr = null) {
   }
 }
 
+function showBasicsAccessRetryBanner(msg) {
+  let banner = document.getElementById('basics-access-retry-banner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'basics-access-retry-banner';
+    banner.className = 'banner banner-warning';
+    banner.style.marginBottom = 'var(--space-4)';
+    banner.style.display = 'flex';
+    banner.style.justifyContent = 'space-between';
+    banner.style.alignItems = 'center';
+    banner.style.flexWrap = 'wrap';
+    banner.style.gap = 'var(--space-2)';
+    const card = document.getElementById('basics-entry-card');
+    if (card && card.parentNode) {
+      card.parentNode.insertBefore(banner, card);
+    }
+  }
+  banner.innerHTML = `
+    <div style="display: flex; align-items: center; gap: var(--space-2);">
+      <span class="banner-icon" aria-hidden="true">⚠️</span>
+      <span>${escapeHtml(msg || 'Could not verify practice access.')}</span>
+    </div>
+    <button type="button" id="btn-retry-basics-access" class="btn btn-outline btn-xs" style="background: var(--bg-surface); font-weight: 700;">
+      Retry
+    </button>
+  `;
+  banner.style.display = 'flex';
+  const retryBtn = document.getElementById('btn-retry-basics-access');
+  if (retryBtn) {
+    retryBtn.onclick = async () => {
+      retryBtn.disabled = true;
+      retryBtn.textContent = 'Retrying...';
+      await loadBasicsCategories();
+    };
+  }
+}
+
+function hideBasicsAccessRetryBanner() {
+  const banner = document.getElementById('basics-access-retry-banner');
+  if (banner) {
+    banner.style.display = 'none';
+  }
+}
+
 /**
  * Load active basics categories
  */
@@ -259,19 +303,53 @@ async function loadBasicsCategories() {
     );
 
     let allowedCategories = basicsCategories;
+    let accessLookupFailed = false;
+    let accessLookupError = '';
+
     if (!isViewingOtherStudent() && currentProfile?.id) {
       try {
-        const access = await fetchStudentEffectiveAccess(currentProfile.id);
-        allowedCategories = basicsCategories.filter(c => {
-          if (isAssignment && catParam && (c.id === catParam || c.name === catParam)) {
-            return true;
-          }
-          return isBasicsCategoryAllowed(c.name || c.id, access?.settings?.basics, true);
+        const client = isSupabaseConfigured() ? await getSupabase() : null;
+        const access = await fetchStudentEffectiveAccess(currentProfile.id, {
+          supabase: client,
+          isDemo: !isSupabaseConfigured(),
+          DemoDB,
         });
+
+        if (!access || access.ok === false) {
+          accessLookupFailed = true;
+          accessLookupError = access?.error || 'Could not verify practice access.';
+        } else {
+          allowedCategories = basicsCategories.filter(c => {
+            if (isAssignment && catParam && (c.id === catParam || c.name === catParam)) {
+              return true;
+            }
+            return isBasicsCategoryAllowed(c.name || c.id, access?.settings?.basics, true);
+          });
+        }
       } catch (accessErr) {
         console.warn('Could not load student practice access in basics:', accessErr);
+        accessLookupFailed = true;
+        accessLookupError = accessErr?.message || 'Could not verify practice access.';
       }
     }
+
+    if (accessLookupFailed) {
+      showBasicsAccessRetryBanner(accessLookupError);
+      selectEl.innerHTML = '<option value="">Could not verify practice access</option>';
+      selectEl.disabled = true;
+      const onlineBtn = document.getElementById('btn-selected-practice-online');
+      if (onlineBtn) onlineBtn.style.display = 'none';
+      const onlineCard = document.getElementById('online-practice-categories-card');
+      if (onlineCard) onlineCard.style.display = 'none';
+      const saveBtn = document.getElementById('btn-save-drill') || document.querySelector('#basics-form button[type="submit"]');
+      if (saveBtn) saveBtn.disabled = true;
+      return;
+    }
+
+    hideBasicsAccessRetryBanner();
+    selectEl.disabled = false;
+    const saveBtn = document.getElementById('btn-save-drill') || document.querySelector('#basics-form button[type="submit"]');
+    if (saveBtn) saveBtn.disabled = false;
 
     if (allowedCategories.length === 0) {
       selectEl.innerHTML = '<option value="">No permitted basics categories</option>';
@@ -1122,9 +1200,13 @@ async function initBasics() {
           // If an exact task ID or homework ID was carried, let server validate the assignment exception
           const hasExactAssignment = Boolean(todoTaskId || homeworkId);
           if (!hasExactAssignment) {
+            const client = isSupabaseConfigured() ? await getSupabase() : null;
             const accessRes = isSupabaseConfigured()
-              ? await fetchStudentEffectiveAccess(currentProfile.id, { supabase: await getSupabase() })
+              ? await fetchStudentEffectiveAccess(currentProfile.id, { supabase: client, isDemo: !isSupabaseConfigured(), DemoDB })
               : DemoDB?.getStudentEffectiveAccess?.(currentProfile.id);
+            if (accessRes && accessRes.ok === false) {
+              throw new Error(accessRes.error || 'Could not verify practice access. Please try again.');
+            }
             if (accessRes?.ok && accessRes?.settings?.basics && accessRes.settings.basics.all === false) {
               if (!isBasicsCategoryAllowed(catName, accessRes.settings.basics)) {
                 throw new Error('This category is not permitted for your practice access.');
