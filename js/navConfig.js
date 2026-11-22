@@ -21,6 +21,7 @@ export const SETTINGS_SUBPAGE_PATHS = Object.freeze([
   '/pages/competition.html',
   '/pages/announcements.html',
   '/pages/homework.html',
+  '/pages/student-access.html',
   '/pages/import.html',
   '/pages/backup.html',
 ]);
@@ -364,7 +365,7 @@ export const NAV_CONFIG = Object.freeze({
  * @param {'student' | 'teacher' | 'admin'} role
  * @param {Record<string, boolean> | null} [permissions=null]
  */
-export function getRoleNavItems(role, permissions = null) {
+export function getRoleNavItems(role, permissions = null, studentAccess = null) {
   let items = NAV_CONFIG.student;
   if (role === 'admin') {
     items = NAV_CONFIG.admin;
@@ -378,6 +379,14 @@ export function getRoleNavItems(role, permissions = null) {
       return permissions[item.permission] !== false;
     });
   }
+
+  if (role === 'student') {
+    const access = studentAccess || permissions?.studentAccess || permissions?.practice_access || null;
+    if (access?.flash && access.flash.allowed === false) {
+      return items.filter((item) => item.id !== 'student-flash');
+    }
+  }
+
   return items;
 }
 
@@ -416,8 +425,8 @@ export function getInlineNavItems(role, permissions = null) {
  *   | { type: 'bell', item: Record<string, any> }
  * >}
  */
-export function getDesktopNavEntries(role, permissions = null) {
-  const items = getRoleNavItems(role, permissions);
+export function getDesktopNavEntries(role, permissions = null, studentAccess = null) {
+  const items = getRoleNavItems(role, permissions, studentAccess);
   const entries = [];
   let practiceDropdownAdded = false;
   let setupDropdownAdded = false;
@@ -486,8 +495,8 @@ export function getDesktopNavEntries(role, permissions = null) {
  * @param {Record<string, boolean> | null} [permissions=null]
  * @returns {Array<{ group: string, items: Array<Record<string, any>> }>}
  */
-export function getGroupedNavItems(role, permissions = null) {
-  const items = getRoleNavItems(role, permissions);
+export function getGroupedNavItems(role, permissions = null, studentAccess = null) {
+  const items = getRoleNavItems(role, permissions, studentAccess);
   const groups = [];
   const map = new Map();
 

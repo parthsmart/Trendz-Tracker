@@ -215,6 +215,24 @@ function createInMemorySupabase() {
         const ist = new Date(now.getTime() + 5.5 * 3600 * 1000);
         return Promise.resolve({ data: ist.toISOString().slice(0, 10), error: null });
       }
+      if (fnName === 'get_student_effective_access') {
+        return Promise.resolve({
+          data: {
+            ok: true,
+            student_id: args?.p_student_id,
+            scope: 'default',
+            source_label: 'Default (Full access)',
+            settings: {
+              basics: { all: true, categories: [] },
+              elements: { all: true, drills: [] },
+              flash: { allowed: true },
+              memoriad: { all: true, modules: [], calendar_variants: [25, 50, 75, 100, 125] },
+              main_round: { all: true, categories: [] },
+            },
+          },
+          error: null,
+        });
+      }
       return Promise.resolve({ data: null, error: null });
     },
     store,

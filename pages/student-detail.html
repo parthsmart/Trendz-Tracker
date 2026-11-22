@@ -8,11 +8,12 @@
     
     <!-- Design tokens & unified styles -->
     <link rel="stylesheet" href="/css/style.css" />
+      <!-- Progressive Web App & Icons -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#2563EB" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Trendz Tracker" />
@@ -114,6 +115,9 @@
                 </div>
               </div>
               <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
+                <button type="button" id="btn-student-access" class="btn btn-secondary btn-sm">
+                  Access
+                </button>
                 <button type="button" id="btn-send-student-message" class="btn btn-secondary btn-sm">
                   ✉ Send message
                 </button>
@@ -487,6 +491,41 @@
             <button type="submit" class="btn btn-primary" id="btn-submit-send-message">Send Message</button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- Modal: Student Practice Access -->
+    <div id="modal-student-access" class="modal-backdrop" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-student-access-title" style="max-width: 680px; max-height: 90vh; display: flex; flex-direction: column;">
+        <div class="modal-header">
+          <div>
+            <h2 id="modal-student-access-title" class="modal-title">Student Practice Access</h2>
+            <div style="display: flex; gap: 8px; align-items: center; margin-top: 4px;">
+              <span id="modal-access-student-name" style="font-size: var(--text-xs); font-weight: 600; color: var(--text-muted);">Student</span>
+              <span id="modal-access-provenance-badge" class="badge badge-neutral" style="font-size: 11px;">Loading...</span>
+            </div>
+          </div>
+          <button type="button" class="modal-close-btn" id="btn-close-access-modal" aria-label="Close dialog">&times;</button>
+        </div>
+        <div class="modal-body" style="overflow-y: auto; flex: 1; padding: var(--space-4);">
+          <div id="student-access-editor-mount">
+            <span class="spinner"></span> Loading access settings...
+          </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3) var(--space-4);">
+          <div style="display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap;">
+            <button type="button" class="btn btn-outline btn-sm" id="btn-reset-student-access" style="display: none;">
+              Use level settings
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-bulk-apply-student-level" style="display: none;">
+              Apply to my students in this level
+            </button>
+          </div>
+          <div style="display: flex; gap: var(--space-2);">
+            <button type="button" class="btn btn-outline" id="btn-cancel-student-access">Cancel</button>
+            <button type="button" class="btn btn-primary" id="btn-save-student-access">Save Access Override</button>
+          </div>
+        </div>
       </div>
     </div>
 
