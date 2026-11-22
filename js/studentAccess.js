@@ -209,20 +209,6 @@ export function isMainRoundFullPaperAllowed(paperCategories, mainRoundRule, isEl
   return true;
 }
 
-if (typeof window !== 'undefined' && !window.__simulatedAccessRetryListenerAttached) {
-  window.__simulatedAccessRetryListenerAttached = true;
-  window.addEventListener('click', (e) => {
-    if (e.target && (e.target.id === 'btn-retry-basics-access' || e.target.id === 'btn-retry-jmcwc-access' || (e.target.closest && e.target.closest('#btn-retry-basics-access, #btn-retry-jmcwc-access')))) {
-      window.__SIMULATE_ACCESS_RETRY_CLICKED = true;
-      try {
-        const cleanUrl = new URL(window.location.href);
-        cleanUrl.searchParams.delete('simulate_access_failure');
-        window.history.replaceState({}, '', cleanUrl.toString());
-      } catch (_) {}
-    }
-  }, true);
-}
-
 /**
  * Fetches the effective practice access for a student.
  */
@@ -231,19 +217,6 @@ export async function fetchStudentEffectiveAccess(studentId, options = {}) {
     return {
       ok: false,
       error: 'Missing student ID',
-    };
-  }
-
-  const urlParam = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('simulate_access_failure') : null;
-  const isRetry = typeof window !== 'undefined' && window.__SIMULATE_ACCESS_RETRY_CLICKED;
-  if (!isRetry && typeof window !== 'undefined' && (
-    window.__SIMULATE_ACCESS_LOOKUP_FAILURE ||
-    window.sessionStorage?.getItem('simulate_access_failure') === '1' ||
-    urlParam === '1'
-  )) {
-    return {
-      ok: false,
-      error: 'Simulated network failure: Could not verify practice access.',
     };
   }
 
