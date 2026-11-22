@@ -33,6 +33,11 @@ import {
 } from './_jmcwcSaveQueue.js';
 import { getAdminClient } from './_supabaseAdmin.js';
 import { resolveAndValidateHomework } from './_homework.js';
+import {
+  isMainRoundCategoryAllowed,
+  isMainRoundFullPaperAllowed,
+  fetchStudentEffectiveAccess,
+} from '../js/studentAccess.js';
 
 export { JMCWC_MAX_PAUSE_BODY_BYTES, buildPauseKeepalivePayload };
 export const JMCWC_MAX_BODY_BYTES = 256 * 1024; // 256 KB
@@ -1010,6 +1015,46 @@ export function createJmcwcServer({
         'No published paper for your assigned group.',
         'NO_PUBLISHED_PAPER'
       );
+    }
+
+    // Validate student practice access for free practice
+    if (!validatedHomework) {
+      const accessRes = await fetchStudentEffectiveAccess(studentId, { supabase });
+      if (!accessRes || accessRes.ok === false) {
+        throw createHttpError(
+          503,
+          accessRes?.error || 'Failed to verify practice access. Please try again.',
+          'PRACTICE_ACCESS_LOOKUP_FAILED'
+        );
+      }
+      if (accessRes.main_round_eligible === false || accessRes.settings?.main_round?.eligible === false) {
+        throw createHttpError(
+          403,
+          'You are not currently eligible for Main Round competition practice.',
+          'PRACTICE_ACCESS_RESTRICTED'
+        );
+      }
+      const roundRule = accessRes.settings?.main_round;
+      if (mode === 'category') {
+        if (!isMainRoundCategoryAllowed(categoryKey, roundRule, true)) {
+          throw createHttpError(
+            403,
+            `Category ${categoryKey} is not permitted for your practice access.`,
+            'PRACTICE_ACCESS_RESTRICTED'
+          );
+        }
+      } else if (mode === 'flat') {
+        const paperCategories = Array.isArray(paper.spec?.sections)
+          ? paper.spec.sections.map((s) => s.category_key || s.key).filter(Boolean)
+          : (paper.spec?.categories ? Object.keys(paper.spec.categories) : JMCWC_CATEGORY_KEYS);
+        if (!isMainRoundFullPaperAllowed(paperCategories, roundRule, true)) {
+          throw createHttpError(
+            403,
+            'Full-paper competition attempt requires access to all categories in the paper.',
+            'PRACTICE_ACCESS_RESTRICTED'
+          );
+        }
+      }
     }
 
     const seed = typeof seedGenerator === 'function' ? seedGenerator({ studentId, requestId }) : null;

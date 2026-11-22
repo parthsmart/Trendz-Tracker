@@ -50,6 +50,7 @@ import { isDemoMode, DemoDB } from './demoDb.js';
 import { getSupabase } from './supabaseClient.js';
 import { showToast } from './toast.js';
 import { setupPracticeRecordsSection } from './practiceRecordsCard.js';
+import { fetchStudentEffectiveAccess, isElementDrillAllowed } from './studentAccess.js';
 
 function escapeHtml(str) {
   if (str === null || str === undefined) return '';
@@ -63,6 +64,7 @@ function escapeHtml(str) {
 
 let currentUser = null;
 let activeHistoryStudent = null;
+let currentStudentAccess = null;
 
 export function getActiveElementsStudent() {
   return activeHistoryStudent;
@@ -137,6 +139,20 @@ async function loadAndRenderCatalog() {
   if (!container) return;
 
   const targetId = (activeHistoryStudent && activeHistoryStudent.id) || currentUser.id;
+
+  if (currentUser?.role === 'student' && (!activeHistoryStudent || activeHistoryStudent.id === currentUser.id)) {
+    try {
+      const isDemo = isDemoMode();
+      const supabase = isSupabaseConfigured() ? await getSupabase() : null;
+      const accessRes = await fetchStudentEffectiveAccess(currentUser.id, { supabase, isDemo, DemoDB });
+      if (accessRes?.ok) {
+        currentStudentAccess = accessRes.settings?.elements || null;
+      }
+    } catch {
+      // Non-blocking fallback
+    }
+  }
+
   const rows = await fetchStudentElementResults(targetId);
   cachedElementRows = rows;
   const summaries = summaryByDrill(rows);
@@ -426,7 +442,20 @@ function renderDrillCard(drill, drillSummary) {
     `;
   }
 
-  const actionHtml = drill.enabled
+  const isAllowed = !currentStudentAccess || isElementDrillAllowed(drill.key, currentStudentAccess);
+  const actionHtml = !isAllowed
+    ? `
+      <button
+        type="button"
+        class="btn btn-outline btn-sm"
+        disabled
+        aria-disabled="true"
+        style="min-width: 96px; cursor: not-allowed; opacity: 0.6;"
+      >
+        Restricted
+      </button>
+    `
+    : drill.enabled
     ? `
       <a
         href="/pages/element-drill.html?drill=${encodeURIComponent(drill.key)}"

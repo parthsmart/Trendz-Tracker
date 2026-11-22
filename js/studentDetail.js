@@ -32,7 +32,19 @@ import {
 } from './dashboardComponents.js';
 import { renderElementsCard } from './elementsCard.js';
 import { renderMemoriadCard } from './memoriadCard.js';
+import {
+  fetchStudentEffectiveAccess,
+  saveStudentAccessOverride,
+  resetStudentAccessOverride,
+  getTeacherLevelStudentCount,
+  teacherBulkApplyLevelAccess,
+  renderAccessEditorHtml,
+  extractAccessSettingsFromEditor,
+  wireAccessEditorEvents,
+  PRESET_FULL_ACCESS,
+} from './studentAccess.js';
 
+let currentLoggedInProfile = null;
 let currentStudentProfile = null;
 let lastDashboardData = null;
 let activeMessageNonce = null;
@@ -46,11 +58,19 @@ async function initStudentDetail() {
     return;
   }
 
+  currentLoggedInProfile = loggedInProfile;
+
   // Render header details & role context
   renderHeaderUser(loggedInProfile);
   renderRoleContext(loggedInProfile);
   if (loggedInProfile.role === 'admin') {
     setupAdminNav(loggedInProfile);
+  }
+
+  // Hide Access button if teacher does not have task/access management permission
+  const accessBtn = document.getElementById('btn-student-access');
+  if (accessBtn && loggedInProfile.role === 'teacher' && loggedInProfile.permissions?.can_manage_tasks === false) {
+    accessBtn.style.display = 'none';
   }
 
   // Render demo banner if running on demo host
@@ -109,6 +129,12 @@ async function initStudentDetail() {
     }
   });
 
+  document.getElementById('btn-student-access')?.addEventListener('click', () => {
+    if (currentStudentProfile && currentLoggedInProfile) {
+      openStudentAccessModal(currentStudentProfile, currentLoggedInProfile);
+    }
+  });
+
   document.getElementById('btn-send-student-message')?.addEventListener('click', () => {
     if (currentStudentProfile) {
       openSendMessageModal(currentStudentProfile, lastDashboardData);
@@ -128,6 +154,7 @@ async function initStudentDetail() {
   });
 
   setupSendMessageModalHandlers();
+  setupStudentAccessModalHandlers();
 
   // 4. Fetch and render dashboard data
   await loadAndRenderStudentDashboard(currentStudentProfile.id);
@@ -864,6 +891,252 @@ function setupSendMessageModalHandlers() {
       }
     });
   }
+}
+
+let currentAccessSettings = null;
+let currentAccessSource = 'level';
+let isStudentMainRoundEligible = true;
+
+export async function openStudentAccessModal(studentProfile, staffProfile) {
+  const modalId = 'modal-student-access';
+  const nameEl = document.getElementById('modal-access-student-name');
+  const badgeEl = document.getElementById('modal-access-provenance-badge');
+  const mountEl = document.getElementById('student-access-editor-mount');
+  const resetBtn = document.getElementById('btn-reset-student-access');
+  const isDemo = isDemoMode();
+  const supabase = isSupabaseConfigured() ? await getSupabase() : null;
+
+  if (nameEl) {
+    const fullName = studentProfile.full_name || studentProfile.name || 'Student';
+    nameEl.textContent = `${fullName} (${studentProfile.student_code || studentProfile.id || '—'}) · Level: ${studentProfile.level || 'Unassigned'}`;
+  }
+
+  if (badgeEl) {
+    badgeEl.className = 'badge badge-neutral';
+    badgeEl.textContent = 'Loading access...';
+  }
+
+  if (resetBtn) {
+    resetBtn.style.display = 'none';
+  }
+
+  if (mountEl) {
+    mountEl.innerHTML = `
+      <div style="padding: var(--space-6); text-align: center; color: var(--text-muted);">
+        <span class="spinner" style="margin-right: 8px;"></span> Loading practice access for student...
+      </div>
+    `;
+  }
+
+  openModal(modalId);
+
+  try {
+    const accessRes = await fetchStudentEffectiveAccess(studentProfile.id, {
+      supabase,
+      isDemo,
+      DemoDB,
+    });
+
+    if (!accessRes || !accessRes.ok) {
+      if (mountEl) {
+        mountEl.innerHTML = `<div class="banner banner-error">Failed to load student access: ${escapeHtml(accessRes?.error || 'Unknown error')}</div>`;
+      }
+      return;
+    }
+
+    currentAccessSettings = accessRes.settings || PRESET_FULL_ACCESS;
+    currentAccessSource = accessRes.scope; // 'student' | 'level' | 'default'
+    isStudentMainRoundEligible = accessRes.main_round_eligible !== false;
+
+    if (badgeEl) {
+      if (accessRes.scope === 'student') {
+        badgeEl.className = 'badge badge-primary';
+        badgeEl.textContent = 'Student override';
+      } else if (accessRes.scope === 'level') {
+        badgeEl.className = 'badge badge-neutral';
+        badgeEl.textContent = `From ${accessRes.level || studentProfile.level || 'Level'}`;
+      } else {
+        badgeEl.className = 'badge badge-neutral';
+        badgeEl.textContent = 'Default (Full access)';
+      }
+    }
+
+    if (resetBtn) {
+      resetBtn.style.display = accessRes.scope === 'student' ? 'inline-block' : 'none';
+    }
+
+    const bulkBtn = document.getElementById('btn-bulk-apply-student-level');
+    if (bulkBtn) {
+      if (studentProfile.level && (staffProfile?.role === 'teacher' || staffProfile?.role === 'admin')) {
+        bulkBtn.style.display = 'inline-block';
+        bulkBtn.textContent = staffProfile?.role === 'teacher' ? 'Apply to my students in this level' : 'Apply to all students in this level';
+      } else {
+        bulkBtn.style.display = 'none';
+      }
+    }
+
+    // Load basics categories from lastDashboardData or DemoDB/supabase
+    let basicsCats = (lastDashboardData?.categories || []).filter((c) => c.section === 'basics');
+    if (basicsCats.length === 0 && isDemo && DemoDB?.getCategories) {
+      basicsCats = DemoDB.getCategories().filter((c) => c.section === 'basics');
+    } else if (basicsCats.length === 0 && supabase) {
+      const { data: catRows } = await supabase
+        .from('categories')
+        .select('*')
+        .eq('section', 'basics')
+        .eq('active', true)
+        .order('sort_order', { ascending: true });
+      if (catRows) basicsCats = catRows;
+    }
+
+    if (mountEl) {
+      mountEl.innerHTML = renderAccessEditorHtml({
+        settings: currentAccessSettings,
+        basicsCategories: basicsCats,
+        isTeacher: staffProfile?.role === 'teacher',
+        isEligibleForMainRound: isStudentMainRoundEligible,
+        canToggleEligibility: staffProfile?.role === 'admin',
+      });
+
+      wireAccessEditorEvents(mountEl, (updated) => {
+        currentAccessSettings = updated;
+      });
+    }
+  } catch (err) {
+    console.error('Failed to open student access modal:', err);
+    if (mountEl) {
+      mountEl.innerHTML = `<div class="banner banner-error">Error loading student access: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+}
+
+function setupStudentAccessModalHandlers() {
+  const modalId = 'modal-student-access';
+  const saveBtn = document.getElementById('btn-save-student-access');
+  const resetBtn = document.getElementById('btn-reset-student-access');
+  const cancelBtn = document.getElementById('btn-cancel-student-access');
+  const closeBtn = document.getElementById('btn-close-access-modal');
+  const mountEl = document.getElementById('student-access-editor-mount');
+
+  const bulkBtn = document.getElementById('btn-bulk-apply-student-level');
+
+  cancelBtn?.addEventListener('click', () => closeModal(modalId));
+  closeBtn?.addEventListener('click', () => closeModal(modalId));
+
+  bulkBtn?.addEventListener('click', async () => {
+    if (!currentStudentProfile) return;
+    const studentLevel = currentStudentProfile.level;
+    if (!studentLevel) {
+      showToast('error', 'Student has no assigned curriculum level.');
+      return;
+    }
+    const isDemo = isDemoMode();
+    const supabase = isSupabaseConfigured() ? await getSupabase() : null;
+
+    bulkBtn.disabled = true;
+    bulkBtn.textContent = 'Checking students...';
+
+    try {
+      const countRes = await getTeacherLevelStudentCount(studentLevel, {
+        supabase,
+        isDemo,
+        DemoDB,
+        currentProfile: currentLoggedInProfile,
+      });
+      const affectedCount = countRes.ok ? countRes.count : 0;
+      const roleNoun = currentLoggedInProfile?.role === 'teacher' ? 'assigned to you' : 'in total';
+      if (!confirm(`Apply these practice settings to all ${affectedCount} active students in ${studentLevel} ${roleNoun}?`)) {
+        return;
+      }
+
+      bulkBtn.textContent = 'Applying...';
+      const newSettings = extractAccessSettingsFromEditor(mountEl);
+      const res = await teacherBulkApplyLevelAccess(studentLevel, newSettings, {
+        supabase,
+        isDemo,
+        DemoDB,
+        currentProfile: currentLoggedInProfile,
+      });
+
+      if (!res || !res.ok) {
+        throw new Error(res?.error || 'Failed to apply settings');
+      }
+
+      showToast('success', `Applied settings to ${res.affected_count ?? affectedCount} students in ${studentLevel}.`);
+      closeModal(modalId);
+    } catch (err) {
+      console.error('Failed to bulk apply student access:', err);
+      showToast('error', `Bulk apply failed: ${err.message}`);
+    } finally {
+      bulkBtn.disabled = false;
+      bulkBtn.textContent = currentLoggedInProfile?.role === 'teacher' ? 'Apply to my students in this level' : 'Apply to all students in this level';
+    }
+  });
+
+  saveBtn?.addEventListener('click', async () => {
+    if (!currentStudentProfile) return;
+    const isDemo = isDemoMode();
+    const supabase = isSupabaseConfigured() ? await getSupabase() : null;
+
+    const newSettings = extractAccessSettingsFromEditor(mountEl);
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving override...';
+
+    try {
+      const res = await saveStudentAccessOverride(currentStudentProfile.id, newSettings, {
+        supabase,
+        isDemo,
+        DemoDB,
+      });
+
+      if (!res || !res.ok) {
+        throw new Error(res?.error || 'Failed to save access override');
+      }
+
+      showToast('success', `Saved practice access override for ${currentStudentProfile.full_name || 'student'}.`);
+      closeModal(modalId);
+    } catch (err) {
+      console.error('Failed to save student access override:', err);
+      showToast('error', `Failed to save override: ${err.message}`);
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save Access Override';
+    }
+  });
+
+  resetBtn?.addEventListener('click', async () => {
+    if (!currentStudentProfile) return;
+    if (!confirm('Revert this student to their level defaults? This will remove their individual access override.')) {
+      return;
+    }
+
+    const isDemo = isDemoMode();
+    const supabase = isSupabaseConfigured() ? await getSupabase() : null;
+
+    resetBtn.disabled = true;
+    resetBtn.textContent = 'Reverting...';
+
+    try {
+      const res = await resetStudentAccessOverride(currentStudentProfile.id, {
+        supabase,
+        isDemo,
+        DemoDB,
+      });
+
+      if (!res || !res.ok) {
+        throw new Error(res?.error || 'Failed to reset access override');
+      }
+
+      showToast('success', 'Student override removed. Level defaults now apply.');
+      await openStudentAccessModal(currentStudentProfile, currentLoggedInProfile);
+    } catch (err) {
+      console.error('Failed to reset student access override:', err);
+      showToast('error', `Failed to reset override: ${err.message}`);
+    } finally {
+      resetBtn.disabled = false;
+      resetBtn.textContent = 'Use level settings';
+    }
+  });
 }
 
 if (typeof document !== 'undefined') {

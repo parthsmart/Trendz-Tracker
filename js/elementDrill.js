@@ -391,6 +391,29 @@ async function populateIntroScreen() {
       bestEl.textContent = 'No attempts yet';
     }
   }
+
+  const params = new URLSearchParams(window.location.search);
+  const hasAssignmentException = isTodoMode || Boolean(params.get('homework_id'));
+  if (currentUser?.role === 'student' && !hasAssignmentException && currentDrillKey) {
+    try {
+      const { fetchStudentEffectiveAccess, isElementDrillAllowed } = await import('./studentAccess.js');
+      const isDemo = isDemoMode();
+      const supabase = isSupabaseConfigured() ? await getSupabase() : null;
+      const accessRes = await fetchStudentEffectiveAccess(currentUser.id, { supabase, isDemo, DemoDB });
+      if (accessRes?.ok && accessRes?.settings?.elements) {
+        if (!isElementDrillAllowed(currentDrillKey, accessRes.settings.elements)) {
+          showIntroError('This drill is not permitted for your current practice access.');
+          const startBtn = document.getElementById('btn-start-drill');
+          if (startBtn) {
+            startBtn.disabled = true;
+            startBtn.textContent = 'Practice Restricted';
+          }
+        }
+      }
+    } catch {
+      // Non-blocking fallback
+    }
+  }
 }
 
 function showIntroError(msg) {

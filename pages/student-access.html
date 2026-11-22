@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Student Access — Trendz Tracker</title>
+    <link rel="stylesheet" href="/css/style.css" />
+    <!-- Progressive Web App & Icons -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#2563EB" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Trendz Tracker" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="container header-inner">
+          <a href="/pages/admin.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">TT</span>
+            <span>Trendz Abacus</span>
+          </a>
+
+          <nav class="nav-zone" id="admin-nav-zone" aria-label="Staff Primary Navigation"></nav>
+
+          <div class="actions-zone">
+            <button
+              type="button"
+              id="btn-nav-hamburger"
+              class="nav-hamburger-btn"
+              aria-label="Toggle navigation menu"
+              aria-expanded="false"
+            >
+              &#9776;
+            </button>
+            <div id="user-pill-container" style="display: none; align-items: center; gap: var(--space-3);">
+              <span id="header-user-name" style="font-size: var(--text-sm); font-weight: 500;">Admin</span>
+              <span id="header-user-role" class="badge badge-neutral">Staff</span>
+            </div>
+            <button id="btn-header-logout" class="btn btn-ghost btn-sm" type="button">
+              Sign out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main class="main-content">
+        <div class="container">
+          <!-- Breadcrumb -->
+          <nav class="settings-breadcrumb" aria-label="Breadcrumb">
+            <a href="/pages/settings.html">Settings</a>
+            <span class="settings-breadcrumb-sep" aria-hidden="true">&gt;</span>
+            <span aria-current="page">Student Access</span>
+          </nav>
+
+          <div id="config-banner-placeholder"></div>
+
+          <div class="page-header" style="margin-bottom: var(--space-5);">
+            <div>
+              <h1 class="page-title">Student Practice Access</h1>
+              <p class="page-subtitle">
+                Configure which free-practice options students see and can use by curriculum level and student override.
+              </p>
+            </div>
+          </div>
+
+          <!-- Level Selector Toolbar -->
+          <div class="card" style="margin-bottom: var(--space-5); padding: var(--space-4) var(--space-5);">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-4);">
+              <div style="display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;">
+                <label for="select-access-level" style="font-weight: 700; font-size: var(--text-sm); color: var(--text-main);">
+                  Curriculum Level:
+                </label>
+                <select id="select-access-level" class="form-select" style="min-width: 160px; font-weight: 600;">
+                  <option value="Level 1">Level 1</option>
+                  <option value="Level 2">Level 2</option>
+                  <option value="Level 3">Level 3</option>
+                  <option value="Level 4">Level 4</option>
+                  <option value="Level 5">Level 5</option>
+                  <option value="Master">Master</option>
+                </select>
+                <span id="level-rule-badge" class="badge badge-neutral" style="font-size: 11px;">Loading...</span>
+              </div>
+
+              <!-- Teacher bulk info badge -->
+              <div id="teacher-bulk-info-badge" style="display: none; font-size: var(--text-xs); color: var(--text-muted); background: var(--bg-surface-subtle); padding: 4px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-hairline);">
+                <span id="teacher-student-count-text">0 students assigned in this level</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Access Editor Container -->
+          <div id="access-editor-mount" style="margin-bottom: var(--space-6);">
+            <div class="card" style="padding: var(--space-6); text-align: center; color: var(--text-muted);">
+              Loading practice access settings...
+            </div>
+          </div>
+
+          <!-- Bottom Action Bar -->
+          <div class="card" style="padding: var(--space-4) var(--space-5); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3); background: var(--bg-surface);">
+            <div id="action-status-text" style="font-size: var(--text-sm); color: var(--text-muted);">
+              Configure options above, then save.
+            </div>
+            <div style="display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap;">
+              <!-- Admin: Save Level Defaults -->
+              <button type="button" id="btn-save-level-defaults" class="btn btn-primary" style="display: none;">
+                Save Level Defaults
+              </button>
+              <!-- Teacher / Staff: Apply to my students in this level -->
+              <button type="button" id="btn-teacher-bulk-apply" class="btn btn-secondary" style="display: none;">
+                Apply to my students in this level
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <footer class="app-footer">
+        <div class="container footer-inner">
+          <span>&copy; 2026 Trendz Abacus. Internal Competition &amp; Practice Portal.</span>
+          <span class="num">Student Access</span>
+        </div>
+      </footer>
+    </div>
+
+    <!-- Confirmation Modal for Teacher Bulk Apply -->
+    <div id="modal-bulk-confirm" class="modal-backdrop" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="bulk-confirm-title" style="max-width: 480px;">
+        <div class="modal-header">
+          <h2 id="bulk-confirm-title" class="modal-title">Confirm Bulk Access Update</h2>
+          <button type="button" class="modal-close-btn" id="btn-close-bulk-modal" aria-label="Close dialog">&times;</button>
+        </div>
+        <div class="modal-body" style="padding: var(--space-4);">
+          <p id="bulk-confirm-desc" style="font-size: var(--text-sm); line-height: 1.5; color: var(--text-main);">
+            Are you sure you want to apply these practice settings?
+          </p>
+          <div id="bulk-affected-box" style="margin-top: var(--space-3); padding: var(--space-3); background: var(--bg-surface-subtle); border-radius: var(--radius-sm); border: 1px solid var(--border-hairline); font-size: var(--text-xs);">
+            <strong>Affected students:</strong> <span id="bulk-affected-count" class="num">0</span> active students in this level assigned to you.
+          </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: var(--space-2); padding: var(--space-3) var(--space-4);">
+          <button type="button" class="btn btn-outline" id="btn-cancel-bulk-apply">Cancel</button>
+          <button type="button" class="btn btn-primary" id="btn-confirm-bulk-apply">Apply Access Settings</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <script type="module" src="/js/studentAccessPage.js"></script>
+    <script type="module">
+      import { logoutUser } from '/js/auth.js';
+      document.getElementById('btn-header-logout')?.addEventListener('click', async () => {
+        await logoutUser();
+      });
+    </script>
+  </body>
+</html>

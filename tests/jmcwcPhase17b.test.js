@@ -830,6 +830,22 @@ function createContractDatabaseHarness({ initialClockMs = 1_762_000_000_000 } = 
           case 'jmcwc_validate_marks':
             jmcwc_validate_marks(args.p_category, args.p_slot, args.p_question_marks);
             return { data: null, error: null };
+          case 'get_student_effective_access':
+            return {
+              data: {
+                ok: true,
+                student_id: args.p_student_id,
+                level: 'Grandmaster',
+                scope: 'default',
+                source_label: 'Default (Full access)',
+                has_override: false,
+                settings: {
+                  main_round: { all: true, eligible: true, categories: [] },
+                },
+                main_round_eligible: true,
+              },
+              error: null,
+            };
           default:
             return { data: null, error: { message: `Unknown RPC: ${fnName}` } };
         }

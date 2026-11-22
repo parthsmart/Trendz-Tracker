@@ -19,6 +19,10 @@ import { getDrillServerClient, verifyStudentCaller } from './_supabaseAdmin.js';
 import { resolveAndValidateDailyTask } from './_dailyTasks.js';
 import { resolveAndValidateHomework } from './_homework.js';
 import {
+  isMemoriadAllowed,
+  fetchStudentEffectiveAccess,
+} from '../js/studentAccess.js';
+import {
   MODULES,
   validateMemoriadSettings,
   generateMemoriadSet,
@@ -152,6 +156,26 @@ async function handleStart(body, student, adminClient, res) {
   const validation = validateMemoriadSettings(moduleKey, authoritativeSettings);
   if (!validation.ok) {
     return res.status(400).json({ error: validation.error });
+  }
+
+  // Validate student practice access for free practice
+  if (!validatedTask && !validatedHomework) {
+    const accessRes = await fetchStudentEffectiveAccess(student.id, { supabase: adminClient });
+    if (!accessRes || accessRes.ok === false) {
+      return res.status(503).json({
+        error: accessRes?.error || 'Failed to verify practice access. Please try again.',
+        code: 'PRACTICE_ACCESS_LOOKUP_FAILED',
+      });
+    }
+    if (accessRes?.settings?.memoriad) {
+      const datesParam = moduleKey === 'calendar' ? (validation.settings?.dates ?? 125) : null;
+      if (!isMemoriadAllowed(moduleKey, datesParam, accessRes.settings.memoriad)) {
+        return res.status(403).json({
+          error: 'This competition module or variant is not permitted for your practice access.',
+          code: 'PRACTICE_ACCESS_RESTRICTED',
+        });
+      }
+    }
   }
 
   let finalTimeLimit = getMemoriadTimeLimit(moduleKey);

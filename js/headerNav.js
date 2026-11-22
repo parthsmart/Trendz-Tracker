@@ -356,7 +356,8 @@ export function setupHeaderNavigation(profile = null) {
 
   // Render Mobile Menu Button + Menu Panel/Drawer from single NAV_CONFIG
   const permissions = profile?.permissions || null;
-  const groups = getGroupedNavItems(resolvedRole, permissions);
+  const studentAccess = profile?.practice_access || profile?.access || null;
+  const groups = getGroupedNavItems(resolvedRole, permissions, studentAccess);
   const groupsHtml = groups
     .map((groupEntry) => {
       const itemsHtml = groupEntry.items
@@ -481,7 +482,7 @@ export function setupHeaderNavigation(profile = null) {
       : (resolvedRole === 'teacher' ? 'Teacher Primary Navigation' : 'Student Primary Navigation')
   );
 
-  const desktopEntries = getDesktopNavEntries(resolvedRole, permissions);
+  const desktopEntries = getDesktopNavEntries(resolvedRole, permissions, studentAccess);
   navZone.innerHTML = desktopEntries
     .map((entry) => {
       if (entry.type === 'link') {
@@ -547,6 +548,26 @@ export function setupHeaderNavigation(profile = null) {
 
   // Re-apply cached unread notification badge state to newly rendered DOM elements
   syncHeaderMenuNotificationBadge(lastUnreadBadgeState.count, lastUnreadBadgeState.text);
+
+  // Background practice access check for student to omit Flash Anzan when hidden
+  if (resolvedRole === 'student' && !profile?.practice_access && profile?.id) {
+    import('./studentAccess.js').then(async ({ fetchStudentEffectiveAccess }) => {
+      try {
+        const isDemo = (await import('./demoDb.js')).isDemoMode();
+        const DemoDB = isDemo ? (await import('./demoDb.js')).DemoDB : null;
+        const supabase = !isDemo && (await import('./config.js')).isSupabaseConfigured()
+          ? await (await import('./supabaseClient.js')).getSupabase()
+          : null;
+        const accessRes = await fetchStudentEffectiveAccess(profile.id, { supabase, isDemo, DemoDB });
+        if (accessRes?.ok && accessRes?.settings?.flash && accessRes.settings.flash.allowed === false) {
+          profile.practice_access = accessRes.settings;
+          setupHeaderNavigation(profile);
+        }
+      } catch {
+        // Non-blocking fallback
+      }
+    }).catch(() => {});
+  }
 
   // 4. Right-hand user details (Name, ID, and Sign out)
   const actionsZone = headerInner.querySelector('.actions-zone');

@@ -64,6 +64,15 @@ export const SETTINGS_ENTRIES = Object.freeze([
     href: '/pages/homework.html',
     description: 'Assign offline or online homework drills independently of daily streak requirements.',
   },
+  {
+    id: 'student-access',
+    group: 'practice',
+    groupLabel: 'Practice',
+    title: 'Student Access',
+    breadcrumbTitle: 'Student Access',
+    href: '/pages/student-access.html',
+    description: 'Decide which free-practice options students see and can use by level and student override.',
+  },
 
   // Competition
   {

@@ -2542,6 +2542,23 @@ describe('Homework & Highest Records PGlite Integration Suite', () => {
             return { data: null, error: err };
           }
         }
+        if (fnName === 'get_student_effective_access') {
+          return {
+            data: {
+              ok: true,
+              student_id: args.p_student_id,
+              level: 'Senior',
+              scope: 'default',
+              source_label: 'Default (Full access)',
+              has_override: false,
+              settings: {
+                main_round: { all: true, eligible: true, categories: [] },
+              },
+              main_round_eligible: true,
+            },
+            error: null,
+          };
+        }
         return { data: null, error: new Error(`Unknown rpc: ${fnName}`) };
       },
       from(tableName) {

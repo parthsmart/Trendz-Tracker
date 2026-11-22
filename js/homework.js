@@ -18,6 +18,7 @@ import { showToast } from './toast.js';
 import {
   createHomeworkAssignment,
   formatHomeworkTypeLabel,
+  verifyHomeworkCompletion,
 } from './homeworkData.js';
 
 let currentProfile = null;
@@ -26,6 +27,7 @@ let allStudents = [];
 let allCategories = [];
 let activeTab = 'active'; // 'active' | 'history'
 let cachedAssignments = [];
+let cachedPendingSubmissions = [];
 
 function escapeHtml(str) {
   if (str === null || str === undefined) return '';
@@ -70,6 +72,7 @@ async function initHomeworkPage() {
   setupActivityTypeControls();
   setupTabControls();
   setupFormHandler();
+  await loadPendingSubmissions();
   await loadAssignments();
 }
 
@@ -316,6 +319,7 @@ function setupFormHandler() {
       form.reset();
       const assignedDateInput = document.getElementById('hw-assigned-date');
       if (assignedDateInput) assignedDateInput.value = getTodayIST();
+      await loadPendingSubmissions();
       await loadAssignments();
     } catch (err) {
       console.error('Failed to create homework:', err);
@@ -442,6 +446,200 @@ function renderAssignmentsTable() {
       `;
     })
     .join('');
+}
+
+async function loadPendingSubmissions() {
+  const countBadge = document.getElementById('pending-homework-count-badge');
+  const tbody = document.getElementById('pending-homework-table-body');
+  if (!tbody) return;
+
+  try {
+    if (isSupabaseConfigured()) {
+      const supabase = await getSupabase();
+      if (supabase) {
+        if (currentProfile?.role === 'teacher' && teacherStudentIds.length === 0) {
+          cachedPendingSubmissions = [];
+        } else {
+          let q = supabase
+            .from('homework_completions')
+            .select(`
+              id,
+              assignment_id,
+              student_id,
+              progress_count,
+              status,
+              notes,
+              updated_at,
+              created_at,
+              student:profiles!student_id (id, student_code, full_name, level),
+              assignment:homework_assignments!assignment_id (id, title, activity_type, required_count, assigned_by)
+            `)
+            .eq('status', 'pending_review')
+            .order('updated_at', { ascending: false });
+
+          // Teachers only query actionable submissions for students currently on their roster
+          if (currentProfile?.role === 'teacher') {
+            q = q.in('student_id', teacherStudentIds);
+          }
+
+          const { data, error } = await q;
+          if (error) throw error;
+          cachedPendingSubmissions = data || [];
+        }
+      }
+    } else if (isDemoAllowedHost() && DemoDB && typeof DemoDB.getPendingHomeworkCompletions === 'function') {
+      cachedPendingSubmissions = DemoDB.getPendingHomeworkCompletions(currentProfile);
+    }
+
+    // Strict boundary: For teacher role, show actionable submissions ONLY for students currently on their roster
+    if (currentProfile?.role === 'teacher') {
+      cachedPendingSubmissions = cachedPendingSubmissions.filter((c) => {
+        return teacherStudentIds.includes(c.student_id);
+      });
+    }
+
+    if (countBadge) {
+      countBadge.textContent = `${cachedPendingSubmissions.length} pending`;
+      if (cachedPendingSubmissions.length > 0) {
+        countBadge.classList.add('badge-warning');
+      } else {
+        countBadge.classList.remove('badge-warning');
+      }
+    }
+
+    renderPendingSubmissionsTable();
+  } catch (err) {
+    console.error('Failed to load pending submissions:', err);
+    if (tbody) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="5" style="text-align: center; color: var(--color-danger); padding: var(--space-4);">
+            Could not load pending submissions: ${escapeHtml(err.message || 'Database error')}
+          </td>
+        </tr>
+      `;
+    }
+  }
+}
+
+function renderPendingSubmissionsTable() {
+  const tbody = document.getElementById('pending-homework-table-body');
+  if (!tbody) return;
+
+  if (cachedPendingSubmissions.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="5" style="text-align: center; color: var(--text-muted); padding: var(--space-4);">
+          No pending homework submissions to review.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = cachedPendingSubmissions
+    .map((c) => {
+      const studentName = c.student?.full_name || 'Student';
+      const studentCode = c.student?.student_code || '—';
+      const studentLevel = c.student?.level || 'No level';
+      const assignTitle = c.assignment?.title || 'Untitled Homework';
+      const activityType = c.assignment?.activity_type || 'paper';
+      const typeLabel = formatHomeworkTypeLabel(activityType);
+      const notes = c.notes ? escapeHtml(c.notes) : '<span style="color: var(--text-muted);">None</span>';
+
+      let submittedDate = '—';
+      if (c.updated_at || c.created_at) {
+        const d = new Date(c.updated_at || c.created_at);
+        submittedDate = d.toLocaleString('en-IN', {
+          timeZone: 'Asia/Kolkata',
+          dateStyle: 'short',
+          timeStyle: 'short',
+        });
+      }
+
+      const canAction = currentProfile?.role === 'admin' || (currentProfile?.role === 'teacher' && teacherStudentIds.includes(c.student_id));
+      const actionsHtml = canAction
+        ? `
+            <button type="button" class="btn btn-xs btn-primary btn-approve-hw" data-id="${escapeHtml(c.id)}" style="margin-right: 4px;">
+              Approve
+            </button>
+            <button type="button" class="btn btn-xs btn-outline btn-reject-hw" data-id="${escapeHtml(c.id)}" style="color: var(--color-danger);">
+              Reject
+            </button>
+          `
+        : `<span style="font-size: var(--text-xs); color: var(--text-muted);">Not on roster</span>`;
+
+      return `
+        <tr data-completion-id="${escapeHtml(c.id)}">
+          <td>
+            <div style="font-weight: 600; color: var(--text-main);">${escapeHtml(studentName)}</div>
+            <div style="font-size: var(--text-xs); color: var(--text-muted);">${escapeHtml(studentCode)} &middot; ${escapeHtml(studentLevel)}</div>
+          </td>
+          <td>
+            <div style="font-weight: 600;">${escapeHtml(assignTitle)}</div>
+            <span class="badge" style="font-size: 10px;">${escapeHtml(typeLabel)}</span>
+          </td>
+          <td class="num" style="font-size: var(--text-xs);">${escapeHtml(submittedDate)}</td>
+          <td style="font-size: var(--text-xs); max-width: 200px; word-break: break-word;">${notes}</td>
+          <td style="text-align: right; white-space: nowrap;">
+            ${actionsHtml}
+          </td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  tbody.querySelectorAll('.btn-approve-hw').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-id');
+      await handleVerifyPendingSubmission(id, 'approve', btn);
+    });
+  });
+
+  tbody.querySelectorAll('.btn-reject-hw').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-id');
+      const notes = window.prompt('Enter reason for returning / rejecting this submission (optional):');
+      if (notes !== null) {
+        await handleVerifyPendingSubmission(id, 'reject', btn, notes);
+      }
+    });
+  });
+}
+
+async function handleVerifyPendingSubmission(completionId, decision, btn, notes = null) {
+  if (!completionId) return;
+
+  const targetSubmission = cachedPendingSubmissions.find((c) => c.id === completionId);
+  if (currentProfile?.role === 'teacher') {
+    const perms = currentProfile.teacher_permissions || {};
+    if (perms.can_manage_tasks === false) {
+      showToast('error', 'You do not have permission to verify homework tasks.');
+      return;
+    }
+    if (targetSubmission && !teacherStudentIds.includes(targetSubmission.student_id)) {
+      showToast('error', 'You are not authorized to verify this student\'s homework because they are not on your roster.');
+      return;
+    }
+  }
+
+  const origText = btn.textContent;
+  try {
+    btn.disabled = true;
+    btn.textContent = decision === 'approve' ? 'Approving...' : 'Rejecting...';
+
+    await verifyHomeworkCompletion(completionId, decision, notes);
+
+    showToast('success', decision === 'approve' ? 'Homework approved successfully.' : 'Homework rejected.');
+    await loadPendingSubmissions();
+    await loadAssignments();
+  } catch (err) {
+    console.error('Failed to verify homework submission:', err);
+    showToast('error', err.message || 'Failed to update submission.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = origText;
+  }
 }
 
 document.addEventListener('DOMContentLoaded', () => {

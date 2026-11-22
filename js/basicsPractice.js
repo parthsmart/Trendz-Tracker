@@ -273,6 +273,28 @@ async function loadSetupData(categoryIdParam) {
     await refreshCategoryResults();
   }
   renderSetupSummary();
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const hasAssignmentException = isTodoMode || Boolean(urlParams.get('homework_id'));
+  if (currentProfile?.role === 'student' && !hasAssignmentException && selectedCategory) {
+    try {
+      const { fetchStudentEffectiveAccess, isBasicsCategoryAllowed } = await import('./studentAccess.js');
+      const isDemo = isDemoMode();
+      const supabase = isSupabaseConfigured() ? await getSupabase() : null;
+      const accessRes = await fetchStudentEffectiveAccess(currentProfile.id, { supabase, isDemo, DemoDB });
+      if (accessRes?.ok && accessRes?.settings?.basics) {
+        if (!isBasicsCategoryAllowed(selectedCategory, accessRes.settings.basics)) {
+          showErrorBanner('This basics category is not permitted for your current practice access.');
+          if (startBtn) {
+            startBtn.disabled = true;
+            startBtn.textContent = 'Practice Restricted';
+          }
+        }
+      }
+    } catch {
+      // Non-blocking fallback
+    }
+  }
 }
 
 /**

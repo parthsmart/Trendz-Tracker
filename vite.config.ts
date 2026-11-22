@@ -119,6 +119,7 @@ export default defineConfig(({ command }) => {
           announcements: path.resolve(__dirname, 'pages/announcements.html'),
           import: path.resolve(__dirname, 'pages/import.html'),
           homework: path.resolve(__dirname, 'pages/homework.html'),
+          studentAccess: path.resolve(__dirname, 'pages/student-access.html'),
           leaderboard: path.resolve(__dirname, 'pages/leaderboard.html'),
           competition: path.resolve(__dirname, 'pages/competition.html'),
           monthlyReport: path.resolve(__dirname, 'pages/monthly-report.html'),
