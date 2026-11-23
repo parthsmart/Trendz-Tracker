@@ -65,12 +65,16 @@ export async function requireAuth(allowedRoles = ['student', 'teacher', 'admin']
   const profile = await getCurrentProfile({
     allowCached,
     onRevalidated: (freshProfile) => {
-      if (!freshProfile || !allowedRoles.includes(freshProfile.role)) {
-        if (freshProfile?.role === 'admin') {
+      if (!freshProfile) {
+        // Transient network error or offline state during revalidation: keep current view
+        return;
+      }
+      if (!allowedRoles.includes(freshProfile.role)) {
+        if (freshProfile.role === 'admin') {
           window.location.replace('/pages/admin.html');
-        } else if (freshProfile?.role === 'teacher') {
+        } else if (freshProfile.role === 'teacher') {
           window.location.replace('/pages/teacher.html');
-        } else if (freshProfile?.role === 'student') {
+        } else if (freshProfile.role === 'student') {
           window.location.replace('/pages/student.html');
         } else {
           window.location.replace('/index.html');

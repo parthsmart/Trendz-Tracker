@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Live Classes — Trendz Tracker</title>
+    <link rel="stylesheet" href="/css/style.css" />
+    <!-- Progressive Web App & Icons -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#2563EB" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Trendz Tracker" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="container header-inner">
+          <a href="/pages/admin.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">TT</span>
+            <span>Trendz Abacus</span>
+          </a>
+
+          <nav class="nav-zone" id="admin-nav-zone" aria-label="Staff Primary Navigation"></nav>
+
+          <div class="actions-zone">
+            <button
+              type="button"
+              id="btn-nav-hamburger"
+              class="nav-hamburger-btn"
+              aria-label="Toggle navigation menu"
+              aria-expanded="false"
+            >
+              <span></span>
+              <span></span>
+              <span></span>
+            </button>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">Sign Out</button>
+          </div>
+        </div>
+      </header>
+
+      <main class="main-content">
+        <div class="container" style="max-width: 1040px; margin: 0 auto; padding: var(--space-4) var(--space-4) var(--space-8);">
+          <div id="config-banner-placeholder"></div>
+
+          <!-- Breadcrumbs -->
+          <nav aria-label="Breadcrumb" style="margin-bottom: var(--space-4);">
+            <ol style="display: flex; gap: var(--space-2); list-style: none; padding: 0; margin: 0; font-size: var(--text-sm); color: var(--text-muted);">
+              <li><a href="/pages/settings.html" style="color: var(--color-primary); text-decoration: none;">Settings</a></li>
+              <li aria-hidden="true">/</li>
+              <li aria-current="page" style="color: var(--text-main); font-weight: 600;">Live Classes</li>
+            </ol>
+          </nav>
+
+          <!-- Page Header -->
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: var(--space-4); margin-bottom: var(--space-6);">
+            <div>
+              <h1 style="font-size: 1.5rem; font-weight: 800; margin: 0 0 var(--space-1) 0; color: var(--text-main);">
+                Live Classes (Webinar.gg)
+              </h1>
+              <p style="font-size: var(--text-sm); color: var(--text-muted); margin: 0;">
+                Link Webinar.gg rooms, assign teachers and student audiences, and manage two-way live sessions.
+              </p>
+            </div>
+            <div style="display: flex; gap: var(--space-2);">
+              <button type="button" id="btn-open-create-modal" class="btn btn-primary">
+                + Link &amp; Schedule Class
+              </button>
+            </div>
+          </div>
+
+          <!-- Live Classes Table / List -->
+          <section class="card" style="margin-bottom: var(--space-6);">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; padding: var(--space-4) var(--space-5);">
+              <h2 style="font-size: var(--text-base); font-weight: 700; margin: 0;">
+                Active &amp; Scheduled Classes
+              </h2>
+              <span id="classes-count-badge" class="badge badge-neutral num">0 classes</span>
+            </div>
+            <div class="card-body" style="padding: 0;">
+              <div id="classes-loading" style="padding: var(--space-6); text-align: center; color: var(--text-muted);">
+                Loading live classes...
+              </div>
+              <div id="classes-empty" style="display: none; padding: var(--space-6); text-align: center; color: var(--text-muted);">
+                No live classes scheduled yet. Click "+ Link &amp; Schedule Class" above to set up the pilot class.
+              </div>
+              <div id="classes-table-wrapper" style="overflow-x: auto; display: none;">
+                <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: var(--text-sm);">
+                  <thead>
+                    <tr style="border-bottom: 1px solid var(--border-hairline); background: var(--bg-surface-elevated, #f9fafb); text-align: left;">
+                      <th style="padding: var(--space-3) var(--space-4);">Class Title</th>
+                      <th style="padding: var(--space-3) var(--space-4);">Assigned Teacher</th>
+                      <th style="padding: var(--space-3) var(--space-4);">Audience</th>
+                      <th style="padding: var(--space-3) var(--space-4);">Start Time (IST)</th>
+                      <th style="padding: var(--space-3) var(--space-4);">Status</th>
+                      <th style="padding: var(--space-3) var(--space-4); text-align: right;">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="classes-table-body">
+                    <!-- Populated dynamically -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+        </div>
+      </main>
+    </div>
+
+    <!-- Create / Link Class Modal -->
+    <div id="modal-create-class" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-card" style="max-width: 560px; width: 90%; margin: auto; background: var(--bg-surface, #fff); border-radius: var(--radius-lg, 12px); box-shadow: var(--shadow-lg); overflow: hidden;">
+        <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border-hairline);">
+          <h3 id="modal-title" style="margin: 0; font-size: var(--text-lg); font-weight: 700;">Link &amp; Schedule Live Class</h3>
+          <button type="button" id="btn-close-modal" class="btn btn-ghost btn-sm" aria-label="Close dialog">&times;</button>
+        </div>
+
+        <form id="form-create-class" style="padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-4);">
+          <div>
+            <label for="input-title" style="display: block; font-size: var(--text-sm); font-weight: 600; margin-bottom: 4px;">Class Title *</label>
+            <input type="text" id="input-title" class="form-input" required placeholder="e.g. Abacus Live Class: Basics &amp; Speed Drill" style="width: 100%; box-sizing: border-box;" />
+          </div>
+
+          <div>
+            <label for="input-webinar-id" style="display: block; font-size: var(--text-sm); font-weight: 600; margin-bottom: 4px;">
+              Webinar.gg Webinar ID *
+            </label>
+            <input type="text" id="input-webinar-id" class="form-input" required placeholder="e.g. cmvl53hcc0bycs60yjljyys4z" style="width: 100%; box-sizing: border-box;" />
+            <small style="color: var(--text-muted); font-size: var(--text-xs); margin-top: 2px; display: block;">
+              Copy the Webinar ID from your Webinar.gg dashboard (e.g. pilot webinar: <code style="font-family: monospace;">cmvl53hcc0bycs60yjljyys4z</code>).
+            </small>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3);">
+            <div>
+              <label for="select-teacher" style="display: block; font-size: var(--text-sm); font-weight: 600; margin-bottom: 4px;">Assigned Teacher *</label>
+              <select id="select-teacher" class="form-input" required style="width: 100%; box-sizing: border-box;">
+                <option value="">Loading teachers...</option>
+              </select>
+            </div>
+            <div>
+              <label for="select-level" style="display: block; font-size: var(--text-sm); font-weight: 600; margin-bottom: 4px;">Target Level</label>
+              <select id="select-level" class="form-input" style="width: 100%; box-sizing: border-box;">
+                <option value="">All Levels</option>
+                <option value="Basic 1">Basic 1</option>
+                <option value="Junior 1">Junior 1</option>
+                <option value="Senior">Senior</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label for="select-invited-teachers" style="display: block; font-size: var(--text-sm); font-weight: 600; margin-bottom: 4px;">
+              Invite Teachers as Participants (Optional)
+            </label>
+            <select id="select-invited-teachers" class="form-input" multiple size="3" style="width: 100%; box-sizing: border-box;">
+              <!-- Populated dynamically -->
+            </select>
+            <small style="color: var(--text-muted); font-size: var(--text-xs); margin-top: 2px; display: block;">
+              Selected teachers will see "Join as participant" in their workspace and receive attendee access under their own identity.
+            </small>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3);">
+            <div>
+              <label for="input-start-time" style="display: block; font-size: var(--text-sm); font-weight: 600; margin-bottom: 4px;">Scheduled Start (IST) *</label>
+              <input type="datetime-local" id="input-start-time" class="form-input" required style="width: 100%; box-sizing: border-box;" />
+            </div>
+            <div>
+              <label for="input-duration" style="display: block; font-size: var(--text-sm); font-weight: 600; margin-bottom: 4px;">Duration (Minutes) *</label>
+              <input type="number" id="input-duration" class="form-input" min="15" max="240" value="60" required style="width: 100%; box-sizing: border-box;" />
+            </div>
+          </div>
+
+          <div>
+            <label for="input-host-email" style="display: block; font-size: var(--text-sm); font-weight: 600; margin-bottom: 4px;">
+              Provider Host Account Email (Optional)
+            </label>
+            <input type="email" id="input-host-email" class="form-input" placeholder="e.g. host@webinar.gg" style="width: 100%; box-sizing: border-box;" />
+            <small style="color: var(--text-muted); font-size: var(--text-xs); margin-top: 2px; display: block;">
+              Optional. Requires registered Webinar.gg host account matching caller. Teacher hosting is disabled until provider accounts are configured.
+            </small>
+          </div>
+
+          <div>
+            <label for="input-notes" style="display: block; font-size: var(--text-sm); font-weight: 600; margin-bottom: 4px;">Class Notes (Optional)</label>
+            <textarea id="input-notes" class="form-input" rows="2" placeholder="e.g. Have your soroban abacus ready and ensure good lighting." style="width: 100%; box-sizing: border-box;"></textarea>
+          </div>
+
+          <div id="modal-error" style="display: none; padding: var(--space-2) var(--space-3); background: #fee2e2; color: #dc2626; border-radius: var(--radius-sm); font-size: var(--text-sm);"></div>
+
+          <div style="display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2);">
+            <button type="button" id="btn-cancel-create" class="btn btn-outline">Cancel</button>
+            <button type="submit" id="btn-submit-create" class="btn btn-primary">Publish Class</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <script type="module" src="/js/liveClasses.js"></script>
+    <script type="module">
+      import { logoutUser } from '/js/auth.js';
+      document.getElementById('btn-header-logout')?.addEventListener('click', async () => {
+        await logoutUser();
+      });
+    </script>
+  </body>
+</html>

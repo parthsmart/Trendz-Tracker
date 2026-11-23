@@ -13,6 +13,7 @@ import { requireAuth } from './guard.js';
 import { getSupabase } from './supabaseClient.js';
 import { isSupabaseConfigured } from './config.js';
 import { DemoDB } from './demoDb.js';
+import { formatTimeIST } from './liveClasses.js';
 
 let currentProfile = null;
 
@@ -215,6 +216,109 @@ export async function initTeacherOverview() {
   const data = await loadTeacherOverviewData(supabase, currentProfile);
 
   renderOverview(data);
+  await loadTeacherLiveClasses(supabase, currentProfile);
+}
+
+/**
+ * Loads and renders live classes assigned to the teacher.
+ */
+export async function loadTeacherLiveClasses(supabase, profile) {
+  const section = document.getElementById('section-teacher-live-classes');
+  const container = document.getElementById('container-teacher-live-classes');
+  const livePulse = document.getElementById('badge-teacher-live-pulse');
+  if (!section || !container) return;
+
+  try {
+    let classes = [];
+    if (!isSupabaseConfigured()) {
+      classes = [];
+    } else {
+      let query = supabase
+        .from('live_classes')
+        .select(`
+          id,
+          title,
+          scheduled_start_time,
+          duration_minutes,
+          status,
+          provider_status,
+          target_level,
+          target_student_ids,
+          teacher_id,
+          invited_teacher_ids
+        `)
+        .in('status', ['scheduled', 'waiting', 'live'])
+        .order('scheduled_start_time', { ascending: true });
+
+      if (profile.role === 'teacher') {
+        query = query.or(`teacher_id.eq.${profile.id},invited_teacher_ids.cs.["${profile.id}"]`);
+      }
+
+      const { data, error } = await query;
+      if (!error && Array.isArray(data)) {
+        classes = data;
+      }
+    }
+
+    if (classes.length === 0) {
+      section.style.display = 'none';
+      return;
+    }
+
+    section.style.display = 'block';
+    const hasLive = classes.some((c) => c.status === 'live');
+    if (livePulse) {
+      livePulse.style.display = hasLive ? 'inline-block' : 'none';
+    }
+
+    container.innerHTML = `
+      <div style="display: flex; flex-direction: column; gap: var(--space-3);">
+        ${classes
+          .map((cls) => {
+            const audience = cls.target_student_ids?.length
+              ? `${cls.target_student_ids.length} students`
+              : cls.target_level || 'All Levels';
+            const isInvited = Array.isArray(cls.invited_teacher_ids) && cls.invited_teacher_ids.includes(profile.id);
+            const isLive = cls.status === 'live';
+            const badgeClass = isLive ? 'badge-success' : cls.status === 'waiting' ? 'badge-warning' : 'badge-info';
+            const statusLabel = isLive ? '● Live Now' : cls.status === 'waiting' ? 'Waiting for Teacher' : 'Scheduled';
+
+            return `
+              <div class="card" style="padding: var(--space-3) var(--space-4); background: ${isLive ? '#f0fdf4' : 'var(--bg-surface-elevated, #f9fafb)'}; border: 1px solid ${isLive ? '#86efac' : 'var(--border-hairline)'}; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3);">
+                <div>
+                  <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: 2px;">
+                    <strong style="color: var(--text-main); font-size: var(--text-base);">${escapeHtml(cls.title)}</strong>
+                    <span class="badge ${badgeClass}" style="font-size: var(--text-xs);">${statusLabel}</span>
+                    ${isInvited ? '<span class="badge badge-info" style="font-size: 11px;">Invited Participant</span>' : ''}
+                  </div>
+                  <div style="font-size: var(--text-xs); color: var(--text-muted); display: flex; gap: var(--space-2); align-items: center;">
+                    <span>Start: <strong class="num" style="color: var(--text-main);">${formatTimeIST(cls.scheduled_start_time)}</strong></span>
+                    <span aria-hidden="true">&middot;</span>
+                    <span>Audience: <strong>${escapeHtml(audience)}</strong></span>
+                    <span aria-hidden="true">&middot;</span>
+                    <span>Duration: ${cls.duration_minutes || 60}m</span>
+                  </div>
+                </div>
+                <div style="display: flex; gap: var(--space-2); align-items: center;">
+                  ${
+                    isInvited
+                      ? `<a href="/pages/live-room.html?classId=${cls.id}" class="btn btn-primary btn-sm" style="text-decoration: none; font-weight: 600;">
+                          Join as participant &rarr;
+                        </a>`
+                      : `<span class="badge badge-neutral" style="font-size: var(--text-xs); font-weight: 500;" title="Teacher hosting requires individual Webinar.gg host account configuration">
+                          Host Setup Required
+                        </span>`
+                  }
+                </div>
+              </div>
+            `;
+          })
+          .join('')}
+      </div>
+    `;
+  } catch (err) {
+    console.error('Error loading teacher live classes:', err);
+  }
 }
 
 export function renderOverview(data) {

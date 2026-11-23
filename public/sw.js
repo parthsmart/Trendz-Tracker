@@ -19,9 +19,13 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 2. Never intercept cross-origin (e.g. Supabase) or API requests
+  // 2. Never intercept cross-origin (e.g. Supabase), API requests, or Live Room sessions
   const url = new URL(event.request.url);
-  if (url.origin !== self.location.origin || url.pathname.startsWith('/api/')) {
+  if (
+    url.origin !== self.location.origin ||
+    url.pathname.startsWith('/api/') ||
+    url.pathname.includes('live-room')
+  ) {
     return;
   }
 
