@@ -1,7 +1,12 @@
 -- ==============================================================================
--- Rollback Migration 17: Webinar.gg Live Classes Feature Rollback
+-- Manual Rollback: Phase 20 Webinar.gg Live Classes Feature Rollback
 -- Phase 20 — Trendz Tracker
--- File: supabase/migrations/17_phase20_live_classes_feature_rollback.sql
+-- File: supabase/rollbacks/17_phase20_live_classes_feature_rollback.sql
+--
+-- MANUAL EXECUTION ONLY:
+-- This script is intentionally stored in `supabase/rollbacks/` so automated migration
+-- runners (such as `supabase db push` or sequential migration scripts in `supabase/migrations/`)
+-- apply ONLY forward migrations and NEVER apply rollback scripts automatically.
 --
 -- IMPORTANT SAFETY NOTICE:
 -- This rollback script STRICTLY PRESERVES all existing records in public.live_classes.

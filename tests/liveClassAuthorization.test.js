@@ -1426,8 +1426,8 @@ test('13. Production migration 17_phase20_live_classes_feature.sql and rollback 
   `);
   assert.equal(rpcBefore.rows.length, 1, 'RPC must exist before rollback');
 
-  // 2. Execute rollback: 17_phase20_live_classes_feature_rollback.sql
-  const rollbackSql = fs.readFileSync('supabase/migrations/17_phase20_live_classes_feature_rollback.sql', 'utf8');
+  // 2. Execute rollback: supabase/rollbacks/17_phase20_live_classes_feature_rollback.sql
+  const rollbackSql = fs.readFileSync('supabase/rollbacks/17_phase20_live_classes_feature_rollback.sql', 'utf8');
   await db.exec(rollbackSql);
 
   // 3. Verify: CLASS RECORD PRESERVED INTACT (Zero data loss)
