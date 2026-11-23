@@ -1204,6 +1204,25 @@ test('12. Database boundary enforces admin-only changes to invited_teacher_ids, 
     'Teachers can update own live_classes must be dropped'
   );
 
+  // 1b. Verify explicit minimum table privileges on public.live_classes
+  const privCheck = async (role, priv) => {
+    const r = await db.query(`SELECT has_table_privilege($1, 'public.live_classes', $2) AS allowed`, [role, priv]);
+    return r.rows[0].allowed;
+  };
+
+  assert.equal(await privCheck('anon', 'SELECT'), false, 'anon must have no SELECT privilege');
+  assert.equal(await privCheck('anon', 'INSERT'), false, 'anon must have no INSERT privilege');
+  assert.equal(await privCheck('anon', 'UPDATE'), false, 'anon must have no UPDATE privilege');
+  assert.equal(await privCheck('anon', 'DELETE'), false, 'anon must have no DELETE privilege');
+
+  assert.equal(await privCheck('authenticated', 'SELECT'), true, 'authenticated must have SELECT privilege');
+  assert.equal(await privCheck('authenticated', 'INSERT'), true, 'authenticated must have INSERT privilege');
+  assert.equal(await privCheck('authenticated', 'UPDATE'), true, 'authenticated must have UPDATE privilege');
+  assert.equal(await privCheck('authenticated', 'DELETE'), true, 'authenticated must have DELETE privilege');
+  assert.equal(await privCheck('authenticated', 'TRUNCATE'), false, 'authenticated must NOT have TRUNCATE privilege');
+  assert.equal(await privCheck('authenticated', 'REFERENCES'), false, 'authenticated must NOT have REFERENCES privilege');
+  assert.equal(await privCheck('authenticated', 'TRIGGER'), false, 'authenticated must NOT have TRIGGER privilege');
+
   // 2. Set up test users: 1 Admin, 1 Teacher, 1 Student
   const adminId = '11111111-1111-4111-8111-111111111111';
   const teacherId = '22222222-2222-4222-8222-222222222222';
@@ -1317,4 +1336,138 @@ test('12. Database boundary enforces admin-only changes to invited_teacher_ids, 
       SET app.current_jwt_role = '';
     `);
   }
+});
+
+test('13. Production migration 17_phase20_live_classes_feature.sql and rollback preserve class records and toggle triggers/RPCs cleanly', async () => {
+  const { PGlite } = await import('@electric-sql/pglite');
+  const db = new PGlite();
+
+  await db.exec(`
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+        CREATE ROLE anon;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+        CREATE ROLE authenticated;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+        CREATE ROLE service_role BYPASSRLS;
+      END IF;
+      GRANT anon, authenticated, service_role TO CURRENT_USER;
+    END $$;
+
+    CREATE SCHEMA IF NOT EXISTS auth;
+    CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID AS $$
+      SELECT NULLIF(current_setting('app.current_user_id', true), '')::UUID;
+    $$ LANGUAGE sql STABLE;
+
+    CREATE OR REPLACE FUNCTION auth.role() RETURNS TEXT AS $$
+      SELECT COALESCE(NULLIF(current_setting('app.current_jwt_role', true), ''), 'authenticated');
+    $$ LANGUAGE sql STABLE;
+
+    CREATE TABLE public.profiles (
+      id UUID PRIMARY KEY,
+      role TEXT NOT NULL CHECK (role IN ('student', 'teacher', 'admin')),
+      student_code TEXT UNIQUE,
+      full_name TEXT NOT NULL,
+      level TEXT,
+      active BOOLEAN NOT NULL DEFAULT true
+    );
+
+    CREATE TABLE public.teacher_student_assignments (
+      teacher_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+      student_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+      PRIMARY KEY (teacher_id, student_id)
+    );
+
+    GRANT ALL ON TABLE public.profiles TO authenticated, service_role;
+    GRANT ALL ON TABLE public.teacher_student_assignments TO authenticated, service_role;
+  `);
+
+  const adminId = 'a0000000-0000-0000-0000-000000000001';
+  const teacherId = 'b0000000-0000-0000-0000-000000000002';
+  await db.exec(`
+    INSERT INTO public.profiles (id, role, student_code, full_name, level, active)
+    VALUES
+      ('${adminId}', 'admin', 'ADM-001', 'Admin User', NULL, true),
+      ('${teacherId}', 'teacher', 'TCH-001', 'Teacher User', NULL, true);
+  `);
+
+  // 1. Run forward production migration: 17_phase20_live_classes_feature.sql
+  const prodMigrationSql = fs.readFileSync('supabase/migrations/17_phase20_live_classes_feature.sql', 'utf8');
+  await db.exec(prodMigrationSql);
+
+  // Insert a test live class record
+  const classId = 'c0000000-0000-0000-0000-000000000001';
+  await db.exec(`
+    INSERT INTO public.live_classes (
+      id, title, webinar_id, teacher_id, host_email, invited_teacher_ids,
+      target_level, scheduled_start_time, duration_minutes, status, created_by
+    ) VALUES (
+      '${classId}', 'Production Test Class', 'webinar-prod-123', '${teacherId}', 'admin@trendz.local',
+      '["${teacherId}"]'::jsonb, 'Basic 1', now() + interval '1 hour', 60, 'scheduled', '${adminId}'
+    );
+  `);
+
+  // Verify class exists and trigger exists
+  const classBefore = await db.query(`SELECT id, title, webinar_id, host_email FROM public.live_classes WHERE id = '${classId}';`);
+  assert.equal(classBefore.rows.length, 1);
+  assert.equal(classBefore.rows[0].title, 'Production Test Class');
+
+  const triggerBefore = await db.query(`
+    SELECT DISTINCT trigger_name FROM information_schema.triggers
+    WHERE event_object_table = 'live_classes' AND trigger_name = 'trg_live_classes_admin_only_fields';
+  `);
+  assert.equal(triggerBefore.rows.length, 1, 'Trigger must exist before rollback');
+
+  const rpcBefore = await db.query(`
+    SELECT routine_name FROM information_schema.routines
+    WHERE routine_schema = 'public' AND routine_name = 'get_eligible_live_classes_for_student';
+  `);
+  assert.equal(rpcBefore.rows.length, 1, 'RPC must exist before rollback');
+
+  // 2. Execute rollback: 17_phase20_live_classes_feature_rollback.sql
+  const rollbackSql = fs.readFileSync('supabase/migrations/17_phase20_live_classes_feature_rollback.sql', 'utf8');
+  await db.exec(rollbackSql);
+
+  // 3. Verify: CLASS RECORD PRESERVED INTACT (Zero data loss)
+  const classAfter = await db.query(`SELECT id, title, webinar_id, host_email FROM public.live_classes WHERE id = '${classId}';`);
+  assert.equal(classAfter.rows.length, 1, 'Class record MUST be strictly preserved after rollback');
+  assert.equal(classAfter.rows[0].title, 'Production Test Class');
+  assert.equal(classAfter.rows[0].webinar_id, 'webinar-prod-123');
+  assert.equal(classAfter.rows[0].host_email, 'admin@trendz.local');
+
+  // 4. Verify trigger and RPC dropped
+  const triggerAfter = await db.query(`
+    SELECT DISTINCT trigger_name FROM information_schema.triggers
+    WHERE event_object_table = 'live_classes' AND trigger_name = 'trg_live_classes_admin_only_fields';
+  `);
+  assert.equal(triggerAfter.rows.length, 0, 'Trigger must be dropped after rollback');
+
+  const rpcAfter = await db.query(`
+    SELECT routine_name FROM information_schema.routines
+    WHERE routine_schema = 'public' AND routine_name = 'get_eligible_live_classes_for_student';
+  `);
+  assert.equal(rpcAfter.rows.length, 0, 'RPC must be dropped after rollback');
+
+  // 5. Verify teacher and student policies dropped, admin policy preserved
+  const policiesAfter = await db.query(`
+    SELECT policyname FROM pg_policies WHERE tablename = 'live_classes';
+  `);
+  const policyNamesAfter = policiesAfter.rows.map(r => r.policyname);
+  assert.equal(policyNamesAfter.includes('Students can view eligible live_classes'), false);
+  assert.equal(policyNamesAfter.includes('Teachers can view assigned live_classes'), false);
+  assert.equal(policyNamesAfter.includes('Admins have full access to live_classes'), true);
+
+  // 6. Re-apply production migration: verifies idempotent re-application over existing data
+  await db.exec(prodMigrationSql);
+
+  const classReapplied = await db.query(`SELECT id, title FROM public.live_classes WHERE id = '${classId}';`);
+  assert.equal(classReapplied.rows.length, 1, 'Class record preserved after re-application');
+
+  const triggerReapplied = await db.query(`
+    SELECT DISTINCT trigger_name FROM information_schema.triggers
+    WHERE event_object_table = 'live_classes' AND trigger_name = 'trg_live_classes_admin_only_fields';
+  `);
+  assert.equal(triggerReapplied.rows.length, 1, 'Trigger restored after re-application');
 });

@@ -61,11 +61,17 @@ CREATE INDEX IF NOT EXISTS idx_live_classes_teacher ON public.live_classes(teach
 CREATE INDEX IF NOT EXISTS idx_live_classes_scheduled_start ON public.live_classes(scheduled_start_time);
 CREATE INDEX IF NOT EXISTS idx_live_classes_status ON public.live_classes(status);
 
--- 3. Enable RLS and Table Privileges
+-- 3. Enable RLS and Explicit Minimum Table Privileges
 ALTER TABLE public.live_classes ENABLE ROW LEVEL SECURITY;
 
-GRANT ALL ON TABLE public.live_classes TO authenticated;
-GRANT ALL ON TABLE public.live_classes TO service_role;
+-- Revoke broad permissions from PUBLIC, anon, and authenticated
+REVOKE ALL ON TABLE public.live_classes FROM PUBLIC;
+REVOKE ALL ON TABLE public.live_classes FROM anon;
+REVOKE ALL ON TABLE public.live_classes FROM authenticated;
+
+-- Grant explicit minimum DML privileges (no TRUNCATE, REFERENCES, or TRIGGER)
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.live_classes TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.live_classes TO service_role;
 
 -- 4. RLS Policies
 DROP POLICY IF EXISTS "Admins have full access to live_classes" ON public.live_classes;
