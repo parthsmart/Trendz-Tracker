@@ -230,7 +230,10 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           .select(`
             id,
             title,
+            webinar_id,
             teacher_id,
+            host_email,
+            invited_teacher_ids,
             target_level,
             target_student_ids,
             scheduled_start_time,
@@ -247,7 +250,45 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           return res.status(404).json({ error: 'Live class not found.', code: 'CLASS_NOT_FOUND' });
         }
 
-        const isHost = caller.role === 'admin' || caller.id === liveClass.teacher_id;
+        // Live provider status check: sync provider status if scheduled or live
+        let currentStatus = liveClass.status;
+        let providerStatus = liveClass.provider_status;
+        if (liveClass.webinar_id && currentStatus !== 'ended' && currentStatus !== 'cancelled') {
+          const liveProviderStatus = await fetchProviderWebinarStatus(liveClass.webinar_id, fetchImpl);
+          if (liveProviderStatus) {
+            providerStatus = liveProviderStatus;
+            if (liveProviderStatus === 'completed' || liveProviderStatus === 'ended') {
+              currentStatus = 'ended';
+            } else if (liveProviderStatus === 'ongoing' && currentStatus !== 'ended') {
+              currentStatus = 'live';
+            }
+            if (providerStatus !== liveClass.provider_status || currentStatus !== liveClass.status) {
+              await supabase
+                .from('live_classes')
+                .update({
+                  provider_status: providerStatus,
+                  status: currentStatus,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq('id', classId);
+            }
+          }
+        }
+
+        const isInvitedParticipant = caller.role === 'teacher' && Boolean(
+          Array.isArray(liveClass.invited_teacher_ids) && liveClass.invited_teacher_ids.includes(caller.id)
+        );
+        const isAssignedTeacher = caller.role === 'teacher' && caller.id === liveClass.teacher_id;
+        const isHost = caller.role === 'admin' && Boolean(liveClass.host_email && caller.email === liveClass.host_email);
+        const isHostIdentityMismatch = caller.role === 'admin' && Boolean(liveClass.host_email && caller.email !== liveClass.host_email);
+        const hostingDisabled = caller.role === 'teacher' && !isInvitedParticipant;
+
+        if (caller.role === 'teacher') {
+          if (!isInvitedParticipant && !isAssignedTeacher) {
+            return res.status(403).json({ error: 'You are not invited to participate in this live class.', code: 'NOT_INVITED' });
+          }
+        }
+
         if (caller.role === 'student' && !isStudentInAudience(caller, liveClass)) {
           return res.status(403).json({ error: 'You are not enrolled in this live class.', code: 'NOT_ENROLLED' });
         }
@@ -258,13 +299,18 @@ export async function handleLiveClassRequest(req, res, options = {}) {
             id: liveClass.id,
             title: liveClass.title,
             teacherName: liveClass.teacher?.full_name || 'Assigned Teacher',
+            hostEmail: liveClass.host_email,
             targetLevel: liveClass.target_level,
             scheduledStartTime: liveClass.scheduled_start_time,
             durationMinutes: liveClass.duration_minutes,
-            status: liveClass.status,
-            providerStatus: liveClass.provider_status,
+            status: currentStatus,
+            providerStatus: providerStatus,
             notes: liveClass.notes,
             isHost,
+            hostingDisabled,
+            isInvitedParticipant,
+            isHostIdentityMismatch,
+            requiredHostEmail: liveClass.host_email,
           },
         });
       }
@@ -284,6 +330,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
             webinar_id,
             teacher_id,
             host_email,
+            invited_teacher_ids,
             target_level,
             target_student_ids,
             scheduled_start_time,
@@ -307,24 +354,65 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           return res.status(400).json({ error: 'This live class has already ended.', code: 'CLASS_ENDED' });
         }
 
+        // Provider status check before minting join token
+        const providerStatus = await fetchProviderWebinarStatus(liveClass.webinar_id, fetchImpl);
+        if (providerStatus === 'completed' || providerStatus === 'ended') {
+          await supabase
+            .from('live_classes')
+            .update({
+              provider_status: providerStatus,
+              status: 'ended',
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', classId);
+          return res.status(400).json({ error: 'This live class has already ended.', code: 'CLASS_ENDED' });
+        }
+
         let isHost = false;
         let participant = null;
 
-        if (caller.role === 'admin' || caller.id === liveClass.teacher_id) {
-          isHost = true;
-          // Validating host account details matching Webinar.gg account logs them in with host studio controls
-          const hostEmail = liveClass.host_email || 'suniltrendzeducation@gmail.com';
-          participant = {
-            firstName: caller.fullName.split(/\s+/)[0] || 'Teacher',
-            lastName: caller.fullName.split(/\s+/).slice(1).join(' ') || 'Host',
-            email: hostEmail,
-            phone: '+919999999999',
-          };
+        if (caller.role === 'teacher') {
+          const isInvitedParticipant = Boolean(
+            Array.isArray(liveClass.invited_teacher_ids) && liveClass.invited_teacher_ids.includes(caller.id)
+          );
+          if (!isInvitedParticipant) {
+            if (caller.id === liveClass.teacher_id) {
+              return res.status(403).json({
+                error: 'Teacher hosting is currently disabled. Hosting requires an individual Webinar.gg host account or configured co-host delegation without impersonation.',
+                code: 'TEACHER_HOSTING_DISABLED',
+              });
+            }
+            return res.status(403).json({
+              error: 'You are not invited as a participant to this live class.',
+              code: 'NOT_INVITED',
+            });
+          }
+
+          // Invited teacher joins strictly as a participant under their own identity (NEVER owner's host email)
+          isHost = false;
+          participant = formatWebinarParticipant(caller.fullName, caller.email, caller.id);
         } else if (caller.role === 'student') {
           if (!isStudentInAudience(caller, liveClass)) {
             return res.status(403).json({ error: 'You are not enrolled in this live class.', code: 'NOT_ENROLLED' });
           }
           participant = formatWebinarParticipant(caller.fullName, caller.email, caller.id);
+        } else if (caller.role === 'admin') {
+          // Admin can only host if their own account email matches the configured host_email
+          if (liveClass.host_email && caller.email === liveClass.host_email) {
+            isHost = true;
+            participant = {
+              firstName: caller.fullName.split(/\s+/)[0] || 'Admin',
+              lastName: caller.fullName.split(/\s+/).slice(1).join(' ') || 'Host',
+              email: liveClass.host_email,
+              phone: '+919999999999',
+            };
+          } else {
+            return res.status(403).json({
+              error: `Admin hosting requires caller account email to match the configured Webinar.gg host account (${liveClass.host_email || 'none'}).`,
+              code: 'HOST_IDENTITY_MISMATCH',
+              requiredHostEmail: liveClass.host_email,
+            });
+          }
         } else {
           return res.status(403).json({ error: 'Unauthorized role for live class access.', code: 'UNAUTHORIZED_ROLE' });
         }
@@ -413,6 +501,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
             webinar_id,
             teacher_id,
             host_email,
+            invited_teacher_ids,
             target_level,
             target_student_ids,
             scheduled_start_time,
@@ -425,7 +514,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           .order('scheduled_start_time', { ascending: false });
 
         if (caller.role === 'teacher') {
-          query = query.eq('teacher_id', caller.id);
+          query = query.or(`teacher_id.eq.${caller.id},invited_teacher_ids.cs.["${caller.id}"]`);
         }
 
         const { data: classes, error } = await query;
@@ -451,9 +540,10 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           teacher_id,
           target_level,
           target_student_ids,
+          invited_teacher_ids,
           scheduled_start_time,
           duration_minutes = 60,
-          host_email = 'suniltrendzeducation@gmail.com',
+          host_email = null,
           notes,
         } = body;
 
@@ -470,9 +560,10 @@ export async function handleLiveClassRequest(req, res, options = {}) {
             title: title.trim(),
             webinar_id: webinar_id.trim(),
             teacher_id,
-            host_email: host_email.trim(),
+            host_email: host_email ? host_email.trim() : null,
             target_level: target_level || null,
             target_student_ids: Array.isArray(target_student_ids) && target_student_ids.length > 0 ? target_student_ids : null,
+            invited_teacher_ids: Array.isArray(invited_teacher_ids) && invited_teacher_ids.length > 0 ? invited_teacher_ids : null,
             scheduled_start_time,
             duration_minutes: Number(duration_minutes) || 60,
             status: 'scheduled',

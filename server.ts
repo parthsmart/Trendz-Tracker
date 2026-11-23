@@ -6,6 +6,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import createStudentHandler from './api/create-student.js';
 import manageTeacherHandler from './api/manage-teacher.js';
@@ -86,22 +87,34 @@ async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';
   const distPath = path.join(__dirname, 'dist');
 
-  if (!isProduction) {
+  // In production or staging preview, serve the built static bundle from dist/ directly.
+  // This avoids running through Vite development middleware and ensures no /@vite/client injection.
+  const serveStaticBundle = isProduction || isStaging;
+
+  if (serveStaticBundle) {
+    if (!fs.existsSync(distPath)) {
+      throw new Error(`[Server] Static build directory ${distPath} does not exist. Run "npm run build" first.`);
+    }
+    console.log(`[Server] Serving static production/staging bundle from ${distPath}`);
+    app.use(express.static(distPath));
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api/')) {
+        return next();
+      }
+      const cleanPath = req.path.replace(/^\/+/, '');
+      const filePath = path.join(distPath, cleanPath);
+      if (req.path.endsWith('.html') && fs.existsSync(filePath)) {
+        return res.sendFile(filePath);
+      }
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  } else {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true, host: '0.0.0.0', port: PORT },
       appType: 'spa',
     });
     app.use(vite.middlewares);
-  } else {
-    // Serve static files in production strictly rooted inside dist
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      if (req.path.endsWith('.html')) {
-        return res.sendFile(req.path, { root: distPath });
-      }
-      res.sendFile('index.html', { root: distPath });
-    });
   }
 
   const useHttps = process.env.HTTPS === 'true';

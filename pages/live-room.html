@@ -182,11 +182,11 @@
 
         <!-- 3. Error / Disconnect State -->
         <div id="room-error" class="lobby-card" style="display: none; border-color: #ef444455;">
-          <h3 style="margin: 0 0 8px 0; color: #f87171;">Connection Notice</h3>
+          <h3 id="room-error-title" style="margin: 0 0 8px 0; color: #f87171;">Connection Notice</h3>
           <p id="room-error-message" style="color: #cbd5e1; font-size: var(--text-sm); margin: 0 0 var(--space-4);">
             Could not connect to the live room.
           </p>
-          <div style="display: flex; gap: var(--space-2); justify-content: center;">
+          <div id="room-error-actions" style="display: flex; gap: var(--space-2); justify-content: center; flex-wrap: wrap;">
             <button type="button" id="btn-retry-load" class="btn btn-primary btn-sm">Try Again</button>
             <a id="btn-error-back" href="/pages/student.html" class="btn btn-outline btn-sm" style="color: #f8fafc; border-color: #475569; text-decoration: none;">Exit</a>
           </div>

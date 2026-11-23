@@ -207,7 +207,8 @@ async function syncClassStatus(classId) {
  */
 async function loadTeachersSelect() {
   const select = document.getElementById('select-teacher');
-  if (!select) return;
+  const invitedSelect = document.getElementById('select-invited-teachers');
+  if (!select && !invitedSelect) return;
 
   try {
     const supabase = await getSupabase();
@@ -219,15 +220,20 @@ async function loadTeachersSelect() {
       .order('full_name');
 
     if (!teachers || teachers.length === 0) {
-      select.innerHTML = '<option value="">No active teachers found</option>';
+      if (select) select.innerHTML = '<option value="">No active teachers found</option>';
+      if (invitedSelect) invitedSelect.innerHTML = '<option value="" disabled>No active teachers found</option>';
       return;
     }
 
-    select.innerHTML = teachers
+    const optionsHtml = teachers
       .map((t) => `<option value="${t.id}">${t.full_name} (${t.student_code})</option>`)
       .join('');
+
+    if (select) select.innerHTML = optionsHtml;
+    if (invitedSelect) invitedSelect.innerHTML = optionsHtml;
   } catch (err) {
-    select.innerHTML = '<option value="">Error loading teachers</option>';
+    if (select) select.innerHTML = '<option value="">Error loading teachers</option>';
+    if (invitedSelect) invitedSelect.innerHTML = '<option value="" disabled>Error loading teachers</option>';
   }
 }
 
@@ -300,10 +306,14 @@ export async function initLiveClassesPage() {
       const title = document.getElementById('input-title')?.value;
       const webinar_id = document.getElementById('input-webinar-id')?.value;
       const teacher_id = document.getElementById('select-teacher')?.value;
+      const invitedSelect = document.getElementById('select-invited-teachers');
+      const invited_teacher_ids = invitedSelect
+        ? Array.from(invitedSelect.selectedOptions).map((o) => o.value)
+        : [];
       const target_level = document.getElementById('select-level')?.value || null;
       const startTimeVal = document.getElementById('input-start-time')?.value;
       const duration_minutes = Number(document.getElementById('input-duration')?.value) || 60;
-      const host_email = document.getElementById('input-host-email')?.value || 'suniltrendzeducation@gmail.com';
+      const host_email = document.getElementById('input-host-email')?.value?.trim() || null;
       const notes = document.getElementById('input-notes')?.value || '';
 
       if (!title || !webinar_id || !teacher_id || !startTimeVal) {
@@ -329,6 +339,7 @@ export async function initLiveClassesPage() {
             title,
             webinar_id,
             teacher_id,
+            invited_teacher_ids,
             target_level,
             scheduled_start_time,
             duration_minutes,

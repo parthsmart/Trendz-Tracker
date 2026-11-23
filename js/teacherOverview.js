@@ -243,13 +243,15 @@ export async function loadTeacherLiveClasses(supabase, profile) {
           status,
           provider_status,
           target_level,
-          target_student_ids
+          target_student_ids,
+          teacher_id,
+          invited_teacher_ids
         `)
         .in('status', ['scheduled', 'waiting', 'live'])
         .order('scheduled_start_time', { ascending: true });
 
       if (profile.role === 'teacher') {
-        query = query.eq('teacher_id', profile.id);
+        query = query.or(`teacher_id.eq.${profile.id},invited_teacher_ids.cs.["${profile.id}"]`);
       }
 
       const { data, error } = await query;
@@ -276,6 +278,7 @@ export async function loadTeacherLiveClasses(supabase, profile) {
             const audience = cls.target_student_ids?.length
               ? `${cls.target_student_ids.length} students`
               : cls.target_level || 'All Levels';
+            const isInvited = Array.isArray(cls.invited_teacher_ids) && cls.invited_teacher_ids.includes(profile.id);
             const isLive = cls.status === 'live';
             const badgeClass = isLive ? 'badge-success' : cls.status === 'waiting' ? 'badge-warning' : 'badge-info';
             const statusLabel = isLive ? '● Live Now' : cls.status === 'waiting' ? 'Waiting for Teacher' : 'Scheduled';
@@ -286,6 +289,7 @@ export async function loadTeacherLiveClasses(supabase, profile) {
                   <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: 2px;">
                     <strong style="color: var(--text-main); font-size: var(--text-base);">${escapeHtml(cls.title)}</strong>
                     <span class="badge ${badgeClass}" style="font-size: var(--text-xs);">${statusLabel}</span>
+                    ${isInvited ? '<span class="badge badge-info" style="font-size: 11px;">Invited Participant</span>' : ''}
                   </div>
                   <div style="font-size: var(--text-xs); color: var(--text-muted); display: flex; gap: var(--space-2); align-items: center;">
                     <span>Start: <strong class="num" style="color: var(--text-main);">${formatTimeIST(cls.scheduled_start_time)}</strong></span>
@@ -295,10 +299,16 @@ export async function loadTeacherLiveClasses(supabase, profile) {
                     <span>Duration: ${cls.duration_minutes || 60}m</span>
                   </div>
                 </div>
-                <div style="display: flex; gap: var(--space-2);">
-                  <a href="/pages/live-room.html?classId=${cls.id}" class="btn btn-primary btn-sm" style="text-decoration: none;">
-                    Open host room &rarr;
-                  </a>
+                <div style="display: flex; gap: var(--space-2); align-items: center;">
+                  ${
+                    isInvited
+                      ? `<a href="/pages/live-room.html?classId=${cls.id}" class="btn btn-primary btn-sm" style="text-decoration: none; font-weight: 600;">
+                          Join as participant &rarr;
+                        </a>`
+                      : `<span class="badge badge-neutral" style="font-size: var(--text-xs); font-weight: 500;" title="Teacher hosting requires individual Webinar.gg host account configuration">
+                          Host Setup Required
+                        </span>`
+                  }
                 </div>
               </div>
             `;
