@@ -279,13 +279,29 @@ export async function getCurrentProfile({ allowCached = true, onRevalidated = nu
         if (cached && cached.active !== false) {
           fetchProfileFromSupabase(supabase, userId)
             .then(async ({ profile: freshProfile, error: profileErr }) => {
-              if (profileErr || !freshProfile || freshProfile.active === false) {
+              if (freshProfile && freshProfile.active === false) {
                 clearProfileCache();
                 clearStaleSupabaseSession();
                 await supabase.auth.signOut().catch(() => {});
                 if (typeof window !== 'undefined') {
                   window.location.replace('/index.html');
                 }
+                return;
+              }
+              if (profileErr?.code === 'PGRST116') {
+                // Profile row permanently deleted from database
+                clearProfileCache();
+                clearStaleSupabaseSession();
+                await supabase.auth.signOut().catch(() => {});
+                if (typeof window !== 'undefined') {
+                  window.location.replace('/index.html');
+                }
+                return;
+              }
+              if (profileErr || !freshProfile) {
+                // Transient network, timeout, or proxy failure during revalidation:
+                // Retain existing cached profile; do NOT sign out or redirect to /index.html
+                console.warn('Background profile revalidation encountered temporary error:', profileErr?.message);
                 return;
               }
               writeProfileCache(freshProfile);
@@ -305,9 +321,15 @@ export async function getCurrentProfile({ allowCached = true, onRevalidated = nu
 
       if (profileErr || !profile) {
         console.warn('Profile retrieval error:', profileErr?.message);
-        clearProfileCache();
-        clearStaleSupabaseSession();
-        await supabase.auth.signOut().catch(() => {});
+        const fallbackCached = readProfileCache(userId);
+        if (fallbackCached && fallbackCached.active !== false) {
+          return fallbackCached;
+        }
+        if (profileErr?.code === 'PGRST116') {
+          clearProfileCache();
+          clearStaleSupabaseSession();
+          await supabase.auth.signOut().catch(() => {});
+        }
         return null;
       }
 
@@ -387,6 +409,50 @@ export async function logoutUser() {
     }
     isLoggingOut = false;
     window.location.replace('/index.html');
+  }
+}
+
+/**
+ * Strict validator for post-login returnTo parameter.
+ * Restricts return destinations exclusively to same-origin /pages/live-room.html
+ * with a valid, well-formed UUID classId query parameter.
+ * Rejects external origins, protocol-relative paths, arbitrary internal paths,
+ * traversal attempts, and malformed identifiers.
+ *
+ * @param {unknown} rawUrl
+ * @returns {string|null} Validated relative URL (/pages/live-room.html?classId=...) or null
+ */
+export function sanitizeLiveRoomReturnTo(rawUrl) {
+  if (typeof rawUrl !== 'string' || !rawUrl.trim()) return null;
+  const trimmed = rawUrl.trim();
+
+  // Must start with exactly one leading slash; reject protocol-relative (//) and backslash (\)
+  if (!trimmed.startsWith('/') || trimmed.startsWith('//') || trimmed.startsWith('/\\')) {
+    return null;
+  }
+
+  try {
+    const dummyOrigin = 'https://trendz-internal.local';
+    const parsed = new URL(trimmed, dummyOrigin);
+
+    // Origin must remain strictly identical to dummy origin (no host escapes)
+    if (parsed.origin !== dummyOrigin) return null;
+
+    // Strict path matching: only /pages/live-room.html is allowed
+    if (parsed.pathname !== '/pages/live-room.html') return null;
+
+    // Must include a valid classId
+    const classId = parsed.searchParams.get('classId');
+    if (!classId) return null;
+
+    // Validate classId is a standard UUID v4 format
+    const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+    if (!uuidRegex.test(classId)) return null;
+
+    // Return the safe, canonical relative URL with verified classId
+    return `/pages/live-room.html?classId=${classId}`;
+  } catch (_) {
+    return null;
   }
 }
 

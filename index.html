@@ -92,7 +92,7 @@
 
     <!-- Login Logic Script (Vanilla JS ES Module) -->
     <script type="module">
-      import { loginWithStudentId, redirectByRole } from '/js/auth.js';
+      import { loginWithStudentId, redirectByRole, sanitizeLiveRoomReturnTo } from '/js/auth.js';
       import { requireNoAuth } from '/js/guard.js';
       import { showToast } from '/js/toast.js';
       import { mountLoginPwaInstall } from '/js/pwaInstall.js';
@@ -100,8 +100,20 @@
       // Mount compact PWA install trigger if available
       mountLoginPwaInstall();
 
-      // Check if already authenticated
-      await requireNoAuth();
+      // Check if already authenticated or returning to an intended class/page
+      const urlParams = new URLSearchParams(window.location.search);
+      const returnTo = sanitizeLiveRoomReturnTo(urlParams.get('returnTo'));
+      if (returnTo) {
+        const { getCurrentProfile } = await import('/js/auth.js');
+        const existingProfile = await getCurrentProfile({ allowCached: true });
+        if (existingProfile) {
+          window.location.replace(returnTo);
+        } else {
+          await requireNoAuth();
+        }
+      } else {
+        await requireNoAuth();
+      }
 
       const form = document.getElementById('login-form');
       const studentIdInput = document.getElementById('student-id');
@@ -147,8 +159,13 @@
         try {
           const { profile } = await loginWithStudentId(studentId, password);
           showToast('success', `Welcome back, ${profile.full_name}!`);
+          const returnToParam = sanitizeLiveRoomReturnTo(urlParams.get('returnTo'));
           setTimeout(() => {
-            redirectByRole(profile);
+            if (returnToParam) {
+              window.location.replace(returnToParam);
+            } else {
+              redirectByRole(profile);
+            }
           }, 400);
         } catch (err) {
           showError(err.message || 'Login failed. Please check your credentials.');

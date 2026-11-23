@@ -22,6 +22,7 @@ export const SETTINGS_SUBPAGE_PATHS = Object.freeze([
   '/pages/announcements.html',
   '/pages/homework.html',
   '/pages/student-access.html',
+  '/pages/live-classes.html',
   '/pages/import.html',
   '/pages/backup.html',
 ]);
@@ -31,6 +32,7 @@ export const NAV_STAGE_AND_PUBLIC_ALLOWLIST = Object.freeze([
   '/pages/basics-practice.html',
   '/pages/element-drill.html',
   '/pages/memoriad-play.html',
+  '/pages/live-room.html',
   '/pages/student-detail.html',
   '/pages/report.html',
   '/pages/teacher.html',

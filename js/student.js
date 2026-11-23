@@ -35,6 +35,7 @@ import { loadAndRenderStudentHomework } from './studentHomeworkView.js';
 import { renderElementsCard } from './elementsCard.js';
 import { renderMemoriadCard } from './memoriadCard.js';
 import { fetchMyNotificationsCached } from './notificationBadge.js';
+import { formatTimeIST } from './liveClasses.js';
 import {
   stageLabel,
   formatEventDateChipIST,
@@ -160,9 +161,10 @@ async function initStudentDashboard() {
     ensureProgressTabLoaded(currentStudentId);
   });
 
-  // Load Available Weekly Test banner (Phase 13a) and compact reminders strip (Phase 13b)
+  // Load Available Weekly Test banner (Phase 13a), compact reminders strip (Phase 13b), and Live Class card
   loadAndRenderAvailableWeeklyTestCard(currentStudentId);
   loadAndRenderHomeRemindersStrip(currentStudentId);
+  loadAndRenderStudentLiveClassCard(currentStudentId);
 
   // Lazy-load Leaderboard summary card when scrolled near viewport (Candidate D)
   const lbContainer = document.getElementById('leaderboard-card-container');
@@ -319,6 +321,101 @@ async function loadAndRenderAvailableWeeklyTestCard(studentId) {
     `;
   } catch (err) {
     console.warn('Could not load available weekly test card:', err);
+  }
+}
+
+/**
+ * Loads and renders compact Live Class card (Webinar.gg) when an eligible class is upcoming or active.
+ */
+export async function loadAndRenderStudentLiveClassCard(studentId) {
+  const container = document.getElementById('student-live-class-card-container');
+  if (!container) return;
+
+  try {
+    let classes = [];
+    if (isSupabaseConfigured()) {
+      const supabase = await getSupabase();
+      const { data, error } = await supabase.rpc('get_eligible_live_classes_for_student', {
+        p_student_id: studentId,
+      });
+      if (!error && Array.isArray(data)) {
+        classes = data;
+      }
+    } else if (isDemoMode() && DemoDB && DemoDB.getEligibleLiveClassesForStudent) {
+      classes = DemoDB.getEligibleLiveClassesForStudent(studentId);
+    }
+
+    if (!classes || classes.length === 0) {
+      container.innerHTML = '';
+      return;
+    }
+
+    // Pick top class (ordered by status priority: live -> waiting -> scheduled)
+    const cls = classes[0];
+    const now = Date.now();
+    const scheduledTime = new Date(cls.scheduled_start_time).getTime();
+    const isPastStart = !isNaN(scheduledTime) && now >= scheduledTime;
+
+    // Distinguish upcoming, waiting for the teacher, live, ended, and canceled states.
+    // Use confirmed provider state for Live. A scheduled start time alone does not mean the teacher is live.
+    let statusState = cls.status;
+    if (cls.status === 'scheduled' && isPastStart) {
+      statusState = 'waiting';
+    }
+
+    let badgeHtml = '';
+    let btnHtml = '';
+
+    if (statusState === 'cancelled') {
+      badgeHtml = `<span class="badge badge-danger" style="font-weight: 600;">Cancelled</span>`;
+      btnHtml = `<button type="button" class="btn btn-outline btn-sm" disabled style="opacity: 0.6;">Cancelled</button>`;
+    } else if (statusState === 'ended') {
+      badgeHtml = `<span class="badge badge-neutral" style="font-weight: 500;">Class Ended</span>`;
+      btnHtml = `<button type="button" class="btn btn-outline btn-sm" disabled style="opacity: 0.6;">Ended</button>`;
+    } else if (statusState === 'live') {
+      badgeHtml = `<span class="badge badge-success" style="font-weight: 700; animation: pulse 2s infinite;"><span style="color: #22c55e;">●</span> Live Now</span>`;
+      btnHtml = `<a href="/pages/live-room.html?classId=${cls.id}" class="btn btn-primary btn-sm" style="text-decoration: none; font-weight: 600;">Join live class &rarr;</a>`;
+    } else if (statusState === 'waiting') {
+      badgeHtml = `<span class="badge badge-warning" style="font-weight: 600;">Waiting for Teacher</span>`;
+      btnHtml = `<a href="/pages/live-room.html?classId=${cls.id}" class="btn btn-primary btn-sm" style="text-decoration: none; font-weight: 600;">Join live class &rarr;</a>`;
+    } else {
+      // Upcoming
+      badgeHtml = `<span class="badge badge-info" style="font-weight: 500;">Upcoming</span>`;
+      btnHtml = `<a href="/pages/live-room.html?classId=${cls.id}" class="btn btn-primary btn-sm" style="text-decoration: none; font-weight: 600;">Join live class &rarr;</a>`;
+    }
+
+    const teacherName = cls.teacher_name || 'Assigned Teacher';
+    const isLiveCard = statusState === 'live';
+
+    container.innerHTML = `
+      <section class="card" style="margin-bottom: var(--space-4); padding: var(--space-4) var(--space-5); background: ${isLiveCard ? '#f0fdf4' : 'var(--bg-surface, #ffffff)'}; border: 1px solid ${isLiveCard ? '#86efac' : 'var(--border-hairline)'};">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3);">
+          <div style="display: flex; flex-direction: column; gap: 4px;">
+            <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
+              <span style="font-size: var(--text-xs); font-weight: 700; color: var(--color-primary); text-transform: uppercase; letter-spacing: 0.05em;">Live Class</span>
+              <span aria-hidden="true">&middot;</span>
+              ${badgeHtml}
+            </div>
+            <h3 style="margin: 0; font-size: var(--text-base); font-weight: 700; color: var(--text-main);">
+              ${escapeHtml(cls.title || 'Abacus Live Class')}
+            </h3>
+            <div style="font-size: var(--text-xs); color: var(--text-muted); display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap;">
+              <span>Teacher: <strong style="color: var(--text-main);">${escapeHtml(teacherName)}</strong></span>
+              <span aria-hidden="true">&middot;</span>
+              <span>Start: <strong class="num" style="color: var(--text-main);">${formatTimeIST(cls.scheduled_start_time)}</strong></span>
+              <span aria-hidden="true">&middot;</span>
+              <span>Duration: ${cls.duration_minutes || 60}m</span>
+            </div>
+          </div>
+          <div>
+            ${btnHtml}
+          </div>
+        </div>
+      </section>
+    `;
+  } catch (err) {
+    console.warn('Could not load student live class card:', err);
+    container.innerHTML = '';
   }
 }
 
