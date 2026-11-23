@@ -1,5 +1,5 @@
 /**
- * Trendz Tracker — Phase 17a: Server-Side Google Drive / Sheets JMCWC Workbook Sync (api/jmcwc-drive-sync.js)
+ * Trendz Tracker — Phase 17a: Server-Side Google Drive / Sheets JMCWC Workbook Sync (api/_jmcwcDriveSync.js)
  *
  * Uses a client-obtained Google OAuth access token (`Authorization: Bearer <token>`)
  * to locate and download the original XLSX bytes of:

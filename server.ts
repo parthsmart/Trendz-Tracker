@@ -17,6 +17,7 @@ import drillHandler from './api/drill.js';
 import memoriadHandler from './api/memoriad.js';
 import weeklyTestHandler from './api/weekly-test.js';
 import jmcwcHandler from './api/jmcwc.js';
+import liveClassHandler from './api/live-class.js';
 import { getSupabaseServerConfig, validateStagingIsolation } from './api/_configHelper.js';
 
 const isStaging = process.env.npm_lifecycle_event === 'preview:staging' || process.env.APP_ENV === 'staging';
@@ -73,6 +74,8 @@ app.all('/api/drill', safeHandler(drillHandler));
 app.all(['/api/memoriad', '/api/memoriad.js'], safeHandler(memoriadHandler));
 app.all(['/api/weekly-test', '/api/weekly-test.js'], safeHandler(weeklyTestHandler));
 app.all(['/api/jmcwc', '/api/jmcwc.js'], safeHandler(jmcwcHandler));
+app.all(['/api/jmcwc-drive-sync', '/api/jmcwc-drive-sync.js'], safeHandler(jmcwcHandler));
+app.all(['/api/live-class', '/api/live-class.js'], safeHandler(liveClassHandler));
 
 async function startServer() {
   if (isStaging) {
@@ -101,9 +104,21 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Trendz Tracker running on http://localhost:${PORT}`);
-  });
+  const useHttps = process.env.HTTPS === 'true';
+  if (useHttps) {
+    const https = await import('https');
+    const fs = await import('fs');
+    const pfxPath = path.resolve(__dirname, 'cert.pfx');
+    const pfx = fs.readFileSync(pfxPath);
+    const httpsServer = https.createServer({ pfx, passphrase: 'trendz123' }, app);
+    httpsServer.listen(PORT, '0.0.0.0', () => {
+      console.log(`Trendz Tracker running on https://localhost:${PORT}`);
+    });
+  } else {
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Trendz Tracker running on http://localhost:${PORT}`);
+    });
+  }
 }
 
 startServer().catch((err) => {

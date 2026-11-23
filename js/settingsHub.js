@@ -96,6 +96,15 @@ export const SETTINGS_ENTRIES = Object.freeze([
 
   // Communication
   {
+    id: 'live-classes',
+    group: 'communication',
+    groupLabel: 'Communication',
+    title: 'Live Classes',
+    breadcrumbTitle: 'Live Classes',
+    href: '/pages/live-classes.html',
+    description: 'Schedule, link Webinar.gg webinars, and manage live abacus classes.',
+  },
+  {
     id: 'announcements',
     group: 'communication',
     groupLabel: 'Communication',

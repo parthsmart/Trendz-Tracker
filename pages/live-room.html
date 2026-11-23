@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Live Class Room — Trendz Tracker</title>
+    <link rel="stylesheet" href="/css/style.css" />
+    <!-- Progressive Web App & Icons -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#2563EB" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Trendz Tracker" />
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #0f172a;
+        color: #f8fafc;
+        font-family: var(--font-family-base, system-ui, -apple-system, sans-serif);
+      }
+
+      .live-room-shell {
+        display: flex;
+        flex-direction: column;
+        width: 100vw;
+        height: 100vh;
+        height: 100dvh;
+        overflow: hidden;
+      }
+
+      .live-room-header {
+        height: 52px;
+        min-height: 52px;
+        background: #1e293b;
+        border-bottom: 1px solid #334155;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 var(--space-4, 16px);
+        gap: var(--space-3, 12px);
+        z-index: 20;
+      }
+
+      .live-room-meta {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3, 12px);
+        overflow: hidden;
+        white-space: nowrap;
+      }
+
+      .live-room-title {
+        font-size: var(--text-sm, 14px);
+        font-weight: 700;
+        color: #f8fafc;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .live-room-teacher {
+        font-size: var(--text-xs, 12px);
+        color: #94a3b8;
+      }
+
+      .live-room-viewport {
+        flex: 1;
+        width: 100%;
+        height: calc(100% - 52px);
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #090d16;
+      }
+
+      #room-iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+        display: block;
+      }
+
+      /* Lobby / Pre-join Card */
+      .lobby-card {
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: var(--radius-lg, 12px);
+        padding: var(--space-6, 24px);
+        max-width: 480px;
+        width: 90%;
+        text-align: center;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+      }
+
+      .permission-tip {
+        background: #0f172a;
+        border: 1px solid #334155;
+        border-radius: var(--radius-md, 8px);
+        padding: var(--space-3, 12px);
+        font-size: var(--text-xs, 12px);
+        color: #94a3b8;
+        text-align: left;
+        margin-top: var(--space-4, 16px);
+        line-height: 1.5;
+      }
+
+      .pulse-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background-color: #22c55e;
+        display: inline-block;
+        box-shadow: 0 0 8px #22c55e;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="live-room-shell">
+      <!-- Live Room Top Navigation Bar -->
+      <header class="live-room-header">
+        <div style="display: flex; align-items: center; gap: var(--space-3, 12px);">
+          <a id="btn-back-nav" href="/pages/student.html" class="btn btn-outline btn-sm" style="color: #f8fafc; border-color: #475569; text-decoration: none;">
+            &larr; <span id="label-back-nav">Back to Today</span>
+          </a>
+          <div class="live-room-meta">
+            <span id="room-status-badge" class="badge badge-info" style="font-size: 11px;">Loading...</span>
+            <div>
+              <div id="room-class-title" class="live-room-title">Live Class</div>
+              <div id="room-teacher-name" class="live-room-teacher">Connecting...</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: var(--space-2, 8px);">
+          <button type="button" id="btn-rejoin-room" class="btn btn-outline btn-sm" style="display: none; color: #f8fafc; border-color: #475569;" title="Rejoin / Refresh Token">
+            Rejoin
+          </button>
+          <button type="button" id="btn-toggle-fullscreen" class="btn btn-outline btn-sm" style="color: #f8fafc; border-color: #475569;" aria-label="Toggle Fullscreen">
+            &#x26F6;
+          </button>
+        </div>
+      </header>
+
+      <!-- Main Live Room Viewport -->
+      <main class="live-room-viewport" id="live-viewport">
+        <!-- 1. Pre-join Lobby (Shown before user enters room) -->
+        <div id="prejoin-lobby" class="lobby-card" style="display: none;">
+          <div style="margin-bottom: var(--space-4, 16px);">
+            <div style="width: 48px; height: 48px; border-radius: 50%; background: #2563eb22; border: 2px solid #2563eb; display: flex; align-items: center; justify-content: center; margin: 0 auto var(--space-3, 12px);">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+              </svg>
+            </div>
+            <h2 id="lobby-title" style="margin: 0 0 6px 0; font-size: 1.25rem; color: #f8fafc;">Live Abacus Class</h2>
+            <p id="lobby-teacher" style="margin: 0; font-size: var(--text-sm, 14px); color: #94a3b8;">with Assigned Teacher</p>
+          </div>
+
+          <button type="button" id="btn-confirm-join" class="btn btn-primary" style="width: 100%; padding: var(--space-3) var(--space-4); font-size: var(--text-base); font-weight: 700;">
+            Enter Live Room &rarr;
+          </button>
+
+          <div class="permission-tip">
+            <strong>Device Permissions Notice:</strong><br />
+            Camera &amp; microphone permissions will be requested by the room. If denied, you can still watch and listen to your teacher. When called upon, you can enable your mic and camera at any time.<br />
+            <span style="color: #60a5fa; margin-top: 4px; display: block;">Abacus Tip: On mobile, position your camera to show your abacus clearly.</span>
+          </div>
+        </div>
+
+        <!-- 2. Loading State -->
+        <div id="room-loading" style="text-align: center; color: #94a3b8;">
+          <div style="margin-bottom: var(--space-2);">Connecting to live room...</div>
+          <div style="font-size: var(--text-xs); color: #64748b;">Authenticating with Webinar.gg</div>
+        </div>
+
+        <!-- 3. Error / Disconnect State -->
+        <div id="room-error" class="lobby-card" style="display: none; border-color: #ef444455;">
+          <h3 style="margin: 0 0 8px 0; color: #f87171;">Connection Notice</h3>
+          <p id="room-error-message" style="color: #cbd5e1; font-size: var(--text-sm); margin: 0 0 var(--space-4);">
+            Could not connect to the live room.
+          </p>
+          <div style="display: flex; gap: var(--space-2); justify-content: center;">
+            <button type="button" id="btn-retry-load" class="btn btn-primary btn-sm">Try Again</button>
+            <a id="btn-error-back" href="/pages/student.html" class="btn btn-outline btn-sm" style="color: #f8fafc; border-color: #475569; text-decoration: none;">Exit</a>
+          </div>
+        </div>
+
+        <!-- 4. Webinar Ended State -->
+        <div id="room-ended" class="lobby-card" style="display: none;">
+          <h3 style="margin: 0 0 8px 0; color: #f8fafc;">Class Concluded</h3>
+          <p style="color: #94a3b8; font-size: var(--text-sm); margin: 0 0 var(--space-4);">
+            This live abacus class has ended. Thank you for participating!
+          </p>
+          <a id="btn-ended-back" href="/pages/student.html" class="btn btn-primary btn-sm" style="text-decoration: none;">
+            Return to Today
+          </a>
+        </div>
+
+        <!-- 5. Iframe Container (Injected upon user join) -->
+        <div id="embed-frame-wrapper" style="width: 100%; height: 100%; display: none;"></div>
+      </main>
+    </div>
+
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <script type="module" src="/js/liveRoom.js"></script>
+  </body>
+</html>
