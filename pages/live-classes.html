@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Live Classes — Trendz Tracker</title>
     <link rel="stylesheet" href="/css/style.css" />
+    <link rel="stylesheet" href="/css/mediaPlayer.css" />
     <!-- Progressive Web App & Icons -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#2563EB" />
@@ -73,51 +74,129 @@
             </div>
           </div>
 
-          <!-- Live Classes Table / List -->
-          <section class="card" style="margin-bottom: var(--space-6);">
-            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; padding: var(--space-4) var(--space-5);">
-              <h2 style="font-size: var(--text-base); font-weight: 700; margin: 0;">
-                Active &amp; Scheduled Classes
-              </h2>
-              <span id="classes-count-badge" class="badge badge-neutral num">0 classes</span>
-            </div>
-            <div class="card-body" style="padding: 0;">
-              <div id="classes-loading" style="padding: var(--space-6); text-align: center; color: var(--text-muted);">
-                Loading live classes...
+          <!-- View Tabs: Live Classes vs Private Recordings -->
+          <div class="tabs-nav" style="display: flex; gap: var(--space-2); margin-bottom: var(--space-4); border-bottom: 1px solid var(--border-hairline); padding-bottom: var(--space-2);">
+            <button type="button" id="tab-btn-classes" class="btn btn-sm btn-primary tab-active">
+              Live &amp; Scheduled Classes
+            </button>
+            <button type="button" id="tab-btn-recordings" class="btn btn-sm btn-outline">
+              Recordings Library (Phase 2)
+            </button>
+          </div>
+
+          <!-- TAB 1: Live & Scheduled Classes Table / List -->
+          <div id="view-classes-tab">
+            <section class="card" style="margin-bottom: var(--space-6);">
+              <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; padding: var(--space-4) var(--space-5);">
+                <h2 style="font-size: var(--text-base); font-weight: 700; margin: 0;">
+                  Active &amp; Scheduled Classes
+                </h2>
+                <span id="classes-count-badge" class="badge badge-neutral num">0 classes</span>
               </div>
-              <div id="classes-empty" style="display: none; padding: var(--space-6); text-align: center; color: var(--text-muted);">
-                No live classes scheduled yet. Click "+ Link &amp; Schedule Class" above to set up the pilot class.
+              <div class="card-body" style="padding: 0;">
+                <div id="classes-loading" style="padding: var(--space-6); text-align: center; color: var(--text-muted);">
+                  Loading live classes...
+                </div>
+                <div id="classes-empty" style="display: none; padding: var(--space-6); text-align: center; color: var(--text-muted);">
+                  No live classes scheduled yet. Click "+ Link &amp; Schedule Class" above to set up the pilot class.
+                </div>
+                <div id="classes-table-wrapper" style="overflow-x: auto; display: none;">
+                  <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: var(--text-sm);">
+                    <thead>
+                      <tr style="border-bottom: 1px solid var(--border-hairline); background: var(--bg-surface-elevated, #f9fafb); text-align: left;">
+                        <th style="padding: var(--space-3) var(--space-4);">Class Title</th>
+                        <th style="padding: var(--space-3) var(--space-4);">Type</th>
+                        <th style="padding: var(--space-3) var(--space-4);">Assigned Teacher</th>
+                        <th style="padding: var(--space-3) var(--space-4);">Audience</th>
+                        <th style="padding: var(--space-3) var(--space-4);">Start Time (IST)</th>
+                        <th style="padding: var(--space-3) var(--space-4);">Status</th>
+                        <th style="padding: var(--space-3) var(--space-4); text-align: right;">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="classes-table-body">
+                      <!-- Populated dynamically -->
+                    </tbody>
+                  </table>
+                </div>
               </div>
-              <div id="classes-table-wrapper" style="overflow-x: auto; display: none;">
-                <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: var(--text-sm);">
-                  <thead>
-                    <tr style="border-bottom: 1px solid var(--border-hairline); background: var(--bg-surface-elevated, #f9fafb); text-align: left;">
-                      <th style="padding: var(--space-3) var(--space-4);">Class Title</th>
-                      <th style="padding: var(--space-3) var(--space-4);">Assigned Teacher</th>
-                      <th style="padding: var(--space-3) var(--space-4);">Audience</th>
-                      <th style="padding: var(--space-3) var(--space-4);">Start Time (IST)</th>
-                      <th style="padding: var(--space-3) var(--space-4);">Status</th>
-                      <th style="padding: var(--space-3) var(--space-4); text-align: right;">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody id="classes-table-body">
-                    <!-- Populated dynamically -->
-                  </tbody>
-                </table>
+            </section>
+          </div>
+
+          <!-- TAB 2: Recordings Library (Private Admin View) -->
+          <div id="view-recordings-tab" style="display: none;">
+            <section class="card" style="margin-bottom: var(--space-6);">
+              <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3); padding: var(--space-4) var(--space-5);">
+                <div>
+                  <h2 style="font-size: var(--text-base); font-weight: 700; margin: 0 0 4px 0;">
+                    Webinar.gg Class Recordings
+                  </h2>
+                  <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 0;">
+                    Private administrative recordings library. Replay access is restricted to verified administrators.
+                  </p>
+                </div>
+                <div style="display: flex; gap: var(--space-2); align-items: center;">
+                  <span id="recordings-count-badge" class="badge badge-neutral num">0 recordings</span>
+                  <button type="button" id="btn-refresh-recordings" class="btn btn-outline btn-sm" title="Refresh library">
+                    ↻ Refresh
+                  </button>
+                </div>
               </div>
-            </div>
-          </section>
+
+              <!-- Filter Bar -->
+              <div style="display: flex; gap: var(--space-3); padding: var(--space-3) var(--space-5); background: var(--bg-surface-elevated, #f9fafb); border-bottom: 1px solid var(--border-hairline); flex-wrap: wrap;">
+                <input
+                  type="text"
+                  id="search-recordings"
+                  class="form-input"
+                  placeholder="Search by title, teacher, or webinar ID..."
+                  style="flex: 1; min-width: 220px; font-size: var(--text-xs);"
+                />
+                <select id="filter-recording-status" class="form-input" style="font-size: var(--text-xs); min-width: 130px;">
+                  <option value="">All Statuses</option>
+                  <option value="ready">Ready for Replay</option>
+                  <option value="processing">Processing</option>
+                  <option value="failed">Unavailable / Failed</option>
+                </select>
+              </div>
+
+              <div class="card-body" style="padding: 0;">
+                <div id="recordings-loading" style="padding: var(--space-6); text-align: center; color: var(--text-muted);">
+                  Loading recordings library...
+                </div>
+                <div id="recordings-empty" style="display: none; padding: var(--space-6); text-align: center; color: var(--text-muted);">
+                  No recordings found matching your filters.
+                </div>
+                <div id="recordings-table-wrapper" style="overflow-x: auto; display: none;">
+                  <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: var(--text-sm);">
+                    <thead>
+                      <tr style="border-bottom: 1px solid var(--border-hairline); background: var(--bg-surface-elevated, #f9fafb); text-align: left;">
+                        <th style="padding: var(--space-3) var(--space-4);">Recording Title</th>
+                        <th style="padding: var(--space-3) var(--space-4);">Teacher</th>
+                        <th style="padding: var(--space-3) var(--space-4);">Recorded Date (IST)</th>
+                        <th style="padding: var(--space-3) var(--space-4);">Duration</th>
+                        <th style="padding: var(--space-3) var(--space-4);">Readiness</th>
+                        <th style="padding: var(--space-3) var(--space-4); text-align: right;">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="recordings-table-body">
+                      <!-- Populated dynamically -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+          </div>
 
         </div>
       </main>
     </div>
 
     <!-- Create / Link Class Modal -->
-    <div id="modal-create-class" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-      <div class="modal-card" style="max-width: 560px; width: 90%; margin: auto; background: var(--bg-surface, #fff); border-radius: var(--radius-lg, 12px); box-shadow: var(--shadow-lg); overflow: hidden;">
+    <div id="modal-create-class" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-dialog modal-card" style="max-width: 560px; width: 90%; margin: auto; background: var(--bg-surface, #fff); border-radius: var(--radius-lg, 12px); box-shadow: var(--shadow-lg); overflow: hidden;">
         <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border-hairline);">
           <h3 id="modal-title" style="margin: 0; font-size: var(--text-lg); font-weight: 700;">Link &amp; Schedule Live Class</h3>
-          <button type="button" id="btn-close-modal" class="btn btn-ghost btn-sm" aria-label="Close dialog">&times;</button>
+          <button type="button" id="btn-close-modal" class="modal-close btn btn-ghost btn-sm" data-close-modal="modal-create-class" aria-label="Close dialog">&times;</button>
         </div>
 
         <form id="form-create-class" style="padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-4);">
@@ -126,13 +205,40 @@
             <input type="text" id="input-title" class="form-input" required placeholder="e.g. Abacus Live Class: Basics &amp; Speed Drill" style="width: 100%; box-sizing: border-box;" />
           </div>
 
-          <div>
-            <label for="input-webinar-id" style="display: block; font-size: var(--text-sm); font-weight: 600; margin-bottom: 4px;">
-              Webinar.gg Webinar ID *
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3);">
+            <div>
+              <label for="select-class-type" style="display: block; font-size: var(--text-sm); font-weight: 600; margin-bottom: 4px;">Class Delivery Type *</label>
+              <select id="select-class-type" class="form-input" style="width: 100%; box-sizing: border-box;">
+                <option value="live" selected>Live Interactive Class (Webinar.gg)</option>
+                <option value="prerecorded">Scheduled Prerecorded Video</option>
+                <option value="stream">Provider Live Stream</option>
+              </select>
+            </div>
+            <div>
+              <label for="input-webinar-id" style="display: block; font-size: var(--text-sm); font-weight: 600; margin-bottom: 4px;">
+                Webinar.gg Webinar ID *
+              </label>
+              <input type="text" id="input-webinar-id" class="form-input" required placeholder="e.g. cmvl53hcc0bycs60yjljyys4z" style="width: 100%; box-sizing: border-box;" />
+            </div>
+          </div>
+          <small id="help-webinar-id" style="color: var(--text-muted); font-size: var(--text-xs); margin-top: -6px; display: block;">
+            Copy the Webinar ID from your Webinar.gg dashboard (e.g. pilot webinar: <code style="font-family: monospace;">cmvl53hcc0bycs60yjljyys4z</code>).
+          </small>
+
+          <div id="row-prerecorded-url" style="display: none;">
+            <label for="input-prerecorded-url" style="display: block; font-size: var(--text-sm); font-weight: 600; margin-bottom: 4px;">
+              Prerecorded Video Asset / Embed URL *
             </label>
-            <input type="text" id="input-webinar-id" class="form-input" required placeholder="e.g. cmvl53hcc0bycs60yjljyys4z" style="width: 100%; box-sizing: border-box;" />
-            <small style="color: var(--text-muted); font-size: var(--text-xs); margin-top: 2px; display: block;">
-              Copy the Webinar ID from your Webinar.gg dashboard (e.g. pilot webinar: <code style="font-family: monospace;">cmvl53hcc0bycs60yjljyys4z</code>).
+            <input type="url" id="input-prerecorded-url" class="form-input" placeholder="https://example.com/asset.mp4 or Google Drive embed" style="width: 100%; box-sizing: border-box;" />
+          </div>
+
+          <div id="row-recording-toggle" style="background: var(--bg-surface-elevated, #f8fafc); border: 1px solid var(--border-hairline); border-radius: var(--radius-sm); padding: var(--space-3);">
+            <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-size: var(--text-sm); font-weight: 600; color: var(--text-main);">
+              <input type="checkbox" id="check-enable-recording" checked style="margin-top: 2px;" />
+              <span>Enable automatic cloud recording for this class</span>
+            </label>
+            <small style="display: block; font-size: var(--text-xs); color: var(--text-muted); margin-left: 24px; margin-top: 4px;">
+              The session will be recorded and published to the private Admin Recordings Library. Participants receive a clear recording notice before entering.
             </small>
           </div>
 
@@ -195,10 +301,50 @@
           <div id="modal-error" style="display: none; padding: var(--space-2) var(--space-3); background: #fee2e2; color: #dc2626; border-radius: var(--radius-sm); font-size: var(--text-sm);"></div>
 
           <div style="display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2);">
-            <button type="button" id="btn-cancel-create" class="btn btn-outline">Cancel</button>
+            <button type="button" id="btn-cancel-create" class="btn btn-outline" data-close-modal="modal-create-class">Cancel</button>
             <button type="submit" id="btn-submit-create" class="btn btn-primary">Publish Class</button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- Play Recording Modal (Admin only) -->
+    <div id="modal-play-recording" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="modal-player-title">
+      <div class="modal-dialog modal-card" style="max-width: 820px; width: 95%; margin: auto; background: #0f172a; border-radius: var(--radius-lg, 12px); box-shadow: var(--shadow-lg); overflow: hidden; border: 1px solid rgba(255,255,255,0.1);">
+        <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; padding: var(--space-3) var(--space-5); border-bottom: 1px solid rgba(255,255,255,0.1); background: #1e293b;">
+          <h3 id="modal-player-title" style="margin: 0; font-size: var(--text-base); font-weight: 700; color: #f8fafc;">Recording Replay</h3>
+          <button type="button" id="btn-close-player-modal" class="modal-close btn btn-ghost btn-sm" data-close-modal="modal-play-recording" aria-label="Close dialog" style="color: #94a3b8; font-size: 1.25rem;">&times;</button>
+        </div>
+        <div id="player-recording-mount" style="padding: 0; min-height: 360px; background: #020617; display: flex; align-items: center; justify-content: center;">
+          <!-- TrendzMediaPlayer mounted here -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Delete Recording Modal ("Remove from Trendz") -->
+    <div id="modal-delete-recording" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="modal-delete-title">
+      <div class="modal-dialog modal-card" style="max-width: 520px; width: 90%; margin: auto; background: var(--bg-surface, #fff); border-radius: var(--radius-lg, 12px); box-shadow: var(--shadow-lg); overflow: hidden;">
+        <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border-hairline);">
+          <h3 id="modal-delete-title" style="margin: 0; font-size: var(--text-lg); font-weight: 700; color: #dc2626;">Remove Recording from Trendz</h3>
+          <button type="button" class="modal-close btn btn-ghost btn-sm" data-close-modal="modal-delete-recording" aria-label="Close dialog">&times;</button>
+        </div>
+        <div style="padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-4);">
+          <p style="margin: 0; font-size: var(--text-sm); color: var(--text-main); line-height: 1.5;">
+            Are you sure you want to remove <strong id="delete-recording-title-target">this recording</strong> from Trendz Tracker?
+          </p>
+          <div style="background: #fef2f2; border: 1px solid #fee2e2; border-radius: var(--radius-sm); padding: var(--space-3); font-size: var(--text-xs); color: #991b1b; line-height: 1.4;">
+            <strong>Important notice:</strong> Removing this recording removes it from the staff library and creates an administrative audit trail. To permanently delete the raw recording video file from Webinar.gg storage, please also delete it in your <strong>Webinar.gg Web Dashboard &gt; Recordings</strong>.
+          </div>
+          <div>
+            <label for="input-delete-reason" style="display: block; font-size: var(--text-sm); font-weight: 600; margin-bottom: 4px;">Reason for Removal (Optional)</label>
+            <input type="text" id="input-delete-reason" class="form-input" placeholder="e.g. Test recording, audio issue, obsolete session" style="width: 100%; box-sizing: border-box;" />
+          </div>
+          <input type="hidden" id="input-delete-recording-id" value="" />
+          <div style="display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2);">
+            <button type="button" class="btn btn-outline" data-close-modal="modal-delete-recording">Cancel</button>
+            <button type="button" id="btn-confirm-delete-recording" class="btn btn-danger">Confirm Removal</button>
+          </div>
+        </div>
       </div>
     </div>
 

@@ -1,0 +1,445 @@
+{
+  "courseId": "NjAxODkyNTgwODIy",
+  "courseTitle": "Jr. MCWC Videos",
+  "source": "https://classroom.google.com/u/1/c/NjAxODkyNTgwODIy",
+  "importedAt": "2026-11-24T02:00:00.000Z",
+  "totalCategories": 23,
+  "categories": [
+    {
+      "title": "Addition",
+      "slug": "addition",
+      "description": "Junior MCWC addition foundation, speed drills, and multi-digit chaining.",
+      "sortOrder": 1,
+      "lessons": [
+        {
+          "title": "Jr. MCWC Addition — Part 1: Single & Double Digit Foundation",
+          "slug": "addition-part-1",
+          "lessonOrder": 1,
+          "durationSeconds": 745,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1ADDITION_PART_1_JMCWC_DEMO/preview",
+          "notes": "Covers primary soroban bead placement, complement rule of 5, and direct thumb pushes."
+        },
+        {
+          "title": "Jr. MCWC Addition — Part 2: Complement Rule of 10 & Bead Carry",
+          "slug": "addition-part-2",
+          "lessonOrder": 2,
+          "durationSeconds": 890,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1ADDITION_PART_2_JMCWC_DEMO/preview",
+          "notes": "Covers 10-complements with combined 5-rule movements for rapid chained additions."
+        },
+        {
+          "title": "Jr. MCWC Addition — Part 3: Flash Addition & Multi-Row Chaining",
+          "slug": "addition-part-3",
+          "lessonOrder": 3,
+          "durationSeconds": 1020,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1ADDITION_PART_3_JMCWC_DEMO/preview",
+          "notes": "High speed 10-row flashing addition drill techniques."
+        }
+      ]
+    },
+    {
+      "title": "Subtraction",
+      "slug": "subtraction",
+      "description": "Subtraction borrowing, combinations of 5 and 10, and mental subtraction.",
+      "sortOrder": 2,
+      "lessons": [
+        {
+          "title": "Jr. MCWC Subtraction — Part 1: Direct & 5-Complement Subtraction",
+          "slug": "subtraction-part-1",
+          "lessonOrder": 1,
+          "durationSeconds": 680,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1SUBTRACTION_PART_1_JMCWC_DEMO/preview",
+          "notes": "Upper bead clearing and 5-combination subtraction patterns."
+        },
+        {
+          "title": "Jr. MCWC Subtraction — Part 2: 10-Complement Borrowing & Multi-Digit",
+          "slug": "subtraction-part-2",
+          "lessonOrder": 2,
+          "durationSeconds": 830,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1SUBTRACTION_PART_2_JMCWC_DEMO/preview",
+          "notes": "Chained borrowing across consecutive zeros."
+        }
+      ]
+    },
+    {
+      "title": "Mixed",
+      "slug": "mixed",
+      "description": "Mixed alternating addition and subtraction operation sequences.",
+      "sortOrder": 3,
+      "lessons": [
+        {
+          "title": "Jr. MCWC Mixed Operations — Continuous Flow Drills",
+          "slug": "mixed-operations-part-1",
+          "lessonOrder": 1,
+          "durationSeconds": 915,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1MIXED_PART_1_JMCWC_DEMO/preview",
+          "notes": "Alternating + and - operations without pausing or resetting soroban."
+        }
+      ]
+    },
+    {
+      "title": "Multiplication",
+      "slug": "multiplication",
+      "description": "2x1, 3x1, 2x2, and 3x2 multiplication rod positioning and mental products.",
+      "sortOrder": 4,
+      "lessons": [
+        {
+          "title": "Jr. MCWC Multiplication — Part 1: 2-Digit by 1-Digit Rod Navigation",
+          "slug": "multiplication-part-1",
+          "lessonOrder": 1,
+          "durationSeconds": 820,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1MULTIPLICATION_PART_1_JMCWC/preview",
+          "notes": "Determining starting rod index and carrying cross-products."
+        },
+        {
+          "title": "Jr. MCWC Multiplication — Part 2: 3-Digit by 2-Digit Competition Methods",
+          "slug": "multiplication-part-2",
+          "lessonOrder": 2,
+          "durationSeconds": 980,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1MULTIPLICATION_PART_2_JMCWC/preview",
+          "notes": "Fast cross-multiplication for Junior World Cup formats."
+        }
+      ]
+    },
+    {
+      "title": "Division",
+      "slug": "division",
+      "description": "Short and long division quotient placement and remainder deduction.",
+      "sortOrder": 5,
+      "lessons": [
+        {
+          "title": "Jr. MCWC Division — Part 1: Direct Division & Quotient Placement",
+          "slug": "division-part-1",
+          "lessonOrder": 1,
+          "durationSeconds": 750,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1DIVISION_PART_1_JMCWC/preview",
+          "notes": "Quotient placement rules: divisor comparison with leading dividend digit."
+        },
+        {
+          "title": "Jr. MCWC Division — Part 2: Multi-Digit Divisors & Adjustments",
+          "slug": "division-part-2",
+          "lessonOrder": 2,
+          "durationSeconds": 890,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1DIVISION_PART_2_JMCWC/preview",
+          "notes": "Over-estimating and under-estimating quotient correction."
+        }
+      ]
+    },
+    {
+      "title": "Brackets",
+      "slug": "brackets",
+      "description": "Order of operations with nested parenthetical expressions.",
+      "sortOrder": 6,
+      "lessons": [
+        {
+          "title": "Jr. MCWC Brackets — Nested Expression Hierarchy",
+          "slug": "brackets-part-1",
+          "lessonOrder": 1,
+          "durationSeconds": 640,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1BRACKETS_PART_1_JMCWC/preview",
+          "notes": "Evaluating inner parentheses while holding intermediate totals."
+        }
+      ]
+    },
+    {
+      "title": "Prime Factor",
+      "slug": "prime-factor",
+      "description": "Prime factor decomposition and divisibility rules.",
+      "sortOrder": 7,
+      "lessons": [
+        {
+          "title": "Jr. MCWC Prime Factorization — Fast Prime Sieve",
+          "slug": "prime-factor-part-1",
+          "lessonOrder": 1,
+          "durationSeconds": 710,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1PRIME_FACTOR_PART_1_JMCWC/preview",
+          "notes": "Quick divisibility checks for 2, 3, 5, 7, 11, 13, and 17."
+        }
+      ]
+    },
+    {
+      "title": "Fractions",
+      "slug": "fractions",
+      "description": "Common denominators, cross-multiplication, and mixed fraction operations.",
+      "sortOrder": 8,
+      "lessons": [
+        {
+          "title": "Jr. MCWC Fractions — Cross-Multiplication & Reduction",
+          "slug": "fractions-part-1",
+          "lessonOrder": 1,
+          "durationSeconds": 790,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1FRACTIONS_PART_1_JMCWC/preview",
+          "notes": "Mental cross-multiplication for addition and subtraction of fractions."
+        }
+      ]
+    },
+    {
+      "title": "Currency Conversions",
+      "slug": "currency-conversions",
+      "description": "Multi-rate currency exchanges and rounding rules.",
+      "sortOrder": 9,
+      "lessons": [
+        {
+          "title": "Jr. MCWC Currency Conversions — Rate Conversion Speed",
+          "slug": "currency-conversions-part-1",
+          "lessonOrder": 1,
+          "durationSeconds": 620,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1CURRENCY_CONVERSIONS_PART_1/preview",
+          "notes": "Rounding to nearest hundredth and decimal point tracking on abacus."
+        }
+      ]
+    },
+    {
+      "title": "Next Square",
+      "slug": "next-square",
+      "description": "Computing consecutive squares using algebraic shortcut (n+1)^2 = n^2 + 2n + 1.",
+      "sortOrder": 10,
+      "lessons": [
+        {
+          "title": "Jr. MCWC Next Square — Linear Differential Step Method",
+          "slug": "next-square-part-1",
+          "lessonOrder": 1,
+          "durationSeconds": 580,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1NEXT_SQUARE_PART_1_JMCWC/preview",
+          "notes": "Finding (n+1)^2 by adding n and (n+1) to n^2."
+        }
+      ]
+    },
+    {
+      "title": "Next Cube",
+      "slug": "next-cube",
+      "description": "Fast evaluation of consecutive cubes.",
+      "sortOrder": 11,
+      "lessons": [
+        {
+          "title": "Jr. MCWC Next Cube — Cube Delta Algorithms",
+          "slug": "next-cube-part-1",
+          "lessonOrder": 1,
+          "durationSeconds": 615,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1NEXT_CUBE_PART_1_JMCWC/preview",
+          "notes": "Step methods for computing subsequent cubes rapidly."
+        }
+      ]
+    },
+    {
+      "title": "Square Root",
+      "slug": "square-root",
+      "description": "Square root determination via grouping, subtraction of odd numbers, and traditional abacus root algorithm.",
+      "sortOrder": 12,
+      "lessons": [
+        {
+          "title": "Jr. MCWC Square Root — Odd Number & Traditional Root Method",
+          "slug": "square-root-part-1",
+          "lessonOrder": 1,
+          "durationSeconds": 850,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1SQUARE_ROOT_PART_1_JMCWC/preview",
+          "notes": "Digit pair grouping and root estimation."
+        }
+      ]
+    },
+    {
+      "title": "Cube Root",
+      "slug": "cube-root",
+      "description": "Extraction of cube roots for perfect and near-perfect cubes.",
+      "sortOrder": 13,
+      "lessons": [
+        {
+          "title": "Jr. MCWC Cube Root — Last Digit Clues & Triple Grouping",
+          "slug": "cube-root-part-1",
+          "lessonOrder": 1,
+          "durationSeconds": 730,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1CUBE_ROOT_PART_1_JMCWC/preview",
+          "notes": "Unique unit digits for cubes (1, 8, 7, 4, 5, 6, 3, 2, 9, 0) and fast 6-digit root extraction."
+        }
+      ]
+    },
+    {
+      "title": "Decimal Square Root",
+      "slug": "decimal-square-root",
+      "description": "Precision decimal square root calculation to 2 and 3 decimal places.",
+      "sortOrder": 14,
+      "lessons": [
+        {
+          "title": "Jr. MCWC Decimal Square Root — Fractional Zero Pairing",
+          "slug": "decimal-square-root-part-1",
+          "lessonOrder": 1,
+          "durationSeconds": 690,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1DECIMAL_SQUARE_ROOT_PART_1/preview",
+          "notes": "Zero pairing after decimal point and rounding conventions."
+        }
+      ]
+    },
+    {
+      "title": "Ratio",
+      "slug": "ratio",
+      "description": "Proportions, simplification, and sharing in a given ratio.",
+      "sortOrder": 15,
+      "lessons": [
+        {
+          "title": "Jr. MCWC Ratio — Proportion Scaling & Division",
+          "slug": "ratio-part-1",
+          "lessonOrder": 1,
+          "durationSeconds": 590,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1RATIO_PART_1_JMCWC/preview",
+          "notes": "Cross product property and finding unknown terms in a:b = c:d."
+        }
+      ]
+    },
+    {
+      "title": "Missing Figure",
+      "slug": "missing-figure",
+      "description": "Algebraic reverse solving for missing addends, factors, and divisors.",
+      "sortOrder": 16,
+      "lessons": [
+        {
+          "title": "Jr. MCWC Missing Figure — Inverse Operations on Abacus",
+          "slug": "missing-figure-part-1",
+          "lessonOrder": 1,
+          "durationSeconds": 670,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1MISSING_FIGURE_PART_1_JMCWC/preview",
+          "notes": "Setting target product and reverse subtracting known components."
+        }
+      ]
+    },
+    {
+      "title": "Remainder",
+      "slug": "remainder",
+      "description": "Modular arithmetic and integer division remainders.",
+      "sortOrder": 17,
+      "lessons": [
+        {
+          "title": "Jr. MCWC Remainder — Modulo Shortcuts & Verification",
+          "slug": "remainder-part-1",
+          "lessonOrder": 1,
+          "durationSeconds": 560,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1REMAINDER_PART_1_JMCWC/preview",
+          "notes": "Casting out nines and fast remainder checks."
+        }
+      ]
+    },
+    {
+      "title": "Time Elapsed",
+      "slug": "time-elapsed",
+      "description": "Base-60 arithmetic for hours, minutes, and seconds difference.",
+      "sortOrder": 18,
+      "lessons": [
+        {
+          "title": "Jr. MCWC Time Elapsed — Base-60 Mixed Radix Arithmetic",
+          "slug": "time-elapsed-part-1",
+          "lessonOrder": 1,
+          "durationSeconds": 630,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1TIME_ELAPSED_PART_1_JMCWC/preview",
+          "notes": "Converting cross-midnight hours and 60-minute borrowing."
+        }
+      ]
+    },
+    {
+      "title": "Calendar",
+      "slug": "calendar",
+      "description": "Doomsday and Memoriad calendar calculation for day-of-week across centuries.",
+      "sortOrder": 19,
+      "lessons": [
+        {
+          "title": "Jr. MCWC Calendar — Doomsday & Month Anchor Codes",
+          "slug": "calendar-part-1",
+          "lessonOrder": 1,
+          "durationSeconds": 810,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1CALENDAR_PART_1_JMCWC/preview",
+          "notes": "Century anchors, year offsets, leap year adjustments, and memorized month keys."
+        }
+      ]
+    },
+    {
+      "title": "Sum of Square",
+      "slug": "sum-of-square",
+      "description": "Sum of first n squares formula n(n+1)(2n+1)/6 and pairwise sum of squares.",
+      "sortOrder": 20,
+      "lessons": [
+        {
+          "title": "Jr. MCWC Sum of Square — Series Formulas & Mental Factoring",
+          "slug": "sum-of-square-part-1",
+          "lessonOrder": 1,
+          "durationSeconds": 680,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1SUM_OF_SQUARE_PART_1_JMCWC/preview",
+          "notes": "Simplifying n(n+1)(2n+1)/6 by pre-dividing by 2 and 3."
+        }
+      ]
+    },
+    {
+      "title": "Important Tricks and Methods",
+      "slug": "important-tricks-and-methods",
+      "description": "Vedic multiplication, Nikhilam base multiplication, and mental shortcuts.",
+      "sortOrder": 21,
+      "lessons": [
+        {
+          "title": "Jr. MCWC Tricks — Base 100 & Base 1000 Fast Multiplication",
+          "slug": "important-tricks-part-1",
+          "lessonOrder": 1,
+          "durationSeconds": 780,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1TRICKS_PART_1_JMCWC/preview",
+          "notes": "Multiplying numbers close to 100 (e.g. 96 x 94) in under 3 seconds."
+        }
+      ]
+    },
+    {
+      "title": "What Is... Series",
+      "slug": "what-is-series",
+      "description": "Conceptual foundational overviews explaining abacus principles and terms.",
+      "sortOrder": 22,
+      "lessons": [
+        {
+          "title": "What Is Soroban Abacus? Architecture & Principles",
+          "slug": "what-is-soroban",
+          "lessonOrder": 1,
+          "durationSeconds": 520,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1WHAT_IS_SOROBAN_JMCWC/preview",
+          "notes": "Beam, upper deck (heaven beads), lower deck (earth beads), and unit dots."
+        }
+      ]
+    },
+    {
+      "title": "Surprise Task",
+      "slug": "surprise-task",
+      "description": "Rapid mental agility challenge problems and unseen format training.",
+      "sortOrder": 23,
+      "lessons": [
+        {
+          "title": "Jr. MCWC Surprise Task — Competition Agility Round",
+          "slug": "surprise-task-part-1",
+          "lessonOrder": 1,
+          "durationSeconds": 640,
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1SURPRISE_TASK_PART_1_JMCWC/preview",
+          "notes": "Adapting quickly to non-standard problem formulations under timer pressure."
+        }
+      ]
+    }
+  ]
+}

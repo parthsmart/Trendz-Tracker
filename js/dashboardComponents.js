@@ -614,10 +614,29 @@ export function renderResources(resourcesList = [], containerId = 'resources-con
     topicMap.get(topic).push(res);
   });
 
+  const lecturesHeroHtml = `
+    <div class="lecture-hero-card" style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border: 1px solid #334155; border-radius: var(--radius-md); padding: var(--space-4); margin-bottom: var(--space-4); color: #f8fafc; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3);">
+      <div style="flex: 1; min-width: 260px;">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+          <span style="background: #f97316; color: #ffffff; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 9999px; text-transform: uppercase; letter-spacing: 0.05em;">Curriculum Catalogue</span>
+          <span style="font-size: var(--text-xs); color: #94a3b8; font-weight: 500;">23 Topics &middot; 27 Lessons</span>
+        </div>
+        <h3 style="font-size: var(--text-base); font-weight: 700; color: #f8fafc; margin: 0 0 4px 0;">Jr. MCWC Video Lectures</h3>
+        <p style="font-size: var(--text-xs); color: #cbd5e1; margin: 0; line-height: 1.5;">Master addition, multiplication, square roots, and calculation techniques with structured video lessons and in-portal playback.</p>
+      </div>
+      <div>
+        <a href="/pages/resources.html" class="btn btn-primary" style="background: #f97316; border-color: #f97316; color: #ffffff; text-decoration: none; font-weight: 600; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; padding: var(--space-2) var(--space-4); border-radius: var(--radius-md);" id="btn-watch-lectures-hero">
+          <span>▶ Watch Lectures</span>
+        </a>
+      </div>
+    </div>
+  `;
+
   if (topicMap.size === 0) {
     container.innerHTML = `
-      <div class="empty-state" style="padding: var(--space-4);">
-        No guidelines or study materials available.
+      ${lecturesHeroHtml}
+      <div class="empty-state" style="padding: var(--space-3); font-size: var(--text-xs); color: var(--text-muted); text-align: center;">
+        Additional guidelines and study materials will appear here.
       </div>
     `;
     return;

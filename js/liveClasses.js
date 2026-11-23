@@ -10,10 +10,14 @@
 
 import { getSupabase } from './supabaseClient.js';
 import { setupHeaderNavigation } from './headerNav.js';
+import { openModal, closeModal } from './modal.js';
+import { TrendzMediaPlayer, formatDuration } from './mediaPlayer.js';
 
 let currentUser = null;
 let currentProfile = null;
 let currentClasses = [];
+let currentRecordings = [];
+let activeRecordingPlayer = null;
 
 /**
  * Formats ISO timestamp to clean IST string
@@ -129,11 +133,20 @@ export async function loadLiveClasses() {
           ? `${cls.target_student_ids.length} selected students`
           : cls.target_level || 'All Levels';
 
+        const typeBadge = cls.class_type === 'prerecorded'
+          ? '<span class="badge badge-info" style="font-size: var(--text-xs);">Prerecorded</span>'
+          : cls.class_type === 'stream'
+            ? '<span class="badge badge-warning" style="font-size: var(--text-xs);">Stream</span>'
+            : `<span class="badge badge-neutral" style="font-size: var(--text-xs);">Live ${cls.recording_enabled !== false ? '• REC' : ''}</span>`;
+
         return `
           <tr style="border-bottom: 1px solid var(--border-hairline);">
             <td style="padding: var(--space-3) var(--space-4);">
               <strong style="color: var(--text-main);">${cls.title}</strong>
               <div style="font-size: var(--text-xs); color: var(--text-muted); font-family: monospace;">Webinar ID: ${cls.webinar_id}</div>
+            </td>
+            <td style="padding: var(--space-3) var(--space-4);">
+              ${typeBadge}
             </td>
             <td style="padding: var(--space-3) var(--space-4); color: var(--text-main);">
               ${teacherName}
@@ -238,6 +251,193 @@ async function loadTeachersSelect() {
 }
 
 /**
+ * Loads private recording library for administrators
+ */
+export async function loadRecordings() {
+  const loadingEl = document.getElementById('recordings-loading');
+  const emptyEl = document.getElementById('recordings-empty');
+  const tableWrapper = document.getElementById('recordings-table-wrapper');
+  const tbody = document.getElementById('recordings-table-body');
+  const countBadge = document.getElementById('recordings-count-badge');
+  const searchInput = document.getElementById('search-recordings');
+  const statusFilter = document.getElementById('filter-recording-status');
+
+  if (loadingEl) loadingEl.style.display = 'block';
+  if (emptyEl) emptyEl.style.display = 'none';
+  if (tableWrapper) tableWrapper.style.display = 'none';
+
+  try {
+    const supabase = await getSupabase();
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) return;
+
+    const res = await fetch('/api/live-class', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        action: 'list_recordings',
+        search: searchInput?.value?.trim() || undefined,
+        status: statusFilter?.value || undefined,
+      }),
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || 'Failed to load recordings library.');
+    }
+
+    currentRecordings = data.recordings || [];
+    if (countBadge) {
+      countBadge.textContent = `${currentRecordings.length} ${currentRecordings.length === 1 ? 'recording' : 'recordings'}`;
+    }
+
+    if (loadingEl) loadingEl.style.display = 'none';
+
+    if (currentRecordings.length === 0) {
+      if (emptyEl) emptyEl.style.display = 'block';
+      return;
+    }
+
+    if (tbody) {
+      tbody.innerHTML = currentRecordings.map((rec) => {
+        const isReady = rec.status === 'ready';
+        const statusBadge = isReady
+          ? '<span class="badge badge-success">Ready</span>'
+          : rec.status === 'processing'
+            ? '<span class="badge badge-warning">Processing</span>'
+            : '<span class="badge badge-danger">Unavailable</span>';
+
+        return `
+          <tr style="border-bottom: 1px solid var(--border-hairline);">
+            <td style="padding: var(--space-3) var(--space-4);">
+              <strong style="color: var(--text-main);">${rec.title || rec.classTitle}</strong>
+              <div style="font-size: var(--text-xs); color: var(--text-muted); font-family: monospace;">Webinar ID: ${rec.webinarId}</div>
+            </td>
+            <td style="padding: var(--space-3) var(--space-4); color: var(--text-main);">
+              ${rec.teacherName} ${rec.teacherCode ? `<span style="font-size: var(--text-xs); color: var(--text-muted);">(${rec.teacherCode})</span>` : ''}
+            </td>
+            <td style="padding: var(--space-3) var(--space-4); white-space: nowrap;">
+              ${formatTimeIST(rec.recordedAt || rec.createdAt)}
+            </td>
+            <td style="padding: var(--space-3) var(--space-4); font-family: monospace;">
+              ${rec.durationSeconds ? formatDuration(rec.durationSeconds) : '—'}
+            </td>
+            <td style="padding: var(--space-3) var(--space-4);">
+              ${statusBadge}
+            </td>
+            <td style="padding: var(--space-3) var(--space-4); text-align: right; white-space: nowrap;">
+              <button
+                type="button"
+                class="btn btn-primary btn-sm btn-play-recording"
+                data-id="${rec.id}"
+                data-title="${rec.title || rec.classTitle}"
+                ${!isReady ? 'disabled title="Recording is still processing"' : ''}
+                style="margin-right: 4px;"
+              >
+                Play Replay
+              </button>
+              <button
+                type="button"
+                class="btn btn-outline btn-sm btn-delete-recording"
+                data-id="${rec.id}"
+                data-title="${rec.title || rec.classTitle}"
+                style="color: #dc2626;"
+                title="Remove recording from Trendz"
+              >
+                Remove
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    if (tableWrapper) tableWrapper.style.display = 'block';
+
+    // Wire up Play buttons
+    document.querySelectorAll('.btn-play-recording').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        const id = e.currentTarget.getAttribute('data-id');
+        await playRecording(id);
+      });
+    });
+
+    // Wire up Delete buttons
+    document.querySelectorAll('.btn-delete-recording').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        const id = e.currentTarget.getAttribute('data-id');
+        const title = e.currentTarget.getAttribute('data-title');
+        openDeleteRecordingModal(id, title);
+      });
+    });
+
+  } catch (err) {
+    if (loadingEl) loadingEl.style.display = 'none';
+    showToast(err.message || 'Error loading recordings', 'error');
+  }
+}
+
+async function playRecording(recordingId) {
+  try {
+    const supabase = await getSupabase();
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch('/api/live-class', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ action: 'get_recording_playback', recordingId }),
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || 'Failed to retrieve recording replay.');
+    }
+
+    const { recording } = data;
+    const titleEl = document.getElementById('modal-player-title');
+    if (titleEl) titleEl.textContent = `${recording.title || recording.classTitle} (Replay)`;
+
+    const mountEl = document.getElementById('player-recording-mount');
+    if (!mountEl) return;
+
+    if (activeRecordingPlayer) {
+      activeRecordingPlayer.destroy();
+      activeRecordingPlayer = null;
+    }
+
+    activeRecordingPlayer = new TrendzMediaPlayer(mountEl, {
+      userId: currentUser?.id || 'admin',
+      mediaId: recording.id,
+      mediaType: 'video_mp4',
+      mediaUrl: recording.playbackUrl,
+      title: recording.title || recording.classTitle,
+      category: 'Webinar Recording',
+    });
+
+    openModal('modal-play-recording');
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+function openDeleteRecordingModal(id, title) {
+  const targetTitle = document.getElementById('delete-recording-title-target');
+  const targetId = document.getElementById('input-delete-recording-id');
+  const reasonInput = document.getElementById('input-delete-reason');
+
+  if (targetTitle) targetTitle.textContent = title ? `"${title}"` : 'this recording';
+  if (targetId) targetId.value = id;
+  if (reasonInput) reasonInput.value = '';
+
+  openModal('modal-delete-recording');
+}
+
+/**
  * Initializes the page
  */
 export async function initLiveClassesPage() {
@@ -263,11 +463,120 @@ export async function initLiveClassesPage() {
 
   setupHeaderNavigation(profile);
 
-  // Load initial classes
-  await loadLiveClasses();
-  await loadTeachersSelect();
+  // Setup tab navigation
+  const tabClasses = document.getElementById('tab-btn-classes');
+  const tabRecordings = document.getElementById('tab-btn-recordings');
+  const viewClasses = document.getElementById('view-classes-tab');
+  const viewRecordings = document.getElementById('view-recordings-tab');
 
-  // Setup modal wiring
+  if (tabClasses && tabRecordings) {
+    tabClasses.addEventListener('click', () => {
+      tabClasses.classList.add('btn-primary', 'tab-active');
+      tabClasses.classList.remove('btn-outline');
+      tabRecordings.classList.remove('btn-primary', 'tab-active');
+      tabRecordings.classList.add('btn-outline');
+      if (viewClasses) viewClasses.style.display = 'block';
+      if (viewRecordings) viewRecordings.style.display = 'none';
+    });
+
+    tabRecordings.addEventListener('click', async () => {
+      tabRecordings.classList.add('btn-primary', 'tab-active');
+      tabRecordings.classList.remove('btn-outline');
+      tabClasses.classList.remove('btn-primary', 'tab-active');
+      tabClasses.classList.add('btn-outline');
+      if (viewClasses) viewClasses.style.display = 'none';
+      if (viewRecordings) viewRecordings.style.display = 'block';
+      await loadRecordings();
+    });
+  }
+
+  // Setup Recordings filter listeners
+  document.getElementById('search-recordings')?.addEventListener('input', () => {
+    loadRecordings();
+  });
+  document.getElementById('filter-recording-status')?.addEventListener('change', () => {
+    loadRecordings();
+  });
+  document.getElementById('btn-refresh-recordings')?.addEventListener('click', () => {
+    loadRecordings();
+  });
+
+  // Setup Player Modal Close Listener
+  const closePlayerModal = () => {
+    closeModal('modal-play-recording');
+    if (activeRecordingPlayer) {
+      activeRecordingPlayer.destroy();
+      activeRecordingPlayer = null;
+    }
+  };
+  document.getElementById('btn-close-player-modal')?.addEventListener('click', closePlayerModal);
+  document.getElementById('modal-play-recording')?.addEventListener('click', (e) => {
+    if (e.target.id === 'modal-play-recording') closePlayerModal();
+  });
+
+  // Setup Delete Recording Confirmation
+  const confirmDeleteBtn = document.getElementById('btn-confirm-delete-recording');
+  if (confirmDeleteBtn) {
+    confirmDeleteBtn.addEventListener('click', async () => {
+      const recordingId = document.getElementById('input-delete-recording-id')?.value;
+      const reason = document.getElementById('input-delete-reason')?.value || '';
+      if (!recordingId) return;
+
+      try {
+        const { data: { session: curSession } } = await supabase.auth.getSession();
+        const res = await fetch('/api/live-class', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${curSession.access_token}`,
+          },
+          body: JSON.stringify({
+            action: 'delete_recording',
+            recordingId,
+            reason,
+          }),
+        });
+        const resData = await res.json();
+        if (!res.ok || !resData.ok) {
+          throw new Error(resData.error || 'Failed to remove recording.');
+        }
+
+        closeModal('modal-delete-recording');
+        showToast(resData.message || 'Recording removed from Trendz.', 'success');
+        if (resData.providerNotice) {
+          setTimeout(() => showToast(resData.providerNotice, 'info'), 1500);
+        }
+        await loadRecordings();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+  }
+
+  // Setup Class Type delivery toggle in Create Modal
+  const selectClassType = document.getElementById('select-class-type');
+  const rowPrerecorded = document.getElementById('row-prerecorded-url');
+  const inputWebinarId = document.getElementById('input-webinar-id');
+  const helpWebinarId = document.getElementById('help-webinar-id');
+
+  if (selectClassType) {
+    selectClassType.addEventListener('change', () => {
+      const isPrerecorded = selectClassType.value === 'prerecorded';
+      if (rowPrerecorded) rowPrerecorded.style.display = isPrerecorded ? 'block' : 'none';
+      if (inputWebinarId) {
+        if (isPrerecorded) {
+          inputWebinarId.removeAttribute('required');
+          if (helpWebinarId) helpWebinarId.textContent = 'Optional for prerecorded videos (auto-assigned if left blank).';
+        } else {
+          inputWebinarId.setAttribute('required', 'required');
+          if (helpWebinarId) helpWebinarId.innerHTML = 'Copy the Webinar ID from your Webinar.gg dashboard (e.g. pilot webinar: <code style="font-family: monospace;">cmvl53hcc0bycs60yjljyys4z</code>).';
+        }
+      }
+    });
+  }
+
+  // Setup modal wiring immediately after admin/teacher access is confirmed
+  // so slow or failing class/teacher list network requests cannot delay the button
   const modal = document.getElementById('modal-create-class');
   const btnOpen = document.getElementById('btn-open-create-modal');
   const btnClose = document.getElementById('btn-close-modal');
@@ -275,36 +584,73 @@ export async function initLiveClassesPage() {
   const form = document.getElementById('form-create-class');
   const modalError = document.getElementById('modal-error');
 
-  // Pre-set start time to next 30-minute slot in local IST
-  const startTimeInput = document.getElementById('input-start-time');
-  if (startTimeInput) {
-    const now = new Date(Date.now() + 30 * 60 * 1000);
-    // Format to YYYY-MM-DDTHH:mm
-    const localIso = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    startTimeInput.value = localIso;
+  const prefillStartTime = () => {
+    const startTimeInput = document.getElementById('input-start-time');
+    if (startTimeInput) {
+      const now = new Date(Date.now() + 30 * 60 * 1000);
+      const localIso = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+      startTimeInput.value = localIso;
+    }
+  };
+
+  const handleOpenCreateModal = () => {
+    prefillStartTime();
+    if (modalError) {
+      modalError.style.display = 'none';
+      modalError.textContent = '';
+    }
+    openModal('modal-create-class');
+  };
+
+  const handleCloseCreateModal = () => {
+    closeModal('modal-create-class');
+    if (form) form.reset();
+    if (rowPrerecorded) rowPrerecorded.style.display = 'none';
+    if (modalError) {
+      modalError.style.display = 'none';
+      modalError.textContent = '';
+    }
+  };
+
+  if (btnOpen) btnOpen.addEventListener('click', handleOpenCreateModal);
+  if (btnClose) btnClose.addEventListener('click', handleCloseCreateModal);
+  if (btnCancel) btnCancel.addEventListener('click', handleCloseCreateModal);
+
+  // Close on backdrop click
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        handleCloseCreateModal();
+      }
+    });
   }
 
-  const openModal = () => {
-    if (modal) modal.style.display = 'flex';
-    if (modalError) modalError.style.display = 'none';
-  };
-
-  const closeModal = () => {
-    if (modal) modal.style.display = 'none';
-    if (form) form.reset();
-  };
-
-  if (btnOpen) btnOpen.addEventListener('click', openModal);
-  if (btnClose) btnClose.addEventListener('click', closeModal);
-  if (btnCancel) btnCancel.addEventListener('click', closeModal);
+  // Handle Escape key to reset form on close
+  document.addEventListener('keydown', (e) => {
+    if ((e.key === 'Escape' || e.key === 'Esc') && modal && (modal.classList.contains('open') || modal.classList.contains('is-open'))) {
+      handleCloseCreateModal();
+    }
+    if ((e.key === 'Escape' || e.key === 'Esc') && document.getElementById('modal-play-recording')?.classList.contains('is-open')) {
+      closePlayerModal();
+    }
+  });
 
   if (form) {
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      if (modalError) modalError.style.display = 'none';
+      if (modalError) {
+        modalError.style.display = 'none';
+        modalError.textContent = '';
+      }
 
-      const title = document.getElementById('input-title')?.value;
-      const webinar_id = document.getElementById('input-webinar-id')?.value;
+      const title = document.getElementById('input-title')?.value?.trim();
+      const class_type = selectClassType?.value || 'live';
+      let webinar_id = document.getElementById('input-webinar-id')?.value?.trim();
+      const prerecorded_asset_url = document.getElementById('input-prerecorded-url')?.value?.trim() || null;
+      const recording_enabled = document.getElementById('check-enable-recording')
+        ? document.getElementById('check-enable-recording').checked
+        : true;
+
       const teacher_id = document.getElementById('select-teacher')?.value;
       const invitedSelect = document.getElementById('select-invited-teachers');
       const invited_teacher_ids = invitedSelect
@@ -316,9 +662,21 @@ export async function initLiveClassesPage() {
       const host_email = document.getElementById('input-host-email')?.value?.trim() || null;
       const notes = document.getElementById('input-notes')?.value || '';
 
+      if (class_type === 'prerecorded' && !webinar_id) {
+        webinar_id = `prerecorded-${Date.now()}`;
+      }
+
       if (!title || !webinar_id || !teacher_id || !startTimeVal) {
         if (modalError) {
           modalError.textContent = 'Please fill out all required fields.';
+          modalError.style.display = 'block';
+        }
+        return;
+      }
+
+      if (class_type === 'prerecorded' && !prerecorded_asset_url) {
+        if (modalError) {
+          modalError.textContent = 'Please provide a valid video asset or embed URL for the scheduled prerecorded class.';
           modalError.style.display = 'block';
         }
         return;
@@ -337,7 +695,10 @@ export async function initLiveClassesPage() {
           body: JSON.stringify({
             action: 'create',
             title,
+            class_type,
             webinar_id,
+            prerecorded_asset_url,
+            recording_enabled,
             teacher_id,
             invited_teacher_ids,
             target_level,
@@ -353,7 +714,7 @@ export async function initLiveClassesPage() {
           throw new Error(resData.error || 'Failed to create live class.');
         }
 
-        closeModal();
+        handleCloseCreateModal();
         showToast('Live class successfully scheduled!', 'success');
         await loadLiveClasses();
       } catch (err) {
@@ -364,6 +725,10 @@ export async function initLiveClassesPage() {
       }
     });
   }
+
+  // Load initial classes and teachers asynchronously in the background so slow responses don't delay modal
+  loadLiveClasses().catch((err) => console.error('Failed to load live classes:', err));
+  loadTeachersSelect().catch((err) => console.error('Failed to load teachers:', err));
 }
 
 if (typeof window !== 'undefined') {

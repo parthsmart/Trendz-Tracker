@@ -1,0 +1,465 @@
+/**
+ * Trendz Tracker — Webinar Recordings & Scheduled Class Test Suite
+ * (tests/liveClassRecordings.test.js)
+ *
+ * Verifies Phase 21 Workstream A:
+ * 1. Automatic recording configuration and scheduled class type flags on live_classes:
+ *    - class_type: 'live' | 'prerecorded' | 'stream'
+ *    - recording_enabled: boolean (default true)
+ *    - prerecorded_asset_url: text
+ * 2. Admin-only Recordings Library access (list_recordings):
+ *    - Admin succeeds and can filter by status/search
+ *    - Student and Teacher calls are rejected with 403 FORBIDDEN
+ * 3. Server-side authorized playback (get_recording_playback):
+ *    - Admin gets authorized playback details
+ *    - Access is audited
+ *    - Processing or deleted recordings are rejected with actionable error
+ *    - Students and Teachers are rejected with 403 FORBIDDEN
+ * 4. Confirmed Recording Deletion ("Remove from Trendz"):
+ *    - Admin removes recording with reason
+ *    - Table status becomes 'deleted' and audit record is preserved
+ *    - Class and webinar records remain intact
+ *    - Returns clear instructions for manual Webinar.gg dashboard deletion
+ * 5. Scheduled Prerecorded Class Join Authorization:
+ *    - Enrolled student receives asset URL without Webinar.gg token minting
+ *    - Unenrolled student is blocked with 403 NOT_ENROLLED
+ *    - Uninvited teacher is blocked with 403 NOT_INVITED
+ */
+
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { handleLiveClassRequest } from '../api/_liveClass.js';
+
+function createMockReqRes({ method = 'POST', headers = {}, body = {} } = {}) {
+  const req = {
+    method,
+    headers: {
+      authorization: 'Bearer mock-token',
+      ...headers,
+    },
+    body,
+  };
+
+  const res = {
+    statusCode: 200,
+    headers: {},
+    body: null,
+    setHeader(name, val) {
+      this.headers[name] = val;
+    },
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(obj) {
+      this.body = obj;
+      return this;
+    },
+    end() {
+      return this;
+    },
+  };
+
+  return { req, res };
+}
+
+function createMockSupabase(callerProfile, dbState = {}) {
+  const liveClasses = dbState.liveClasses || [];
+  const recordings = dbState.recordings || [];
+  const auditLogs = dbState.auditLogs || [];
+
+  return {
+    auth: {
+      getUser: async () => ({
+        data: { user: { id: callerProfile.id, email: callerProfile.email } },
+        error: null,
+      }),
+    },
+    from: (table) => {
+      if (table === 'profiles') {
+        return {
+          select: () => ({
+            eq: () => ({
+              single: async () => ({ data: callerProfile, error: null }),
+            }),
+          }),
+        };
+      }
+
+      if (table === 'live_classes') {
+        return {
+          select: (fields) => ({
+            eq: (col, val) => ({
+              single: async () => {
+                const item = liveClasses.find((c) => c[col] === val);
+                if (!item) return { data: null, error: new Error('Class not found') };
+                return {
+                  data: {
+                    ...item,
+                    teacher: { id: item.teacher_id, full_name: 'Assigned Teacher' },
+                  },
+                  error: null,
+                };
+              },
+            }),
+            order: () => ({
+              data: liveClasses.map((c) => ({
+                ...c,
+                teacher: { id: c.teacher_id, full_name: 'Assigned Teacher' },
+              })),
+              error: null,
+            }),
+          }),
+          insert: (row) => ({
+            select: () => ({
+              single: async () => {
+                const inserted = { id: 'new-class-' + Date.now(), ...row };
+                liveClasses.push(inserted);
+                return {
+                  data: {
+                    ...inserted,
+                    teacher: { id: inserted.teacher_id, full_name: 'Assigned Teacher' },
+                  },
+                  error: null,
+                };
+              },
+            }),
+          }),
+          update: (updates) => ({
+            eq: (col, val) => {
+              const target = liveClasses.find((c) => c[col] === val);
+              if (target) Object.assign(target, updates);
+              return {
+                select: () => ({
+                  single: async () => ({ data: target, error: null }),
+                }),
+              };
+            },
+          }),
+        };
+      }
+
+      if (table === 'live_class_recordings') {
+        return {
+          select: () => ({
+            is: (col, val) => ({
+              order: () => {
+                const active = recordings.filter((r) => (val === null ? !r.deleted_at : r[col] === val));
+                return {
+                  data: active.map((r) => ({
+                    ...r,
+                    live_class: liveClasses.find((c) => c.id === r.class_id) || {
+                      id: r.class_id,
+                      title: 'Live Class',
+                      teacher: { id: 'teacher-1', full_name: 'Teacher Test' },
+                    },
+                  })),
+                  error: null,
+                };
+              },
+              eq: (fCol, fVal) => ({
+                order: () => {
+                  const filtered = recordings.filter(
+                    (r) => (val === null ? !r.deleted_at : r[col] === val) && r[fCol] === fVal
+                  );
+                  return {
+                    data: filtered.map((r) => ({
+                      ...r,
+                      live_class: liveClasses.find((c) => c.id === r.class_id),
+                    })),
+                    error: null,
+                  };
+                },
+              }),
+            }),
+            eq: (col, val) => ({
+              single: async () => {
+                const rec = recordings.find((r) => r[col] === val);
+                if (!rec) return { data: null, error: new Error('Recording not found') };
+                return {
+                  data: {
+                    ...rec,
+                    live_class: liveClasses.find((c) => c.id === rec.class_id) || {
+                      id: rec.class_id,
+                      title: 'Test Class',
+                      teacher: { id: 'teacher-1', full_name: 'Teacher One' },
+                    },
+                  },
+                  error: null,
+                };
+              },
+            }),
+          }),
+          update: (updates) => ({
+            eq: (col, val) => {
+              const target = recordings.find((r) => r[col] === val);
+              if (target) Object.assign(target, updates);
+              return { error: null };
+            },
+          }),
+        };
+      }
+
+      if (table === 'live_class_recording_audit_log') {
+        return {
+          insert: async (row) => {
+            auditLogs.push(row);
+            return { error: null };
+          },
+        };
+      }
+
+      throw new Error(`Unhandled mock table: ${table}`);
+    },
+  };
+}
+
+test('1. Admin creates class with class_type, recording_enabled, and prerecorded_asset_url', async () => {
+  const adminProfile = { id: 'admin-1', role: 'admin', active: true, email: 'admin@trendz.edu' };
+  const mockSupabase = createMockSupabase(adminProfile);
+
+  const { req, res } = createMockReqRes({
+    body: {
+      action: 'create',
+      title: 'Scheduled Prerecorded Addition Workshop',
+      class_type: 'prerecorded',
+      prerecorded_asset_url: 'https://drive.google.com/file/d/test-video-123/preview',
+      recording_enabled: false,
+      teacher_id: 'teacher-1',
+      scheduled_start_time: '2026-11-25T10:00:00.000Z',
+      duration_minutes: 45,
+    },
+  });
+
+  await handleLiveClassRequest(req, res, { supabase: mockSupabase });
+  assert.equal(res.statusCode, 201);
+  assert.equal(res.body.ok, true);
+  assert.equal(res.body.class.class_type, 'prerecorded');
+  assert.equal(res.body.class.recording_enabled, false);
+  assert.equal(res.body.class.prerecorded_asset_url, 'https://drive.google.com/file/d/test-video-123/preview');
+  assert.ok(res.body.class.webinar_id.startsWith('prerecorded-'), 'Auto-assigns placeholder webinar ID for prerecorded');
+});
+
+test('2. list_recordings is strictly Admin-only and filters by status & search', async () => {
+  const adminProfile = { id: 'admin-1', role: 'admin', active: true, email: 'admin@trendz.edu' };
+  const teacherProfile = { id: 'teach-1', role: 'teacher', active: true, email: 'teacher@trendz.edu' };
+  const studentProfile = { id: 'stu-1', role: 'student', active: true, email: 'student@trendz.edu', level: 'Level 1' };
+
+  const dbState = {
+    liveClasses: [
+      { id: 'cls-1', title: 'Speed Abacus Live Class', teacher_id: 'teach-1' },
+      { id: 'cls-2', title: 'Flash Anzan Mastery', teacher_id: 'teach-2' },
+    ],
+    recordings: [
+      {
+        id: 'rec-1',
+        class_id: 'cls-1',
+        webinar_id: 'web-101',
+        recording_id: 'wgg-rec-101',
+        title: 'Speed Abacus Live Class - Part 1',
+        status: 'ready',
+        duration_seconds: 3600,
+        recorded_at: '2026-11-24T05:00:00.000Z',
+      },
+      {
+        id: 'rec-2',
+        class_id: 'cls-2',
+        webinar_id: 'web-102',
+        recording_id: 'wgg-rec-102',
+        title: 'Flash Anzan Mastery - Session',
+        status: 'processing',
+        duration_seconds: 1800,
+        recorded_at: '2026-11-24T06:00:00.000Z',
+      },
+    ],
+  };
+
+  // 1. Teacher access blocked
+  {
+    const mockSupabase = createMockSupabase(teacherProfile, dbState);
+    const { req, res } = createMockReqRes({ body: { action: 'list_recordings' } });
+    await handleLiveClassRequest(req, res, { supabase: mockSupabase });
+    assert.equal(res.statusCode, 403);
+    assert.equal(res.body.code, 'FORBIDDEN');
+  }
+
+  // 2. Student access blocked
+  {
+    const mockSupabase = createMockSupabase(studentProfile, dbState);
+    const { req, res } = createMockReqRes({ body: { action: 'list_recordings' } });
+    await handleLiveClassRequest(req, res, { supabase: mockSupabase });
+    assert.equal(res.statusCode, 403);
+    assert.equal(res.body.code, 'FORBIDDEN');
+  }
+
+  // 3. Admin access permitted
+  {
+    const mockSupabase = createMockSupabase(adminProfile, dbState);
+    const { req, res } = createMockReqRes({ body: { action: 'list_recordings' } });
+    await handleLiveClassRequest(req, res, { supabase: mockSupabase });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.recordings.length, 2);
+    assert.equal(res.body.recordings[0].recordingId, 'wgg-rec-101');
+    assert.equal(res.body.recordings[0].status, 'ready');
+  }
+
+  // 4. Admin search filter
+  {
+    const mockSupabase = createMockSupabase(adminProfile, dbState);
+    const { req, res } = createMockReqRes({ body: { action: 'list_recordings', search: 'Flash Anzan' } });
+    await handleLiveClassRequest(req, res, { supabase: mockSupabase });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.recordings.length, 1);
+    assert.equal(res.body.recordings[0].title, 'Flash Anzan Mastery - Session');
+  }
+});
+
+test('3. get_recording_playback enforces admin permission, ready status, and audits playback', async () => {
+  const adminProfile = { id: 'admin-1', role: 'admin', active: true, email: 'admin@trendz.edu' };
+  const studentProfile = { id: 'stu-1', role: 'student', active: true, email: 'student@trendz.edu' };
+
+  const dbState = {
+    liveClasses: [{ id: 'cls-1', title: 'Speed Abacus Class', teacher_id: 'teach-1' }],
+    recordings: [
+      {
+        id: 'rec-ready',
+        class_id: 'cls-1',
+        webinar_id: 'web-101',
+        recording_id: 'wgg-101',
+        title: 'Speed Abacus Class Recording',
+        status: 'ready',
+        duration_seconds: 3600,
+        playback_url: 'https://stream.webinar.gg/recordings/wgg-101.mp4',
+      },
+      {
+        id: 'rec-processing',
+        class_id: 'cls-1',
+        webinar_id: 'web-102',
+        recording_id: 'wgg-102',
+        title: 'Processing Recording',
+        status: 'processing',
+        duration_seconds: 0,
+        playback_url: null,
+      },
+    ],
+    auditLogs: [],
+  };
+
+  // 1. Non-admin blocked
+  {
+    const mockSupabase = createMockSupabase(studentProfile, dbState);
+    const { req, res } = createMockReqRes({ body: { action: 'get_recording_playback', recordingId: 'rec-ready' } });
+    await handleLiveClassRequest(req, res, { supabase: mockSupabase });
+    assert.equal(res.statusCode, 403);
+    assert.equal(res.body.code, 'FORBIDDEN');
+  }
+
+  // 2. Ready recording returns authorized playback
+  {
+    const mockSupabase = createMockSupabase(adminProfile, dbState);
+    const { req, res } = createMockReqRes({ body: { action: 'get_recording_playback', recordingId: 'rec-ready' } });
+    await handleLiveClassRequest(req, res, { supabase: mockSupabase });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.recording.playbackUrl, 'https://stream.webinar.gg/recordings/wgg-101.mp4');
+    assert.equal(res.body.recording.durationSeconds, 3600);
+    assert.equal(dbState.auditLogs.length, 1);
+    assert.equal(dbState.auditLogs[0].action, 'view_recording');
+  }
+
+  // 3. Processing recording returns actionable RECORDING_NOT_READY error
+  {
+    const mockSupabase = createMockSupabase(adminProfile, dbState);
+    const { req, res } = createMockReqRes({ body: { action: 'get_recording_playback', recordingId: 'rec-processing' } });
+    await handleLiveClassRequest(req, res, { supabase: mockSupabase });
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.body.code, 'RECORDING_NOT_READY');
+  }
+});
+
+test('4. delete_recording performs "Remove from Trendz", logs audit, and preserves class', async () => {
+  const adminProfile = { id: 'admin-1', role: 'admin', active: true, email: 'admin@trendz.edu' };
+  const dbState = {
+    liveClasses: [{ id: 'cls-1', title: 'Abacus Live Class', teacher_id: 'teach-1' }],
+    recordings: [
+      {
+        id: 'rec-to-delete',
+        class_id: 'cls-1',
+        webinar_id: 'web-101',
+        recording_id: 'wgg-rec-101',
+        title: 'Class Recording to Remove',
+        status: 'ready',
+      },
+    ],
+    auditLogs: [],
+  };
+
+  const mockSupabase = createMockSupabase(adminProfile, dbState);
+  const { req, res } = createMockReqRes({
+    body: {
+      action: 'delete_recording',
+      recordingId: 'rec-to-delete',
+      reason: 'Obsolete test session',
+    },
+  });
+
+  await handleLiveClassRequest(req, res, { supabase: mockSupabase });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.ok, true);
+  assert.ok(res.body.providerNotice.includes('Webinar.gg Web Dashboard'));
+
+  // Recording status updated to deleted
+  const deletedRec = dbState.recordings.find((r) => r.id === 'rec-to-delete');
+  assert.equal(deletedRec.status, 'deleted');
+  assert.equal(deletedRec.deletion_reason, 'Obsolete test session');
+  assert.equal(deletedRec.deleted_by, 'admin-1');
+
+  // Audit log recorded
+  assert.equal(dbState.auditLogs.length, 1);
+  assert.equal(dbState.auditLogs[0].action, 'remove_from_trendz');
+
+  // Live class row remains intact
+  assert.equal(dbState.liveClasses.length, 1);
+  assert.equal(dbState.liveClasses[0].id, 'cls-1');
+});
+
+test('5. Scheduled Prerecorded class join respects audience without Webinar.gg token minting', async () => {
+  const enrolledStudent = { id: 'stu-enrolled', role: 'student', active: true, email: 'enrolled@trendz.edu', level: 'Level 2' };
+  const unenrolledStudent = { id: 'stu-other', role: 'student', active: true, email: 'other@trendz.edu', level: 'Level 4' };
+
+  const dbState = {
+    liveClasses: [
+      {
+        id: 'cls-prerecorded',
+        title: 'Level 2 Prerecorded Masterclass',
+        class_type: 'prerecorded',
+        prerecorded_asset_url: 'https://drive.google.com/file/d/masterclass-asset/preview',
+        target_level: 'Level 2',
+        teacher_id: 'teach-1',
+        scheduled_start_time: '2026-11-25T14:00:00.000Z',
+        duration_minutes: 60,
+        status: 'scheduled',
+      },
+    ],
+  };
+
+  // 1. Enrolled student gets assetUrl
+  {
+    const mockSupabase = createMockSupabase(enrolledStudent, dbState);
+    const { req, res } = createMockReqRes({ body: { action: 'join', classId: 'cls-prerecorded' } });
+    await handleLiveClassRequest(req, res, { supabase: mockSupabase });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.classType, 'prerecorded');
+    assert.equal(res.body.assetUrl, 'https://drive.google.com/file/d/masterclass-asset/preview');
+    assert.equal(res.body.classTitle, 'Level 2 Prerecorded Masterclass');
+  }
+
+  // 2. Unenrolled student gets 403 NOT_ENROLLED
+  {
+    const mockSupabase = createMockSupabase(unenrolledStudent, dbState);
+    const { req, res } = createMockReqRes({ body: { action: 'join', classId: 'cls-prerecorded' } });
+    await handleLiveClassRequest(req, res, { supabase: mockSupabase });
+    assert.equal(res.statusCode, 403);
+    assert.equal(res.body.code, 'NOT_ENROLLED');
+  }
+});

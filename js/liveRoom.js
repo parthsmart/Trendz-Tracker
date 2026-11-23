@@ -13,6 +13,7 @@
  */
 
 import { getSupabase } from './supabaseClient.js';
+import { TrendzMediaPlayer } from './mediaPlayer.js';
 
 let currentClassId = null;
 let currentClassMeta = null;
@@ -336,6 +337,16 @@ async function loadClassMetadata(classId) {
 
   updateStatusBadge(currentClassMeta.status, currentClassMeta.isHost, currentClassMeta.isInvitedParticipant);
 
+  const recNoticeEl = document.getElementById('lobby-recording-notice');
+  if (recNoticeEl) {
+    if (currentClassMeta.recordingNotice) {
+      recNoticeEl.style.display = 'flex';
+      recNoticeEl.innerHTML = `<span style="font-size: 14px;">●</span> <span>${currentClassMeta.recordingNotice}</span>`;
+    } else {
+      recNoticeEl.style.display = 'none';
+    }
+  }
+
   // Status checks
   if (currentClassMeta.status === 'cancelled') {
     showError('This live class has been cancelled by the teacher or institute.', 'CLASS_CANCELLED');
@@ -379,6 +390,23 @@ async function joinRoom() {
     const data = await requestLiveClassWithRecovery('join', { classId: currentClassId });
     if (!data || !data.ok) {
       showError(data?.error || 'Failed to authorize live room access.', data?.code, data?.meta);
+      return;
+    }
+
+    if (data.classType === 'prerecorded') {
+      const wrapper = document.getElementById('embed-frame-wrapper');
+      if (wrapper) {
+        wrapper.innerHTML = '';
+        new TrendzMediaPlayer(wrapper, {
+          userId: currentClassMeta?.userId || 'student',
+          mediaId: currentClassId,
+          mediaType: 'drive_embed',
+          mediaUrl: data.assetUrl,
+          title: data.classTitle || currentClassMeta?.title,
+          category: 'Scheduled Video',
+        });
+        showSection('embed-frame-wrapper');
+      }
       return;
     }
 
