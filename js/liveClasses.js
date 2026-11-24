@@ -20,6 +20,13 @@ let currentRecordings = [];
 let activeRecordingPlayer = null;
 
 /**
+ * Sets currentProfile for testing dropdown population and self-assignment
+ */
+export function setCurrentProfileForTesting(profile) {
+  currentProfile = profile;
+}
+
+/**
  * Formats ISO timestamp to clean IST string
  */
 export function formatTimeIST(isoString) {
@@ -217,15 +224,15 @@ async function syncClassStatus(classId) {
 }
 
 /**
- * Loads teachers into select dropdown
+ * Loads teachers into select dropdown and adds admin self-assignment option
  */
-async function loadTeachersSelect() {
+export async function loadTeachersSelect(supabaseClient = null) {
   const select = document.getElementById('select-teacher');
   const invitedSelect = document.getElementById('select-invited-teachers');
   if (!select && !invitedSelect) return;
 
   try {
-    const supabase = await getSupabase();
+    const supabase = supabaseClient || (await getSupabase());
     const { data: teachers } = await supabase
       .from('profiles')
       .select('id, full_name, student_code')
@@ -233,20 +240,55 @@ async function loadTeachersSelect() {
       .eq('active', true)
       .order('full_name');
 
-    if (!teachers || teachers.length === 0) {
-      if (select) select.innerHTML = '<option value="">No active teachers found</option>';
+    const adminName = currentProfile?.full_name || 'Admin';
+    const selfOptionHtml = (currentProfile && currentProfile.role === 'admin')
+      ? `<option value="${currentProfile.id}">Assign to me — ${adminName}</option>`
+      : '';
+
+    const activeTeachers = teachers || [];
+
+    if (activeTeachers.length === 0) {
+      if (select) {
+        if (selfOptionHtml) {
+          select.innerHTML = `<option value="${currentProfile.id}" selected>Assign to me — ${adminName}</option>`;
+          select.value = currentProfile.id;
+        } else {
+          select.innerHTML = '<option value="">No active teachers found</option>';
+        }
+      }
       if (invitedSelect) invitedSelect.innerHTML = '<option value="" disabled>No active teachers found</option>';
       return;
     }
 
-    const optionsHtml = teachers
+    const teacherOptionsHtml = activeTeachers
+      .filter((t) => t.id !== currentProfile?.id)
       .map((t) => `<option value="${t.id}">${t.full_name} (${t.student_code})</option>`)
       .join('');
 
-    if (select) select.innerHTML = optionsHtml;
-    if (invitedSelect) invitedSelect.innerHTML = optionsHtml;
+    if (select) {
+      if (selfOptionHtml) {
+        select.innerHTML = `${selfOptionHtml}${teacherOptionsHtml}`;
+      } else {
+        select.innerHTML = teacherOptionsHtml;
+      }
+    }
+
+    if (invitedSelect) {
+      invitedSelect.innerHTML = activeTeachers
+        .filter((t) => t.id !== currentProfile?.id)
+        .map((t) => `<option value="${t.id}">${t.full_name} (${t.student_code})</option>`)
+        .join('');
+    }
   } catch (err) {
-    if (select) select.innerHTML = '<option value="">Error loading teachers</option>';
+    if (select) {
+      const adminName = currentProfile?.full_name || 'Admin';
+      if (currentProfile && currentProfile.role === 'admin') {
+        select.innerHTML = `<option value="${currentProfile.id}" selected>Assign to me — ${adminName}</option>`;
+        select.value = currentProfile.id;
+      } else {
+        select.innerHTML = '<option value="">Error loading teachers</option>';
+      }
+    }
     if (invitedSelect) invitedSelect.innerHTML = '<option value="" disabled>Error loading teachers</option>';
   }
 }

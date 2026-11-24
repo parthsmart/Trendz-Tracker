@@ -719,6 +719,35 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           });
         }
 
+        // Validate assignee server-side: allow self-assignment to the signed-in admin OR an active teacher account
+        const { data: assigneeProfile, error: assigneeErr } = await supabase
+          .from('profiles')
+          .select('id, role, active, full_name')
+          .eq('id', teacher_id)
+          .single();
+
+        if (assigneeErr || !assigneeProfile || !assigneeProfile.active) {
+          return res.status(400).json({
+            error: 'Assigned staff member not found or inactive.',
+            code: 'INVALID_ASSIGNEE',
+          });
+        }
+
+        const isSelfAdmin = assigneeProfile.id === caller.id && caller.role === 'admin';
+        const isActiveTeacher = assigneeProfile.role === 'teacher';
+
+        if (!isSelfAdmin && !isActiveTeacher) {
+          return res.status(400).json({
+            error: 'Classes can only be assigned to the signed-in admin or an active teacher.',
+            code: 'INVALID_ASSIGNEE',
+          });
+        }
+
+        // Keep invited teachers separate from the primary assigned teacher
+        const cleanedInvitedTeacherIds = Array.isArray(invited_teacher_ids) && invited_teacher_ids.length > 0
+          ? invited_teacher_ids.filter((id) => id && id !== teacher_id)
+          : null;
+
         const basePayload = {
           title: title.trim(),
           webinar_id: effectiveWebinarId,
@@ -726,7 +755,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           host_email: host_email ? host_email.trim() : null,
           target_level: target_level || null,
           target_student_ids: Array.isArray(target_student_ids) && target_student_ids.length > 0 ? target_student_ids : null,
-          invited_teacher_ids: Array.isArray(invited_teacher_ids) && invited_teacher_ids.length > 0 ? invited_teacher_ids : null,
+          invited_teacher_ids: cleanedInvitedTeacherIds && cleanedInvitedTeacherIds.length > 0 ? cleanedInvitedTeacherIds : null,
           scheduled_start_time,
           duration_minutes: Number(duration_minutes) || 60,
           status: 'scheduled',
