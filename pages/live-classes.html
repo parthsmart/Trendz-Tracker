@@ -202,7 +202,8 @@
           <button type="button" id="btn-close-modal" class="modal-close btn btn-ghost btn-sm" data-close-modal="modal-create-class" aria-label="Close dialog">&times;</button>
         </div>
 
-        <form id="form-create-class" style="padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-4);">
+        <form id="form-create-class">
+          <div class="modal-body" style="display: grid; align-content: start; gap: var(--space-4); min-height: 0; padding: var(--space-5); overscroll-behavior: contain;">
           <div>
             <label for="input-title" style="display: block; font-size: var(--text-sm); font-weight: 600; margin-bottom: 4px;">Class Title *</label>
             <input type="text" id="input-title" class="form-input" required placeholder="e.g. Abacus Live Class: Basics &amp; Speed Drill" style="width: 100%; box-sizing: border-box;" />
@@ -313,7 +314,9 @@
 
           <div id="modal-error" style="display: none; padding: var(--space-2) var(--space-3); background: #fee2e2; color: #dc2626; border-radius: var(--radius-sm); font-size: var(--text-sm);"></div>
 
-          <div style="display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2);">
+          </div>
+
+          <div class="modal-footer">
             <button type="button" id="btn-cancel-create" class="btn btn-outline" data-close-modal="modal-create-class">Cancel</button>
             <button type="submit" id="btn-submit-create" class="btn btn-primary">Schedule Class</button>
           </div>

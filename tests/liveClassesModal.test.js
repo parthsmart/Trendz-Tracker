@@ -51,6 +51,8 @@ test('1. Accessible DOM Dialog Contract in pages/live-classes.html', () => {
   assert.ok(html.includes('data-close-modal="modal-create-class"'), 'Expected data-close-modal attribute for universal modal.js handling');
   assert.ok(html.includes('id="btn-cancel-create"'), 'Expected #btn-cancel-create button');
   assert.ok(html.includes('id="form-create-class"'), 'Expected #form-create-class form element');
+  const scheduleForm = html.match(/<form id="form-create-class"[^>]*>([\s\S]*?)<\/form>/)?.[1] || '';
+  assert.match(scheduleForm, /class="modal-body"[\s\S]*id="input-notes"[\s\S]*class="modal-footer"[\s\S]*id="btn-submit-create"/);
 });
 
 test('2. js/liveClasses.js modal controller contracts and registration timing', () => {
