@@ -10,6 +10,7 @@
 
 import { getSupabase } from './supabaseClient.js';
 import { setupHeaderNavigation } from './headerNav.js';
+import { openModal, closeModal } from './modal.js';
 
 let currentUser = null;
 let currentProfile = null;
@@ -263,11 +264,7 @@ export async function initLiveClassesPage() {
 
   setupHeaderNavigation(profile);
 
-  // Load initial classes
-  await loadLiveClasses();
-  await loadTeachersSelect();
-
-  // Setup modal wiring
+  // Setup modal wiring immediately after access is confirmed so slow class or teacher list cannot delay button
   const modal = document.getElementById('modal-create-class');
   const btnOpen = document.getElementById('btn-open-create-modal');
   const btnClose = document.getElementById('btn-close-modal');
@@ -284,19 +281,23 @@ export async function initLiveClassesPage() {
     startTimeInput.value = localIso;
   }
 
-  const openModal = () => {
-    if (modal) modal.style.display = 'flex';
+  const handleOpenModal = () => {
+    openModal('modal-create-class');
     if (modalError) modalError.style.display = 'none';
   };
 
-  const closeModal = () => {
-    if (modal) modal.style.display = 'none';
+  const handleCloseModal = () => {
+    closeModal('modal-create-class');
     if (form) form.reset();
   };
 
-  if (btnOpen) btnOpen.addEventListener('click', openModal);
-  if (btnClose) btnClose.addEventListener('click', closeModal);
-  if (btnCancel) btnCancel.addEventListener('click', closeModal);
+  if (btnOpen) btnOpen.addEventListener('click', handleOpenModal);
+  if (btnClose) btnClose.addEventListener('click', handleCloseModal);
+  if (btnCancel) btnCancel.addEventListener('click', handleCloseModal);
+
+  // Load initial classes and teachers asynchronously without blocking the UI
+  loadLiveClasses().catch((err) => console.error('Error loading live classes:', err));
+  loadTeachersSelect().catch((err) => console.error('Error loading teachers:', err));
 
   if (form) {
     form.addEventListener('submit', async (e) => {
@@ -353,7 +354,7 @@ export async function initLiveClassesPage() {
           throw new Error(resData.error || 'Failed to create live class.');
         }
 
-        closeModal();
+        handleCloseModal();
         showToast('Live class successfully scheduled!', 'success');
         await loadLiveClasses();
       } catch (err) {
