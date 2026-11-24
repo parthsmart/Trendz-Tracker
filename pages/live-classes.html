@@ -436,9 +436,11 @@
 
     <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-    <script type="module" src="/js/liveClasses.js"></script>
     <script type="module">
       import { logoutUser } from '/js/auth.js';
+      import { initLiveClassesPage } from '/js/liveClasses.js';
+
+      initLiveClassesPage().catch((err) => console.error('Failed to initialize Live Classes:', err));
       document.getElementById('btn-header-logout')?.addEventListener('click', async () => {
         await logoutUser();
       });

@@ -446,13 +446,14 @@ function renderSetupStatsTables() {
 
 /**
  * Switches visible screen between 'setup', 'play', and 'results'.
- * During an active round ('play'), hides the history dashboard and page header
+ * During an active round ('play'), hides the records, history dashboard, and page header
  * so the flashing number stage fills the screen without distraction.
  */
 function showScreen(screenName) {
   const setupEl = document.getElementById('flash-setup-screen');
   const playEl = document.getElementById('flash-play-screen');
   const resultsEl = document.getElementById('flash-results-screen');
+  const recordsEl = document.getElementById('flash-records-container');
   const historyEl = document.getElementById('flash-history-section');
   const pageHeaderEl = document.getElementById('flash-page-header');
   const bannerEl = document.getElementById('config-banner-placeholder');
@@ -469,7 +470,8 @@ function showScreen(screenName) {
       !isTestMode && screenName === 'setup' && activeTaskSpec ? 'block' : 'none';
   }
 
-  // Hide dashboard/history below, page heading, and top navigation bar during an active Flash Anzan round or in test mode
+  // Keep the runner free of practice records, history, and navigation.
+  if (recordsEl) recordsEl.hidden = isPlaying || isTestMode;
   if (historyEl) historyEl.style.display = isPlaying || isTestMode ? 'none' : 'block';
   if (pageHeaderEl) pageHeaderEl.style.display = isPlaying || isTestMode ? 'none' : '';
   if (bannerEl) bannerEl.style.display = isPlaying ? 'none' : '';
