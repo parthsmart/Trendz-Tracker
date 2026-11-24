@@ -19,6 +19,7 @@ import memoriadHandler from './api/memoriad.js';
 import weeklyTestHandler from './api/weekly-test.js';
 import jmcwcHandler from './api/jmcwc.js';
 import liveClassHandler from './api/live-class.js';
+import { handleLecturesRequest } from './api/_lectures.js';
 import { getSupabaseServerConfig, validateStagingIsolation } from './api/_configHelper.js';
 
 const isStaging = process.env.npm_lifecycle_event === 'preview:staging' || process.env.APP_ENV === 'staging';
@@ -77,9 +78,11 @@ app.all(['/api/weekly-test', '/api/weekly-test.js'], safeHandler(weeklyTestHandl
 app.all(['/api/jmcwc', '/api/jmcwc.js'], safeHandler(jmcwcHandler));
 app.all(['/api/jmcwc-drive-sync', '/api/jmcwc-drive-sync.js'], safeHandler(jmcwcHandler));
 app.all(['/api/live-class', '/api/live-class.js'], safeHandler(liveClassHandler));
+app.all(['/api/lectures', '/api/lectures.js'], safeHandler(handleLecturesRequest));
 
 async function startServer() {
   if (isStaging) {
+    process.env.STAGING_PREVIEW = 'true';
     const stagingCheck = validateStagingIsolation();
     console.log(`[STAGING ISOLATION] Verified staging project isolation: ${stagingCheck.url}`);
   }

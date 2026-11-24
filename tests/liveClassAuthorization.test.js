@@ -1783,8 +1783,9 @@ test('14. Live class scheduling validates staff and student audiences and create
     requireApproval: true,
   });
 
-  const level = await runApi(adminToken, { ...schedule, audience: 'level', target_level: 'Basic 1' });
+  const level = await runApi(adminToken, { ...schedule, audience: 'level', target_level: 'Basic 1', recording_enabled: true });
   assert.equal(level.statusCode, 201);
   assert.equal(level.jsonResult.class.target_level, 'Basic 1');
   assert.equal(level.jsonResult.class.target_student_ids, null);
+  assert.equal(providerRequests[1].recordingEnabled, true);
 });
