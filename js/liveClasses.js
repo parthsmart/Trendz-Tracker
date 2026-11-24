@@ -991,9 +991,3 @@ export async function initLiveClassesPage() {
   loadLiveClasses().catch((err) => console.error('Failed to load live classes:', err));
   loadTeachersSelect().catch((err) => console.error('Failed to load teachers:', err));
 }
-
-if (typeof window !== 'undefined') {
-  window.addEventListener('DOMContentLoaded', () => {
-    initLiveClassesPage();
-  });
-}

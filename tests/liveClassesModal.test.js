@@ -28,6 +28,15 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+test('Live Classes staff initialization runs only from its page entry point', () => {
+  const controller = fs.readFileSync(path.resolve(__dirname, '../js/liveClasses.js'), 'utf-8');
+  const page = fs.readFileSync(path.resolve(__dirname, '../pages/live-classes.html'), 'utf-8');
+
+  assert.doesNotMatch(controller, /DOMContentLoaded/,
+    'Importing the shared time formatter must never wire staff page initialization');
+  assert.match(page, /import \{ initLiveClassesPage \} from '\/js\/liveClasses\.js';[\s\S]*?initLiveClassesPage\(\)/);
+});
+
 test('1. Accessible DOM Dialog Contract in pages/live-classes.html', () => {
   const html = fs.readFileSync(path.resolve(__dirname, '../pages/live-classes.html'), 'utf-8');
 
