@@ -1003,6 +1003,25 @@ export async function handleLiveClassRequest(req, res, options = {}) {
             });
         } catch (_) {}
 
+        // Resolve private Supabase Storage signed URLs if stored as a private storage reference
+        let playbackUrl = recording.playback_url;
+        if (typeof playbackUrl === 'string' && (playbackUrl.startsWith('storage://') || playbackUrl.startsWith('private://'))) {
+          try {
+            const rawPath = playbackUrl.replace(/^(storage|private):\/\//, '');
+            const slashIdx = rawPath.indexOf('/');
+            if (slashIdx !== -1 && supabase.storage) {
+              const bucket = rawPath.slice(0, slashIdx);
+              const objectPath = rawPath.slice(slashIdx + 1);
+              const { data: signedData, error: signErr } = await supabase.storage
+                .from(bucket)
+                .createSignedUrl(objectPath, 3600);
+              if (!signErr && signedData?.signedUrl) {
+                playbackUrl = signedData.signedUrl;
+              }
+            }
+          } catch (_) {}
+        }
+
         return res.status(200).json({
           ok: true,
           recording: {
@@ -1011,7 +1030,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
             classTitle: recording.live_class?.title || 'Live Class',
             teacherName: recording.live_class?.teacher?.full_name || 'Assigned Teacher',
             durationSeconds: recording.duration_seconds,
-            playbackUrl: recording.playback_url,
+            playbackUrl,
           },
         });
       }
@@ -1088,8 +1107,14 @@ export async function handleLiveClassRequest(req, res, options = {}) {
         if (!title || typeof title !== 'string' || !title.trim()) {
           return res.status(400).json({ error: 'Recording title is required.', code: 'INVALID_REQUEST' });
         }
-        if (!recordingUrl || typeof recordingUrl !== 'string' || (!recordingUrl.startsWith('http://') && !recordingUrl.startsWith('https://'))) {
-          return res.status(400).json({ error: 'A valid recording URL (http/https) is required.', code: 'INVALID_REQUEST' });
+        const isValidUrl = typeof recordingUrl === 'string' && (
+          recordingUrl.startsWith('http://') ||
+          recordingUrl.startsWith('https://') ||
+          recordingUrl.startsWith('storage://') ||
+          recordingUrl.startsWith('private://')
+        );
+        if (!isValidUrl) {
+          return res.status(400).json({ error: 'A valid recording URL (http/https/storage) is required.', code: 'INVALID_REQUEST' });
         }
 
         const { data: liveClass, error: classError } = await supabase

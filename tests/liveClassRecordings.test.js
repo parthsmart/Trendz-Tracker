@@ -75,6 +75,14 @@ function createMockSupabase(callerProfile, dbState = {}) {
         error: null,
       }),
     },
+    storage: {
+      from: (bucket) => ({
+        createSignedUrl: async (objectPath, expiresIn) => ({
+          data: { signedUrl: `https://signed.supabase.co/storage/v1/object/sign/${bucket}/${objectPath}?token=mock-signed-exp-${expiresIn}` },
+          error: null,
+        }),
+      }),
+    },
     from: (table) => {
       if (table === 'profiles') {
         return {
@@ -631,4 +639,56 @@ test('7. Admin manual attachment workflow attaches Webinar.gg recording to libra
     assert.equal(listRes.body.recordings.length, 1);
     assert.equal(listRes.body.recordings[0].title, 'Speed Math Webinar Recording');
   }
+});
+
+test('8. Private storage signed URL resolution for replay privacy', async () => {
+  const admin = { id: 'admin-private-tester', email: 'admin@trendz.local', role: 'admin', active: true };
+  const student = { id: 'student-denied', email: 'stu@trendz.local', role: 'student', active: true };
+
+  const dbState = {
+    liveClasses: [
+      { id: 'cls-priv-target', title: 'Private Webinar Class', teacher_id: 'tch-1', status: 'ended' },
+    ],
+    recordings: [],
+    auditLogs: [],
+  };
+
+  // 1. Admin attaches private storage reference: storage://recordings/webinars/priv-101.mp4
+  const mockSupabaseAdmin = createMockSupabase(admin, dbState);
+  const { req: attachReq, res: attachRes } = createMockReqRes({
+    body: {
+      action: 'attach_recording',
+      classId: 'cls-priv-target',
+      webinarId: 'wgg-priv-101',
+      title: 'Confidential Webinar Master Replay',
+      recordingUrl: 'storage://recordings/webinars/priv-101.mp4',
+      durationMinutes: 30,
+    },
+  });
+  await handleLiveClassRequest(attachReq, attachRes, { supabase: mockSupabaseAdmin });
+  assert.equal(attachRes.statusCode, 201);
+  assert.equal(attachRes.body.ok, true);
+  const recId = attachRes.body.recording.id;
+
+  // 2. Student attempts playback -> denied 403
+  const mockSupabaseStudent = createMockSupabase(student, dbState);
+  const { req: stuReq, res: stuRes } = createMockReqRes({
+    body: { action: 'get_recording_playback', recordingId: recId },
+  });
+  await handleLiveClassRequest(stuReq, stuRes, { supabase: mockSupabaseStudent });
+  assert.equal(stuRes.statusCode, 403);
+  assert.equal(stuRes.body.code, 'FORBIDDEN');
+
+  // 3. Admin requests playback -> receives dynamic signed URL
+  const { req: playReq, res: playRes } = createMockReqRes({
+    body: { action: 'get_recording_playback', recordingId: recId },
+  });
+  await handleLiveClassRequest(playReq, playRes, { supabase: mockSupabaseAdmin });
+  assert.equal(playRes.statusCode, 200);
+  assert.equal(playRes.body.ok, true);
+  assert.ok(
+    playRes.body.recording.playbackUrl.startsWith('https://signed.supabase.co/storage/v1/object/sign/recordings/webinars/priv-101.mp4?token='),
+    `Expected signed URL, got ${playRes.body.recording.playbackUrl}`
+  );
+  assert.equal(playRes.body.recording.title, 'Confidential Webinar Master Replay');
 });

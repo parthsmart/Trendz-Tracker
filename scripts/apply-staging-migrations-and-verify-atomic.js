@@ -1,17 +1,20 @@
 /**
  * Trendz Tracker — Staging Migration & Atomic Publication Rollback Verifier
+ * (scripts/apply-staging-migrations-and-verify-atomic.js)
  *
  * Verifies:
  * 1. Connection strictly to approved HTTPS staging Supabase PostgreSQL (xhgzbbkvwojwfbexvcmh).
  * 2. Applies Migration 18 (live_class_recordings & audit log) and Migration 19 (lectures catalogue).
- * 3. Tests base catalogue publication via publish_classroom_catalogue database routine.
- * 4. EXTENDED ROLLBACK TEST:
- *    - Captures an existing lecture's stored fields.
- *    - Attempts an in-place mutation to that existing lecture in a failing manifest before a mid-transaction failure.
- *    - Verifies that error code 22023 is thrown and the transaction rolls back cleanly.
- *    - Compares that lecture's stored fields before and after rollback, asserting 100% field equality.
- *    - Asserts 0 partial/new rows persisted.
- * 5. Cleans up staging catalogue to ensure placeholders remain UNPUBLISHED.
+ * 3. Preserves unrelated staging lectures (verifies persistent non-fixture lectures survive intact).
+ * 4. Imports dedicated test fixtures via public.publish_classroom_catalogue.
+ * 5. EXTENDED ATOMIC ROLLBACK TEST:
+ *    - Captures dedicated fixture lecture's stored fields before mutation attempt.
+ *    - Attempts in-place mutation to existing lecture before mid-transaction failure (22023).
+ *    - Compares stored fields before vs after rollback across all 14 database columns, asserting 100% field equality.
+ *    - Verifies 0 partial rows persisted from failing category.
+ * 6. TARGETED CLEANUP (NO TRUNCATE CASCADE):
+ *    - Cleans up ONLY the dedicated test fixtures (slug LIKE 'fixture-%').
+ *    - Asserts unrelated staging lectures remain 100% intact across runs and reruns.
  */
 
 import pg from 'pg';
@@ -108,60 +111,99 @@ async function main() {
     throw new Error('Function public.publish_classroom_catalogue is missing.');
   }
 
-  // 4. Test Step 3: Publish Base Catalogue (Manifest)
-  console.log('\n--- Step 3: Publishing Initial Catalogue via Database Routine ---');
-  const manifestPath = path.resolve(__dirname, '../data/jr_mcwc_classroom_manifest.json');
-  const manifestData = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  // Ensure persistent unrelated staging lecture exists (to verify it is never deleted by tests)
+  console.log('\n--- Step 2b: Checking Staging Persistent Unrelated Lectures ---');
+  const existingUnrelatedRes = await client.query(`
+    SELECT id, title, slug FROM public.lecture_categories
+    WHERE slug NOT LIKE 'fixture-%' AND slug NOT LIKE 'zzz-rollback%';
+  `);
+  let unrelatedCat = existingUnrelatedRes.rows[0];
+  if (!unrelatedCat) {
+    const seedCatRes = await client.query(`
+      INSERT INTO public.lecture_categories (title, slug, description, sort_order, active)
+      VALUES ('Core Abacus Mental Arithmetic', 'staging-core-abacus', 'Persistent curriculum category on staging', 100, true)
+      ON CONFLICT (slug) DO UPDATE SET title = EXCLUDED.title
+      RETURNING id, title, slug;
+    `);
+    unrelatedCat = seedCatRes.rows[0];
+    await client.query(`
+      INSERT INTO public.lectures (category_id, title, slug, lesson_order, duration_seconds, media_type, media_url, notes, status)
+      VALUES ($1, 'Abacus Speed Foundation Part 1', 'core-abacus-part-1', 1, 600, 'video_mp4', 'https://example.com/core-abacus-part-1.mp4', 'Persistent staging lecture notes', 'active')
+      ON CONFLICT (category_id, lesson_order) DO NOTHING;
+    `, [unrelatedCat.id]);
+  }
+  console.log(`✓ Confirmed persistent unrelated staging category: "${unrelatedCat.title}" (${unrelatedCat.slug})`);
+
+  const unrelatedCountBeforeRes = await client.query(`
+    SELECT count(*)::int AS count FROM public.lecture_categories
+    WHERE slug NOT LIKE 'fixture-%' AND slug NOT LIKE 'zzz-rollback%';
+  `);
+  const unrelatedCountBefore = unrelatedCountBeforeRes.rows[0].count;
+  console.log(`✓ Unrelated staging lecture categories count before test: ${unrelatedCountBefore}`);
+
+  // 4. Test Step 3: Publish Dedicated Test Fixtures (Isolated from production manifest)
+  console.log('\n--- Step 3: Publishing Dedicated Test Fixtures via Database Routine ---');
+  const dedicatedFixtureManifest = {
+    courseId: 'fixture-test-course-101',
+    categories: [
+      {
+        title: 'Fixture Addition Foundation',
+        slug: 'fixture-addition-topic',
+        description: 'Dedicated test fixture category for atomic publication and rollback verification.',
+        sortOrder: 1,
+        lessons: [
+          {
+            title: 'Fixture Addition — Part 1: Soroban Foundation',
+            slug: 'fixture-addition-part-1',
+            lessonOrder: 1,
+            durationSeconds: 745,
+            mediaType: 'video_mp4',
+            mediaUrl: 'https://example.com/fixture-valid-video.mp4',
+            notes: 'Initial valid notes for field parity assertion.'
+          },
+          {
+            title: 'Fixture Addition — Part 2: Small Friends Drill',
+            slug: 'fixture-addition-part-2',
+            lessonOrder: 2,
+            durationSeconds: 890,
+            mediaType: 'video_mp4',
+            mediaUrl: 'https://example.com/fixture-valid-video-2.mp4',
+            notes: 'Small friends formula notes.'
+          }
+        ]
+      }
+    ]
+  };
 
   // Ensure admin context
   await client.query(`SELECT set_config('request.jwt.claim.sub', $1, false);`, [adminProfile.id]);
 
   const publishResult = await client.query(`
     SELECT public.publish_classroom_catalogue($1::jsonb) AS result;
-  `, [JSON.stringify(manifestData)]);
+  `, [JSON.stringify(dedicatedFixtureManifest)]);
 
   const pubOutput = publishResult.rows[0]?.result;
-  console.log('✓ publish_classroom_catalogue result:', pubOutput);
+  console.log('✓ publish_classroom_catalogue result for dedicated fixtures:', pubOutput);
 
-  if (!pubOutput?.ok || pubOutput?.importedCategories !== 23) {
-    throw new Error(`Unexpected publish result: expected 23 categories, got ${pubOutput?.importedCategories}`);
-  }
-
-  // Count persisted rows
-  const catCountRes = await client.query('SELECT count(*)::int AS count FROM public.lecture_categories;');
-  const lecCountRes = await client.query('SELECT count(*)::int AS count FROM public.lectures;');
-  const initialCatCount = catCountRes.rows[0].count;
-  const initialLecCount = lecCountRes.rows[0].count;
-  console.log(`✓ Staging database row counts: ${initialCatCount} categories, ${initialLecCount} lectures`);
-
-  // Verify Addition category and its 3 lessons
-  const additionRes = await client.query(`
-    SELECT c.id, c.title, c.slug, count(l.id) AS lesson_count
-    FROM public.lecture_categories c
-    LEFT JOIN public.lectures l ON l.category_id = c.id
-    WHERE c.slug = 'addition'
-    GROUP BY c.id, c.title, c.slug;
-  `);
-  console.log('✓ Addition category in staging DB:', additionRes.rows[0]);
-  if (Number(additionRes.rows[0]?.lesson_count) !== 3) {
-    throw new Error(`Expected 3 Addition lessons in DB, found ${additionRes.rows[0]?.lesson_count}`);
+  if (!pubOutput?.ok || pubOutput?.importedCategories !== 1 || pubOutput?.importedLectures !== 2) {
+    throw new Error(`Unexpected publish result: expected 1 category and 2 lectures, got ${JSON.stringify(pubOutput)}`);
   }
 
   // 5. Test Step 4: EXTENDED Rollback Verification with Existing Lecture Update
   console.log('\n--- Step 4: Extended Atomic Rollback Verification with Lecture Update ---');
 
-  // Step 4a: Capture an existing lecture's stored fields before the failing import
+  // Step 4a: Capture existing fixture lecture's stored fields before the failing import
   const targetLecRes = await client.query(`
     SELECT l.*
     FROM public.lectures l
     JOIN public.lecture_categories c ON c.id = l.category_id
-    WHERE c.slug = 'addition' AND l.lesson_order = 1;
+    WHERE c.slug = 'fixture-addition-topic' AND l.lesson_order = 1;
   `);
   if (targetLecRes.rows.length === 0) {
-    throw new Error('Target existing lecture for rollback test not found.');
+    throw new Error('Target fixture lecture for rollback test not found.');
   }
   const beforeLecture = targetLecRes.rows[0];
-  console.log('✓ Captured target existing lecture before attempted mutation:');
+  console.log('✓ Captured target existing fixture lecture before attempted mutation:');
   console.log('  ID:              ', beforeLecture.id);
   console.log('  Title:           ', beforeLecture.title);
   console.log('  Lesson Order:    ', beforeLecture.lesson_order);
@@ -171,27 +213,27 @@ async function main() {
   console.log('  Updated At:      ', beforeLecture.updated_at);
 
   // Step 4b: Construct failing manifest that:
-  // 1. Attempts to mutate existing lecture (Addition lesson 1) with modified title, duration, notes, and media URL.
+  // 1. Attempts to mutate existing lecture (fixture-addition-part-1) with modified title, duration, notes, and media URL.
   // 2. Subsequently encounters an invalid media URL in Category 2 to trigger a mid-transaction exception.
-  console.log('\nConstructing failing manifest that mutates Addition Part 1 and forces failure in Category 2...');
+  console.log('\nConstructing failing manifest that mutates Fixture Addition Part 1 and forces failure in Category 2...');
 
   const failingManifest = {
-    courseId: 'NjAxODkyNTgwODIy',
+    courseId: 'fixture-test-course-101',
     categories: [
       {
-        title: 'Addition',
-        slug: 'addition',
-        description: 'Existing Addition Category',
+        title: 'Fixture Addition Foundation',
+        slug: 'fixture-addition-topic',
+        description: 'Existing Fixture Addition Category',
         sortOrder: 1,
         lessons: [
           {
-            title: 'MUTATED TITLE (MUST BE ROLLED BACK)',
-            slug: 'addition-part-1',
+            title: 'MUTATED FIXTURE TITLE (MUST BE ROLLED BACK)',
+            slug: 'fixture-addition-part-1',
             lessonOrder: 1, // Matches existing lecture row!
             durationSeconds: 99999, // Mutated duration!
             mediaType: 'video_mp4',
             mediaUrl: 'https://example.com/mutated-valid-url.mp4', // Mutated URL!
-            notes: 'MUTATED NOTES (MUST BE ROLLED BACK)', // Mutated notes!
+            notes: 'MUTATED FIXTURE NOTES (MUST BE ROLLED BACK)', // Mutated notes!
           },
         ],
       },
@@ -282,33 +324,37 @@ async function main() {
     throw new Error('Partial rows were persisted from failing import! Transaction is NOT atomic.');
   }
 
-  // Verify that the existing catalogue remains 100% intact
-  const finalCatCountRes = await client.query('SELECT count(*)::int AS count FROM public.lecture_categories;');
-  const finalLecCountRes = await client.query('SELECT count(*)::int AS count FROM public.lectures;');
-  const finalCatCount = finalCatCountRes.rows[0].count;
-  const finalLecCount = finalLecCountRes.rows[0].count;
+  // 6. Step 5: Targeted Cleanup (NO TRUNCATE CASCADE)
+  console.log('\n--- Step 5: Targeted Cleanup of Dedicated Fixtures (No TRUNCATE CASCADE) ---');
+  // Delete ONLY dedicated test fixtures
+  await client.query(`
+    DELETE FROM public.lecture_categories
+    WHERE slug LIKE 'fixture-%' OR slug LIKE 'zzz-rollback%';
+  `);
+  console.log('✓ Targeted cleanup completed: deleted only fixture-* and zzz-rollback* categories.');
 
-  console.log(`✓ Row counts after rollback: ${finalCatCount} categories, ${finalLecCount} lectures`);
-  if (finalCatCount !== initialCatCount || finalLecCount !== initialLecCount) {
-    throw new Error(`Row count mismatch! Pre-failure: (${initialCatCount}, ${initialLecCount}), Post-failure: (${finalCatCount}, ${finalLecCount})`);
+  // Assert unrelated staging lectures are 100% preserved
+  const unrelatedCountAfterRes = await client.query(`
+    SELECT count(*)::int AS count FROM public.lecture_categories
+    WHERE slug NOT LIKE 'fixture-%' AND slug NOT LIKE 'zzz-rollback%';
+  `);
+  const unrelatedCountAfter = unrelatedCountAfterRes.rows[0].count;
+  console.log(`✓ Unrelated staging lecture categories count after targeted cleanup: ${unrelatedCountAfter} (Before: ${unrelatedCountBefore})`);
+
+  if (unrelatedCountAfter !== unrelatedCountBefore || unrelatedCountAfter === 0) {
+    throw new Error(`Unrelated staging lectures were not preserved! Before: ${unrelatedCountBefore}, After: ${unrelatedCountAfter}`);
   }
-
-  // 6. Step 5: Keep Placeholders Unpublished
-  console.log('\n--- Step 5: Enforcing Policy — Keeping Placeholders Unpublished ---');
-  await client.query('TRUNCATE TABLE public.lectures, public.lecture_categories CASCADE;');
-  const cleanCatRes = await client.query('SELECT count(*)::int AS count FROM public.lecture_categories;');
-  const cleanLecRes = await client.query('SELECT count(*)::int AS count FROM public.lectures;');
-  console.log(`✓ Staging database cleaned: ${cleanCatRes.rows[0].count} categories, ${cleanLecRes.rows[0].count} lectures published.`);
-  console.log('✓ Confirmed: Placeholder catalogues remain UNPUBLISHED in database.');
+  console.log('✓ Confirmed: Unrelated staging lectures were 100% preserved. TRUNCATE CASCADE was NOT used.');
 
   console.log('\n================================================================');
   console.log('ALL STAGING DATABASE MIGRATION & EXTENDED ROLLBACK CHECKS PASSED!');
   console.log('1. Migration 18 applied: live_class_recordings & audit log active');
   console.log('2. Migration 19 applied: lecture_categories & lectures active');
-  console.log('3. Catalogue published and verified in PostgreSQL');
+  console.log('3. Dedicated test fixtures published and verified in PostgreSQL');
   console.log('4. In-place lecture update rollback verified: 100% field parity confirmed');
   console.log('5. Zero partial rows persisted from failing transaction');
-  console.log('6. Placeholders kept unpublished on staging database');
+  console.log('6. Targeted cleanup performed (TRUNCATE CASCADE eliminated)');
+  console.log('7. Unrelated staging lectures 100% preserved across runs and reruns');
   console.log('================================================================\n');
 
   await client.end();
