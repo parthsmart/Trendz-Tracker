@@ -377,7 +377,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
             recordingConfirmed: isRecordingConfirmed,
             prerecordedAssetUrl: liveClass.prerecorded_asset_url || null,
             streamUrl: liveClass.stream_url || null,
-            recordingNotice: (liveClass.recording_enabled !== false && isRecordingConfirmed)
+            recordingNotice: isRecordingConfirmed
               ? 'This live class is being recorded for academic review.'
               : null,
             notes: liveClass.notes,
@@ -597,7 +597,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           classType: liveClass.class_type || 'live',
           recordingEnabled: liveClass.recording_enabled !== false,
           recordingConfirmed: isRecordingConfirmed,
-          recordingNotice: (liveClass.recording_enabled !== false && isRecordingConfirmed)
+          recordingNotice: isRecordingConfirmed
             ? 'This live class is being recorded for academic review.'
             : null,
         });
@@ -707,7 +707,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           host_email = null,
           notes,
           class_type = 'live',
-          recording_enabled = true,
+          recording_enabled = false,
           prerecorded_asset_url = null,
           stream_url = null,
         } = body;
@@ -796,7 +796,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
                 meridiem: hours < 12 ? 'AM' : 'PM',
                 durationMinutes: duration,
                 timezone: 'Asia/Kolkata',
-                recordingEnabled: recording_enabled !== false,
+                recordingEnabled: recording_enabled === true,
                 requireApproval: true,
                 passcode: randomBytes(8).toString('hex'),
               }),
@@ -850,7 +850,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
         const fullPayload = {
           ...basePayload,
           class_type,
-          recording_enabled: recording_enabled !== false,
+          recording_enabled: recording_enabled === true,
           prerecorded_asset_url: prerecorded_asset_url ? prerecorded_asset_url.trim() : null,
           stream_url: stream_url ? stream_url.trim() : null,
         };
@@ -896,7 +896,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           newClass = {
             ...fallbackClass,
             class_type: 'live',
-            recording_enabled: true,
+            recording_enabled: recording_enabled === true,
             prerecorded_asset_url: null,
             stream_url: null,
           };
@@ -1073,6 +1073,14 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           });
         }
 
+        if (typeof recording.playback_url !== 'string' ||
+            !/^(storage|private):\/\//.test(recording.playback_url)) {
+          return res.status(409).json({
+            error: 'Attach a copy from the private recordings bucket before using Trendz playback.',
+            code: 'PRIVATE_COPY_REQUIRED',
+          });
+        }
+
         // Audit playback access
         try {
           await supabase
@@ -1215,14 +1223,12 @@ export async function handleLiveClassRequest(req, res, options = {}) {
         if (!title || typeof title !== 'string' || !title.trim()) {
           return res.status(400).json({ error: 'Recording title is required.', code: 'INVALID_REQUEST' });
         }
-        const isValidUrl = typeof recordingUrl === 'string' && (
-          recordingUrl.startsWith('http://') ||
-          recordingUrl.startsWith('https://') ||
-          recordingUrl.startsWith('storage://') ||
-          recordingUrl.startsWith('private://')
-        );
+        const isValidUrl = typeof recordingUrl === 'string' && /^(storage|private):\/\//.test(recordingUrl);
         if (!isValidUrl) {
-          return res.status(400).json({ error: 'A valid recording URL (http/https/storage) is required.', code: 'INVALID_REQUEST' });
+          return res.status(400).json({
+            error: 'Attach a private storage reference from the recordings bucket.',
+            code: 'PRIVATE_COPY_REQUIRED',
+          });
         }
 
         if (recordingUrl.startsWith('storage://') || recordingUrl.startsWith('private://')) {

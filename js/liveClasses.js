@@ -668,7 +668,7 @@ export async function initLiveClassesPage() {
 
         if (!classId) throw new Error('Please select an associated live class.');
         if (!title) throw new Error('Recording title is required.');
-        if (!recordingUrl) throw new Error('Recording / Playback URL is required.');
+        if (!recordingUrl) throw new Error('A private recording reference is required.');
 
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) throw new Error('Your session has expired. Please sign in again.');
@@ -892,9 +892,7 @@ export async function initLiveClassesPage() {
       const class_type = selectClassType?.value || 'live';
       const webinar_id = document.getElementById('input-webinar-id')?.value?.trim();
       const prerecorded_asset_url = document.getElementById('input-prerecorded-url')?.value?.trim() || null;
-      const recording_enabled = document.getElementById('check-enable-recording')
-        ? document.getElementById('check-enable-recording').checked
-        : true;
+      const recording_enabled = document.getElementById('check-enable-recording')?.checked === true;
 
       const teacher_id = document.getElementById('select-teacher')?.value;
       const invitedSelect = document.getElementById('select-invited-teachers');

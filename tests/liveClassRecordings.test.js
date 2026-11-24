@@ -5,7 +5,7 @@
  * Verifies Phase 21 Workstream A:
  * 1. Automatic recording configuration and scheduled class type flags on live_classes:
  *    - class_type: 'live' | 'prerecorded' | 'stream'
- *    - recording_enabled: boolean (default true)
+ *    - recording_enabled: boolean (default false)
  *    - prerecorded_asset_url: text
  * 2. Admin-only Recordings Library access (list_recordings):
  *    - Admin succeeds and can filter by status/search
@@ -351,7 +351,7 @@ test('3. get_recording_playback enforces admin permission, ready status, and aud
         title: 'Speed Abacus Class Recording',
         status: 'ready',
         duration_seconds: 3600,
-        playback_url: 'https://stream.webinar.gg/recordings/wgg-101.mp4',
+        playback_url: 'storage://recordings/webinars/wgg-101.mp4',
       },
       {
         id: 'rec-processing',
@@ -383,10 +383,23 @@ test('3. get_recording_playback enforces admin permission, ready status, and aud
     await handleLiveClassRequest(req, res, { supabase: mockSupabase });
     assert.equal(res.statusCode, 200);
     assert.equal(res.body.ok, true);
-    assert.equal(res.body.recording.playbackUrl, 'https://stream.webinar.gg/recordings/wgg-101.mp4');
+    assert.match(res.body.recording.playbackUrl, /\/object\/sign\/recordings\/webinars\/wgg-101\.mp4\?/);
     assert.equal(res.body.recording.durationSeconds, 3600);
     assert.equal(dbState.auditLogs.length, 1);
     assert.equal(dbState.auditLogs[0].action, 'view_recording');
+  }
+
+  // An existing provider link requires a private copy before playback.
+  {
+    const saved = dbState.recordings[0].playback_url;
+    dbState.recordings[0].playback_url = 'https://example.com/provider-replay.mp4';
+    const mockSupabase = createMockSupabase(adminProfile, dbState);
+    const { req, res } = createMockReqRes({ body: { action: 'get_recording_playback', recordingId: 'rec-ready' } });
+    await handleLiveClassRequest(req, res, { supabase: mockSupabase });
+    assert.equal(res.statusCode, 409);
+    assert.equal(res.body.code, 'PRIVATE_COPY_REQUIRED');
+    assert.equal(dbState.auditLogs.length, 1);
+    dbState.recordings[0].playback_url = saved;
   }
 
   // 3. Processing recording returns actionable RECORDING_NOT_READY error
@@ -614,13 +627,27 @@ test('7. Admin manual attachment workflow attaches Webinar.gg recording to libra
   // 3. Admin successfully attaches recording
   {
     const mockSupabase = createMockSupabase(admin, dbState);
+    const { req, res } = createMockReqRes({ body: {
+      action: 'attach_recording',
+      classId: 'cls-attach-target',
+      title: 'Provider replay',
+      recordingUrl: 'https://example.com/provider-replay.mp4',
+    } });
+    await handleLiveClassRequest(req, res, { supabase: mockSupabase });
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.body.code, 'PRIVATE_COPY_REQUIRED');
+    assert.equal(dbState.recordings.length, 0);
+  }
+
+  {
+    const mockSupabase = createMockSupabase(admin, dbState);
     const { req, res } = createMockReqRes({
       body: {
         action: 'attach_recording',
         classId: 'cls-attach-target',
         webinarId: 'cmvl53hcc0bycs60yjljyys4z',
         title: 'Speed Math Webinar Recording',
-        recordingUrl: 'https://webinar.gg/recordings/cmvl53hcc0bycs60yjljyys4z/play.mp4',
+        recordingUrl: 'storage://recordings/webinars/speed-math.mp4',
         durationMinutes: 45,
       },
     });

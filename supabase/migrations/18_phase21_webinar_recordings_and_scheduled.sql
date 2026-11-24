@@ -5,7 +5,7 @@
 -- Features:
 -- 1. Automatic recording configuration and scheduled class type flags on live_classes:
 --    - class_type: 'live' | 'prerecorded' | 'stream'
---    - recording_enabled: boolean (default true)
+--    - recording_enabled: boolean (default false)
 --    - prerecorded_asset_url: text
 --    - stream_url: text
 -- 2. Private Admin Recordings Library table: public.live_class_recordings
@@ -33,8 +33,10 @@ BEGIN
     WHERE table_schema = 'public' AND table_name = 'live_classes' AND column_name = 'recording_enabled'
   ) THEN
     ALTER TABLE public.live_classes
-      ADD COLUMN recording_enabled BOOLEAN NOT NULL DEFAULT true;
+      ADD COLUMN recording_enabled BOOLEAN NOT NULL DEFAULT false;
   END IF;
+
+  ALTER TABLE public.live_classes ALTER COLUMN recording_enabled SET DEFAULT false;
 
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.columns
