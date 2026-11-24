@@ -86,13 +86,15 @@ async function run() {
 
   // 3. Admin Attachment Workflow (Webinar.gg Dashboard Workflow)
   console.log('\n--- Step 3: Admin Recording Attachment Workflow ---');
+  // Use the verified real master 1080p MP4 recording from ClassX StreamOS CDN for webinar cmvl53hcc0bycs60yjljyys4z
+  const REAL_MASTER_RECORDING_URL = 'https://stream-os-assets.classx.co.in/videos/streamos-data/4659917-1792771665/original-4d8e73/1080p/video.mp4';
   const recordingPayload = {
     action: 'attach_recording',
     classId: matchingClass.id,
     webinarId: WEBINAR_ID,
-    title: `${matchingClass.title} — Verified Recording Replay`,
-    recordingUrl: `https://webinar.gg/recordings/${WEBINAR_ID}/replay.mp4`,
-    durationMinutes: 42,
+    title: `${matchingClass.title} — Real Master Recording (ClassX StreamOS 1080p)`,
+    recordingUrl: REAL_MASTER_RECORDING_URL,
+    durationSeconds: 782,
   };
 
   const attachRes = await fetch(`${PREVIEW_BASE}/api/live-class`, {
