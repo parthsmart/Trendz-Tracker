@@ -63,12 +63,12 @@
                 Live Classes (Webinar.gg)
               </h1>
               <p style="font-size: var(--text-sm); color: var(--text-muted); margin: 0;">
-                Link Webinar.gg rooms, assign teachers and student audiences, and manage two-way live sessions.
+                Schedule live classes and choose who can attend.
               </p>
             </div>
             <div style="display: flex; gap: var(--space-2);">
-              <button type="button" id="btn-open-create-modal" class="btn btn-primary">
-                + Link &amp; Schedule Class
+              <button type="button" id="btn-open-create-modal" class="btn btn-primary" disabled>
+                + Schedule Class
               </button>
             </div>
           </div>
@@ -86,7 +86,7 @@
                 Loading live classes...
               </div>
               <div id="classes-empty" style="display: none; padding: var(--space-6); text-align: center; color: var(--text-muted);">
-                No live classes scheduled yet. Click "+ Link &amp; Schedule Class" above to set up the pilot class.
+                No live classes scheduled yet.
               </div>
               <div id="classes-table-wrapper" style="overflow-x: auto; display: none;">
                 <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: var(--text-sm);">
@@ -116,7 +116,7 @@
     <div id="modal-create-class" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <div class="modal-dialog modal-card" style="max-width: 560px; width: 90%; margin: auto; background: var(--bg-surface, #fff); border-radius: var(--radius-lg, 12px); box-shadow: var(--shadow-lg); overflow: hidden;">
         <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border-hairline);">
-          <h3 id="modal-title" style="margin: 0; font-size: var(--text-lg); font-weight: 700;">Link &amp; Schedule Live Class</h3>
+          <h3 id="modal-title" style="margin: 0; font-size: var(--text-lg); font-weight: 700;">Schedule Live Class</h3>
           <button type="button" id="btn-close-modal" class="modal-close btn btn-ghost btn-sm" data-close-modal="modal-create-class" aria-label="Close dialog">&times;</button>
         </div>
 
@@ -126,15 +126,18 @@
             <input type="text" id="input-title" class="form-input" required placeholder="e.g. Abacus Live Class: Basics &amp; Speed Drill" style="width: 100%; box-sizing: border-box;" />
           </div>
 
-          <div>
-            <label for="input-webinar-id" style="display: block; font-size: var(--text-sm); font-weight: 600; margin-bottom: 4px;">
-              Webinar.gg Webinar ID *
-            </label>
-            <input type="text" id="input-webinar-id" class="form-input" required placeholder="e.g. cmvl53hcc0bycs60yjljyys4z" style="width: 100%; box-sizing: border-box;" />
-            <small style="color: var(--text-muted); font-size: var(--text-xs); margin-top: 2px; display: block;">
-              Copy the Webinar ID from your Webinar.gg dashboard (e.g. pilot webinar: <code style="font-family: monospace;">cmvl53hcc0bycs60yjljyys4z</code>).
-            </small>
-          </div>
+          <details>
+            <summary>More class options</summary>
+            <div style="margin-top: var(--space-3);">
+              <label for="input-webinar-id" class="form-label">Existing Webinar.gg ID</label>
+              <input type="text" id="input-webinar-id" class="form-input" style="width: 100%;" />
+              <small>Leave blank to create a room automatically.</small>
+            </div>
+            <div style="margin-top: var(--space-3);">
+              <label for="input-host-email" class="form-label">Host email for an existing room</label>
+              <input type="email" id="input-host-email" class="form-input" style="width: 100%;" />
+            </div>
+          </details>
 
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3);">
             <div>
@@ -144,17 +147,29 @@
               </select>
             </div>
             <div>
-              <label for="select-level" style="display: block; font-size: var(--text-sm); font-weight: 600; margin-bottom: 4px;">Target Level</label>
-              <select id="select-level" class="form-input" style="width: 100%; box-sizing: border-box;">
-                <option value="">All Levels</option>
-                <option value="Basic 1">Basic 1</option>
-                <option value="Junior 1">Junior 1</option>
-                <option value="Senior">Senior</option>
+              <label for="select-audience" class="form-label">Who can attend?</label>
+              <select id="select-audience" class="form-input" required style="width: 100%; box-sizing: border-box;">
+                <option value="">Choose who can attend</option>
+                <option value="all">All students</option>
+                <option value="level">One class level</option>
+                <option value="students">Selected students</option>
               </select>
             </div>
           </div>
 
-          <div>
+          <div id="row-class-level" hidden>
+            <label for="select-level" class="form-label">Class level</label>
+            <select id="select-level" class="form-input" style="width: 100%;"></select>
+          </div>
+          <div id="row-class-students" hidden>
+            <label for="input-student-search" class="form-label">Find students</label>
+            <input type="search" id="input-student-search" class="form-input" placeholder="Name or student code" style="width: 100%;" />
+            <div id="class-student-options" style="max-height: 10rem; overflow: auto; padding: var(--space-2) 0;"></div>
+          </div>
+          <small id="class-audience-count" role="status"></small>
+
+          <details>
+            <summary>Invite other teachers</summary>
             <label for="select-invited-teachers" style="display: block; font-size: var(--text-sm); font-weight: 600; margin-bottom: 4px;">
               Invite Teachers as Participants (Optional)
             </label>
@@ -164,7 +179,7 @@
             <small style="color: var(--text-muted); font-size: var(--text-xs); margin-top: 2px; display: block;">
               Selected teachers will see "Join as participant" in their workspace and receive attendee access under their own identity.
             </small>
-          </div>
+          </details>
 
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3);">
             <div>
@@ -178,16 +193,6 @@
           </div>
 
           <div>
-            <label for="input-host-email" style="display: block; font-size: var(--text-sm); font-weight: 600; margin-bottom: 4px;">
-              Provider Host Account Email (Optional)
-            </label>
-            <input type="email" id="input-host-email" class="form-input" placeholder="e.g. host@webinar.gg" style="width: 100%; box-sizing: border-box;" />
-            <small style="color: var(--text-muted); font-size: var(--text-xs); margin-top: 2px; display: block;">
-              Optional. Requires registered Webinar.gg host account matching caller. Teacher hosting is disabled until provider accounts are configured.
-            </small>
-          </div>
-
-          <div>
             <label for="input-notes" style="display: block; font-size: var(--text-sm); font-weight: 600; margin-bottom: 4px;">Class Notes (Optional)</label>
             <textarea id="input-notes" class="form-input" rows="2" placeholder="e.g. Have your soroban abacus ready and ensure good lighting." style="width: 100%; box-sizing: border-box;"></textarea>
           </div>
@@ -196,7 +201,7 @@
 
           <div style="display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2);">
             <button type="button" id="btn-cancel-create" class="btn btn-outline" data-close-modal="modal-create-class">Cancel</button>
-            <button type="submit" id="btn-submit-create" class="btn btn-primary">Publish Class</button>
+            <button type="submit" id="btn-submit-create" class="btn btn-primary">Schedule Class</button>
           </div>
         </form>
       </div>
