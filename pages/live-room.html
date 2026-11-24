@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Live Class Room — Trendz Tracker</title>
     <link rel="stylesheet" href="/css/style.css" />
+    <link rel="stylesheet" href="/css/mediaPlayer.css" />
     <!-- Progressive Web App & Icons -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#2563EB" />
@@ -166,6 +167,10 @@
           <button type="button" id="btn-confirm-join" class="btn btn-primary" style="width: 100%; padding: var(--space-3) var(--space-4); font-size: var(--text-base); font-weight: 700;">
             Enter Live Room &rarr;
           </button>
+
+          <div id="lobby-recording-notice" style="display: none; align-items: center; justify-content: center; gap: 6px; font-size: 12px; color: #f97316; background: rgba(249, 115, 22, 0.1); border: 1px solid rgba(249, 115, 22, 0.2); padding: 8px 12px; border-radius: 6px; margin-top: 12px; font-weight: 600;">
+            <span style="font-size: 14px;">●</span> <span>This live class is being recorded for academic review.</span>
+          </div>
 
           <div class="permission-tip">
             <strong>Device Permissions Notice:</strong><br />

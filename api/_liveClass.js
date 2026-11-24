@@ -17,6 +17,7 @@ import { getAdminClient, getCallerClient } from './_supabaseAdmin.js';
 import { hasSupabaseAdminConfig } from './_configHelper.js';
 
 const WEBINAR_API_BASE = 'https://webinar-api.webinar.gg/api/v1';
+const PRIVATE_RECORDINGS_BUCKET = process.env.PRIVATE_RECORDINGS_BUCKET || 'recordings';
 
 export function getWebinarGgToken() {
   return (process.env.WEBINAR_GG_TOKEN || '').trim();
@@ -170,7 +171,7 @@ async function mintWebinarJoinToken({ webinarId, firstName, lastName, email, pho
 }
 
 /**
- * Reads provider webinar status
+ * Reads provider webinar status and settings (e.g. recording confirmation)
  */
 async function fetchProviderWebinarInfo(webinarId, fetchImpl = fetch) {
   const apiToken = getWebinarGgToken();
@@ -188,6 +189,8 @@ async function fetchProviderWebinarInfo(webinarId, fetchImpl = fetch) {
     const json = await response.json();
     return {
       status: json?.data?.status || null,
+      recordingEnabled: json?.data?.recordingEnabled === true,
+      title: json?.data?.title || null,
       passcode: typeof json?.data?.passcode === 'string' ? json.data.passcode : '',
     };
   } catch (_) {
@@ -195,8 +198,12 @@ async function fetchProviderWebinarInfo(webinarId, fetchImpl = fetch) {
   }
 }
 
+/**
+ * Reads provider webinar status (backward compatibility alias)
+ */
 async function fetchProviderWebinarStatus(webinarId, fetchImpl = fetch) {
-  return (await fetchProviderWebinarInfo(webinarId, fetchImpl))?.status || null;
+  const info = await fetchProviderWebinarInfo(webinarId, fetchImpl);
+  return info?.status || null;
 }
 
 /**
@@ -233,7 +240,8 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           return res.status(400).json({ error: 'Missing required classId parameter.', code: 'INVALID_REQUEST' });
         }
 
-        const { data: liveClass, error } = await supabase
+        let liveClass = null;
+        const { data: fullClass, error } = await supabase
           .from('live_classes')
           .select(`
             id,
@@ -249,20 +257,66 @@ export async function handleLiveClassRequest(req, res, options = {}) {
             status,
             provider_status,
             notes,
+            class_type,
+            recording_enabled,
+            prerecorded_asset_url,
+            stream_url,
             teacher:profiles!teacher_id (id, full_name)
           `)
           .eq('id', classId)
           .single();
 
-        if (error || !liveClass) {
+        if (error) {
+          if (error.code === '42703' || error.message?.includes('does not exist') || error.message?.includes('schema cache') || error.message?.includes('column')) {
+            const { data: baseClass, error: baseError } = await supabase
+              .from('live_classes')
+              .select(`
+                id,
+                title,
+                webinar_id,
+                teacher_id,
+                host_email,
+                invited_teacher_ids,
+                target_level,
+                target_student_ids,
+                scheduled_start_time,
+                duration_minutes,
+                status,
+                provider_status,
+                notes,
+                teacher:profiles!teacher_id (id, full_name)
+              `)
+              .eq('id', classId)
+              .single();
+
+            if (baseError || !baseClass) {
+              return res.status(404).json({ error: 'Live class not found.', code: 'CLASS_NOT_FOUND' });
+            }
+            liveClass = {
+              ...baseClass,
+              class_type: 'live',
+              recording_enabled: true,
+              prerecorded_asset_url: null,
+              stream_url: null,
+            };
+          } else {
+            return res.status(404).json({ error: 'Live class not found.', code: 'CLASS_NOT_FOUND' });
+          }
+        } else {
+          liveClass = fullClass;
+        }
+
+        if (!liveClass) {
           return res.status(404).json({ error: 'Live class not found.', code: 'CLASS_NOT_FOUND' });
         }
 
-        // Live provider status check: sync provider status if scheduled or live
+        // Live provider status check: sync provider status and verify recording configuration
         let currentStatus = liveClass.status;
         let providerStatus = liveClass.provider_status;
+        let providerInfo = null;
         if (liveClass.webinar_id && currentStatus !== 'ended' && currentStatus !== 'cancelled') {
-          const liveProviderStatus = await fetchProviderWebinarStatus(liveClass.webinar_id, fetchImpl);
+          providerInfo = await fetchProviderWebinarInfo(liveClass.webinar_id, fetchImpl);
+          const liveProviderStatus = providerInfo?.status;
           if (liveProviderStatus) {
             providerStatus = liveProviderStatus;
             if (liveProviderStatus === 'completed' || liveProviderStatus === 'ended') {
@@ -282,6 +336,11 @@ export async function handleLiveClassRequest(req, res, options = {}) {
             }
           }
         }
+
+        const providerRecordingConfirmed = providerInfo ? providerInfo.recordingEnabled === true : false;
+        const isRecordingConfirmed = Boolean(
+          liveClass.recording_confirmed === true || providerRecordingConfirmed
+        );
 
         const isInvitedParticipant = caller.role === 'teacher' && Boolean(
           Array.isArray(liveClass.invited_teacher_ids) && liveClass.invited_teacher_ids.includes(caller.id)
@@ -313,6 +372,14 @@ export async function handleLiveClassRequest(req, res, options = {}) {
             durationMinutes: liveClass.duration_minutes,
             status: currentStatus,
             providerStatus: providerStatus,
+            classType: liveClass.class_type || 'live',
+            recordingEnabled: liveClass.recording_enabled !== false,
+            recordingConfirmed: isRecordingConfirmed,
+            prerecordedAssetUrl: liveClass.prerecorded_asset_url || null,
+            streamUrl: liveClass.stream_url || null,
+            recordingNotice: isRecordingConfirmed
+              ? 'This live class is being recorded for academic review.'
+              : null,
             notes: liveClass.notes,
             isHost,
             hostingDisabled,
@@ -330,7 +397,8 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           return res.status(400).json({ error: 'Missing required classId parameter.', code: 'INVALID_REQUEST' });
         }
 
-        const { data: liveClass, error } = await supabase
+        let liveClass = null;
+        const { data: fullClass, error } = await supabase
           .from('live_classes')
           .select(`
             id,
@@ -345,12 +413,55 @@ export async function handleLiveClassRequest(req, res, options = {}) {
             duration_minutes,
             status,
             provider_status,
+            class_type,
+            recording_enabled,
+            prerecorded_asset_url,
+            stream_url,
             teacher:profiles!teacher_id (id, full_name)
           `)
           .eq('id', classId)
           .single();
 
-        if (error || !liveClass) {
+        if (error) {
+          if (error.code === '42703' || error.message?.includes('does not exist') || error.message?.includes('schema cache') || error.message?.includes('column')) {
+            const { data: baseClass, error: baseError } = await supabase
+              .from('live_classes')
+              .select(`
+                id,
+                title,
+                webinar_id,
+                teacher_id,
+                host_email,
+                invited_teacher_ids,
+                target_level,
+                target_student_ids,
+                scheduled_start_time,
+                duration_minutes,
+                status,
+                provider_status,
+                teacher:profiles!teacher_id (id, full_name)
+              `)
+              .eq('id', classId)
+              .single();
+
+            if (baseError || !baseClass) {
+              return res.status(404).json({ error: 'Live class not found.', code: 'CLASS_NOT_FOUND' });
+            }
+            liveClass = {
+              ...baseClass,
+              class_type: 'live',
+              recording_enabled: true,
+              prerecorded_asset_url: null,
+              stream_url: null,
+            };
+          } else {
+            return res.status(404).json({ error: 'Live class not found.', code: 'CLASS_NOT_FOUND' });
+          }
+        } else {
+          liveClass = fullClass;
+        }
+
+        if (!liveClass) {
           return res.status(404).json({ error: 'Live class not found.', code: 'CLASS_NOT_FOUND' });
         }
 
@@ -362,19 +473,53 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           return res.status(400).json({ error: 'This live class has already ended.', code: 'CLASS_ENDED' });
         }
 
-        // Provider status check before minting join token
+        // Scheduled Prerecorded Class workflow
+        if (liveClass.class_type === 'prerecorded') {
+          if (caller.role === 'student' && !isStudentInAudience(caller, liveClass)) {
+            return res.status(403).json({ error: 'You are not enrolled in this scheduled class.', code: 'NOT_ENROLLED' });
+          }
+          if (caller.role === 'teacher') {
+            const isInvitedParticipant = Boolean(
+              Array.isArray(liveClass.invited_teacher_ids) && liveClass.invited_teacher_ids.includes(caller.id)
+            );
+            if (!isInvitedParticipant && caller.id !== liveClass.teacher_id) {
+              return res.status(403).json({ error: 'You are not invited to participate in this class.', code: 'NOT_INVITED' });
+            }
+          }
+
+          return res.status(200).json({
+            ok: true,
+            classType: 'prerecorded',
+            classTitle: liveClass.title,
+            assetUrl: liveClass.prerecorded_asset_url,
+            scheduledStartTime: liveClass.scheduled_start_time,
+            durationMinutes: liveClass.duration_minutes,
+            teacherName: liveClass.teacher?.full_name || 'Assigned Teacher',
+            status: liveClass.status,
+          });
+        }
+
+        // Provider status & recording info check before minting join token
         const providerInfo = await fetchProviderWebinarInfo(liveClass.webinar_id, fetchImpl);
-        const providerStatus = providerInfo?.status || null;
-        if (providerStatus === 'completed' || providerStatus === 'ended') {
+        const providerStatus = providerInfo?.status || liveClass.provider_status;
+        const providerRecordingConfirmed = providerInfo ? providerInfo.recordingEnabled === true : false;
+        const isRecordingConfirmed = Boolean(
+          liveClass.recording_confirmed === true || providerRecordingConfirmed
+        );
+
+        if (providerStatus === 'completed' || providerStatus === 'ended' || liveClass.status === 'ended') {
           await supabase
             .from('live_classes')
             .update({
-              provider_status: providerStatus,
+              provider_status: providerStatus || 'completed',
               status: 'ended',
               updated_at: new Date().toISOString(),
             })
             .eq('id', classId);
-          return res.status(400).json({ error: 'This live class has already ended.', code: 'CLASS_ENDED' });
+          return res.status(400).json({
+            error: 'This live class has already ended. Live room access is closed and recordings cannot be replayed from the room link.',
+            code: 'CLASS_ENDED',
+          });
         }
 
         let isHost = false;
@@ -449,6 +594,12 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           scheduledStartTime: liveClass.scheduled_start_time,
           status: liveClass.status,
           expiresInSeconds: tokenData.expiresInSeconds,
+          classType: liveClass.class_type || 'live',
+          recordingEnabled: liveClass.recording_enabled !== false,
+          recordingConfirmed: isRecordingConfirmed,
+          recordingNotice: isRecordingConfirmed
+            ? 'This live class is being recorded for academic review.'
+            : null,
         });
       }
 
@@ -555,6 +706,10 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           duration_minutes = 60,
           host_email = null,
           notes,
+          class_type = 'live',
+          recording_enabled = false,
+          prerecorded_asset_url = null,
+          stream_url = null,
         } = body;
 
         let effectiveWebinarId = typeof inputWebinarId === 'string' ? inputWebinarId.trim() : '';
@@ -562,9 +717,9 @@ export async function handleLiveClassRequest(req, res, options = {}) {
         const duration = Number(duration_minutes);
         if (typeof title !== 'string' || !title.trim() || !teacher_id || !scheduled_start_time ||
             !Number.isFinite(startsAt.getTime()) || !Number.isInteger(duration) ||
-            duration < 15 || duration > 240) {
+            duration < 15 || duration > 240 || (class_type === 'stream' && !effectiveWebinarId)) {
           return res.status(400).json({
-            error: 'Enter a class title, teacher, valid start time, and duration from 15 to 240 minutes.',
+            error: 'Enter a class title, teacher, valid start time, and duration from 15 to 240 minutes. Streams require an existing room.',
             code: 'INVALID_REQUEST',
           });
         }
@@ -620,7 +775,9 @@ export async function handleLiveClassRequest(req, res, options = {}) {
 
         let effectiveHostEmail = host_email ? host_email.trim() : null;
         let createdProviderRoom = false;
-        if (!effectiveWebinarId) {
+        if (class_type === 'prerecorded' && !effectiveWebinarId) {
+          effectiveWebinarId = `prerecorded-${Date.now()}`;
+        } else if (class_type === 'live' && !effectiveWebinarId) {
           const providerToken = getWebinarGgToken();
           if (!providerToken) {
             return res.status(503).json({ error: 'Automatic room creation is unavailable. Ask your administrator to check the live class setup.', code: 'PROVIDER_UNAVAILABLE' });
@@ -639,7 +796,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
                 meridiem: hours < 12 ? 'AM' : 'PM',
                 durationMinutes: duration,
                 timezone: 'Asia/Kolkata',
-                recordingEnabled: false,
+                recordingEnabled: recording_enabled === true,
                 requireApproval: true,
                 passcode: randomBytes(8).toString('hex'),
               }),
@@ -657,6 +814,10 @@ export async function handleLiveClassRequest(req, res, options = {}) {
             return res.status(502).json({ error: 'Trendz could not confirm the live room. Check the Webinar.gg schedule before trying again.', code: 'PROVIDER_CREATE_FAILED' });
           }
         }
+        if (!effectiveWebinarId) {
+          return res.status(400).json({ error: 'Choose a valid class type and room.', code: 'INVALID_REQUEST' });
+        }
+
         const databaseFailure = (error) => res.status(500).json(createdProviderRoom
           ? {
               error: 'The room was created, but the class could not be saved. Retry to use the same room.',
@@ -671,22 +832,32 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           ? invited_teacher_ids.filter((id) => id && id !== teacher_id)
           : null;
 
-        const { data: newClass, error } = await supabase
+        const basePayload = {
+          title: title.trim(),
+          webinar_id: effectiveWebinarId,
+          teacher_id,
+          host_email: effectiveHostEmail,
+          target_level: target_level || null,
+          target_student_ids: Array.isArray(target_student_ids) && target_student_ids.length > 0 ? target_student_ids : null,
+          invited_teacher_ids: cleanedInvitedTeacherIds && cleanedInvitedTeacherIds.length > 0 ? cleanedInvitedTeacherIds : null,
+          scheduled_start_time,
+          duration_minutes: duration,
+          status: 'scheduled',
+          notes: notes ? notes.trim() : null,
+          created_by: caller.id,
+        };
+
+        const fullPayload = {
+          ...basePayload,
+          class_type,
+          recording_enabled: recording_enabled === true,
+          prerecorded_asset_url: prerecorded_asset_url ? prerecorded_asset_url.trim() : null,
+          stream_url: stream_url ? stream_url.trim() : null,
+        };
+
+        let { data: newClass, error } = await supabase
           .from('live_classes')
-          .insert({
-            title: title.trim(),
-            webinar_id: effectiveWebinarId,
-            teacher_id,
-            host_email: effectiveHostEmail,
-            target_level: target_level || null,
-            target_student_ids: Array.isArray(target_student_ids) && target_student_ids.length > 0 ? target_student_ids : null,
-            invited_teacher_ids: cleanedInvitedTeacherIds && cleanedInvitedTeacherIds.length > 0 ? cleanedInvitedTeacherIds : null,
-            scheduled_start_time,
-            duration_minutes: duration,
-            status: 'scheduled',
-            notes: notes ? notes.trim() : null,
-            created_by: caller.id,
-          })
+          .insert(fullPayload)
           .select(`
             id,
             title,
@@ -695,9 +866,42 @@ export async function handleLiveClassRequest(req, res, options = {}) {
             scheduled_start_time,
             duration_minutes,
             status,
+            class_type,
+            recording_enabled,
+            prerecorded_asset_url,
+            stream_url,
             teacher:profiles!teacher_id (id, full_name)
           `)
           .single();
+
+        if (error && (error.code === '42703' || error.message?.includes('does not exist') || error.message?.includes('schema cache') || error.message?.includes('column'))) {
+          const { data: fallbackClass, error: fallbackError } = await supabase
+            .from('live_classes')
+            .insert(basePayload)
+            .select(`
+              id,
+              title,
+              webinar_id,
+              teacher_id,
+              scheduled_start_time,
+              duration_minutes,
+              status,
+              teacher:profiles!teacher_id (id, full_name)
+            `)
+            .single();
+
+          if (fallbackError) {
+            return databaseFailure(fallbackError);
+          }
+          newClass = {
+            ...fallbackClass,
+            class_type: 'live',
+            recording_enabled: recording_enabled === true,
+            prerecorded_asset_url: null,
+            stream_url: null,
+          };
+          error = null;
+        }
 
         if (error) {
           return databaseFailure(error);
@@ -748,6 +952,370 @@ export async function handleLiveClassRequest(req, res, options = {}) {
         return res.status(200).json({
           ok: true,
           class: updatedClass,
+        });
+      }
+
+      // 7. List Recordings (Admin only)
+      case 'list_recordings': {
+        if (caller.role !== 'admin') {
+          return res.status(403).json({ error: 'Only administrators can view the recording library.', code: 'FORBIDDEN' });
+        }
+
+        const { teacherId, status, search } = body;
+        let query = supabase
+          .from('live_class_recordings')
+          .select(`
+            id,
+            class_id,
+            webinar_id,
+            recording_id,
+            title,
+            status,
+            duration_seconds,
+            recorded_at,
+            created_at,
+            live_class:live_classes!class_id (
+              id,
+              title,
+              scheduled_start_time,
+              teacher:profiles!teacher_id (id, full_name, student_code)
+            )
+          `)
+          .is('deleted_at', null)
+          .order('recorded_at', { ascending: false });
+
+        if (status) {
+          query = query.eq('status', status);
+        }
+
+        let { data: recordings, error } = await query;
+        if (error && (error.code === '42P01' || error.message?.includes('does not exist') || error.message?.includes('schema cache') || error.message?.includes('table'))) {
+          return res.status(200).json({ ok: true, recordings: [] });
+        }
+        if (error) {
+          return res.status(500).json({ error: error.message, code: 'DATABASE_ERROR' });
+        }
+
+        let filtered = recordings || [];
+        if (teacherId) {
+          filtered = filtered.filter((r) => r.live_class?.teacher?.id === teacherId);
+        }
+        if (search) {
+          const s = search.toLowerCase();
+          filtered = filtered.filter((r) =>
+            (r.title && r.title.toLowerCase().includes(s)) ||
+            (r.live_class?.title && r.live_class.title.toLowerCase().includes(s)) ||
+            (r.live_class?.teacher?.full_name && r.live_class.teacher.full_name.toLowerCase().includes(s)) ||
+            (r.webinar_id && r.webinar_id.toLowerCase().includes(s))
+          );
+        }
+
+        return res.status(200).json({
+          ok: true,
+          recordings: filtered.map((r) => ({
+            id: r.id,
+            classId: r.class_id,
+            classTitle: r.live_class?.title || 'Live Class',
+            teacherName: r.live_class?.teacher?.full_name || 'Assigned Teacher',
+            teacherCode: r.live_class?.teacher?.student_code || '',
+            webinarId: r.webinar_id,
+            recordingId: r.recording_id,
+            title: r.title,
+            status: r.status,
+            durationSeconds: r.duration_seconds,
+            recordedAt: r.recorded_at,
+            createdAt: r.created_at,
+          })),
+        });
+      }
+
+      // 8. Get Recording Playback (Admin only)
+      case 'get_recording_playback': {
+        if (caller.role !== 'admin') {
+          return res.status(403).json({ error: 'Only administrators have access to class recording replays.', code: 'FORBIDDEN' });
+        }
+
+        const { recordingId } = body;
+        if (!recordingId) {
+          return res.status(400).json({ error: 'Missing required recordingId parameter.', code: 'INVALID_REQUEST' });
+        }
+
+        const { data: recording, error } = await supabase
+          .from('live_class_recordings')
+          .select(`
+            id,
+            class_id,
+            webinar_id,
+            recording_id,
+            title,
+            status,
+            duration_seconds,
+            playback_url,
+            download_url,
+            deleted_at,
+            live_class:live_classes!class_id (
+              id,
+              title,
+              teacher:profiles!teacher_id (id, full_name)
+            )
+          `)
+          .eq('id', recordingId)
+          .single();
+
+        if (error || !recording || recording.deleted_at) {
+          return res.status(404).json({ error: 'Recording not found or has been removed.', code: 'RECORDING_NOT_FOUND' });
+        }
+
+        if (recording.status !== 'ready') {
+          return res.status(400).json({
+            error: `Recording is not ready for playback (Current state: ${recording.status}).`,
+            code: 'RECORDING_NOT_READY',
+          });
+        }
+
+        if (typeof recording.playback_url !== 'string' ||
+            !/^(storage|private):\/\//.test(recording.playback_url)) {
+          return res.status(409).json({
+            error: 'Attach a copy from the private recordings bucket before using Trendz playback.',
+            code: 'PRIVATE_COPY_REQUIRED',
+          });
+        }
+
+        // Audit playback access
+        try {
+          await supabase
+            .from('live_class_recording_audit_log')
+            .insert({
+              recording_id: recording.id,
+              class_id: recording.class_id,
+              webinar_id: recording.webinar_id,
+              action: 'view_recording',
+              performed_by: caller.id,
+              details: { accessed_at: new Date().toISOString() },
+            });
+        } catch (_) {}
+
+        // Resolve private Supabase Storage signed URLs if stored as a private storage reference
+        let playbackUrl = recording.playback_url;
+        if (typeof playbackUrl === 'string' && (playbackUrl.startsWith('storage://') || playbackUrl.startsWith('private://'))) {
+          const rawPath = playbackUrl.replace(/^(storage|private):\/\//, '');
+          const slashIdx = rawPath.indexOf('/');
+          if (slashIdx === -1) {
+            return res.status(400).json({
+              error: 'Invalid storage reference. Format must be storage://<bucket>/<path>.',
+              code: 'INVALID_STORAGE_URI',
+            });
+          }
+          const bucket = rawPath.slice(0, slashIdx);
+          const objectPath = rawPath.slice(slashIdx + 1);
+
+          // Restrict strictly to the configured private recordings bucket
+          if (bucket !== PRIVATE_RECORDINGS_BUCKET) {
+            return res.status(403).json({
+              error: `Access denied. Private replay is strictly restricted to the configured "${PRIVATE_RECORDINGS_BUCKET}" bucket.`,
+              code: 'BUCKET_RESTRICTED',
+            });
+          }
+
+          if (!supabase.storage) {
+            return res.status(500).json({
+              error: 'Storage service is unavailable for generating signed playback URLs.',
+              code: 'STORAGE_UNAVAILABLE',
+            });
+          }
+
+          const { data: signedData, error: signErr } = await supabase.storage
+            .from(bucket)
+            .createSignedUrl(objectPath, 3600);
+
+          if (signErr || !signedData?.signedUrl) {
+            return res.status(502).json({
+              error: `Failed to generate signed playback URL for private recording: ${signErr?.message || 'Storage signing returned empty URL.'}`,
+              code: 'STORAGE_SIGNING_FAILED',
+            });
+          }
+
+          playbackUrl = signedData.signedUrl;
+        }
+
+        return res.status(200).json({
+          ok: true,
+          recording: {
+            id: recording.id,
+            title: recording.title,
+            classTitle: recording.live_class?.title || 'Live Class',
+            teacherName: recording.live_class?.teacher?.full_name || 'Assigned Teacher',
+            durationSeconds: recording.duration_seconds,
+            playbackUrl,
+          },
+        });
+      }
+
+      // 9. Delete Recording ("Remove from Trendz" with audit log + dashboard notice)
+      case 'delete_recording': {
+        if (caller.role !== 'admin') {
+          return res.status(403).json({ error: 'Only administrators can remove recordings.', code: 'FORBIDDEN' });
+        }
+
+        const { recordingId, reason = '' } = body;
+        if (!recordingId) {
+          return res.status(400).json({ error: 'Missing required recordingId parameter.', code: 'INVALID_REQUEST' });
+        }
+
+        const { data: recording, error: findError } = await supabase
+          .from('live_class_recordings')
+          .select('id, class_id, webinar_id, recording_id, title')
+          .eq('id', recordingId)
+          .single();
+
+        if (findError || !recording) {
+          return res.status(404).json({ error: 'Recording not found.', code: 'RECORDING_NOT_FOUND' });
+        }
+
+        // Soft delete from Trendz database
+        const { error: updateError } = await supabase
+          .from('live_class_recordings')
+          .update({
+            status: 'deleted',
+            deleted_at: new Date().toISOString(),
+            deleted_by: caller.id,
+            deletion_reason: reason.trim() || 'Admin deleted recording from Trendz Tracker',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', recordingId);
+
+        if (updateError) {
+          return res.status(500).json({ error: updateError.message, code: 'DATABASE_ERROR' });
+        }
+
+        // Audit log
+        try {
+          await supabase
+            .from('live_class_recording_audit_log')
+            .insert({
+              recording_id: recording.id,
+              class_id: recording.class_id,
+              webinar_id: recording.webinar_id,
+              action: 'remove_from_trendz',
+              performed_by: caller.id,
+              details: { reason: reason.trim(), title: recording.title },
+            });
+        } catch (_) {}
+
+        return res.status(200).json({
+          ok: true,
+          recordingId,
+          message: 'Recording removed from Trendz Tracker.',
+          providerNotice: 'Recording reference has been removed from Trendz. Because Webinar.gg does not support granular recording file deletion via API, the raw video file must be deleted manually from the Webinar.gg Web Dashboard > Recordings.',
+        });
+      }
+
+      // 10. Admin Attach Webinar Recording (Manual Dashboard Workflow)
+      case 'attach_recording': {
+        if (caller.role !== 'admin') {
+          return res.status(403).json({ error: 'Only administrators can attach webinar recordings.', code: 'FORBIDDEN' });
+        }
+
+        const { classId, webinarId, title, recordingUrl, durationSeconds, durationMinutes } = body;
+        if (!classId || typeof classId !== 'string') {
+          return res.status(400).json({ error: 'Missing required classId parameter.', code: 'INVALID_REQUEST' });
+        }
+        if (!title || typeof title !== 'string' || !title.trim()) {
+          return res.status(400).json({ error: 'Recording title is required.', code: 'INVALID_REQUEST' });
+        }
+        const isValidUrl = typeof recordingUrl === 'string' && /^(storage|private):\/\//.test(recordingUrl);
+        if (!isValidUrl) {
+          return res.status(400).json({
+            error: 'Attach a private storage reference from the recordings bucket.',
+            code: 'PRIVATE_COPY_REQUIRED',
+          });
+        }
+
+        if (recordingUrl.startsWith('storage://') || recordingUrl.startsWith('private://')) {
+          const rawPath = recordingUrl.replace(/^(storage|private):\/\//, '');
+          const slashIdx = rawPath.indexOf('/');
+          if (slashIdx === -1 || !rawPath.slice(slashIdx + 1).trim()) {
+            return res.status(400).json({
+              error: 'Invalid storage reference. Format must be storage://<bucket>/<path>.',
+              code: 'INVALID_STORAGE_URI',
+            });
+          }
+          const bucket = rawPath.slice(0, slashIdx);
+          if (bucket !== PRIVATE_RECORDINGS_BUCKET) {
+            return res.status(400).json({
+              error: `Invalid storage reference. Private recordings must be located within the configured "${PRIVATE_RECORDINGS_BUCKET}" bucket.`,
+              code: 'INVALID_STORAGE_BUCKET',
+            });
+          }
+        }
+
+        const { data: liveClass, error: classError } = await supabase
+          .from('live_classes')
+          .select('id, title, webinar_id')
+          .eq('id', classId)
+          .single();
+
+        if (classError || !liveClass) {
+          return res.status(404).json({ error: 'Associated live class not found.', code: 'CLASS_NOT_FOUND' });
+        }
+
+        const effectiveWebinarId = webinarId?.trim() || liveClass.webinar_id || 'manual-webinar';
+        const calcDurationSeconds = durationSeconds ? Number(durationSeconds) : durationMinutes ? Math.round(Number(durationMinutes) * 60) : 0;
+
+        const recordingPayload = {
+          class_id: liveClass.id,
+          webinar_id: effectiveWebinarId,
+          recording_id: `rec-att-${Date.now()}`,
+          title: title.trim(),
+          duration_seconds: calcDurationSeconds,
+          status: 'ready',
+          playback_url: recordingUrl.trim(),
+          recorded_at: new Date().toISOString(),
+        };
+
+        const { data: recording, error: insertError } = await supabase
+          .from('live_class_recordings')
+          .insert(recordingPayload)
+          .select('id, class_id, webinar_id, recording_id, title, status, duration_seconds, playback_url, recorded_at')
+          .single();
+
+        if (insertError) {
+          return res.status(500).json({
+            error: `Failed to attach recording to database: ${insertError.message}`,
+            code: 'DATABASE_ERROR',
+          });
+        }
+
+        try {
+          await supabase.from('live_class_recording_audit_log').insert({
+            recording_id: recording.id,
+            class_id: liveClass.id,
+            webinar_id: effectiveWebinarId,
+            action: 'admin_attach_recording',
+            performed_by: caller.id,
+            details: {
+              title: recording.title,
+              recordingUrl: recording.playback_url,
+              durationSeconds: recording.duration_seconds,
+              workflow: 'manual_dashboard_attachment',
+            },
+          });
+        } catch (_) {}
+
+        return res.status(201).json({
+          ok: true,
+          message: 'Webinar recording attached to library.',
+          recording: {
+            id: recording.id,
+            classId: recording.class_id,
+            webinarId: recording.webinar_id,
+            recordingId: recording.recording_id,
+            title: recording.title,
+            status: recording.status,
+            durationSeconds: recording.duration_seconds,
+            playbackUrl: recording.playback_url,
+            recordedAt: recording.recorded_at,
+          },
         });
       }
 
