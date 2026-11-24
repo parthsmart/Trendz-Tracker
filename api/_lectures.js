@@ -12,6 +12,7 @@
 
 import { getAdminClient, getCallerClient } from './_supabaseAdmin.js';
 import { hasSupabaseAdminConfig } from './_configHelper.js';
+import { JMCWC_GROUPS } from './_jmcwcMath.js';
 
 const PRIVATE_LECTURES_BUCKET = process.env.PRIVATE_LECTURES_BUCKET || 'lectures';
 
@@ -88,12 +89,34 @@ export async function handleLecturesRequest(req, res, options = {}) {
     });
   }
 
-  const supabase = options.supabase || (hasSupabaseAdminConfig() ? getAdminClient() : getCallerClient(callerToken || ''));
+  const useCallerClient = !options.supabase && !hasSupabaseAdminConfig();
+  const supabase = options.supabase || (useCallerClient ? getCallerClient(callerToken) : getAdminClient());
 
   try {
     const caller = await authenticateCaller(supabase, req);
     const body = req.body || {};
     const action = body.action || 'list_categories';
+    let assignmentLookup;
+    const getAudienceFilter = async (lessons) => {
+      if (caller.role !== 'student') return () => true;
+      if (lessons.some((lesson) => lesson.requires_jmcwc_assignment)) {
+        assignmentLookup ??= (async () => {
+          const { data, error } = useCallerClient
+            ? await supabase.rpc('has_jmcwc_lecture_assignment')
+            : await supabase.from('jmcwc_assignments')
+              .select('group_key').eq('student_id', caller.id).maybeSingle();
+          if (error) {
+            throw Object.assign(new Error('Could not verify your JMCWC assignment.'), {
+              statusCode: 503, code: 'JMCWC_ASSIGNMENT_UNAVAILABLE',
+            });
+          }
+          return useCallerClient ? data === true : JMCWC_GROUPS.includes(data?.group_key);
+        })();
+      }
+      const assigned = assignmentLookup ? await assignmentLookup : false;
+      return (lesson) => (!lesson.target_level || lesson.target_level === caller.level) &&
+        (!lesson.requires_jmcwc_assignment || assigned);
+    };
 
     switch (action) {
       // 1. List Categories with lesson counts
@@ -107,7 +130,7 @@ export async function handleLecturesRequest(req, res, options = {}) {
             description,
             sort_order,
             active,
-            lectures (id, status, target_level)
+            lectures (id, status, target_level, requires_jmcwc_assignment)
           `)
           .order('sort_order', { ascending: true });
 
@@ -115,11 +138,15 @@ export async function handleLecturesRequest(req, res, options = {}) {
           return res.status(500).json({ error: error.message || 'Database error accessing lecture categories.', code: 'DATABASE_ERROR' });
         }
 
-        const formatted = (categories || []).filter((cat) => caller.role === 'admin' || cat.active).map((cat) => {
+        const visibleCategories = (categories || []).filter((cat) => caller.role === 'admin' || cat.active);
+        const inAudience = await getAudienceFilter(visibleCategories.flatMap(
+          (cat) => (cat.lectures || []).filter((lesson) => lesson.status === 'active')
+        ));
+        const formatted = visibleCategories.map((cat) => {
           const activeLessons = (cat.lectures || []).filter(
             (l) => caller.role === 'admin' || (
               l.status === 'active' &&
-              (caller.role !== 'student' || !l.target_level || l.target_level === caller.level)
+              inAudience(l)
             )
           );
           return {
@@ -156,6 +183,7 @@ export async function handleLecturesRequest(req, res, options = {}) {
             thumbnail_url,
             notes,
             target_level,
+            requires_jmcwc_assignment,
             status,
             category:lecture_categories!category_id (id, title, slug, active)
           `)
@@ -180,10 +208,8 @@ export async function handleLecturesRequest(req, res, options = {}) {
         if (categorySlug) {
           filtered = filtered.filter((l) => l.category?.slug === categorySlug);
         }
-        // Enforce audience access: students only see lectures open to all or matching their level
-        if (caller.role === 'student') {
-          filtered = filtered.filter((l) => !l.target_level || l.target_level === caller.level);
-        }
+        const inAudience = await getAudienceFilter(filtered);
+        filtered = filtered.filter(inAudience);
         if (search) {
           const s = search.toLowerCase();
           filtered = filtered.filter((l) =>
@@ -209,6 +235,7 @@ export async function handleLecturesRequest(req, res, options = {}) {
             thumbnailUrl: l.thumbnail_url,
             notes: l.notes,
             targetLevel: l.target_level,
+            requiresJmcwcAssignment: l.requires_jmcwc_assignment === true,
             status: l.status,
           })),
         });
@@ -235,6 +262,7 @@ export async function handleLecturesRequest(req, res, options = {}) {
             thumbnail_url,
             notes,
             target_level,
+            requires_jmcwc_assignment,
             status,
             category:lecture_categories!category_id (id, title, slug, active)
           `)
@@ -250,10 +278,12 @@ export async function handleLecturesRequest(req, res, options = {}) {
           return res.status(403).json({ error: 'This lecture has not been published.', code: 'LECTURE_UNPUBLISHED' });
         }
 
-        // 2. Audience access enforcement: students can only access open or matching level lectures
-        if (caller.role === 'student' && lecture.target_level && lecture.target_level !== caller.level) {
+        const inAudience = await getAudienceFilter([lecture]);
+        if (!inAudience(lecture)) {
           return res.status(403).json({
-            error: `This lecture is restricted to ${lecture.target_level} students.`,
+            error: lecture.requires_jmcwc_assignment
+              ? 'This lecture requires a JMCWC group assignment and any listed level restriction.'
+              : `This lecture is restricted to ${lecture.target_level} students.`,
             code: 'AUDIENCE_RESTRICTED',
             requiredLevel: lecture.target_level,
           });
@@ -262,16 +292,14 @@ export async function handleLecturesRequest(req, res, options = {}) {
         // Fetch sibling lectures in same category to resolve next/previous navigation
         const { data: siblings } = await supabase
           .from('lectures')
-          .select('id, title, lesson_order, target_level')
+          .select('id, title, lesson_order, target_level, requires_jmcwc_assignment')
           .eq('category_id', lecture.category_id)
           .eq('status', 'active')
           .order('lesson_order', { ascending: true });
 
         // Filter sibling queue to only include lessons accessible to caller
-        let accessibleSiblings = siblings || [];
-        if (caller.role === 'student') {
-          accessibleSiblings = accessibleSiblings.filter((s) => !s.target_level || s.target_level === caller.level);
-        }
+        const siblingAudience = await getAudienceFilter(siblings || []);
+        const accessibleSiblings = (siblings || []).filter(siblingAudience);
 
         const currentIndex = accessibleSiblings.findIndex((s) => s.id === lecture.id);
         const previousLecture = currentIndex > 0 ? accessibleSiblings[currentIndex - 1] : null;
@@ -336,6 +364,7 @@ export async function handleLecturesRequest(req, res, options = {}) {
             mediaUrl,
             notes: lecture.notes,
             targetLevel: lecture.target_level,
+            requiresJmcwcAssignment: lecture.requires_jmcwc_assignment === true,
             previousLectureId: previousLecture?.id || null,
             previousLectureTitle: previousLecture?.title || null,
             nextLectureId: nextLecture?.id || null,
@@ -387,6 +416,7 @@ export async function handleLecturesRequest(req, res, options = {}) {
               durationSeconds: l.durationSeconds || 0,
               mediaType: l.mediaType || (typeof l.mediaUrl === 'string' && (l.mediaUrl.startsWith('storage://') || l.mediaUrl.startsWith('private://')) ? 'video_mp4' : 'drive_embed'),
               mediaUrl: l.mediaUrl,
+              requiresJmcwcAssignment: l.requiresJmcwcAssignment === true,
               notes: l.notes || '',
             })),
           };
@@ -431,6 +461,13 @@ export async function handleLecturesRequest(req, res, options = {}) {
             if (typeof l?.title !== 'string' || !l.title.trim()) {
               return res.status(400).json({
                 error: `Validation error in category "${cat.title}" lesson #${j + 1}: Title is required.`,
+                code: 'INVALID_MANIFEST',
+              });
+            }
+
+            if ('requiresJmcwcAssignment' in l && typeof l.requiresJmcwcAssignment !== 'boolean') {
+              return res.status(400).json({
+                error: `"${l.title}" must use a boolean JMCWC assignment requirement.`,
                 code: 'INVALID_MANIFEST',
               });
             }

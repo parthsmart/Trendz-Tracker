@@ -5,3 +5,4 @@
 
 DROP TABLE IF EXISTS public.lectures CASCADE;
 DROP TABLE IF EXISTS public.lecture_categories CASCADE;
+DROP FUNCTION IF EXISTS public.has_jmcwc_lecture_assignment();

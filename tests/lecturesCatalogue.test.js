@@ -45,12 +45,20 @@ test('Direct catalogue reads enforce level and publication, and SQL imports reje
       AS $$ SELECT 'authenticated'::text $$;
     GRANT USAGE ON SCHEMA auth TO authenticated;
     CREATE TABLE public.profiles (id uuid, role text, level text, active boolean);
+    CREATE TABLE public.jmcwc_assignments (student_id uuid PRIMARY KEY, group_key text);
     GRANT SELECT ON public.profiles TO authenticated;
     CREATE FUNCTION public.is_admin() RETURNS boolean LANGUAGE sql STABLE
       AS $$ SELECT EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin' AND active) $$;
     INSERT INTO public.profiles VALUES
       ('00000000-0000-0000-0000-000000000001', 'student', 'Basic 1', true),
-      ('00000000-0000-0000-0000-000000000002', 'admin', NULL, true);
+      ('00000000-0000-0000-0000-000000000002', 'admin', NULL, true),
+      ('00000000-0000-0000-0000-000000000003', 'student', 'Basic 1', true),
+      ('00000000-0000-0000-0000-000000000004', 'student', 'Basic 1', true),
+      ('00000000-0000-0000-0000-000000000005', 'student', 'Basic 1', true);
+    INSERT INTO public.jmcwc_assignments VALUES
+      ('00000000-0000-0000-0000-000000000003', 'junior1'),
+      ('00000000-0000-0000-0000-000000000004', 'junior2'),
+      ('00000000-0000-0000-0000-000000000005', 'senior');
   `);
   await db.exec(readFileSync(new URL(
     '../supabase/migrations/19_phase21_lectures_catalogue.sql', import.meta.url
@@ -66,12 +74,24 @@ test('Direct catalogue reads enforce level and publication, and SQL imports reje
                    ('hidden', 'Inactive category', 1, 'Basic 1', 'active'))
         AS sample(slug, title, lesson_order, level, status)
       JOIN public.lecture_categories cat ON cat.slug = sample.slug;
+    INSERT INTO public.lectures (category_id, title, lesson_order, media_url, requires_jmcwc_assignment)
+      SELECT id, 'Assigned competitors', 4, 'storage://lectures/addition.mp4', true
+      FROM public.lecture_categories WHERE slug = 'visible';
     SET ROLE authenticated;
     SET request.jwt.claim.sub = '00000000-0000-0000-0000-000000000001';
   `);
   assert.deepEqual((await db.query('SELECT title FROM public.lectures')).rows, [{ title: 'Eligible' }]);
+  for (const ending of ['3', '4', '5']) {
+    await db.query('SELECT set_config($1, $2, false)', [
+      'request.jwt.claim.sub', `00000000-0000-0000-0000-00000000000${ending}`,
+    ]);
+    assert.deepEqual(
+      (await db.query('SELECT title FROM public.lectures ORDER BY title')).rows,
+      [{ title: 'Assigned competitors' }, { title: 'Eligible' }],
+    );
+  }
   await db.exec("SET request.jwt.claim.sub = '00000000-0000-0000-0000-000000000002'");
-  assert.equal((await db.query('SELECT title FROM public.lectures')).rows.length, 4);
+  assert.equal((await db.query('SELECT title FROM public.lectures')).rows.length, 5);
   await assert.rejects(
     db.query('SELECT public.publish_classroom_catalogue($1::jsonb)', [JSON.stringify(manifestFixture)]),
     /needs a verified video reference/
@@ -185,6 +205,18 @@ function createMockSupabase(callerProfile, dbState = {}) {
       return { data: null, error: { message: `Unknown RPC ${fn}`, code: '42883' } };
     },
     from: (table) => {
+      if (table === 'jmcwc_assignments') {
+        return {
+          select: () => ({
+            eq: (column, studentId) => ({
+              maybeSingle: async () => ({
+                data: dbState.assignments?.find((row) => row[column] === studentId) || null,
+                error: dbState.assignmentError || null,
+              }),
+            }),
+          }),
+        };
+      }
       if (table === 'profiles') {
         return {
           select: () => ({
@@ -214,7 +246,10 @@ function createMockSupabase(callerProfile, dbState = {}) {
                   const catLectures = lectures.filter((l) => l.category_id === cat.id);
                   return {
                     ...cat,
-                    lectures: catLectures.map((l) => ({ id: l.id, status: l.status, target_level: l.target_level })),
+                    lectures: catLectures.map((l) => ({
+                      id: l.id, status: l.status, target_level: l.target_level,
+                      requires_jmcwc_assignment: l.requires_jmcwc_assignment,
+                    })),
                   };
                 });
                 resolve({ data: res, error: null });
@@ -349,6 +384,36 @@ test('1. Google Classroom course manifest preserves all 23 categories and sequen
   assert.equal(addition.lessons[0].lessonOrder, 1);
   assert.equal(addition.lessons[1].lessonOrder, 2);
   assert.equal(addition.lessons[2].lessonOrder, 3);
+});
+
+test('The catalogue and signed playback require an actual Junior 1, Junior 2 or Senior assignment', async () => {
+  const state = {
+    categories: [{ id: 'cat-jmcwc', slug: 'addition', title: 'Addition', active: true }],
+    lectures: [{
+      id: 'lecture-jmcwc', category_id: 'cat-jmcwc', title: 'Addition', status: 'active',
+      lesson_order: 1, requires_jmcwc_assignment: true, media_type: 'video_mp4',
+      media_url: 'storage://lectures/addition/part-1.mp4',
+    }],
+    assignments: [
+      { student_id: 'assigned-1', group_key: 'junior1' },
+      { student_id: 'assigned-2', group_key: 'junior2' },
+      { student_id: 'assigned-3', group_key: 'senior' },
+    ],
+  };
+  for (const [id, eligible] of [['assigned-1', true], ['assigned-2', true], ['assigned-3', true], ['unassigned', false]]) {
+    const supabase = createMockSupabase({ id, role: 'student', level: 'Junior 2', active: true }, state);
+    for (const [action, property] of [['list_categories', 'categories'], ['list_lectures', 'lectures']]) {
+      const { req, res } = createMockReqRes({ body: { action } });
+      await handleLecturesRequest(req, res, { supabase });
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.body[property].length, eligible ? 1 : 0);
+    }
+    const { req, res } = createMockReqRes({ body: { action: 'get_lecture', lectureId: 'lecture-jmcwc' } });
+    await handleLecturesRequest(req, res, { supabase });
+    assert.equal(res.statusCode, eligible ? 200 : 403);
+    if (eligible) assert.match(res.body.lecture.mediaUrl, /\/object\/sign\/lectures\//);
+    else assert.equal(res.body.code, 'AUDIENCE_RESTRICTED');
+  }
 });
 
 test('2. Unauthenticated calls fail closed with 401 UNAUTHENTICATED', async () => {

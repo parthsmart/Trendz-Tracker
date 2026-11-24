@@ -52,6 +52,28 @@ CREATE INDEX IF NOT EXISTS idx_lectures_category_id ON public.lectures(category_
 CREATE INDEX IF NOT EXISTS idx_lectures_lesson_order ON public.lectures(category_id, lesson_order);
 CREATE INDEX IF NOT EXISTS idx_lectures_status ON public.lectures(status);
 
+ALTER TABLE public.lectures
+  ADD COLUMN IF NOT EXISTS requires_jmcwc_assignment BOOLEAN NOT NULL DEFAULT false;
+
+-- Direct PostgREST reads can check the caller's own assignment without exposing the roster.
+CREATE OR REPLACE FUNCTION public.has_jmcwc_lecture_assignment()
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.jmcwc_assignments AS assignment
+    WHERE assignment.student_id = (SELECT auth.uid())
+      AND assignment.group_key IN ('junior1', 'junior2', 'senior')
+  );
+$$;
+
+REVOKE ALL ON FUNCTION public.has_jmcwc_lecture_assignment() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.has_jmcwc_lecture_assignment() TO authenticated;
+
 -- 3. Enable Row Level Security (RLS)
 ALTER TABLE public.lecture_categories ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.lectures ENABLE ROW LEVEL SECURITY;
@@ -92,7 +114,14 @@ CREATE POLICY "Authenticated users can view active lectures"
           AND profile.active
           AND (
             profile.role = 'teacher'
-            OR (profile.role = 'student' AND (lectures.target_level IS NULL OR lectures.target_level = profile.level))
+            OR (
+              profile.role = 'student'
+              AND (lectures.target_level IS NULL OR lectures.target_level = profile.level)
+              AND (
+                NOT lectures.requires_jmcwc_assignment
+                OR (SELECT public.has_jmcwc_lecture_assignment())
+              )
+            )
           )
       )
     )
@@ -144,6 +173,7 @@ DECLARE
   v_lec_thumb_url TEXT;
   v_lec_notes TEXT;
   v_lec_level TEXT;
+  v_lec_requires_jmcwc BOOLEAN;
   v_imported_cats INT := 0;
   v_imported_lecs INT := 0;
   v_idx INT := 0;
@@ -208,6 +238,11 @@ BEGIN
         v_lec_thumb_url := v_lesson->>'thumbnailUrl';
         v_lec_notes := v_lesson->>'notes';
         v_lec_level := v_lesson->>'targetLevel';
+        IF v_lesson ? 'requiresJmcwcAssignment'
+           AND jsonb_typeof(v_lesson->'requiresJmcwcAssignment') <> 'boolean' THEN
+          RAISE EXCEPTION 'Lesson "%" must use a boolean JMCWC assignment requirement.', v_lec_title USING ERRCODE = '22023';
+        END IF;
+        v_lec_requires_jmcwc := COALESCE((v_lesson->>'requiresJmcwcAssignment')::boolean, false);
 
         IF v_lec_title IS NULL OR v_lec_title = '' THEN
           RAISE EXCEPTION 'Lesson #% in category % missing title.', v_lidx, v_cat_title USING ERRCODE = '22023';
@@ -245,6 +280,7 @@ BEGIN
           thumbnail_url,
           notes,
           target_level,
+          requires_jmcwc_assignment,
           status,
           updated_at
         )
@@ -259,6 +295,7 @@ BEGIN
           v_lec_thumb_url,
           v_lec_notes,
           v_lec_level,
+          v_lec_requires_jmcwc,
           'active',
           now()
         )
@@ -271,6 +308,7 @@ BEGIN
           thumbnail_url = EXCLUDED.thumbnail_url,
           notes = EXCLUDED.notes,
           target_level = EXCLUDED.target_level,
+          requires_jmcwc_assignment = EXCLUDED.requires_jmcwc_assignment,
           status = 'active',
           updated_at = now();
 
