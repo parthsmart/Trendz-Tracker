@@ -154,3 +154,124 @@ test('3. Modal open and close state transitions using openModal and closeModal',
     globalThis.document = originalDocument;
   }
 });
+
+test('4. loadTeachersSelect shows "Assign to me — [admin name]" alongside active teachers and uses signed-in admin ID', async () => {
+  const { loadTeachersSelect, setCurrentProfileForTesting } = await import('../js/liveClasses.js');
+
+  const adminProfile = {
+    id: 'a0000000-0000-0000-0000-000000000001',
+    full_name: 'Sunil Admin',
+    role: 'admin',
+    active: true,
+  };
+  setCurrentProfileForTesting(adminProfile);
+
+  const mockTeachers = [
+    { id: 't0000000-0000-0000-0000-000000000001', full_name: 'Pooja Teacher', student_code: 'TCH-001' },
+    { id: 't0000000-0000-0000-0000-000000000002', full_name: 'Rahul Teacher', student_code: 'TCH-002' },
+  ];
+
+  const mockSupabase = {
+    from: (table) => ({
+      select: () => ({
+        eq: () => ({
+          eq: () => ({
+            order: async () => ({ data: mockTeachers, error: null }),
+          }),
+        }),
+      }),
+    }),
+  };
+
+  const selectTeacher = { id: 'select-teacher', innerHTML: '', value: '' };
+  const selectInvited = { id: 'select-invited-teachers', innerHTML: '', value: '' };
+
+  const originalDocument = globalThis.document;
+  globalThis.document = {
+    getElementById: (id) => {
+      if (id === 'select-teacher') return selectTeacher;
+      if (id === 'select-invited-teachers') return selectInvited;
+      return null;
+    },
+  };
+
+  try {
+    await loadTeachersSelect(mockSupabase);
+
+    // Verify "Assign to me — Sunil Admin" is present in Assigned Teacher dropdown
+    assert.ok(
+      selectTeacher.innerHTML.includes(`<option value="${adminProfile.id}">Assign to me — Sunil Admin</option>`),
+      'Expected "Assign to me — Sunil Admin" option with admin profile ID'
+    );
+    // Verify active teachers are also present alongside self-assignment
+    assert.ok(
+      selectTeacher.innerHTML.includes('Pooja Teacher (TCH-001)'),
+      'Expected active teacher Pooja in dropdown'
+    );
+    assert.ok(
+      selectTeacher.innerHTML.includes('Rahul Teacher (TCH-002)'),
+      'Expected active teacher Rahul in dropdown'
+    );
+
+    // Verify invited teachers dropdown keeps teachers separate (admin is NOT an invited participant)
+    assert.ok(!selectInvited.innerHTML.includes(adminProfile.id), 'Admin must NOT be in invited teachers dropdown');
+    assert.ok(selectInvited.innerHTML.includes('Pooja Teacher (TCH-001)'), 'Invited dropdown must have teachers');
+  } finally {
+    globalThis.document = originalDocument;
+  }
+});
+
+test('5. When zero active teachers exist, "Assign to me" remains available and is selected by default', async () => {
+  const { loadTeachersSelect, setCurrentProfileForTesting } = await import('../js/liveClasses.js');
+
+  const adminProfile = {
+    id: 'a0000000-0000-0000-0000-000000000001',
+    full_name: 'Sunil Admin',
+    role: 'admin',
+    active: true,
+  };
+  setCurrentProfileForTesting(adminProfile);
+
+  const mockSupabaseZeroTeachers = {
+    from: (table) => ({
+      select: () => ({
+        eq: () => ({
+          eq: () => ({
+            order: async () => ({ data: [], error: null }),
+          }),
+        }),
+      }),
+    }),
+  };
+
+  const selectTeacher = { id: 'select-teacher', innerHTML: '', value: '' };
+  const selectInvited = { id: 'select-invited-teachers', innerHTML: '', value: '' };
+
+  const originalDocument = globalThis.document;
+  globalThis.document = {
+    getElementById: (id) => {
+      if (id === 'select-teacher') return selectTeacher;
+      if (id === 'select-invited-teachers') return selectInvited;
+      return null;
+    },
+  };
+
+  try {
+    await loadTeachersSelect(mockSupabaseZeroTeachers);
+
+    // Verify "Assign to me — Sunil Admin" is available and marked selected
+    assert.ok(
+      selectTeacher.innerHTML.includes(`<option value="${adminProfile.id}" selected>Assign to me — Sunil Admin</option>`),
+      'Expected "Assign to me — Sunil Admin" to be marked selected when zero active teachers exist'
+    );
+    assert.equal(selectTeacher.value, adminProfile.id, 'Assigned Teacher select value must default to admin profile ID');
+
+    // Verify invited teachers indicates no active teachers found
+    assert.ok(
+      selectInvited.innerHTML.includes('No active teachers found'),
+      'Expected invited teachers to show disabled notice when 0 teachers exist'
+    );
+  } finally {
+    globalThis.document = originalDocument;
+  }
+});

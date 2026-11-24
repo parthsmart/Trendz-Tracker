@@ -1471,3 +1471,257 @@ test('13. Production migration 17_phase20_live_classes_feature.sql and rollback 
   `);
   assert.equal(triggerReapplied.rows.length, 1, 'Trigger restored after re-application');
 });
+
+test('14. Live class create authorization, server-side assignee validation, and admin self-assignment', async () => {
+  const adminProfile1 = {
+    id: 'a0000000-0000-0000-0000-000000000001',
+    full_name: 'Sunil Admin',
+    role: 'admin',
+    email: 'sunil@trendz.local',
+    active: true,
+  };
+  const adminProfile2 = {
+    id: 'a0000000-0000-0000-0000-000000000002',
+    full_name: 'Other Admin',
+    role: 'admin',
+    email: 'other@trendz.local',
+    active: true,
+  };
+  const teacherProfile = {
+    id: 't0000000-0000-0000-0000-000000000001',
+    full_name: 'Pooja Teacher',
+    role: 'teacher',
+    email: 'pooja@trendz.local',
+    active: true,
+  };
+  const inactiveTeacherProfile = {
+    id: 't0000000-0000-0000-0000-000000000002',
+    full_name: 'Inactive Teacher',
+    role: 'teacher',
+    email: 'inactive@trendz.local',
+    active: false,
+  };
+  const studentProfile = {
+    id: 's0000000-0000-0000-0000-000000000001',
+    full_name: 'Rohan Student',
+    role: 'student',
+    email: 'rohan@trendz.local',
+    active: true,
+  };
+
+  const allProfiles = [
+    adminProfile1,
+    adminProfile2,
+    teacherProfile,
+    inactiveTeacherProfile,
+    studentProfile,
+  ];
+
+  const createdClasses = [];
+
+  const mockSupabase = {
+    auth: {
+      getUser: async (token) => {
+        const profile = allProfiles.find((p) => `token-${p.id}` === token);
+        if (!profile) return { data: { user: null }, error: new Error('Invalid token') };
+        return {
+          data: {
+            user: { id: profile.id, email: profile.email },
+          },
+          error: null,
+        };
+      },
+    },
+    from: (table) => {
+      if (table === 'profiles') {
+        return {
+          select: () => ({
+            eq: (col, val) => ({
+              single: async () => {
+                const match = allProfiles.find((p) => p.id === val);
+                return {
+                  data: match || null,
+                  error: match ? null : new Error('Profile not found'),
+                };
+              },
+            }),
+          }),
+        };
+      }
+      if (table === 'live_classes') {
+        return {
+          insert: (record) => ({
+            select: () => ({
+              single: async () => {
+                const newRecord = {
+                  id: `class-${createdClasses.length + 1}`,
+                  ...record,
+                  teacher: allProfiles.find((p) => p.id === record.teacher_id),
+                };
+                createdClasses.push(newRecord);
+                return { data: newRecord, error: null };
+              },
+            }),
+          }),
+          select: () => ({
+            eq: (col, val) => ({
+              single: async () => {
+                const match = createdClasses.find((c) => c.id === val);
+                return { data: match || null, error: match ? null : new Error('Not found') };
+              },
+            }),
+          }),
+        };
+      }
+      return {};
+    },
+  };
+
+  const mockFetch = async () => ({
+    ok: true,
+    status: 200,
+    text: async () => JSON.stringify({ success: true, data: { token: 'mock-token', expiresInSeconds: 600 } }),
+  });
+
+  const runApi = async (callerToken, body) => {
+    let statusCode = 200;
+    let jsonResult = null;
+    const headers = {};
+
+    const req = {
+      method: 'POST',
+      headers: callerToken ? { authorization: `Bearer ${callerToken}` } : {},
+      body,
+    };
+
+    const res = {
+      setHeader: (k, v) => { headers[k] = v; },
+      status: (code) => { statusCode = code; return res; },
+      json: (data) => { jsonResult = data; return res; },
+      end: () => res,
+    };
+
+    await handleLiveClassRequest(req, res, {
+      supabase: mockSupabase,
+      fetch: mockFetch,
+    });
+
+    return { statusCode, jsonResult };
+  };
+
+  // 1. Non-admin cannot create live classes
+  const teacherCreate = await runApi(`token-${teacherProfile.id}`, {
+    action: 'create',
+    title: 'Unauthorized Class',
+    webinar_id: 'wgg-123',
+    teacher_id: teacherProfile.id,
+    scheduled_start_time: new Date().toISOString(),
+  });
+  assert.equal(teacherCreate.statusCode, 403);
+  assert.equal(teacherCreate.jsonResult.code, 'FORBIDDEN');
+
+  // 2. Missing required fields rejected
+  const missingField = await runApi(`token-${adminProfile1.id}`, {
+    action: 'create',
+    title: 'Missing Teacher',
+    webinar_id: 'wgg-123',
+    scheduled_start_time: new Date().toISOString(),
+  });
+  assert.equal(missingField.statusCode, 400);
+  assert.equal(missingField.jsonResult.code, 'INVALID_REQUEST');
+
+  // 3. Nonexistent teacher ID rejected
+  const nonexistentAssignee = await runApi(`token-${adminProfile1.id}`, {
+    action: 'create',
+    title: 'Bad Assignee',
+    webinar_id: 'wgg-123',
+    teacher_id: '00000000-0000-0000-0000-000000000099',
+    scheduled_start_time: new Date().toISOString(),
+  });
+  assert.equal(nonexistentAssignee.statusCode, 400);
+  assert.equal(nonexistentAssignee.jsonResult.code, 'INVALID_ASSIGNEE');
+
+  // 4. Inactive teacher rejected
+  const inactiveAssignee = await runApi(`token-${adminProfile1.id}`, {
+    action: 'create',
+    title: 'Inactive Teacher Class',
+    webinar_id: 'wgg-123',
+    teacher_id: inactiveTeacherProfile.id,
+    scheduled_start_time: new Date().toISOString(),
+  });
+  assert.equal(inactiveAssignee.statusCode, 400);
+  assert.equal(inactiveAssignee.jsonResult.code, 'INVALID_ASSIGNEE');
+
+  // 5. Student account cannot be assigned as teacher
+  const studentAssignee = await runApi(`token-${adminProfile1.id}`, {
+    action: 'create',
+    title: 'Student Assigned Class',
+    webinar_id: 'wgg-123',
+    teacher_id: studentProfile.id,
+    scheduled_start_time: new Date().toISOString(),
+  });
+  assert.equal(studentAssignee.statusCode, 400);
+  assert.equal(studentAssignee.jsonResult.code, 'INVALID_ASSIGNEE');
+
+  // 6. Admin cannot assign to a different admin account
+  const otherAdminAssignee = await runApi(`token-${adminProfile1.id}`, {
+    action: 'create',
+    title: 'Other Admin Assigned Class',
+    webinar_id: 'wgg-123',
+    teacher_id: adminProfile2.id,
+    scheduled_start_time: new Date().toISOString(),
+  });
+  assert.equal(otherAdminAssignee.statusCode, 400);
+  assert.equal(otherAdminAssignee.jsonResult.code, 'INVALID_ASSIGNEE');
+
+  // 7. Admin successfully assigns to an active teacher
+  const teacherAssigned = await runApi(`token-${adminProfile1.id}`, {
+    action: 'create',
+    title: 'Teacher Handled Class',
+    webinar_id: 'wgg-tch-101',
+    teacher_id: teacherProfile.id,
+    host_email: 'sunil@trendz.local',
+    scheduled_start_time: new Date().toISOString(),
+  });
+  assert.equal(teacherAssigned.statusCode, 201);
+  assert.equal(teacherAssigned.jsonResult.ok, true);
+  assert.equal(teacherAssigned.jsonResult.class.teacher_id, teacherProfile.id);
+  assert.equal(teacherAssigned.jsonResult.class.teacher.full_name, 'Pooja Teacher');
+
+  // 8. Admin successfully self-assigns class to themselves
+  const selfAssigned = await runApi(`token-${adminProfile1.id}`, {
+    action: 'create',
+    title: 'Admin Self-Assigned Class',
+    webinar_id: 'wgg-admin-101',
+    teacher_id: adminProfile1.id,
+    host_email: 'sunil@trendz.local',
+    invited_teacher_ids: [teacherProfile.id, adminProfile1.id],
+    scheduled_start_time: new Date().toISOString(),
+  });
+  assert.equal(selfAssigned.statusCode, 201);
+  assert.equal(selfAssigned.jsonResult.ok, true);
+  assert.equal(selfAssigned.jsonResult.class.teacher_id, adminProfile1.id);
+  assert.equal(selfAssigned.jsonResult.class.teacher.full_name, 'Sunil Admin');
+
+  // Verify invited teachers kept separate: self-assigned admin is stripped from invited_teacher_ids
+  const createdSelf = createdClasses.find((c) => c.title === 'Admin Self-Assigned Class');
+  assert.ok(createdSelf);
+  assert.deepEqual(createdSelf.invited_teacher_ids, [teacherProfile.id]);
+
+  // 9. Self-assignment does NOT grant provider host access on its own
+  // Admin 2 (mismatched host identity) joining class created by Admin 1 with host_email 'sunil@trendz.local'
+  const mismatchJoin = await runApi(`token-${adminProfile2.id}`, {
+    action: 'join',
+    classId: createdSelf.id,
+  });
+  assert.equal(mismatchJoin.statusCode, 403);
+  assert.equal(mismatchJoin.jsonResult.code, 'HOST_IDENTITY_MISMATCH');
+
+  // Admin 1 (matching host identity) joining class
+  const matchingJoin = await runApi(`token-${adminProfile1.id}`, {
+    action: 'join',
+    classId: createdSelf.id,
+  });
+  assert.equal(matchingJoin.statusCode, 200);
+  assert.equal(matchingJoin.jsonResult.isHost, true);
+});
