@@ -16,6 +16,7 @@ import { getAdminClient, getCallerClient } from './_supabaseAdmin.js';
 import { hasSupabaseAdminConfig } from './_configHelper.js';
 
 const WEBINAR_API_BASE = 'https://webinar-api.webinar.gg/api/v1';
+const PRIVATE_RECORDINGS_BUCKET = process.env.PRIVATE_RECORDINGS_BUCKET || 'recordings';
 
 export function getWebinarGgToken() {
   return (process.env.WEBINAR_GG_TOKEN || '').trim();
@@ -1006,20 +1007,44 @@ export async function handleLiveClassRequest(req, res, options = {}) {
         // Resolve private Supabase Storage signed URLs if stored as a private storage reference
         let playbackUrl = recording.playback_url;
         if (typeof playbackUrl === 'string' && (playbackUrl.startsWith('storage://') || playbackUrl.startsWith('private://'))) {
-          try {
-            const rawPath = playbackUrl.replace(/^(storage|private):\/\//, '');
-            const slashIdx = rawPath.indexOf('/');
-            if (slashIdx !== -1 && supabase.storage) {
-              const bucket = rawPath.slice(0, slashIdx);
-              const objectPath = rawPath.slice(slashIdx + 1);
-              const { data: signedData, error: signErr } = await supabase.storage
-                .from(bucket)
-                .createSignedUrl(objectPath, 3600);
-              if (!signErr && signedData?.signedUrl) {
-                playbackUrl = signedData.signedUrl;
-              }
-            }
-          } catch (_) {}
+          const rawPath = playbackUrl.replace(/^(storage|private):\/\//, '');
+          const slashIdx = rawPath.indexOf('/');
+          if (slashIdx === -1) {
+            return res.status(400).json({
+              error: 'Invalid storage reference. Format must be storage://<bucket>/<path>.',
+              code: 'INVALID_STORAGE_URI',
+            });
+          }
+          const bucket = rawPath.slice(0, slashIdx);
+          const objectPath = rawPath.slice(slashIdx + 1);
+
+          // Restrict strictly to the configured private recordings bucket
+          if (bucket !== PRIVATE_RECORDINGS_BUCKET) {
+            return res.status(403).json({
+              error: `Access denied. Private replay is strictly restricted to the configured "${PRIVATE_RECORDINGS_BUCKET}" bucket.`,
+              code: 'BUCKET_RESTRICTED',
+            });
+          }
+
+          if (!supabase.storage) {
+            return res.status(500).json({
+              error: 'Storage service is unavailable for generating signed playback URLs.',
+              code: 'STORAGE_UNAVAILABLE',
+            });
+          }
+
+          const { data: signedData, error: signErr } = await supabase.storage
+            .from(bucket)
+            .createSignedUrl(objectPath, 3600);
+
+          if (signErr || !signedData?.signedUrl) {
+            return res.status(502).json({
+              error: `Failed to generate signed playback URL for private recording: ${signErr?.message || 'Storage signing returned empty URL.'}`,
+              code: 'STORAGE_SIGNING_FAILED',
+            });
+          }
+
+          playbackUrl = signedData.signedUrl;
         }
 
         return res.status(200).json({
@@ -1115,6 +1140,18 @@ export async function handleLiveClassRequest(req, res, options = {}) {
         );
         if (!isValidUrl) {
           return res.status(400).json({ error: 'A valid recording URL (http/https/storage) is required.', code: 'INVALID_REQUEST' });
+        }
+
+        if (recordingUrl.startsWith('storage://') || recordingUrl.startsWith('private://')) {
+          const rawPath = recordingUrl.replace(/^(storage|private):\/\//, '');
+          const slashIdx = rawPath.indexOf('/');
+          const bucket = slashIdx !== -1 ? rawPath.slice(0, slashIdx) : rawPath;
+          if (bucket !== PRIVATE_RECORDINGS_BUCKET) {
+            return res.status(400).json({
+              error: `Invalid storage reference. Private recordings must be located within the configured "${PRIVATE_RECORDINGS_BUCKET}" bucket.`,
+              code: 'INVALID_STORAGE_BUCKET',
+            });
+          }
         }
 
         const { data: liveClass, error: classError } = await supabase

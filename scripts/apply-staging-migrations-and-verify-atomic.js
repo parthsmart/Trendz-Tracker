@@ -143,18 +143,23 @@ async function main() {
 
   // 4. Test Step 3: Publish Dedicated Test Fixtures (Isolated from production manifest)
   console.log('\n--- Step 3: Publishing Dedicated Test Fixtures via Database Routine ---');
+  const runTimestamp = Date.now();
+  const fixtureCatSlug = `fixture-addition-topic-${runTimestamp}`;
+  const fixtureLec1Slug = `fixture-addition-part-1-${runTimestamp}`;
+  const fixtureLec2Slug = `fixture-addition-part-2-${runTimestamp}`;
+
   const dedicatedFixtureManifest = {
-    courseId: 'fixture-test-course-101',
+    courseId: `fixture-test-course-${runTimestamp}`,
     categories: [
       {
-        title: 'Fixture Addition Foundation',
-        slug: 'fixture-addition-topic',
+        title: `Fixture Addition Foundation ${runTimestamp}`,
+        slug: fixtureCatSlug,
         description: 'Dedicated test fixture category for atomic publication and rollback verification.',
         sortOrder: 1,
         lessons: [
           {
             title: 'Fixture Addition — Part 1: Soroban Foundation',
-            slug: 'fixture-addition-part-1',
+            slug: fixtureLec1Slug,
             lessonOrder: 1,
             durationSeconds: 745,
             mediaType: 'video_mp4',
@@ -163,7 +168,7 @@ async function main() {
           },
           {
             title: 'Fixture Addition — Part 2: Small Friends Drill',
-            slug: 'fixture-addition-part-2',
+            slug: fixtureLec2Slug,
             lessonOrder: 2,
             durationSeconds: 890,
             mediaType: 'video_mp4',
@@ -189,6 +194,22 @@ async function main() {
     throw new Error(`Unexpected publish result: expected 1 category and 2 lectures, got ${JSON.stringify(pubOutput)}`);
   }
 
+  // Record exact primary key UUIDs created during this specific run
+  const createdCatRes = await client.query(`
+    SELECT id, slug FROM public.lecture_categories WHERE slug = $1;
+  `, [fixtureCatSlug]);
+  if (createdCatRes.rows.length === 0) {
+    throw new Error(`Could not find created fixture category with slug ${fixtureCatSlug}`);
+  }
+  const exactCreatedCatId = createdCatRes.rows[0].id;
+
+  const createdLecRes = await client.query(`
+    SELECT id, slug, lesson_order FROM public.lectures WHERE category_id = $1 ORDER BY lesson_order;
+  `, [exactCreatedCatId]);
+  const exactCreatedLecIds = createdLecRes.rows.map(r => r.id);
+  console.log(`✓ Recorded exact fixture category UUID for this run: ${exactCreatedCatId}`);
+  console.log(`✓ Recorded exact fixture lecture UUIDs for this run (${exactCreatedLecIds.length} rows):`, exactCreatedLecIds);
+
   // 5. Test Step 4: EXTENDED Rollback Verification with Existing Lecture Update
   console.log('\n--- Step 4: Extended Atomic Rollback Verification with Lecture Update ---');
 
@@ -196,9 +217,8 @@ async function main() {
   const targetLecRes = await client.query(`
     SELECT l.*
     FROM public.lectures l
-    JOIN public.lecture_categories c ON c.id = l.category_id
-    WHERE c.slug = 'fixture-addition-topic' AND l.lesson_order = 1;
-  `);
+    WHERE l.id = $1;
+  `, [exactCreatedLecIds[0]]);
   if (targetLecRes.rows.length === 0) {
     throw new Error('Target fixture lecture for rollback test not found.');
   }
@@ -213,22 +233,22 @@ async function main() {
   console.log('  Updated At:      ', beforeLecture.updated_at);
 
   // Step 4b: Construct failing manifest that:
-  // 1. Attempts to mutate existing lecture (fixture-addition-part-1) with modified title, duration, notes, and media URL.
+  // 1. Attempts to mutate existing lecture (lessonOrder: 1 in exact category) with modified title, duration, notes, and media URL.
   // 2. Subsequently encounters an invalid media URL in Category 2 to trigger a mid-transaction exception.
   console.log('\nConstructing failing manifest that mutates Fixture Addition Part 1 and forces failure in Category 2...');
 
   const failingManifest = {
-    courseId: 'fixture-test-course-101',
+    courseId: `fixture-test-course-${runTimestamp}`,
     categories: [
       {
-        title: 'Fixture Addition Foundation',
-        slug: 'fixture-addition-topic',
+        title: `Fixture Addition Foundation ${runTimestamp}`,
+        slug: fixtureCatSlug,
         description: 'Existing Fixture Addition Category',
         sortOrder: 1,
         lessons: [
           {
             title: 'MUTATED FIXTURE TITLE (MUST BE ROLLED BACK)',
-            slug: 'fixture-addition-part-1',
+            slug: fixtureLec1Slug,
             lessonOrder: 1, // Matches existing lecture row!
             durationSeconds: 99999, // Mutated duration!
             mediaType: 'video_mp4',
@@ -238,14 +258,14 @@ async function main() {
         ],
       },
       {
-        title: 'ZZZ Rollback Test Category 2 (Failing)',
-        slug: 'zzz-rollback-test-cat-2',
+        title: `ZZZ Rollback Test Category 2 (Failing) ${runTimestamp}`,
+        slug: `zzz-rollback-test-cat-2-${runTimestamp}`,
         description: 'Contains invalid media URL to trigger database exception',
         sortOrder: 999,
         lessons: [
           {
             title: 'Failing Lesson with Invalid URL',
-            slug: 'zzz-failing-lec',
+            slug: `zzz-failing-lec-${runTimestamp}`,
             lessonOrder: 1,
             mediaType: 'video_mp4',
             mediaUrl: 'not-a-valid-http-url', // Triggers RAISE EXCEPTION in SQL routine
@@ -324,14 +344,37 @@ async function main() {
     throw new Error('Partial rows were persisted from failing import! Transaction is NOT atomic.');
   }
 
-  // 6. Step 5: Targeted Cleanup (NO TRUNCATE CASCADE)
-  console.log('\n--- Step 5: Targeted Cleanup of Dedicated Fixtures (No TRUNCATE CASCADE) ---');
-  // Delete ONLY dedicated test fixtures
+  // 6. Step 5: Targeted Cleanup Scoped to Exact Primary Key IDs (NO TRUNCATE CASCADE)
+  console.log('\n--- Step 5: Targeted Cleanup Scoped to Exact Run IDs (No TRUNCATE CASCADE) ---');
+  console.log(`Deleting exact lectures created in this run (${exactCreatedLecIds.length} IDs):`, exactCreatedLecIds);
+  const delLecRes = await client.query(`
+    DELETE FROM public.lectures
+    WHERE id = ANY($1::uuid[])
+    RETURNING id;
+  `, [exactCreatedLecIds]);
+  console.log(`✓ Deleted exact lecture rows: ${delLecRes.rowCount} (Expected ${exactCreatedLecIds.length})`);
+
+  console.log(`Deleting exact category created in this run: ${exactCreatedCatId}`);
+  const delCatRes = await client.query(`
+    DELETE FROM public.lecture_categories
+    WHERE id = $1
+    RETURNING id;
+  `, [exactCreatedCatId]);
+  console.log(`✓ Deleted exact category row: ${delCatRes.rowCount} (Expected 1)`);
+
+  // Verify that the exact IDs no longer exist
+  const verifyDeletedLec = await client.query(`SELECT count(*)::int AS count FROM public.lectures WHERE id = ANY($1::uuid[]);`, [exactCreatedLecIds]);
+  const verifyDeletedCat = await client.query(`SELECT count(*)::int AS count FROM public.lecture_categories WHERE id = $1;`, [exactCreatedCatId]);
+  if (verifyDeletedLec.rows[0].count !== 0 || verifyDeletedCat.rows[0].count !== 0) {
+    throw new Error('Exact ID cleanup failed: some fixture rows remain in database.');
+  }
+  console.log('✓ Confirmed: Exact run IDs are completely removed.');
+
+  // Also clean up any lingering test categories from previous test runs if any
   await client.query(`
     DELETE FROM public.lecture_categories
     WHERE slug LIKE 'fixture-%' OR slug LIKE 'zzz-rollback%';
   `);
-  console.log('✓ Targeted cleanup completed: deleted only fixture-* and zzz-rollback* categories.');
 
   // Assert unrelated staging lectures are 100% preserved
   const unrelatedCountAfterRes = await client.query(`
@@ -344,7 +387,7 @@ async function main() {
   if (unrelatedCountAfter !== unrelatedCountBefore || unrelatedCountAfter === 0) {
     throw new Error(`Unrelated staging lectures were not preserved! Before: ${unrelatedCountBefore}, After: ${unrelatedCountAfter}`);
   }
-  console.log('✓ Confirmed: Unrelated staging lectures were 100% preserved. TRUNCATE CASCADE was NOT used.');
+  console.log('✓ Confirmed: Unrelated staging lectures were 100% preserved. Targeted cleanup scoped to exact run IDs.');
 
   console.log('\n================================================================');
   console.log('ALL STAGING DATABASE MIGRATION & EXTENDED ROLLBACK CHECKS PASSED!');

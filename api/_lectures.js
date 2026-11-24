@@ -18,6 +18,7 @@ import { hasSupabaseAdminConfig } from './_configHelper.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const PRIVATE_LECTURES_BUCKET = process.env.PRIVATE_LECTURES_BUCKET || 'lectures';
 
 function extractBearerToken(req) {
   const authHeader = req.headers.authorization || req.headers.Authorization || '';
@@ -401,6 +402,49 @@ export async function handleLecturesRequest(req, res, options = {}) {
         const previousLecture = currentIndex > 0 ? accessibleSiblings[currentIndex - 1] : null;
         const nextLecture = currentIndex >= 0 && currentIndex < accessibleSiblings.length - 1 ? accessibleSiblings[currentIndex + 1] : null;
 
+        // Resolve private Supabase Storage signed URLs if stored as a private storage reference
+        let mediaUrl = lecture.media_url;
+        if (typeof mediaUrl === 'string' && (mediaUrl.startsWith('storage://') || mediaUrl.startsWith('private://'))) {
+          const rawPath = mediaUrl.replace(/^(storage|private):\/\//, '');
+          const slashIdx = rawPath.indexOf('/');
+          if (slashIdx === -1) {
+            return res.status(400).json({
+              error: 'Invalid storage reference. Format must be storage://<bucket>/<path>.',
+              code: 'INVALID_STORAGE_URI',
+            });
+          }
+          const bucket = rawPath.slice(0, slashIdx);
+          const objectPath = rawPath.slice(slashIdx + 1);
+
+          // Restrict strictly to the configured private lectures bucket
+          if (bucket !== PRIVATE_LECTURES_BUCKET) {
+            return res.status(403).json({
+              error: `Access denied. Private lecture playback is strictly restricted to the configured "${PRIVATE_LECTURES_BUCKET}" bucket.`,
+              code: 'BUCKET_RESTRICTED',
+            });
+          }
+
+          if (!supabase.storage) {
+            return res.status(500).json({
+              error: 'Storage service is unavailable for generating signed playback URLs.',
+              code: 'STORAGE_UNAVAILABLE',
+            });
+          }
+
+          const { data: signedData, error: signErr } = await supabase.storage
+            .from(bucket)
+            .createSignedUrl(objectPath, 3600);
+
+          if (signErr || !signedData?.signedUrl) {
+            return res.status(502).json({
+              error: `Failed to generate signed playback URL for private lecture: ${signErr?.message || 'Storage signing returned empty URL.'}`,
+              code: 'STORAGE_SIGNING_FAILED',
+            });
+          }
+
+          mediaUrl = signedData.signedUrl;
+        }
+
         return res.status(200).json({
           ok: true,
           lecture: {
@@ -414,7 +458,7 @@ export async function handleLecturesRequest(req, res, options = {}) {
             totalLessons: accessibleSiblings.length,
             durationSeconds: lecture.duration_seconds,
             mediaType: lecture.media_type,
-            mediaUrl: lecture.media_url,
+            mediaUrl,
             notes: lecture.notes,
             targetLevel: lecture.target_level,
             previousLectureId: previousLecture?.id || null,

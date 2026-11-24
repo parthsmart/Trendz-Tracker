@@ -5,20 +5,25 @@
  * Verifies:
  * 1. Provider Replay Settings & Provider Limitations:
  *    - Queries Webinar.gg webinar settings (cmvl53hcc0bycs60yjljyys4z).
- *    - Confirms Webinar.gg lacks any setting to disable attendee replay or set recordings private.
- *    - Notes that any raw provider CDN URL is treated as exposed/compromised due to lack of provider auth.
+ *    - Confirms Webinar.gg lacks any API setting to disable attendee replay or set recordings private.
+ *    - Notes that raw provider CDN URLs are unauthenticated and any exposed URL cannot be protected by the provider.
  * 2. Attendee Room Link vs Raw Media URL:
- *    - Directly tests attendee room link: provider shows "The webinar has ended" + "View Recording".
+ *    - Directly tests attendee room link: provider shows "The webinar has ended" + "View Recording" button.
  *    - Confirms attendee room link cannot access Trendz private storage.
- * 3. Approved Private-Storage Playback Flow (Supabase Private Bucket):
+ * 3. Separation of Staged 15-Second Clip from Actual Webinar Recording:
+ *    - Staged synthetic 15-second clip proves Trendz Tracker's private-storage architecture (Supabase Storage + RLS + dynamic signed URLs).
+ *    - Explicitly clarifies that the staged clip does NOT make the original Webinar.gg recording private on provider infrastructure.
+ *    - Identifies the only supported provider workflow to disable public attendee replay: host must manually delete the recording in Webinar.gg Web Dashboard.
+ * 4. Approved Private-Storage Playback Flow (Supabase Private Bucket):
  *    - Uploads private test recording to private bucket 'recordings' (public: false).
  *    - Confirms raw public media URL CANNOT play the recording (fails with 400/404/403).
  *    - Admin attaches private reference: storage://recordings/webinars/:id/private-master-replay.mp4.
+ *    - Enforces configured PRIVATE_RECORDINGS_BUCKET boundary (rejects unauthorized buckets with 400/403).
  *    - Admin requests playback: receives dynamic signed URL and confirms HTTP 200 streaming.
  *    - Student requests playback: rejected with HTTP 403 FORBIDDEN.
  *    - Student list_recordings: rejected with HTTP 403 FORBIDDEN.
- * 4. Trendz In-Portal Join on Completed Class: returns HTTP 400 CLASS_ENDED.
- * 5. Targeted Cleanup of test recording and storage fixture.
+ * 5. Trendz In-Portal Join on Completed Class: returns HTTP 400 CLASS_ENDED.
+ * 6. Targeted Cleanup of test recording and storage fixture.
  */
 
 import fs from 'node:fs';
@@ -119,11 +124,18 @@ async function run() {
   });
   console.log('Provider PATCH /webinar/:id HTTP Status:', patchRes.status, '(Unsupported)');
 
-  console.log('\n[PROVIDER LIMITATION DOCUMENTED]:');
-  console.log('1. Webinar.gg provides NO setting to disable attendee replay on completed webinars.');
+  console.log('\n[PROVIDER LIMITATION & PROOF SEPARATION DOCUMENTED]:');
+  console.log('1. Webinar.gg provides NO API setting to disable attendee replay or set recordings private.');
   console.log('2. Webinar.gg automatically renders a "View Recording" button on the ended room link.');
   console.log('3. Provider video CDN URLs are static and unauthenticated. Any previously committed raw provider URL is treated as EXPOSED/COMPROMISED.');
-  console.log('4. Privacy must be enforced via Trendz Approved Private-Storage Playback Flow.');
+  console.log('4. PROOF SEPARATION:');
+  console.log('   - Testing a staged synthetic 15-second clip proves Trendz Tracker\'s private storage architecture works.');
+  console.log('   - It does NOT prove that an actual Webinar.gg recording is private.');
+  console.log('5. SUPPORTED PROVIDER WORKFLOW:');
+  console.log('   - The only supported mechanism to disable or remove public attendee replay at Webinar.gg is');
+  console.log('     for the webinar host to log into the Webinar.gg Web Dashboard (https://app.webinar.gg),');
+  console.log('     navigate to Past Webinars -> Recordings, and delete the recording file.');
+  console.log('   - Until this provider workflow is executed, admin-only replay CANNOT be claimed for that webinar.');
 
   // 4. Approved Private-Storage Playback Flow (Supabase Private Bucket)
   console.log('\n--- Step 4: Approved Private-Storage Playback Flow Verification ---');
@@ -310,9 +322,13 @@ async function run() {
   console.log('2. Direct Provider Link (`https://webinar.gg/webinar-page/:id?token=...`):');
   console.log(`   - HTTP ${providerPageRes.status} OK (Client-Rendered SPA)`);
   console.log('   - Provider natively exposes "View Recording" button linking to player.');
-  console.log('3. Privacy Enforcement:');
-  console.log('   - Replay privacy CANNOT be enforced by Webinar.gg room links or provider CDN URLs.');
-  console.log('   - Replay privacy IS strictly enforced by Trendz Approved Private-Storage Flow (Supabase Storage + RLS + dynamic signed URLs).');
+  console.log('3. Separation of Proof & Provider Limitations:');
+  console.log('   - Staged synthetic 15-second clip proves Trendz Tracker\'s private storage bucket architecture works.');
+  console.log('   - It does NOT prove that an actual Webinar.gg recording is private on the provider.');
+  console.log('   - Webinar.gg lacks any API to disable replay or make recordings private.');
+  console.log('   - Admin-only replay for an actual webinar requires the host to execute the supported provider workflow:');
+  console.log('     Manually delete the recording file from the Webinar.gg Web Dashboard (https://app.webinar.gg).');
+  console.log('   - Prior to dashboard deletion, attendee replay remains publicly active at Webinar.gg.');
 
   // 6. Targeted Cleanup
   console.log('\n--- Step 6: Targeted Cleanup ---');
@@ -325,16 +341,20 @@ async function run() {
   console.log('✓ Cleaned up test recording row from database.');
 
   console.log('\n================================================================');
-  console.log('ALL RECORDING LIFECYCLE & REPLAY PRIVACY CHECKS PASSED!');
+  console.log('ALL RECORDING LIFECYCLE & REPLAY PRIVACY CHECKS COMPLETED!');
   console.log('1. Provider setting verified: Webinar.gg lacks replay privacy settings');
   console.log('2. Provider limitation documented: room link and CDN are unauthenticated');
   console.log('3. Raw provider recording URL sanitized from verifier and logs');
-  console.log('4. Approved private-storage playback flow tested and verified:');
+  console.log('4. Staged synthetic 15-second clip proves Trendz private storage architecture:');
   console.log('   - Raw media URL cannot play recording (HTTP 400 NoSuchBucket)');
   console.log('   - Authorized Trendz admin CAN play via dynamic signed URL (HTTP 200)');
   console.log('   - Non-admin student blocked (HTTP 403 FORBIDDEN)');
+  console.log('   - Staged clip result is strictly separated from actual webinar recording privacy');
   console.log('5. Attendee separation verified: Trendz returns HTTP 400 CLASS_ENDED');
-  console.log('6. Targeted cleanup performed successfully');
+  console.log('6. Supported provider workflow documented:');
+  console.log('   - Host must manually delete recording in Webinar.gg Dashboard to kill public replay');
+  console.log('   - Admin-only replay for an actual session cannot be claimed until provider file is deleted');
+  console.log('7. Targeted cleanup performed successfully');
   console.log('================================================================\n');
 }
 

@@ -69,6 +69,19 @@ function createMockSupabase(callerProfile, dbState = {}) {
         error: null,
       }),
     },
+    storage: dbState.noStorage ? undefined : {
+      from: (bucket) => ({
+        createSignedUrl: async (objectPath, expiresIn) => {
+          if (dbState.storageError) {
+            return { data: null, error: { message: dbState.storageError } };
+          }
+          return {
+            data: { signedUrl: `https://signed.supabase.co/storage/v1/object/sign/${bucket}/${objectPath}?token=mock-lecture-signed-exp-${expiresIn}` },
+            error: null,
+          };
+        },
+      }),
+    },
     rpc: async (fn, params) => {
       if (fn === 'publish_classroom_catalogue') {
         const manifest = params?.p_manifest;
@@ -535,5 +548,103 @@ test('9. Admin publish_import enforces pre-validation and atomic publishing', as
     assert.equal(dbState.categories.length, 1, 'Previous good category must be preserved');
     assert.equal(dbState.categories[0].slug, 'addition', 'Addition category must be preserved');
     assert.equal(dbState.lectures.length, 1, 'Previous good lecture must be preserved');
+  }
+});
+
+test('10. Private lecture storage signed URL resolution and security boundaries', async () => {
+  const student = { id: 'stu-playback', role: 'student', active: true, email: 'stu@example.com' };
+  const dbState = {
+    categories: [
+      { id: 'cat-add', title: 'Addition', slug: 'addition', sort_order: 1, active: true },
+    ],
+    lectures: [
+      {
+        id: 'lec-priv-1',
+        category_id: 'cat-add',
+        title: 'Addition Part 1 Private Master',
+        slug: 'addition-part-1-priv',
+        lesson_order: 1,
+        status: 'active',
+        duration_seconds: 600,
+        media_type: 'video_mp4',
+        media_url: 'storage://lectures/addition/part1-master.mp4',
+        notes: 'Private lecture video reference',
+      },
+      {
+        id: 'lec-bad-bucket',
+        category_id: 'cat-add',
+        title: 'Leaked Recording Reference',
+        slug: 'leaked-recording',
+        lesson_order: 2,
+        status: 'active',
+        duration_seconds: 600,
+        media_type: 'video_mp4',
+        media_url: 'storage://recordings/webinars/confidential.mp4',
+        notes: 'Restricted bucket reference',
+      },
+      {
+        id: 'lec-bad-uri',
+        category_id: 'cat-add',
+        title: 'Malformed URI',
+        slug: 'malformed-uri',
+        lesson_order: 3,
+        status: 'active',
+        duration_seconds: 600,
+        media_type: 'video_mp4',
+        media_url: 'storage://no-slash-path',
+        notes: 'Invalid URI',
+      },
+    ],
+  };
+
+  const supabase = createMockSupabase(student, dbState);
+
+  // 1. Authorized student requests private lecture in lectures bucket -> receives dynamic signed URL
+  {
+    const { req, res } = createMockReqRes({ body: { action: 'get_lecture', lectureId: 'lec-priv-1' } });
+    await handleLecturesRequest(req, res, { supabase });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.ok, true);
+    assert.ok(
+      res.body.lecture.mediaUrl.startsWith('https://signed.supabase.co/storage/v1/object/sign/lectures/addition/part1-master.mp4?token='),
+      `Expected signed URL, got ${res.body.lecture.mediaUrl}`
+    );
+  }
+
+  // 2. Lecture attempting to access unauthorized bucket (recordings) is rejected with 403 BUCKET_RESTRICTED
+  {
+    const { req, res } = createMockReqRes({ body: { action: 'get_lecture', lectureId: 'lec-bad-bucket' } });
+    await handleLecturesRequest(req, res, { supabase });
+    assert.equal(res.statusCode, 403);
+    assert.equal(res.body.code, 'BUCKET_RESTRICTED');
+  }
+
+  // 3. Lecture with malformed storage URI is rejected with 400 INVALID_STORAGE_URI
+  {
+    const { req, res } = createMockReqRes({ body: { action: 'get_lecture', lectureId: 'lec-bad-uri' } });
+    await handleLecturesRequest(req, res, { supabase });
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.body.code, 'INVALID_STORAGE_URI');
+  }
+
+  // 4. Storage signing failure returns 502 STORAGE_SIGNING_FAILED
+  {
+    dbState.storageError = 'Object not found in storage bucket';
+    const { req, res } = createMockReqRes({ body: { action: 'get_lecture', lectureId: 'lec-priv-1' } });
+    await handleLecturesRequest(req, res, { supabase });
+    assert.equal(res.statusCode, 502);
+    assert.equal(res.body.code, 'STORAGE_SIGNING_FAILED');
+    delete dbState.storageError;
+  }
+
+  // 5. Storage service unavailable returns 500 STORAGE_UNAVAILABLE
+  {
+    dbState.noStorage = true;
+    const noStorageSupabase = createMockSupabase(student, dbState);
+    const { req, res } = createMockReqRes({ body: { action: 'get_lecture', lectureId: 'lec-priv-1' } });
+    await handleLecturesRequest(req, res, { supabase: noStorageSupabase });
+    assert.equal(res.statusCode, 500);
+    assert.equal(res.body.code, 'STORAGE_UNAVAILABLE');
+    delete dbState.noStorage;
   }
 });

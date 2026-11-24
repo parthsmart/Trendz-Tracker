@@ -75,12 +75,17 @@ function createMockSupabase(callerProfile, dbState = {}) {
         error: null,
       }),
     },
-    storage: {
+    storage: dbState.noStorage ? undefined : {
       from: (bucket) => ({
-        createSignedUrl: async (objectPath, expiresIn) => ({
-          data: { signedUrl: `https://signed.supabase.co/storage/v1/object/sign/${bucket}/${objectPath}?token=mock-signed-exp-${expiresIn}` },
-          error: null,
-        }),
+        createSignedUrl: async (objectPath, expiresIn) => {
+          if (dbState.storageError) {
+            return { data: null, error: { message: dbState.storageError } };
+          }
+          return {
+            data: { signedUrl: `https://signed.supabase.co/storage/v1/object/sign/${bucket}/${objectPath}?token=mock-signed-exp-${expiresIn}` },
+            error: null,
+          };
+        },
       }),
     },
     from: (table) => {
@@ -691,4 +696,84 @@ test('8. Private storage signed URL resolution for replay privacy', async () => 
     `Expected signed URL, got ${playRes.body.recording.playbackUrl}`
   );
   assert.equal(playRes.body.recording.title, 'Confidential Webinar Master Replay');
+
+  // 4. Admin attaching storage reference with wrong bucket is rejected with 400 INVALID_STORAGE_BUCKET
+  {
+    const { req: badAttachReq, res: badAttachRes } = createMockReqRes({
+      body: {
+        action: 'attach_recording',
+        classId: 'cls-priv-target',
+        webinarId: 'wgg-priv-101',
+        title: 'Wrong Bucket Recording',
+        recordingUrl: 'storage://unauthorized-bucket/recording.mp4',
+        durationMinutes: 10,
+      },
+    });
+    await handleLiveClassRequest(badAttachReq, badAttachRes, { supabase: mockSupabaseAdmin });
+    assert.equal(badAttachRes.statusCode, 400);
+    assert.equal(badAttachRes.body.code, 'INVALID_STORAGE_BUCKET');
+  }
+
+  // 5. Playback for recording referencing unauthorized bucket returns 403 BUCKET_RESTRICTED
+  {
+    dbState.recordings.push({
+      id: 'rec-wrong-bucket',
+      class_id: 'cls-priv-target',
+      webinar_id: 'wgg-priv-101',
+      title: 'Restricted Bucket Recording',
+      status: 'ready',
+      playback_url: 'storage://other-bucket/secret.mp4',
+      duration_seconds: 600,
+    });
+    const { req: restrReq, res: restrRes } = createMockReqRes({
+      body: { action: 'get_recording_playback', recordingId: 'rec-wrong-bucket' },
+    });
+    await handleLiveClassRequest(restrReq, restrRes, { supabase: mockSupabaseAdmin });
+    assert.equal(restrRes.statusCode, 403);
+    assert.equal(restrRes.body.code, 'BUCKET_RESTRICTED');
+  }
+
+  // 6. Playback for recording with invalid storage URI returns 400 INVALID_STORAGE_URI
+  {
+    dbState.recordings.push({
+      id: 'rec-invalid-uri',
+      class_id: 'cls-priv-target',
+      webinar_id: 'wgg-priv-101',
+      title: 'Invalid URI Recording',
+      status: 'ready',
+      playback_url: 'storage://no-slash-path',
+      duration_seconds: 600,
+    });
+    const { req: invReq, res: invRes } = createMockReqRes({
+      body: { action: 'get_recording_playback', recordingId: 'rec-invalid-uri' },
+    });
+    await handleLiveClassRequest(invReq, invRes, { supabase: mockSupabaseAdmin });
+    assert.equal(invRes.statusCode, 400);
+    assert.equal(invRes.body.code, 'INVALID_STORAGE_URI');
+  }
+
+  // 7. Playback when storage signing fails returns 502 STORAGE_SIGNING_FAILED
+  {
+    dbState.storageError = 'KMS decrypt error or signing token quota exceeded';
+    const { req: signFailReq, res: signFailRes } = createMockReqRes({
+      body: { action: 'get_recording_playback', recordingId: recId },
+    });
+    await handleLiveClassRequest(signFailReq, signFailRes, { supabase: mockSupabaseAdmin });
+    assert.equal(signFailRes.statusCode, 502);
+    assert.equal(signFailRes.body.code, 'STORAGE_SIGNING_FAILED');
+    delete dbState.storageError;
+  }
+
+  // 8. Playback when storage service is unavailable returns 500 STORAGE_UNAVAILABLE
+  {
+    dbState.noStorage = true;
+    const noStorageSupabase = createMockSupabase(admin, dbState);
+    const { req: noStoreReq, res: noStoreRes } = createMockReqRes({
+      body: { action: 'get_recording_playback', recordingId: recId },
+    });
+    await handleLiveClassRequest(noStoreReq, noStoreRes, { supabase: noStorageSupabase });
+    assert.equal(noStoreRes.statusCode, 500);
+    assert.equal(noStoreRes.body.code, 'STORAGE_UNAVAILABLE');
+    delete dbState.noStorage;
+  }
 });
