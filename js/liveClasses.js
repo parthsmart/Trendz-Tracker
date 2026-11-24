@@ -11,6 +11,7 @@
 import { getSupabase } from './supabaseClient.js';
 import { setupHeaderNavigation } from './headerNav.js';
 import { openModal, closeModal } from './modal.js';
+import { setupModalListeners } from './modal.js';
 import { TrendzMediaPlayer, formatDuration } from './mediaPlayer.js';
 
 let currentUser = null;
@@ -505,6 +506,7 @@ export async function initLiveClassesPage() {
   currentProfile = profile;
 
   setupHeaderNavigation(profile);
+  setupModalListeners();
 
   // Setup tab navigation
   const tabClasses = document.getElementById('tab-btn-classes');
@@ -592,6 +594,120 @@ export async function initLiveClassesPage() {
         await loadRecordings();
       } catch (err) {
         showToast(err.message, 'error');
+      }
+    });
+  }
+
+  // Setup Attach Recording Modal (Webinar.gg Dashboard Workflow)
+  const btnOpenAttach = document.getElementById('btn-open-attach-recording');
+  const formAttach = document.getElementById('form-attach-recording');
+  const selectAttachClass = document.getElementById('attach-rec-class');
+  const inputAttachTitle = document.getElementById('attach-rec-title');
+  const inputAttachUrl = document.getElementById('attach-rec-url');
+  const inputAttachDuration = document.getElementById('attach-rec-duration');
+  const inputAttachWebinarId = document.getElementById('attach-rec-webinar-id');
+  const attachError = document.getElementById('attach-recording-error');
+
+  function populateAttachClassSelect() {
+    if (!selectAttachClass) return;
+    selectAttachClass.innerHTML = '<option value="">Choose a live class...</option>';
+    currentClasses.forEach((cls) => {
+      const opt = document.createElement('option');
+      opt.value = cls.id;
+      opt.textContent = `${cls.title} (Status: ${cls.status}, Webinar: ${cls.webinarId || 'N/A'})`;
+      opt.dataset.title = cls.title;
+      opt.dataset.webinarId = cls.webinarId || '';
+      selectAttachClass.appendChild(opt);
+    });
+  }
+
+  if (selectAttachClass) {
+    selectAttachClass.addEventListener('change', () => {
+      const selected = selectAttachClass.options[selectAttachClass.selectedIndex];
+      if (selected && selected.value) {
+        if (inputAttachTitle && (!inputAttachTitle.value || inputAttachTitle.value.endsWith('(Replay)'))) {
+          inputAttachTitle.value = `${selected.dataset.title} (Replay)`;
+        }
+        if (inputAttachWebinarId) {
+          inputAttachWebinarId.value = selected.dataset.webinarId || '';
+        }
+      }
+    });
+  }
+
+  if (btnOpenAttach) {
+    btnOpenAttach.addEventListener('click', () => {
+      populateAttachClassSelect();
+      if (attachError) {
+        attachError.style.display = 'none';
+        attachError.textContent = '';
+      }
+      openModal('modal-attach-recording');
+    });
+  }
+
+  if (formAttach) {
+    formAttach.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const submitBtn = document.getElementById('btn-submit-attach-recording');
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Attaching...';
+      }
+      if (attachError) {
+        attachError.style.display = 'none';
+        attachError.textContent = '';
+      }
+
+      try {
+        const classId = selectAttachClass?.value;
+        const title = inputAttachTitle?.value?.trim();
+        const recordingUrl = inputAttachUrl?.value?.trim();
+        const durationMinutes = inputAttachDuration?.value ? Number(inputAttachDuration.value) : undefined;
+        const webinarId = inputAttachWebinarId?.value?.trim() || undefined;
+
+        if (!classId) throw new Error('Please select an associated live class.');
+        if (!title) throw new Error('Recording title is required.');
+        if (!recordingUrl) throw new Error('Recording / Playback URL is required.');
+
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) throw new Error('Your session has expired. Please sign in again.');
+
+        const res = await fetch('/api/live-class', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            action: 'attach_recording',
+            classId,
+            title,
+            recordingUrl,
+            durationMinutes,
+            webinarId,
+          }),
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || 'Failed to attach webinar recording.');
+        }
+
+        closeModal('modal-attach-recording');
+        formAttach.reset();
+        showToast('Webinar recording successfully attached to library!', 'success');
+        await loadRecordings();
+      } catch (err) {
+        if (attachError) {
+          attachError.style.display = 'block';
+          attachError.textContent = err.message || 'Error attaching recording.';
+        }
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Attach to Library';
+        }
       }
     });
   }

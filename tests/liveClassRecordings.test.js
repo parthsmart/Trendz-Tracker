@@ -197,6 +197,15 @@ function createMockSupabase(callerProfile, dbState = {}) {
               return { error: null };
             },
           }),
+          insert: (row) => ({
+            select: () => ({
+              single: async () => {
+                const inserted = { id: 'rec-' + Date.now(), ...row };
+                recordings.push(inserted);
+                return { data: inserted, error: null };
+              },
+            }),
+          }),
         };
       }
 
@@ -536,5 +545,90 @@ test('6. Provider recording confirmation gate and attendee old-link replay block
     assert.equal(res.statusCode, 400);
     assert.equal(res.body.code, 'CLASS_ENDED');
     assert.ok(res.body.error.includes('ended'));
+  }
+});
+
+test('7. Admin manual attachment workflow attaches Webinar.gg recording to library and audits creation', async () => {
+  const admin = { id: 'admin-attacher', email: 'admin@trendz.edu', role: 'admin', active: true };
+  const student = { id: 'stu-attacher', email: 'stu@trendz.edu', role: 'student', active: true };
+
+  const dbState = {
+    liveClasses: [
+      {
+        id: 'cls-attach-target',
+        title: 'Masterclass on Speed Math',
+        webinar_id: 'cmvl53hcc0bycs60yjljyys4z',
+        teacher_id: 'teach-1',
+        status: 'completed',
+      },
+    ],
+    recordings: [],
+    auditLogs: [],
+  };
+
+  // 1. Non-admin is rejected with 403
+  {
+    const mockSupabase = createMockSupabase(student, dbState);
+    const { req, res } = createMockReqRes({
+      body: {
+        action: 'attach_recording',
+        classId: 'cls-attach-target',
+        title: 'Unauthorized Attempt',
+        recordingUrl: 'https://example.com/rec.mp4',
+      },
+    });
+    await handleLiveClassRequest(req, res, { supabase: mockSupabase });
+    assert.equal(res.statusCode, 403);
+    assert.equal(res.body.code, 'FORBIDDEN');
+  }
+
+  // 2. Validation error on missing parameters
+  {
+    const mockSupabase = createMockSupabase(admin, dbState);
+    const { req, res } = createMockReqRes({
+      body: {
+        action: 'attach_recording',
+        classId: 'cls-attach-target',
+        title: '',
+        recordingUrl: 'not-a-url',
+      },
+    });
+    await handleLiveClassRequest(req, res, { supabase: mockSupabase });
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.body.code, 'INVALID_REQUEST');
+  }
+
+  // 3. Admin successfully attaches recording
+  {
+    const mockSupabase = createMockSupabase(admin, dbState);
+    const { req, res } = createMockReqRes({
+      body: {
+        action: 'attach_recording',
+        classId: 'cls-attach-target',
+        webinarId: 'cmvl53hcc0bycs60yjljyys4z',
+        title: 'Speed Math Webinar Recording',
+        recordingUrl: 'https://webinar.gg/recordings/cmvl53hcc0bycs60yjljyys4z/play.mp4',
+        durationMinutes: 45,
+      },
+    });
+    await handleLiveClassRequest(req, res, { supabase: mockSupabase });
+    assert.equal(res.statusCode, 201);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.recording.title, 'Speed Math Webinar Recording');
+    assert.equal(res.body.recording.status, 'ready');
+    assert.equal(res.body.recording.durationSeconds, 2700);
+    assert.equal(res.body.recording.webinarId, 'cmvl53hcc0bycs60yjljyys4z');
+
+    // Audit log was created
+    assert.equal(dbState.auditLogs.length, 1);
+    assert.equal(dbState.auditLogs[0].action, 'admin_attach_recording');
+    assert.equal(dbState.auditLogs[0].performed_by, 'admin-attacher');
+
+    // Appears in list_recordings
+    const { req: listReq, res: listRes } = createMockReqRes({ body: { action: 'list_recordings' } });
+    await handleLiveClassRequest(listReq, listRes, { supabase: mockSupabase });
+    assert.equal(listRes.statusCode, 200);
+    assert.equal(listRes.body.recordings.length, 1);
+    assert.equal(listRes.body.recordings[0].title, 'Speed Math Webinar Recording');
   }
 });

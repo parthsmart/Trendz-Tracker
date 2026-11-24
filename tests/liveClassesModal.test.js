@@ -275,3 +275,23 @@ test('5. When zero active teachers exist, "Assign to me" remains available and i
     globalThis.document = originalDocument;
   }
 });
+
+test('6. Accessible DOM Dialog Contract for modal-attach-recording in pages/live-classes.html', () => {
+  const html = fs.readFileSync(path.resolve(__dirname, '../pages/live-classes.html'), 'utf-8');
+
+  // Trigger button
+  assert.ok(html.includes('id="btn-open-attach-recording"'), 'Expected #btn-open-attach-recording trigger button');
+
+  // Modal backdrop container
+  assert.ok(html.includes('id="modal-attach-recording"'), 'Expected #modal-attach-recording container');
+  assert.ok(html.includes('class="modal-backdrop"'), 'Modal must have modal-backdrop class to use shared modal.js styles');
+  assert.ok(html.includes('role="dialog"'), 'Expected role="dialog"');
+  assert.ok(html.includes('aria-modal="true"'), 'Expected aria-modal="true"');
+  assert.ok(html.includes('aria-labelledby="modal-attach-recording-title"'), 'Expected aria-labelledby="modal-attach-recording-title"');
+
+  // Close triggers
+  assert.ok(html.includes('data-close-modal="modal-attach-recording"'), 'Expected data-close-modal="modal-attach-recording"');
+  assert.ok(html.includes('id="form-attach-recording"'), 'Expected #form-attach-recording element');
+  assert.ok(html.includes('id="attach-rec-class"'), 'Expected #attach-rec-class select');
+  assert.ok(html.includes('id="attach-rec-url"'), 'Expected #attach-rec-url input');
+});

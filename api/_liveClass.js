@@ -1075,6 +1075,93 @@ export async function handleLiveClassRequest(req, res, options = {}) {
         });
       }
 
+      // 10. Admin Attach Webinar Recording (Manual Dashboard Workflow)
+      case 'attach_recording': {
+        if (caller.role !== 'admin') {
+          return res.status(403).json({ error: 'Only administrators can attach webinar recordings.', code: 'FORBIDDEN' });
+        }
+
+        const { classId, webinarId, title, recordingUrl, durationSeconds, durationMinutes } = body;
+        if (!classId || typeof classId !== 'string') {
+          return res.status(400).json({ error: 'Missing required classId parameter.', code: 'INVALID_REQUEST' });
+        }
+        if (!title || typeof title !== 'string' || !title.trim()) {
+          return res.status(400).json({ error: 'Recording title is required.', code: 'INVALID_REQUEST' });
+        }
+        if (!recordingUrl || typeof recordingUrl !== 'string' || (!recordingUrl.startsWith('http://') && !recordingUrl.startsWith('https://'))) {
+          return res.status(400).json({ error: 'A valid recording URL (http/https) is required.', code: 'INVALID_REQUEST' });
+        }
+
+        const { data: liveClass, error: classError } = await supabase
+          .from('live_classes')
+          .select('id, title, webinar_id')
+          .eq('id', classId)
+          .single();
+
+        if (classError || !liveClass) {
+          return res.status(404).json({ error: 'Associated live class not found.', code: 'CLASS_NOT_FOUND' });
+        }
+
+        const effectiveWebinarId = webinarId?.trim() || liveClass.webinar_id || 'manual-webinar';
+        const calcDurationSeconds = durationSeconds ? Number(durationSeconds) : durationMinutes ? Math.round(Number(durationMinutes) * 60) : 0;
+
+        const recordingPayload = {
+          class_id: liveClass.id,
+          webinar_id: effectiveWebinarId,
+          recording_id: `rec-att-${Date.now()}`,
+          title: title.trim(),
+          duration_seconds: calcDurationSeconds,
+          status: 'ready',
+          playback_url: recordingUrl.trim(),
+          recorded_at: new Date().toISOString(),
+        };
+
+        const { data: recording, error: insertError } = await supabase
+          .from('live_class_recordings')
+          .insert(recordingPayload)
+          .select('id, class_id, webinar_id, recording_id, title, status, duration_seconds, playback_url, recorded_at')
+          .single();
+
+        if (insertError) {
+          return res.status(500).json({
+            error: `Failed to attach recording to database: ${insertError.message}`,
+            code: 'DATABASE_ERROR',
+          });
+        }
+
+        try {
+          await supabase.from('live_class_recording_audit_log').insert({
+            recording_id: recording.id,
+            class_id: liveClass.id,
+            webinar_id: effectiveWebinarId,
+            action: 'admin_attach_recording',
+            performed_by: caller.id,
+            details: {
+              title: recording.title,
+              recordingUrl: recording.playback_url,
+              durationSeconds: recording.duration_seconds,
+              workflow: 'manual_dashboard_attachment',
+            },
+          });
+        } catch (_) {}
+
+        return res.status(201).json({
+          ok: true,
+          message: 'Webinar recording attached to library.',
+          recording: {
+            id: recording.id,
+            classId: recording.class_id,
+            webinarId: recording.webinar_id,
+            recordingId: recording.recording_id,
+            title: recording.title,
+            status: recording.status,
+            durationSeconds: recording.duration_seconds,
+            playbackUrl: recording.playback_url,
+            recordedAt: recording.recorded_at,
+          },
+        });
+      }
+
       default:
         return res.status(400).json({ error: `Unknown action: ${action}`, code: 'UNKNOWN_ACTION' });
     }

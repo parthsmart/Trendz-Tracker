@@ -16,8 +16,8 @@
           "slug": "addition-part-1",
           "lessonOrder": 1,
           "durationSeconds": 745,
-          "mediaType": "video_mp4",
-          "mediaUrl": "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1ADDITION_PART_1_JMCWC/preview",
           "notes": "Covers primary soroban bead placement, complement rule of 5, and direct thumb pushes."
         },
         {
@@ -25,8 +25,8 @@
           "slug": "addition-part-2",
           "lessonOrder": 2,
           "durationSeconds": 890,
-          "mediaType": "video_mp4",
-          "mediaUrl": "https://www.w3schools.com/html/mov_bbb.mp4",
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1ADDITION_PART_2_JMCWC/preview",
           "notes": "Covers 10-complements with combined 5-rule movements for rapid chained additions."
         },
         {
@@ -34,8 +34,8 @@
           "slug": "addition-part-3",
           "lessonOrder": 3,
           "durationSeconds": 1020,
-          "mediaType": "video_mp4",
-          "mediaUrl": "https://www.w3schools.com/tags/movie.mp4",
+          "mediaType": "drive_embed",
+          "mediaUrl": "https://drive.google.com/file/d/1ADDITION_PART_3_JMCWC/preview",
           "notes": "High speed 10-row flashing addition drill techniques."
         }
       ]

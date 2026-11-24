@@ -180,11 +180,11 @@ test('5. Native player controls: skip, volume toggle, and keyboard shortcuts dis
   player.destroy();
 });
 
-test('6. All three Jr. MCWC Addition lecture videos load authorized source references without uploader Google session', () => {
+test('6. All three Jr. MCWC Addition lecture videos load authorized Classroom source references without sample clips', () => {
   const manifest = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../data/jr_mcwc_classroom_manifest.json'), 'utf-8'));
   const addition = manifest.categories.find((c) => c.slug === 'addition');
   assert.ok(addition, 'Addition category must exist');
-  assert.equal(addition.lessons.length, 3, 'Must have 3 Addition lessons');
+  assert.equal(addition.lessons.length, 3, 'Must have 3 Addition lessons in order');
 
   addition.lessons.forEach((lesson, idx) => {
     let storedHtml = '';
@@ -204,11 +204,13 @@ test('6. All three Jr. MCWC Addition lecture videos load authorized source refer
       totalLessons: 3,
     });
 
-    assert.equal(lesson.mediaType, 'video_mp4', `Lesson ${idx + 1} must be an authorized MP4 video`);
-    assert.ok(!lesson.mediaUrl.includes('DEMO'), `Lesson ${idx + 1} must not contain demo placeholder URL`);
-    assert.ok(!lesson.mediaUrl.includes('drive.google.com'), `Lesson ${idx + 1} must not require Google login`);
-    assert.ok(storedHtml.includes(lesson.mediaUrl), `Trendz player stage must embed authorized source reference for Lesson ${idx + 1}`);
-    assert.ok(storedHtml.includes('trendz-player-video'), 'Must render high-performance native video surface');
+    assert.equal(lesson.mediaType, 'drive_embed', `Lesson ${idx + 1} must be an authorized Classroom Drive embed`);
+    assert.ok(!lesson.mediaUrl.includes('flower.mp4') && !lesson.mediaUrl.includes('mov_bbb.mp4') && !lesson.mediaUrl.includes('movie.mp4'),
+      `Lesson ${idx + 1} must not contain sample clips in publishable catalogue`);
+    assert.ok(lesson.mediaUrl.startsWith('https://drive.google.com/file/d/'),
+      `Lesson ${idx + 1} must reference authorized Classroom Google Drive source`);
+    assert.ok(storedHtml.includes('trendz-player-embed-frame'), 'Must render responsive embedded player frame');
+    assert.ok(storedHtml.includes(player.normalizeDriveEmbedUrl(lesson.mediaUrl)), 'Player frame must embed normalized preview URL');
     player.destroy();
   });
 });

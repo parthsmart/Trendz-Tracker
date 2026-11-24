@@ -139,6 +139,9 @@
                   <button type="button" id="btn-refresh-recordings" class="btn btn-outline btn-sm" title="Refresh library">
                     ↻ Refresh
                   </button>
+                  <button type="button" id="btn-open-attach-recording" class="btn btn-primary btn-sm" title="Attach recording from Webinar.gg dashboard">
+                    + Attach Webinar Recording
+                  </button>
                 </div>
               </div>
 
@@ -318,6 +321,76 @@
         <div id="player-recording-mount" style="padding: 0; min-height: 360px; background: #020617; display: flex; align-items: center; justify-content: center;">
           <!-- TrendzMediaPlayer mounted here -->
         </div>
+      </div>
+    </div>
+
+    <!-- Attach Recording Modal (Admin Only) -->
+    <div id="modal-attach-recording" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="modal-attach-recording-title">
+      <div class="modal-dialog modal-card" style="max-width: 540px; width: 90%; margin: auto; background: var(--bg-surface, #fff); border-radius: var(--radius-lg, 12px); box-shadow: var(--shadow-lg); overflow: hidden;">
+        <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border-hairline);">
+          <div>
+            <h3 id="modal-attach-recording-title" style="margin: 0; font-size: var(--text-lg); font-weight: 700;">
+              Attach Webinar Recording
+            </h3>
+            <p style="margin: 2px 0 0 0; font-size: var(--text-xs); color: var(--text-muted);">
+              Webinar.gg Dashboard Attachment Workflow
+            </p>
+          </div>
+          <button type="button" class="modal-close btn btn-ghost btn-sm" data-close-modal="modal-attach-recording" aria-label="Close dialog">&times;</button>
+        </div>
+
+        <form id="form-attach-recording" style="padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-4);">
+          <div style="background: var(--bg-surface-elevated, #f8fafc); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: 12px; font-size: var(--text-xs); color: var(--text-muted); line-height: 1.5;">
+            <strong style="color: var(--text-main);">Webinar.gg Dashboard Workflow:</strong><br/>
+            Because Webinar.gg does not provide an automated REST API endpoint for recording ingestion, locate your completed webinar recording in <em>Webinar.gg Dashboard &gt; Past Webinars &gt; Recordings</em> and attach its playback or downloadable URL here.
+          </div>
+
+          <div class="form-group">
+            <label for="attach-rec-class" class="form-label" style="font-weight: 600; font-size: var(--text-sm);">
+              Select Completed Live Class <span style="color: var(--color-danger, #ef4444);">*</span>
+            </label>
+            <select id="attach-rec-class" class="form-input" required style="width: 100%;">
+              <option value="">Choose a live class...</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="attach-rec-title" class="form-label" style="font-weight: 600; font-size: var(--text-sm);">
+              Recording Title <span style="color: var(--color-danger, #ef4444);">*</span>
+            </label>
+            <input type="text" id="attach-rec-title" class="form-input" placeholder="e.g. Masterclass Lecture Replay" required style="width: 100%;" />
+          </div>
+
+          <div class="form-group">
+            <label for="attach-rec-url" class="form-label" style="font-weight: 600; font-size: var(--text-sm);">
+              Recording / Playback URL <span style="color: var(--color-danger, #ef4444);">*</span>
+            </label>
+            <input type="url" id="attach-rec-url" class="form-input" placeholder="https://..." required style="width: 100%;" />
+            <small style="font-size: 11px; color: var(--text-muted);">Direct MP4 URL, Webinar.gg replay URL, or verified Drive/stream link.</small>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3);">
+            <div class="form-group">
+              <label for="attach-rec-duration" class="form-label" style="font-weight: 600; font-size: var(--text-sm);">
+                Duration (Minutes)
+              </label>
+              <input type="number" id="attach-rec-duration" class="form-input" placeholder="45" min="1" max="600" style="width: 100%;" />
+            </div>
+            <div class="form-group">
+              <label for="attach-rec-webinar-id" class="form-label" style="font-weight: 600; font-size: var(--text-sm);">
+                Webinar ID
+              </label>
+              <input type="text" id="attach-rec-webinar-id" class="form-input" placeholder="Auto-populated" readonly style="width: 100%; background: var(--bg-surface-elevated, #f8fafc);" />
+            </div>
+          </div>
+
+          <div id="attach-recording-error" class="alert alert-danger" style="display: none; font-size: var(--text-xs);"></div>
+
+          <div style="display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2);">
+            <button type="button" class="btn btn-outline" data-close-modal="modal-attach-recording">Cancel</button>
+            <button type="submit" id="btn-submit-attach-recording" class="btn btn-primary">Attach to Library</button>
+          </div>
+        </form>
       </div>
     </div>
 
