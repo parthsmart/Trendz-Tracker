@@ -69,6 +69,42 @@ function createMockSupabase(callerProfile, dbState = {}) {
         error: null,
       }),
     },
+    rpc: async (fn, params) => {
+      if (fn === 'publish_classroom_catalogue') {
+        const manifest = params?.p_manifest;
+        if (!manifest || !Array.isArray(manifest.categories)) {
+          return { data: null, error: { message: 'Invalid manifest array', code: '22023' } };
+        }
+        if (dbState.shouldFailRpc) {
+          return { data: null, error: { message: 'Transaction aborted due to database constraint failure', code: '40001' } };
+        }
+        let catCount = 0;
+        let lecCount = 0;
+        for (const cat of manifest.categories) {
+          let existingCat = categories.find((c) => c.slug === cat.slug);
+          if (!existingCat) {
+            existingCat = { id: `cat-${categories.length + 1}`, ...cat };
+            categories.push(existingCat);
+          } else {
+            Object.assign(existingCat, cat);
+          }
+          catCount++;
+          const lessons = Array.isArray(cat.lessons) ? cat.lessons : [];
+          for (const l of lessons) {
+            let existingLec = lectures.find((lec) => lec.category_id === existingCat.id && lec.lesson_order === l.lessonOrder);
+            if (!existingLec) {
+              existingLec = { id: `lec-${lectures.length + 1}`, category_id: existingCat.id, ...l };
+              lectures.push(existingLec);
+            } else {
+              Object.assign(existingLec, l);
+            }
+            lecCount++;
+          }
+        }
+        return { data: { ok: true, importedCategories: catCount, importedLectures: lecCount }, error: null };
+      }
+      return { data: null, error: { message: `Unknown RPC ${fn}`, code: '42883' } };
+    },
     from: (table) => {
       if (table === 'profiles') {
         return {
@@ -475,5 +511,29 @@ test('9. Admin publish_import enforces pre-validation and atomic publishing', as
     assert.equal(res.body.ok, true);
     assert.equal(res.body.importedCategories, 1);
     assert.equal(res.body.importedLectures, 1);
+  }
+
+  // 3. Failed transactional publication fails with 500 DATABASE_ERROR and preserves the last good catalogue
+  {
+    dbState.shouldFailRpc = true;
+    const failingManifest = {
+      categories: [
+        {
+          title: 'Corrupted Category',
+          slug: 'corrupted-cat',
+          lessons: [
+            { title: 'Bad Lesson', lessonOrder: 1, mediaUrl: 'https://example.com/bad.mp4' },
+          ],
+        },
+      ],
+    };
+    const { req, res } = createMockReqRes({ body: { action: 'publish_import', manifest: failingManifest } });
+    await handleLecturesRequest(req, res, { supabase });
+    assert.equal(res.statusCode, 500);
+    assert.equal(res.body.code, 'DATABASE_ERROR');
+    // Ensure previous good catalogue state was untouched
+    assert.equal(dbState.categories.length, 1, 'Previous good category must be preserved');
+    assert.equal(dbState.categories[0].slug, 'addition', 'Addition category must be preserved');
+    assert.equal(dbState.lectures.length, 1, 'Previous good lecture must be preserved');
   }
 });

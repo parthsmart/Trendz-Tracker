@@ -88,6 +88,161 @@ CREATE POLICY "Admins have full access to lectures"
   USING (public.is_admin())
   WITH CHECK (public.is_admin());
 
--- 6. Grant minimum privileges
+-- 6. Ensure unique constraint for atomic upsert
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'uq_lectures_category_lesson_order'
+  ) THEN
+    ALTER TABLE public.lectures ADD CONSTRAINT uq_lectures_category_lesson_order UNIQUE (category_id, lesson_order);
+  END IF;
+END $$;
+
+-- 7. Grant minimum privileges
 REVOKE ALL ON public.lecture_categories, public.lectures FROM PUBLIC, anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.lecture_categories, public.lectures TO authenticated;
+
+-- 8. Transactional atomic catalogue publication routine
+CREATE OR REPLACE FUNCTION public.publish_classroom_catalogue(p_manifest JSONB)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_category JSONB;
+  v_lesson JSONB;
+  v_cat_id UUID;
+  v_cat_title TEXT;
+  v_cat_slug TEXT;
+  v_cat_desc TEXT;
+  v_cat_order INT;
+  v_lec_title TEXT;
+  v_lec_slug TEXT;
+  v_lec_order INT;
+  v_lec_duration INT;
+  v_lec_media_type TEXT;
+  v_lec_media_url TEXT;
+  v_lec_thumb_url TEXT;
+  v_lec_notes TEXT;
+  v_lec_level TEXT;
+  v_imported_cats INT := 0;
+  v_imported_lecs INT := 0;
+  v_idx INT := 0;
+  v_lidx INT := 0;
+BEGIN
+  -- Strict Admin check at database boundary
+  IF NOT public.is_admin() THEN
+    RAISE EXCEPTION 'Forbidden: Only administrators can publish lecture catalogues.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF p_manifest IS NULL OR NOT (p_manifest ? 'categories') OR jsonb_array_length(p_manifest->'categories') = 0 THEN
+    RAISE EXCEPTION 'Invalid manifest: categories array is required.'
+      USING ERRCODE = '22023';
+  END IF;
+
+  FOR v_category IN SELECT * FROM jsonb_array_elements(p_manifest->'categories')
+  LOOP
+    v_idx := v_idx + 1;
+    v_cat_title := trim(v_category->>'title');
+    v_cat_slug := COALESCE(NULLIF(trim(v_category->>'slug'), ''), lower(regexp_replace(v_cat_title, '[^a-zA-Z0-9]+', '-', 'g')));
+    v_cat_desc := v_category->>'description';
+    v_cat_order := COALESCE((v_category->>'sortOrder')::INT, v_idx);
+
+    IF v_cat_title IS NULL OR v_cat_title = '' THEN
+      RAISE EXCEPTION 'Category #% missing title.', v_idx USING ERRCODE = '22023';
+    END IF;
+
+    -- Upsert category
+    INSERT INTO public.lecture_categories (title, slug, description, sort_order, active, updated_at)
+    VALUES (v_cat_title, v_cat_slug, v_cat_desc, v_cat_order, true, now())
+    ON CONFLICT (slug) DO UPDATE SET
+      title = EXCLUDED.title,
+      description = EXCLUDED.description,
+      sort_order = EXCLUDED.sort_order,
+      active = true,
+      updated_at = now()
+    RETURNING id INTO v_cat_id;
+
+    v_imported_cats := v_imported_cats + 1;
+
+    -- Upsert lessons
+    IF v_category ? 'lessons' AND jsonb_typeof(v_category->'lessons') = 'array' THEN
+      v_lidx := 0;
+      FOR v_lesson IN SELECT * FROM jsonb_array_elements(v_category->'lessons')
+      LOOP
+        v_lidx := v_lidx + 1;
+        v_lec_title := trim(v_lesson->>'title');
+        v_lec_order := COALESCE((v_lesson->>'lessonOrder')::INT, v_lidx);
+        v_lec_slug := COALESCE(NULLIF(trim(v_lesson->>'slug'), ''), v_cat_slug || '-part-' || v_lec_order);
+        v_lec_duration := COALESCE((v_lesson->>'durationSeconds')::INT, 0);
+        v_lec_media_type := COALESCE(NULLIF(trim(v_lesson->>'mediaType'), ''), 'video_mp4');
+        v_lec_media_url := trim(v_lesson->>'mediaUrl');
+        v_lec_thumb_url := v_lesson->>'thumbnailUrl';
+        v_lec_notes := v_lesson->>'notes';
+        v_lec_level := v_lesson->>'targetLevel';
+
+        IF v_lec_title IS NULL OR v_lec_title = '' THEN
+          RAISE EXCEPTION 'Lesson #% in category % missing title.', v_lidx, v_cat_title USING ERRCODE = '22023';
+        END IF;
+
+        IF v_lec_media_url IS NULL OR (v_lec_media_url NOT LIKE 'http://%' AND v_lec_media_url NOT LIKE 'https://%') THEN
+          RAISE EXCEPTION 'Lesson "%" in category % has invalid media URL.', v_lec_title, v_cat_title USING ERRCODE = '22023';
+        END IF;
+
+        INSERT INTO public.lectures (
+          category_id,
+          title,
+          slug,
+          lesson_order,
+          duration_seconds,
+          media_type,
+          media_url,
+          thumbnail_url,
+          notes,
+          target_level,
+          status,
+          updated_at
+        )
+        VALUES (
+          v_cat_id,
+          v_lec_title,
+          v_lec_slug,
+          v_lec_order,
+          v_lec_duration,
+          v_lec_media_type,
+          v_lec_media_url,
+          v_lec_thumb_url,
+          v_lec_notes,
+          v_lec_level,
+          'active',
+          now()
+        )
+        ON CONFLICT (category_id, lesson_order) DO UPDATE SET
+          title = EXCLUDED.title,
+          slug = EXCLUDED.slug,
+          duration_seconds = EXCLUDED.duration_seconds,
+          media_type = EXCLUDED.media_type,
+          media_url = EXCLUDED.media_url,
+          thumbnail_url = EXCLUDED.thumbnail_url,
+          notes = EXCLUDED.notes,
+          target_level = EXCLUDED.target_level,
+          status = 'active',
+          updated_at = now();
+
+        v_imported_lecs := v_imported_lecs + 1;
+      END LOOP;
+    END IF;
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'importedCategories', v_imported_cats,
+    'importedLectures', v_imported_lecs
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.publish_classroom_catalogue(JSONB) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.publish_classroom_catalogue(JSONB) TO authenticated;

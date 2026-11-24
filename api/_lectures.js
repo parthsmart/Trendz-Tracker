@@ -397,126 +397,38 @@ export async function handleLecturesRequest(req, res, options = {}) {
           }
         }
 
-        // 2. Try transactional RPC if available in database
-        if (typeof supabase.rpc === 'function') {
-          const { data: rpcData, error: rpcError } = await supabase.rpc('publish_classroom_catalogue', {
-            p_manifest: manifest,
-          });
-
-          if (!rpcError && rpcData?.ok) {
-            return res.status(200).json({
-              ok: true,
-              message: 'Google Classroom lecture catalogue successfully imported and published!',
-              importedCategories: rpcData.importedCategories,
-              importedLectures: rpcData.importedLectures,
-            });
-          }
-
-          // If RPC returned a database error other than missing function, fail closed
-          if (rpcError && rpcError.code !== '42883' && !rpcError.message?.includes('does not exist')) {
-            return res.status(500).json({
-              error: `Failed to publish catalogue via atomic RPC: ${rpcError.message}`,
-              code: 'DATABASE_ERROR',
-            });
-          }
-        }
-
-        // 3. Fallback: Sequential execution with atomic rollback tracking
-        const newlyInsertedCategoryIds = [];
-        const newlyInsertedLectureIds = [];
-        let createdCategories = 0;
-        let createdLectures = 0;
-
-        try {
-          for (let i = 0; i < manifest.categories.length; i++) {
-            const cat = manifest.categories[i];
-            const slug = cat.slug || cat.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-
-            const { data: categoryRow, error: catError } = await supabase
-              .from('lecture_categories')
-              .upsert(
-                {
-                  title: cat.title,
-                  slug,
-                  description: cat.description || '',
-                  sort_order: cat.sortOrder || i + 1,
-                  active: true,
-                  updated_at: new Date().toISOString(),
-                },
-                { onConflict: 'slug' }
-              )
-              .select('id')
-              .single();
-
-            if (catError || !categoryRow) {
-              throw new Error(`Failed to upsert category "${cat.title}": ${catError?.message || 'Unknown error'}`);
-            }
-
-            if (!newlyInsertedCategoryIds.includes(categoryRow.id)) {
-              newlyInsertedCategoryIds.push(categoryRow.id);
-            }
-            createdCategories++;
-
-            const lessons = Array.isArray(cat.lessons) ? cat.lessons : [];
-            for (let j = 0; j < lessons.length; j++) {
-              const l = lessons[j];
-              const lessonSlug = l.slug || `${slug}-part-${j + 1}`;
-
-              const { data: lectureRow, error: lecError } = await supabase
-                .from('lectures')
-                .upsert(
-                  {
-                    category_id: categoryRow.id,
-                    title: l.title,
-                    slug: lessonSlug,
-                    lesson_order: l.lessonOrder || j + 1,
-                    duration_seconds: l.durationSeconds || 0,
-                    media_type: l.mediaType || 'video_mp4',
-                    media_url: l.mediaUrl,
-                    thumbnail_url: l.thumbnailUrl || null,
-                    notes: l.notes || '',
-                    target_level: l.targetLevel || null,
-                    status: 'active',
-                    updated_at: new Date().toISOString(),
-                  },
-                  { onConflict: 'category_id, lesson_order' }
-                )
-                .select('id')
-                .single();
-
-              if (lecError) {
-                throw new Error(`Failed to upsert lesson "${l.title}" in category "${cat.title}": ${lecError.message}`);
-              }
-
-              if (lectureRow?.id) {
-                newlyInsertedLectureIds.push(lectureRow.id);
-              }
-              createdLectures++;
-            }
-          }
-
-          return res.status(200).json({
-            ok: true,
-            message: 'Google Classroom lecture catalogue successfully imported and published!',
-            importedCategories: createdCategories,
-            importedLectures: createdLectures,
-          });
-        } catch (importErr) {
-          // Atomic Rollback: Clean up newly inserted rows to preserve the last good catalogue
-          try {
-            if (newlyInsertedLectureIds.length > 0) {
-              await supabase.from('lectures').delete().in('id', newlyInsertedLectureIds);
-            }
-            if (newlyInsertedCategoryIds.length > 0) {
-              await supabase.from('lecture_categories').delete().in('id', newlyInsertedCategoryIds);
-            }
-          } catch (_) {}
-
+        // 2. Transactional database routine for atomic publication — no sequential write fallback
+        if (typeof supabase.rpc !== 'function') {
           return res.status(500).json({
-            error: `Catalogue publishing failed and was rolled back atomically: ${importErr.message}`,
-            code: 'IMPORT_FAILED',
+            error: 'Database RPC client unavailable for atomic catalogue publication.',
+            code: 'DATABASE_ERROR',
           });
         }
+
+        const { data: rpcData, error: rpcError } = await supabase.rpc('publish_classroom_catalogue', {
+          p_manifest: manifest,
+        });
+
+        if (rpcError) {
+          return res.status(500).json({
+            error: `Failed to publish catalogue via atomic RPC: ${rpcError.message}`,
+            code: 'DATABASE_ERROR',
+          });
+        }
+
+        if (!rpcData?.ok) {
+          return res.status(500).json({
+            error: rpcData?.error || 'Catalogue publishing failed in transactional routine.',
+            code: 'DATABASE_ERROR',
+          });
+        }
+
+        return res.status(200).json({
+          ok: true,
+          message: 'Google Classroom lecture catalogue successfully imported and published!',
+          importedCategories: rpcData.importedCategories,
+          importedLectures: rpcData.importedLectures,
+        });
       }
 
       default:
