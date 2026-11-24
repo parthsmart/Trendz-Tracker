@@ -19,6 +19,7 @@ let lectureCategories = [];
 let currentCategoryLessons = [];
 let selectedCategorySlug = 'addition';
 let currentPlayingLectureId = null;
+let lecturePlaybackRequest = 0;
 
 /**
  * Validates that a URL strictly starts with http:// or https://
@@ -682,11 +683,12 @@ export function renderLessonQueue() {
   });
 }
 
-export function playLecture(lectureId) {
-  currentPlayingLectureId = lectureId;
+export async function playLecture(lectureId) {
   const lecture = currentCategoryLessons.find((l) => l.id === lectureId);
   if (!lecture) return;
 
+  currentPlayingLectureId = lectureId;
+  const request = ++lecturePlaybackRequest;
   renderLessonQueue();
 
   const mountEl = document.getElementById('lectures-player-mount');
@@ -697,6 +699,34 @@ export function playLecture(lectureId) {
     activeLecturesPlayer = null;
   }
 
+  let mediaUrl = lecture.mediaUrl;
+  if (/^(storage|private):\/\//.test(mediaUrl || '')) {
+    mountEl.textContent = 'Loading video…';
+    try {
+      const supabase = await getSupabase();
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch('/api/lectures', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token || ''}`,
+        },
+        body: JSON.stringify({ action: 'get_lecture', lectureId }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.lecture?.mediaUrl) {
+        throw new Error(result.error || 'Could not open the video.');
+      }
+      mediaUrl = result.lecture.mediaUrl;
+    } catch (error) {
+      if (request === lecturePlaybackRequest && currentCategoryLessons.includes(lecture)) {
+        mountEl.textContent = `${error.message || 'Could not open the video.'} Select the lesson to retry.`;
+      }
+      return;
+    }
+    if (request !== lecturePlaybackRequest || !currentCategoryLessons.includes(lecture)) return;
+  }
+
   const currentIndex = currentCategoryLessons.findIndex((l) => l.id === lectureId);
   const hasPrevious = currentIndex > 0;
   const hasNext = currentIndex < currentCategoryLessons.length - 1;
@@ -705,7 +735,7 @@ export function playLecture(lectureId) {
     userId: currentLoggedInProfile?.id || 'student',
     mediaId: lecture.id,
     mediaType: lecture.mediaType || 'drive_embed',
-    mediaUrl: lecture.mediaUrl,
+    mediaUrl,
     title: lecture.title,
     category: lecture.categoryTitle || 'Jr. MCWC Lecture',
     lessonOrder: lecture.lessonOrder,
