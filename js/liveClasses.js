@@ -3,7 +3,7 @@
  *
  * Handles staff setup flow for Webinar.gg live classes:
  * - List active, scheduled, and past classes
- * - Modal to link an existing Webinar.gg webinar ID, assign teacher, audience & start time
+ * - Schedule a room, assign a teacher, and select the student audience
  * - Real-time provider sync button
  * - Quick "Open host room" navigation
  */
@@ -313,29 +313,141 @@ export async function initLiveClassesPage() {
   const btnCancel = document.getElementById('btn-cancel-create');
   const form = document.getElementById('form-create-class');
   const modalError = document.getElementById('modal-error');
+  const submitButton = document.getElementById('btn-submit-create');
+  const audience = document.getElementById('select-audience');
+  const levelSelect = document.getElementById('select-level');
+  const studentSearch = document.getElementById('input-student-search');
+  const studentOptions = document.getElementById('class-student-options');
+  const audienceCount = document.getElementById('class-audience-count');
+  const selectedStudents = new Set();
+  let students = [];
+  let rosterPromise;
 
-  // Pre-set start time to next 30-minute slot in local IST
-  const startTimeInput = document.getElementById('input-start-time');
-  if (startTimeInput) {
-    const now = new Date(Date.now() + 30 * 60 * 1000);
-    // Format to YYYY-MM-DDTHH:mm
-    const localIso = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    startTimeInput.value = localIso;
-  }
-
-  const handleOpenModal = () => {
-    openModal('modal-create-class');
-    if (modalError) modalError.style.display = 'none';
+  const updateAudience = () => {
+    document.getElementById('row-class-level').hidden = audience.value !== 'level';
+    document.getElementById('row-class-students').hidden = audience.value !== 'students';
+    const count = {
+      all: students.length,
+      level: students.filter((student) => student.level === levelSelect.value).length,
+      students: selectedStudents.size,
+    }[audience.value];
+    audienceCount.textContent = count == null ? '' : `${count} ${count === 1 ? 'student' : 'students'}`;
   };
 
-  const handleCloseModal = () => {
+  const renderStudentOptions = () => {
+    const search = studentSearch.value.trim().toLowerCase();
+    const matches = students.filter((student) =>
+      `${student.full_name} ${student.student_code || ''}`.toLowerCase().includes(search)
+    );
+    studentOptions.replaceChildren();
+    if (!matches.length) studentOptions.textContent = 'No students found.';
+    for (const student of matches) {
+      const label = document.createElement('label');
+      label.style.display = 'block';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = selectedStudents.has(student.id);
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) selectedStudents.add(student.id);
+        else selectedStudents.delete(student.id);
+        updateAudience();
+      });
+      label.append(checkbox, ` ${student.full_name}${student.student_code ? ` (${student.student_code})` : ''}`);
+      studentOptions.append(label);
+    }
+  };
+
+  const loadClassRoster = async () => {
+    const roster = [];
+    const pageSize = 500;
+    for (let offset = 0; ; offset += pageSize) {
+      const { data, error } = await supabase.from('profiles')
+        .select('id, full_name, student_code, level')
+        .eq('role', 'student').eq('active', true)
+        .order('full_name').order('id').range(offset, offset + pageSize - 1);
+      if (error) throw error;
+      roster.push(...data);
+      if (data.length < pageSize) break;
+    }
+    students = roster;
+    const levels = [...new Set(students.map((student) => student.level).filter(Boolean))].sort();
+    levelSelect.replaceChildren(new Option('Choose a class level', ''));
+    for (const level of levels) levelSelect.add(new Option(level, level));
+    renderStudentOptions();
+    updateAudience();
+  };
+
+  audience.addEventListener('change', updateAudience);
+  levelSelect.addEventListener('change', updateAudience);
+  studentSearch.addEventListener('input', renderStudentOptions);
+
+  const prefillStartTime = () => {
+    const startTimeInput = document.getElementById('input-start-time');
+    if (startTimeInput) {
+      const now = new Date(Date.now() + 30 * 60 * 1000);
+      startTimeInput.value = new Date(now.getTime() + 330 * 60000).toISOString().slice(0, 16);
+    }
+  };
+
+  const handleOpenCreateModal = () => {
+    prefillStartTime();
+    if (modalError) {
+      modalError.style.display = 'none';
+      modalError.textContent = '';
+    }
+    openModal('modal-create-class');
+    if (!rosterPromise) {
+      audience.disabled = true;
+      submitButton.disabled = true;
+      rosterPromise = loadClassRoster()
+        .then(() => {
+          audience.disabled = false;
+          submitButton.disabled = false;
+        })
+        .catch(() => {
+          modalError.textContent = 'Could not load students. Close this form and open it again to retry.';
+          modalError.style.display = 'block';
+          rosterPromise = null;
+        });
+    }
+  };
+
+  const handleCloseCreateModal = () => {
     closeModal('modal-create-class');
     if (form) form.reset();
+    selectedStudents.clear();
+    renderStudentOptions();
+    updateAudience();
+    if (modalError) {
+      modalError.style.display = 'none';
+      modalError.textContent = '';
+    }
   };
 
-  if (btnOpen) btnOpen.addEventListener('click', handleOpenModal);
-  if (btnClose) btnClose.addEventListener('click', handleCloseModal);
-  if (btnCancel) btnCancel.addEventListener('click', handleCloseModal);
+  if (btnOpen) {
+    btnOpen.hidden = profile.role !== 'admin';
+    if (profile.role === 'admin') {
+      btnOpen.addEventListener('click', handleOpenCreateModal);
+      btnOpen.disabled = false;
+    }
+  }
+  if (btnClose) btnClose.addEventListener('click', handleCloseCreateModal);
+  if (btnCancel) btnCancel.addEventListener('click', handleCloseCreateModal);
+
+  // Close on backdrop click
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        handleCloseCreateModal();
+      }
+    });
+  }
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && (modal.classList.contains('open') || modal.classList.contains('is-open'))) {
+      handleCloseCreateModal();
+    }
+  });
 
   // Load initial classes and teachers asynchronously without blocking the UI
   loadLiveClasses().catch((err) => console.error('Error loading live classes:', err));
@@ -344,22 +456,27 @@ export async function initLiveClassesPage() {
   if (form) {
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      if (modalError) modalError.style.display = 'none';
+      if (submitButton.disabled) return;
+      if (modalError) {
+        modalError.style.display = 'none';
+        modalError.textContent = '';
+      }
 
-      const title = document.getElementById('input-title')?.value;
-      const webinar_id = document.getElementById('input-webinar-id')?.value;
+      const title = document.getElementById('input-title')?.value?.trim();
+      const webinar_id = document.getElementById('input-webinar-id')?.value?.trim();
       const teacher_id = document.getElementById('select-teacher')?.value;
       const invitedSelect = document.getElementById('select-invited-teachers');
       const invited_teacher_ids = invitedSelect
         ? Array.from(invitedSelect.selectedOptions).map((o) => o.value)
         : [];
-      const target_level = document.getElementById('select-level')?.value || null;
+      const target_level = audience.value === 'level' ? levelSelect.value : null;
+      const target_student_ids = audience.value === 'students' ? [...selectedStudents] : null;
       const startTimeVal = document.getElementById('input-start-time')?.value;
       const duration_minutes = Number(document.getElementById('input-duration')?.value) || 60;
       const host_email = document.getElementById('input-host-email')?.value?.trim() || null;
       const notes = document.getElementById('input-notes')?.value || '';
 
-      if (!title || !webinar_id || !teacher_id || !startTimeVal) {
+      if (!title || !teacher_id || !startTimeVal || !audience.value) {
         if (modalError) {
           modalError.textContent = 'Please fill out all required fields.';
           modalError.style.display = 'block';
@@ -367,8 +484,15 @@ export async function initLiveClassesPage() {
         return;
       }
 
-      const scheduled_start_time = new Date(startTimeVal).toISOString();
+      if ((audience.value === 'level' && !target_level) ||
+          (audience.value === 'students' && !target_student_ids.length)) {
+        modalError.textContent = 'Choose a class level or select at least one student.';
+        modalError.style.display = 'block';
+        return;
+      }
+      const scheduled_start_time = new Date(`${startTimeVal}+05:30`).toISOString();
 
+      submitButton.disabled = true;
       try {
         const { data: { session: currentSession } } = await supabase.auth.getSession();
         const res = await fetch('/api/live-class', {
@@ -384,6 +508,8 @@ export async function initLiveClassesPage() {
             teacher_id,
             invited_teacher_ids,
             target_level,
+            target_student_ids,
+            audience: audience.value,
             scheduled_start_time,
             duration_minutes,
             host_email,
@@ -393,10 +519,14 @@ export async function initLiveClassesPage() {
 
         const resData = await res.json();
         if (!res.ok || !resData.ok) {
+          if (resData.existingRoomId) {
+            document.getElementById('input-webinar-id').value = resData.existingRoomId;
+            document.getElementById('input-host-email').value = resData.existingHostEmail || '';
+          }
           throw new Error(resData.error || 'Failed to create live class.');
         }
 
-        handleCloseModal();
+        handleCloseCreateModal();
         showToast('Live class successfully scheduled!', 'success');
         await loadLiveClasses();
       } catch (err) {
@@ -404,6 +534,8 @@ export async function initLiveClassesPage() {
           modalError.textContent = err.message;
           modalError.style.display = 'block';
         }
+      } finally {
+        submitButton.disabled = false;
       }
     });
   }
