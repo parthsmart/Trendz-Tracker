@@ -34,7 +34,10 @@ const WEBINAR_API_BASE = 'https://webinar-api.webinar.gg/api/v1';
 const WEBINAR_ID = 'cmvl53hcc0bycs60yjljyys4z';
 const WEBINAR_TOKEN = envLocal.WEBINAR_GG_TOKEN;
 
-const ORIGINAL_MEDIA_URL = 'https://stream-os-assets.classx.co.in/videos/streamos-data/4659917-1792771665/original-4d8e73/1080p/video.mp4';
+const ORIGINAL_MEDIA_URL = envLocal.DISPOSABLE_RECORDING_SOURCE_URL || process.env.DISPOSABLE_RECORDING_SOURCE_URL;
+if (!ORIGINAL_MEDIA_URL) {
+  throw new Error('Missing DISPOSABLE_RECORDING_SOURCE_URL in staging environment.');
+}
 
 console.log('================================================================');
 console.log('WEBINAR.GG REPLAY WORKFLOW & PRESERVED COPY VERIFICATION');
