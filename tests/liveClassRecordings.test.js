@@ -463,3 +463,78 @@ test('5. Scheduled Prerecorded class join respects audience without Webinar.gg t
     assert.equal(res.body.code, 'NOT_ENROLLED');
   }
 });
+
+test('6. Provider recording confirmation gate and attendee old-link replay block', async () => {
+  const student = { id: 'stu-1', email: 'stu@example.com', role: 'student', level: 'Level 1', active: true };
+
+  // A. Class with recording confirmed by provider
+  {
+    const dbState = {
+      liveClasses: [
+        {
+          id: 'cls-confirmed-rec',
+          title: 'Confirmed Recording Class',
+          webinar_id: 'wgg-rec-confirmed',
+          teacher_id: 'teach-1',
+          target_level: 'Level 1',
+          status: 'live',
+          recording_enabled: true,
+          recording_confirmed: true,
+        },
+      ],
+    };
+    const mockSupabase = createMockSupabase(student, dbState);
+    const { req, res } = createMockReqRes({ body: { action: 'get_class_details', classId: 'cls-confirmed-rec' } });
+    await handleLiveClassRequest(req, res, { supabase: mockSupabase });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.class.recordingConfirmed, true);
+    assert.equal(res.body.class.recordingNotice, 'This live class is being recorded for academic review.');
+  }
+
+  // B. Class where recording is NOT confirmed: notice MUST be null
+  {
+    const dbState = {
+      liveClasses: [
+        {
+          id: 'cls-unconfirmed-rec',
+          title: 'Unconfirmed Recording Class',
+          webinar_id: 'wgg-rec-unconfirmed',
+          teacher_id: 'teach-1',
+          target_level: 'Level 1',
+          status: 'scheduled',
+          recording_enabled: true,
+          recording_confirmed: false,
+        },
+      ],
+    };
+    const mockSupabase = createMockSupabase(student, dbState);
+    const { req, res } = createMockReqRes({ body: { action: 'get_class_details', classId: 'cls-unconfirmed-rec' } });
+    await handleLiveClassRequest(req, res, { supabase: mockSupabase });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.class.recordingConfirmed, false);
+    assert.equal(res.body.class.recordingNotice, null, 'Unconfirmed recording must NOT show REC notice');
+  }
+
+  // C. Ended class: attendee cannot replay from old room link
+  {
+    const dbState = {
+      liveClasses: [
+        {
+          id: 'cls-ended',
+          title: 'Past Completed Class',
+          webinar_id: 'wgg-ended-1',
+          teacher_id: 'teach-1',
+          target_level: 'Level 1',
+          status: 'ended',
+          recording_enabled: true,
+        },
+      ],
+    };
+    const mockSupabase = createMockSupabase(student, dbState);
+    const { req, res } = createMockReqRes({ body: { action: 'join', classId: 'cls-ended' } });
+    await handleLiveClassRequest(req, res, { supabase: mockSupabase });
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.body.code, 'CLASS_ENDED');
+    assert.ok(res.body.error.includes('ended'));
+  }
+});

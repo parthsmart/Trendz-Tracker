@@ -107,7 +107,16 @@ function createMockSupabase(callerProfile, dbState = {}) {
             };
             return chain;
           },
-          upsert: async (catData) => {
+          delete: () => ({
+            in: async (col, vals) => {
+              for (const v of vals) {
+                const idx = categories.findIndex((c) => c.id === v);
+                if (idx !== -1) categories.splice(idx, 1);
+              }
+              return { data: null, error: null };
+            },
+          }),
+          upsert: (catData) => {
             let existing = categories.find((c) => c.slug === catData.slug);
             if (!existing) {
               existing = { id: `cat-${categories.length + 1}`, ...catData };
@@ -119,6 +128,7 @@ function createMockSupabase(callerProfile, dbState = {}) {
               select: () => ({
                 single: async () => ({ data: existing, error: null }),
               }),
+              then: (resolve) => resolve({ data: existing, error: null }),
             };
           },
         };
@@ -126,6 +136,15 @@ function createMockSupabase(callerProfile, dbState = {}) {
 
       if (table === 'lectures') {
         return {
+          delete: () => ({
+            in: async (col, vals) => {
+              for (const v of vals) {
+                const idx = lectures.findIndex((l) => l.id === v);
+                if (idx !== -1) lectures.splice(idx, 1);
+              }
+              return { data: null, error: null };
+            },
+          }),
           select: (columns) => {
             const filters = {
               category_id: null,
@@ -176,7 +195,7 @@ function createMockSupabase(callerProfile, dbState = {}) {
             };
             return chain;
           },
-          upsert: async (lecData) => {
+          upsert: (lecData) => {
             let existing = lectures.find((l) => l.slug === lecData.slug);
             if (!existing) {
               existing = { id: `lec-${lectures.length + 1}`, ...lecData };
@@ -184,7 +203,12 @@ function createMockSupabase(callerProfile, dbState = {}) {
             } else {
               Object.assign(existing, lecData);
             }
-            return { data: existing, error: null };
+            return {
+              select: () => ({
+                single: async () => ({ data: existing, error: null }),
+              }),
+              then: (resolve) => resolve({ data: existing, error: null }),
+            };
           },
         };
       }
@@ -321,4 +345,135 @@ test('6. Admin Classroom Import & Draft Preview enforces role boundary', async (
   assert.equal(admRes.body.preview.categoriesCount, 23);
   assert.equal(admRes.body.preview.totalLessonsCount, 28);
   assert.ok(Array.isArray(admRes.body.preview.categories));
+});
+
+test('7. Enforces publication and audience access on list and direct playback', async () => {
+  const basicStudent = { id: 'stu-basic', email: 'basic@example.com', role: 'student', level: 'Basic 1', active: true };
+  const mockCategories = [
+    { id: 'cat-1', title: 'Addition', slug: 'addition', sort_order: 1, active: true },
+  ];
+  const mockLectures = [
+    { id: 'lec-open', category_id: 'cat-1', title: 'Open Lecture', slug: 'open-lec', lesson_order: 1, status: 'active', target_level: null },
+    { id: 'lec-basic', category_id: 'cat-1', title: 'Basic 1 Lecture', slug: 'basic-lec', lesson_order: 2, status: 'active', target_level: 'Basic 1' },
+    { id: 'lec-master', category_id: 'cat-1', title: 'Grand Master Lecture', slug: 'master-lec', lesson_order: 3, status: 'active', target_level: 'Grand Master' },
+    { id: 'lec-draft', category_id: 'cat-1', title: 'Draft Lecture', slug: 'draft-lec', lesson_order: 4, status: 'draft', target_level: 'Basic 1' },
+  ];
+
+  const supabase = createMockSupabase(basicStudent, { categories: mockCategories, lectures: mockLectures });
+
+  // 1. list_lectures: Basic 1 student only sees open lecture and Basic 1 lecture (excludes Grand Master and draft)
+  {
+    const { req, res } = createMockReqRes({ body: { action: 'list_lectures', categoryId: 'cat-1' } });
+    await handleLecturesRequest(req, res, { supabase });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.lectures.length, 2);
+    const titles = res.body.lectures.map((l) => l.title);
+    assert.deepEqual(titles, ['Open Lecture', 'Basic 1 Lecture']);
+  }
+
+  // 2. Direct playback of open lecture: succeeds
+  {
+    const { req, res } = createMockReqRes({ body: { action: 'get_lecture', lectureId: 'lec-open' } });
+    await handleLecturesRequest(req, res, { supabase });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.lecture.title, 'Open Lecture');
+  }
+
+  // 3. Direct playback of matching level: succeeds
+  {
+    const { req, res } = createMockReqRes({ body: { action: 'get_lecture', lectureId: 'lec-basic' } });
+    await handleLecturesRequest(req, res, { supabase });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.lecture.title, 'Basic 1 Lecture');
+  }
+
+  // 4. Direct playback of audience-restricted lecture: 403 AUDIENCE_RESTRICTED
+  {
+    const { req, res } = createMockReqRes({ body: { action: 'get_lecture', lectureId: 'lec-master' } });
+    await handleLecturesRequest(req, res, { supabase });
+    assert.equal(res.statusCode, 403);
+    assert.equal(res.body.code, 'AUDIENCE_RESTRICTED');
+  }
+
+  // 5. Direct playback of draft lecture: 403 LECTURE_UNPUBLISHED
+  {
+    const { req, res } = createMockReqRes({ body: { action: 'get_lecture', lectureId: 'lec-draft' } });
+    await handleLecturesRequest(req, res, { supabase });
+    assert.equal(res.statusCode, 403);
+    assert.equal(res.body.code, 'LECTURE_UNPUBLISHED');
+  }
+});
+
+test('8. Database errors fail with 500 DATABASE_ERROR without silent manifest fallback', async () => {
+  const student = { id: 'stu-1', email: 'stu@example.com', role: 'student', active: true };
+  const failingSupabase = {
+    auth: {
+      getUser: async () => ({ data: { user: { id: student.id, email: student.email } }, error: null }),
+    },
+    from: (table) => {
+      if (table === 'profiles') {
+        return {
+          select: () => ({ eq: () => ({ single: async () => ({ data: student, error: null }) }) }),
+        };
+      }
+      return {
+        select: () => ({
+          order: () => Promise.resolve({ data: null, error: { message: 'relation "lecture_categories" does not exist', code: '42P01' } }),
+          eq: () => ({ single: async () => ({ data: null, error: { message: 'Database query failed', code: '500' } }) }),
+        }),
+      };
+    },
+  };
+
+  const { req, res } = createMockReqRes({ body: { action: 'list_categories' } });
+  await handleLecturesRequest(req, res, { supabase: failingSupabase });
+  assert.equal(res.statusCode, 500);
+  assert.equal(res.body.code, 'DATABASE_ERROR');
+});
+
+test('9. Admin publish_import enforces pre-validation and atomic publishing', async () => {
+  const admin = { id: 'adm-1', email: 'admin@example.com', role: 'admin', active: true };
+  const dbState = { categories: [], lectures: [] };
+  const supabase = createMockSupabase(admin, dbState);
+
+  // 1. Invalid manifest (missing lecture mediaUrl) fails pre-validation with 400
+  {
+    const invalidManifest = {
+      categories: [
+        {
+          title: 'Addition',
+          slug: 'addition',
+          lessons: [
+            { title: 'Part 1', mediaUrl: '' }, // invalid URL
+          ],
+        },
+      ],
+    };
+    const { req, res } = createMockReqRes({ body: { action: 'publish_import', manifest: invalidManifest } });
+    await handleLecturesRequest(req, res, { supabase });
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.body.code, 'INVALID_MANIFEST');
+    assert.equal(dbState.categories.length, 0, 'No categories should be created on validation failure');
+  }
+
+  // 2. Valid manifest publishes atomically
+  {
+    const validManifest = {
+      categories: [
+        {
+          title: 'Addition',
+          slug: 'addition',
+          lessons: [
+            { title: 'Part 1', lessonOrder: 1, mediaUrl: 'https://www.w3schools.com/html/mov_bbb.mp4' },
+          ],
+        },
+      ],
+    };
+    const { req, res } = createMockReqRes({ body: { action: 'publish_import', manifest: validManifest } });
+    await handleLecturesRequest(req, res, { supabase });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.importedCategories, 1);
+    assert.equal(res.body.importedLectures, 1);
+  }
 });

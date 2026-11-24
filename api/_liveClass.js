@@ -169,9 +169,9 @@ async function mintWebinarJoinToken({ webinarId, firstName, lastName, email, pho
 }
 
 /**
- * Reads provider webinar status
+ * Reads provider webinar status and settings (e.g. recording confirmation)
  */
-async function fetchProviderWebinarStatus(webinarId, fetchImpl = fetch) {
+async function fetchProviderWebinarInfo(webinarId, fetchImpl = fetch) {
   const apiToken = getWebinarGgToken();
   if (!apiToken) return null;
 
@@ -185,10 +185,22 @@ async function fetchProviderWebinarStatus(webinarId, fetchImpl = fetch) {
 
     if (!response.ok) return null;
     const json = await response.json();
-    return json?.data?.status || null;
+    return {
+      status: json?.data?.status || null,
+      recordingEnabled: json?.data?.recordingEnabled === true,
+      title: json?.data?.title || null,
+    };
   } catch (_) {
     return null;
   }
+}
+
+/**
+ * Reads provider webinar status (backward compatibility alias)
+ */
+async function fetchProviderWebinarStatus(webinarId, fetchImpl = fetch) {
+  const info = await fetchProviderWebinarInfo(webinarId, fetchImpl);
+  return info?.status || null;
 }
 
 /**
@@ -295,11 +307,13 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           return res.status(404).json({ error: 'Live class not found.', code: 'CLASS_NOT_FOUND' });
         }
 
-        // Live provider status check: sync provider status if scheduled or live
+        // Live provider status check: sync provider status and verify recording configuration
         let currentStatus = liveClass.status;
         let providerStatus = liveClass.provider_status;
+        let providerInfo = null;
         if (liveClass.webinar_id && currentStatus !== 'ended' && currentStatus !== 'cancelled') {
-          const liveProviderStatus = await fetchProviderWebinarStatus(liveClass.webinar_id, fetchImpl);
+          providerInfo = await fetchProviderWebinarInfo(liveClass.webinar_id, fetchImpl);
+          const liveProviderStatus = providerInfo?.status;
           if (liveProviderStatus) {
             providerStatus = liveProviderStatus;
             if (liveProviderStatus === 'completed' || liveProviderStatus === 'ended') {
@@ -319,6 +333,11 @@ export async function handleLiveClassRequest(req, res, options = {}) {
             }
           }
         }
+
+        const providerRecordingConfirmed = providerInfo ? providerInfo.recordingEnabled === true : false;
+        const isRecordingConfirmed = Boolean(
+          liveClass.recording_confirmed === true || providerRecordingConfirmed
+        );
 
         const isInvitedParticipant = caller.role === 'teacher' && Boolean(
           Array.isArray(liveClass.invited_teacher_ids) && liveClass.invited_teacher_ids.includes(caller.id)
@@ -352,9 +371,12 @@ export async function handleLiveClassRequest(req, res, options = {}) {
             providerStatus: providerStatus,
             classType: liveClass.class_type || 'live',
             recordingEnabled: liveClass.recording_enabled !== false,
+            recordingConfirmed: isRecordingConfirmed,
             prerecordedAssetUrl: liveClass.prerecorded_asset_url || null,
             streamUrl: liveClass.stream_url || null,
-            recordingNotice: liveClass.recording_enabled !== false ? 'This live class is being recorded for academic review.' : null,
+            recordingNotice: (liveClass.recording_enabled !== false && isRecordingConfirmed)
+              ? 'This live class is being recorded for academic review.'
+              : null,
             notes: liveClass.notes,
             isHost,
             hostingDisabled,
@@ -474,18 +496,27 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           });
         }
 
-        // Provider status check before minting join token
-        const providerStatus = await fetchProviderWebinarStatus(liveClass.webinar_id, fetchImpl);
-        if (providerStatus === 'completed' || providerStatus === 'ended') {
+        // Provider status & recording info check before minting join token
+        const providerInfo = await fetchProviderWebinarInfo(liveClass.webinar_id, fetchImpl);
+        const providerStatus = providerInfo?.status || liveClass.provider_status;
+        const providerRecordingConfirmed = providerInfo ? providerInfo.recordingEnabled === true : false;
+        const isRecordingConfirmed = Boolean(
+          liveClass.recording_confirmed === true || providerRecordingConfirmed
+        );
+
+        if (providerStatus === 'completed' || providerStatus === 'ended' || liveClass.status === 'ended') {
           await supabase
             .from('live_classes')
             .update({
-              provider_status: providerStatus,
+              provider_status: providerStatus || 'completed',
               status: 'ended',
               updated_at: new Date().toISOString(),
             })
             .eq('id', classId);
-          return res.status(400).json({ error: 'This live class has already ended.', code: 'CLASS_ENDED' });
+          return res.status(400).json({
+            error: 'This live class has already ended. Live room access is closed and recordings cannot be replayed from the room link.',
+            code: 'CLASS_ENDED',
+          });
         }
 
         let isHost = false;
@@ -562,7 +593,10 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           expiresInSeconds: tokenData.expiresInSeconds,
           classType: liveClass.class_type || 'live',
           recordingEnabled: liveClass.recording_enabled !== false,
-          recordingNotice: liveClass.recording_enabled !== false ? 'This live class is being recorded for academic review.' : null,
+          recordingConfirmed: isRecordingConfirmed,
+          recordingNotice: (liveClass.recording_enabled !== false && isRecordingConfirmed)
+            ? 'This live class is being recorded for academic review.'
+            : null,
         });
       }
 

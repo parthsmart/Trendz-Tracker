@@ -11,7 +11,13 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { formatDuration, TrendzMediaPlayer } from '../js/mediaPlayer.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 test('1. formatDuration formats seconds to MM:SS and HH:MM:SS cleanly', () => {
   assert.equal(formatDuration(0), '00:00');
@@ -172,4 +178,37 @@ test('5. Native player controls: skip, volume toggle, and keyboard shortcuts dis
   assert.equal(mockVideo.muted, false);
 
   player.destroy();
+});
+
+test('6. All three Jr. MCWC Addition lecture videos load authorized source references without uploader Google session', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../data/jr_mcwc_classroom_manifest.json'), 'utf-8'));
+  const addition = manifest.categories.find((c) => c.slug === 'addition');
+  assert.ok(addition, 'Addition category must exist');
+  assert.equal(addition.lessons.length, 3, 'Must have 3 Addition lessons');
+
+  addition.lessons.forEach((lesson, idx) => {
+    let storedHtml = '';
+    const mockContainer = {
+      classList: { add: () => {} },
+      set innerHTML(val) { storedHtml = val; },
+      get innerHTML() { return storedHtml; },
+      querySelector: () => null,
+    };
+
+    const player = new TrendzMediaPlayer(mockContainer, {
+      mediaType: lesson.mediaType,
+      mediaUrl: lesson.mediaUrl,
+      title: lesson.title,
+      category: 'Addition',
+      lessonOrder: lesson.lessonOrder,
+      totalLessons: 3,
+    });
+
+    assert.equal(lesson.mediaType, 'video_mp4', `Lesson ${idx + 1} must be an authorized MP4 video`);
+    assert.ok(!lesson.mediaUrl.includes('DEMO'), `Lesson ${idx + 1} must not contain demo placeholder URL`);
+    assert.ok(!lesson.mediaUrl.includes('drive.google.com'), `Lesson ${idx + 1} must not require Google login`);
+    assert.ok(storedHtml.includes(lesson.mediaUrl), `Trendz player stage must embed authorized source reference for Lesson ${idx + 1}`);
+    assert.ok(storedHtml.includes('trendz-player-video'), 'Must render high-performance native video surface');
+    player.destroy();
+  });
 });

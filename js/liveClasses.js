@@ -133,11 +133,12 @@ export async function loadLiveClasses() {
           ? `${cls.target_student_ids.length} selected students`
           : cls.target_level || 'All Levels';
 
+        const recBadge = (cls.recording_confirmed || cls.recordingConfirmed) ? ' • REC' : '';
         const typeBadge = cls.class_type === 'prerecorded'
           ? '<span class="badge badge-info" style="font-size: var(--text-xs);">Prerecorded</span>'
           : cls.class_type === 'stream'
             ? '<span class="badge badge-warning" style="font-size: var(--text-xs);">Stream</span>'
-            : `<span class="badge badge-neutral" style="font-size: var(--text-xs);">Live ${cls.recording_enabled !== false ? '• REC' : ''}</span>`;
+            : `<span class="badge badge-neutral" style="font-size: var(--text-xs);">Live${recBadge}</span>`;
 
         return `
           <tr style="border-bottom: 1px solid var(--border-hairline);">

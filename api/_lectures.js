@@ -119,24 +119,8 @@ export async function handleLecturesRequest(req, res, options = {}) {
           `)
           .order('sort_order', { ascending: true });
 
-        if (error && (error.code === '42P01' || error.message?.includes('does not exist') || error.message?.includes('schema cache') || error.message?.includes('table'))) {
-          // Table lecture_categories not yet applied to database; load from manifest
-          const manifest = loadDefaultManifest();
-          const cats = manifest?.categories || [];
-          const formatted = cats.map((cat, idx) => ({
-            id: `cat-${cat.slug}`,
-            title: cat.title,
-            slug: cat.slug,
-            description: cat.description || '',
-            sortOrder: cat.sortOrder || idx + 1,
-            active: true,
-            lessonCount: Array.isArray(cat.lessons) ? cat.lessons.length : 0,
-          }));
-          return res.status(200).json({ ok: true, categories: formatted });
-        }
-
         if (error) {
-          return res.status(500).json({ error: error.message, code: 'DATABASE_ERROR' });
+          return res.status(500).json({ error: error.message || 'Database error accessing lecture categories.', code: 'DATABASE_ERROR' });
         }
 
         const formatted = (categories || []).map((cat) => {
@@ -191,52 +175,17 @@ export async function handleLecturesRequest(req, res, options = {}) {
         }
 
         const { data: lectures, error } = await query;
-        if (error && (error.code === '42P01' || error.message?.includes('does not exist') || error.message?.includes('schema cache') || error.message?.includes('table'))) {
-          const manifest = loadDefaultManifest();
-          const cats = manifest?.categories || [];
-          let filteredCats = cats;
-          if (categorySlug) {
-            filteredCats = cats.filter((c) => c.slug === categorySlug);
-          }
-          let allLessons = [];
-          filteredCats.forEach((c) => {
-            (c.lessons || []).forEach((l, lIdx) => {
-              allLessons.push({
-                id: `lec-${c.slug}-${lIdx + 1}`,
-                categoryId: `cat-${c.slug}`,
-                categoryTitle: c.title,
-                categorySlug: c.slug,
-                title: l.title,
-                slug: l.slug || `${c.slug}-part-${lIdx + 1}`,
-                lessonOrder: l.lessonOrder || lIdx + 1,
-                durationSeconds: l.durationSeconds || 0,
-                mediaType: l.mediaType || 'drive_embed',
-                mediaUrl: l.mediaUrl,
-                thumbnailUrl: l.thumbnailUrl || null,
-                notes: l.notes || '',
-                targetLevel: l.targetLevel || null,
-                status: 'active',
-              });
-            });
-          });
-          if (search) {
-            const s = search.toLowerCase();
-            allLessons = allLessons.filter((l) =>
-              l.title.toLowerCase().includes(s) ||
-              l.categoryTitle.toLowerCase().includes(s) ||
-              l.notes.toLowerCase().includes(s)
-            );
-          }
-          return res.status(200).json({ ok: true, lectures: allLessons });
-        }
-
         if (error) {
-          return res.status(500).json({ error: error.message, code: 'DATABASE_ERROR' });
+          return res.status(500).json({ error: error.message || 'Database error accessing lectures.', code: 'DATABASE_ERROR' });
         }
 
         let filtered = lectures || [];
         if (categorySlug) {
           filtered = filtered.filter((l) => l.category?.slug === categorySlug);
+        }
+        // Enforce audience access: students only see lectures open to all or matching their level
+        if (caller.role === 'student') {
+          filtered = filtered.filter((l) => !l.target_level || l.target_level === caller.level);
         }
         if (search) {
           const s = search.toLowerCase();
@@ -295,59 +244,41 @@ export async function handleLecturesRequest(req, res, options = {}) {
           .eq('id', lectureId)
           .single();
 
-        if (error && (error.code === '42P01' || error.message?.includes('does not exist') || error.message?.includes('schema cache') || error.message?.includes('table'))) {
-          const manifest = loadDefaultManifest();
-          const cats = manifest?.categories || [];
-          for (const c of cats) {
-            const lessons = c.lessons || [];
-            const idx = lessons.findIndex((l, i) => `lec-${c.slug}-${i + 1}` === lectureId || l.slug === lectureId);
-            if (idx !== -1) {
-              const current = lessons[idx];
-              const prev = idx > 0 ? lessons[idx - 1] : null;
-              const next = idx < lessons.length - 1 ? lessons[idx + 1] : null;
-              return res.status(200).json({
-                ok: true,
-                lecture: {
-                  id: lectureId,
-                  categoryId: `cat-${c.slug}`,
-                  categoryTitle: c.title,
-                  categorySlug: c.slug,
-                  title: current.title,
-                  slug: current.slug || `${c.slug}-part-${idx + 1}`,
-                  lessonOrder: current.lessonOrder || idx + 1,
-                  totalLessons: lessons.length,
-                  durationSeconds: current.durationSeconds || 0,
-                  mediaType: current.mediaType || 'drive_embed',
-                  mediaUrl: current.mediaUrl,
-                  notes: current.notes || '',
-                  targetLevel: current.targetLevel || null,
-                  previousLectureId: prev ? `lec-${c.slug}-${idx}` : null,
-                  previousLectureTitle: prev ? prev.title : null,
-                  nextLectureId: next ? `lec-${c.slug}-${idx + 2}` : null,
-                  nextLectureTitle: next ? next.title : null,
-                },
-              });
-            }
-          }
+        if (error || !lecture) {
           return res.status(404).json({ error: 'Lecture not found.', code: 'LECTURE_NOT_FOUND' });
         }
 
-        if (error || !lecture) {
-          return res.status(404).json({ error: 'Lecture not found.', code: 'LECTURE_NOT_FOUND' });
+        // 1. Publication enforcement: only admin can view non-active drafts
+        if (caller.role !== 'admin' && lecture.status !== 'active') {
+          return res.status(403).json({ error: 'This lecture has not been published.', code: 'LECTURE_UNPUBLISHED' });
+        }
+
+        // 2. Audience access enforcement: students can only access open or matching level lectures
+        if (caller.role === 'student' && lecture.target_level && lecture.target_level !== caller.level) {
+          return res.status(403).json({
+            error: `This lecture is restricted to ${lecture.target_level} students.`,
+            code: 'AUDIENCE_RESTRICTED',
+            requiredLevel: lecture.target_level,
+          });
         }
 
         // Fetch sibling lectures in same category to resolve next/previous navigation
         const { data: siblings } = await supabase
           .from('lectures')
-          .select('id, title, lesson_order')
+          .select('id, title, lesson_order, target_level')
           .eq('category_id', lecture.category_id)
           .eq('status', 'active')
           .order('lesson_order', { ascending: true });
 
-        const sorted = siblings || [];
-        const currentIndex = sorted.findIndex((s) => s.id === lecture.id);
-        const previousLecture = currentIndex > 0 ? sorted[currentIndex - 1] : null;
-        const nextLecture = currentIndex >= 0 && currentIndex < sorted.length - 1 ? sorted[currentIndex + 1] : null;
+        // Filter sibling queue to only include lessons accessible to caller
+        let accessibleSiblings = siblings || [];
+        if (caller.role === 'student') {
+          accessibleSiblings = accessibleSiblings.filter((s) => !s.target_level || s.target_level === caller.level);
+        }
+
+        const currentIndex = accessibleSiblings.findIndex((s) => s.id === lecture.id);
+        const previousLecture = currentIndex > 0 ? accessibleSiblings[currentIndex - 1] : null;
+        const nextLecture = currentIndex >= 0 && currentIndex < accessibleSiblings.length - 1 ? accessibleSiblings[currentIndex + 1] : null;
 
         return res.status(200).json({
           ok: true,
@@ -359,7 +290,7 @@ export async function handleLecturesRequest(req, res, options = {}) {
             title: lecture.title,
             slug: lecture.slug,
             lessonOrder: lecture.lesson_order,
-            totalLessons: sorted.length,
+            totalLessons: accessibleSiblings.length,
             durationSeconds: lecture.duration_seconds,
             mediaType: lecture.media_type,
             mediaUrl: lecture.media_url,
@@ -428,81 +359,164 @@ export async function handleLecturesRequest(req, res, options = {}) {
         });
       }
 
-      // 5. Admin Publish Classroom Import
+      // 5. Admin Publish Classroom Import (Atomic Publishing)
       case 'publish_import': {
         if (caller.role !== 'admin') {
           return res.status(403).json({ error: 'Only administrators can publish Classroom imports.', code: 'FORBIDDEN' });
         }
 
         const manifest = body.manifest || loadDefaultManifest();
-        if (!manifest || !Array.isArray(manifest.categories)) {
+        if (!manifest || !Array.isArray(manifest.categories) || manifest.categories.length === 0) {
           return res.status(400).json({ error: 'Invalid manifest data to publish.', code: 'INVALID_MANIFEST' });
         }
 
-        let createdCategories = 0;
-        let createdLectures = 0;
-
+        // 1. Strict schema validation before attempting database mutations
         for (let i = 0; i < manifest.categories.length; i++) {
           const cat = manifest.categories[i];
-          const slug = cat.slug || cat.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-
-          // Upsert category
-          const { data: categoryRow, error: catError } = await supabase
-            .from('lecture_categories')
-            .upsert(
-              {
-                title: cat.title,
-                slug,
-                description: cat.description || '',
-                sort_order: cat.sortOrder || i + 1,
-                active: true,
-                updated_at: new Date().toISOString(),
-              },
-              { onConflict: 'slug' }
-            )
-            .select('id')
-            .single();
-
-          if (catError || !categoryRow) {
-            continue;
+          if (!cat.title || typeof cat.title !== 'string') {
+            return res.status(400).json({
+              error: `Validation error at category #${i + 1}: Title is required.`,
+              code: 'INVALID_MANIFEST',
+            });
           }
-          createdCategories++;
-
           const lessons = Array.isArray(cat.lessons) ? cat.lessons : [];
           for (let j = 0; j < lessons.length; j++) {
             const l = lessons[j];
-            const lessonSlug = l.slug || `${slug}-part-${j + 1}`;
-
-            const { error: lecError } = await supabase
-              .from('lectures')
-              .upsert(
-                {
-                  category_id: categoryRow.id,
-                  title: l.title,
-                  slug: lessonSlug,
-                  lesson_order: l.lessonOrder || j + 1,
-                  duration_seconds: l.durationSeconds || 0,
-                  media_type: l.mediaType || 'drive_embed',
-                  media_url: l.mediaUrl,
-                  notes: l.notes || '',
-                  status: 'active',
-                  updated_at: new Date().toISOString(),
-                },
-                { onConflict: 'category_id, lesson_order' }
-              );
-
-            if (!lecError) {
-              createdLectures++;
+            if (!l.title || typeof l.title !== 'string') {
+              return res.status(400).json({
+                error: `Validation error in category "${cat.title}" lesson #${j + 1}: Title is required.`,
+                code: 'INVALID_MANIFEST',
+              });
+            }
+            if (!l.mediaUrl || typeof l.mediaUrl !== 'string' || (!l.mediaUrl.startsWith('http://') && !l.mediaUrl.startsWith('https://'))) {
+              return res.status(400).json({
+                error: `Validation error in category "${cat.title}" lesson "${l.title}": Valid media URL (http/https) is required.`,
+                code: 'INVALID_MANIFEST',
+              });
             }
           }
         }
 
-        return res.status(200).json({
-          ok: true,
-          message: 'Google Classroom lecture catalogue successfully imported and published!',
-          importedCategories: createdCategories,
-          importedLectures: createdLectures,
-        });
+        // 2. Try transactional RPC if available in database
+        if (typeof supabase.rpc === 'function') {
+          const { data: rpcData, error: rpcError } = await supabase.rpc('publish_classroom_catalogue', {
+            p_manifest: manifest,
+          });
+
+          if (!rpcError && rpcData?.ok) {
+            return res.status(200).json({
+              ok: true,
+              message: 'Google Classroom lecture catalogue successfully imported and published!',
+              importedCategories: rpcData.importedCategories,
+              importedLectures: rpcData.importedLectures,
+            });
+          }
+
+          // If RPC returned a database error other than missing function, fail closed
+          if (rpcError && rpcError.code !== '42883' && !rpcError.message?.includes('does not exist')) {
+            return res.status(500).json({
+              error: `Failed to publish catalogue via atomic RPC: ${rpcError.message}`,
+              code: 'DATABASE_ERROR',
+            });
+          }
+        }
+
+        // 3. Fallback: Sequential execution with atomic rollback tracking
+        const newlyInsertedCategoryIds = [];
+        const newlyInsertedLectureIds = [];
+        let createdCategories = 0;
+        let createdLectures = 0;
+
+        try {
+          for (let i = 0; i < manifest.categories.length; i++) {
+            const cat = manifest.categories[i];
+            const slug = cat.slug || cat.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+
+            const { data: categoryRow, error: catError } = await supabase
+              .from('lecture_categories')
+              .upsert(
+                {
+                  title: cat.title,
+                  slug,
+                  description: cat.description || '',
+                  sort_order: cat.sortOrder || i + 1,
+                  active: true,
+                  updated_at: new Date().toISOString(),
+                },
+                { onConflict: 'slug' }
+              )
+              .select('id')
+              .single();
+
+            if (catError || !categoryRow) {
+              throw new Error(`Failed to upsert category "${cat.title}": ${catError?.message || 'Unknown error'}`);
+            }
+
+            if (!newlyInsertedCategoryIds.includes(categoryRow.id)) {
+              newlyInsertedCategoryIds.push(categoryRow.id);
+            }
+            createdCategories++;
+
+            const lessons = Array.isArray(cat.lessons) ? cat.lessons : [];
+            for (let j = 0; j < lessons.length; j++) {
+              const l = lessons[j];
+              const lessonSlug = l.slug || `${slug}-part-${j + 1}`;
+
+              const { data: lectureRow, error: lecError } = await supabase
+                .from('lectures')
+                .upsert(
+                  {
+                    category_id: categoryRow.id,
+                    title: l.title,
+                    slug: lessonSlug,
+                    lesson_order: l.lessonOrder || j + 1,
+                    duration_seconds: l.durationSeconds || 0,
+                    media_type: l.mediaType || 'video_mp4',
+                    media_url: l.mediaUrl,
+                    thumbnail_url: l.thumbnailUrl || null,
+                    notes: l.notes || '',
+                    target_level: l.targetLevel || null,
+                    status: 'active',
+                    updated_at: new Date().toISOString(),
+                  },
+                  { onConflict: 'category_id, lesson_order' }
+                )
+                .select('id')
+                .single();
+
+              if (lecError) {
+                throw new Error(`Failed to upsert lesson "${l.title}" in category "${cat.title}": ${lecError.message}`);
+              }
+
+              if (lectureRow?.id) {
+                newlyInsertedLectureIds.push(lectureRow.id);
+              }
+              createdLectures++;
+            }
+          }
+
+          return res.status(200).json({
+            ok: true,
+            message: 'Google Classroom lecture catalogue successfully imported and published!',
+            importedCategories: createdCategories,
+            importedLectures: createdLectures,
+          });
+        } catch (importErr) {
+          // Atomic Rollback: Clean up newly inserted rows to preserve the last good catalogue
+          try {
+            if (newlyInsertedLectureIds.length > 0) {
+              await supabase.from('lectures').delete().in('id', newlyInsertedLectureIds);
+            }
+            if (newlyInsertedCategoryIds.length > 0) {
+              await supabase.from('lecture_categories').delete().in('id', newlyInsertedCategoryIds);
+            }
+          } catch (_) {}
+
+          return res.status(500).json({
+            error: `Catalogue publishing failed and was rolled back atomically: ${importErr.message}`,
+            code: 'IMPORT_FAILED',
+          });
+        }
       }
 
       default:

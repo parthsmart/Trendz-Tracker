@@ -339,7 +339,7 @@ async function loadClassMetadata(classId) {
 
   const recNoticeEl = document.getElementById('lobby-recording-notice');
   if (recNoticeEl) {
-    if (currentClassMeta.recordingNotice) {
+    if (currentClassMeta.recordingNotice && currentClassMeta.recordingConfirmed) {
       recNoticeEl.style.display = 'flex';
       recNoticeEl.innerHTML = `<span style="font-size: 14px;">●</span> <span>${currentClassMeta.recordingNotice}</span>`;
     } else {
