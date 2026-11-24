@@ -12,6 +12,14 @@
     {
       "source": "/api/jmcwc-drive-sync",
       "destination": "/api/jmcwc?drive_sync=1"
+    },
+    {
+      "source": "/api/lectures",
+      "destination": "/api/live-class?catalogue=lectures"
+    },
+    {
+      "source": "/api/lectures.js",
+      "destination": "/api/live-class?catalogue=lectures"
     }
   ],
   "headers": [

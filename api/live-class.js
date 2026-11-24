@@ -13,7 +13,11 @@
  */
 
 import { handleLiveClassRequest } from './_liveClass.js';
+import { handleLecturesRequest } from './_lectures.js';
 
 export default async function handler(req, res) {
+  if (req.query?.catalogue === 'lectures') {
+    return handleLecturesRequest(req, res);
+  }
   return handleLiveClassRequest(req, res);
 }
