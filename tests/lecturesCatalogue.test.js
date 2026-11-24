@@ -23,7 +23,60 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { handleLecturesRequest, loadDefaultManifest } from '../api/_lectures.js';
+import { readFileSync } from 'node:fs';
+import { PGlite } from '@electric-sql/pglite';
+import { handleLecturesRequest } from '../api/_lectures.js';
+
+const manifestFixture = JSON.parse(readFileSync(
+  new URL('../data/jr_mcwc_classroom_manifest.json', import.meta.url), 'utf8'
+));
+
+test('Direct catalogue reads enforce level and publication, and SQL imports reject placeholders', async (t) => {
+  const db = new PGlite();
+  t.after(() => db.close());
+  await db.exec(`
+    CREATE ROLE anon;
+    CREATE ROLE authenticated;
+    CREATE ROLE service_role;
+    CREATE SCHEMA auth;
+    CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE
+      AS $$ SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
+    CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE
+      AS $$ SELECT 'authenticated'::text $$;
+    GRANT USAGE ON SCHEMA auth TO authenticated;
+    CREATE TABLE public.profiles (id uuid, role text, level text, active boolean);
+    GRANT SELECT ON public.profiles TO authenticated;
+    CREATE FUNCTION public.is_admin() RETURNS boolean LANGUAGE sql STABLE
+      AS $$ SELECT EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin' AND active) $$;
+    INSERT INTO public.profiles VALUES
+      ('00000000-0000-0000-0000-000000000001', 'student', 'Basic 1', true),
+      ('00000000-0000-0000-0000-000000000002', 'admin', NULL, true);
+  `);
+  await db.exec(readFileSync(new URL(
+    '../supabase/migrations/19_phase21_lectures_catalogue.sql', import.meta.url
+  ), 'utf8'));
+  await db.exec(`
+    INSERT INTO public.lecture_categories (title, slug, active) VALUES
+      ('Visible', 'visible', true), ('Hidden', 'hidden', false);
+    INSERT INTO public.lectures (category_id, title, lesson_order, media_url, target_level, status)
+      SELECT cat.id, sample.title, sample.lesson_order, 'storage://lectures/sample.mp4', sample.level, sample.status
+      FROM (VALUES ('visible', 'Eligible', 1, 'Basic 1', 'active'),
+                   ('visible', 'Senior only', 2, 'Senior', 'active'),
+                   ('visible', 'Draft', 3, 'Basic 1', 'draft'),
+                   ('hidden', 'Inactive category', 1, 'Basic 1', 'active'))
+        AS sample(slug, title, lesson_order, level, status)
+      JOIN public.lecture_categories cat ON cat.slug = sample.slug;
+    SET ROLE authenticated;
+    SET request.jwt.claim.sub = '00000000-0000-0000-0000-000000000001';
+  `);
+  assert.deepEqual((await db.query('SELECT title FROM public.lectures')).rows, [{ title: 'Eligible' }]);
+  await db.exec("SET request.jwt.claim.sub = '00000000-0000-0000-0000-000000000002'");
+  assert.equal((await db.query('SELECT title FROM public.lectures')).rows.length, 4);
+  await assert.rejects(
+    db.query('SELECT public.publish_classroom_catalogue($1::jsonb)', [JSON.stringify(manifestFixture)]),
+    /needs a verified video reference/
+  );
+});
 
 function createMockReqRes({ method = 'POST', headers = {}, body = {} } = {}) {
   const req = {
@@ -161,7 +214,7 @@ function createMockSupabase(callerProfile, dbState = {}) {
                   const catLectures = lectures.filter((l) => l.category_id === cat.id);
                   return {
                     ...cat,
-                    lectures: catLectures.map((l) => ({ id: l.id, status: l.status })),
+                    lectures: catLectures.map((l) => ({ id: l.id, status: l.status, target_level: l.target_level })),
                   };
                 });
                 resolve({ data: res, error: null });
@@ -281,7 +334,7 @@ function createMockSupabase(callerProfile, dbState = {}) {
 }
 
 test('1. Google Classroom course manifest preserves all 23 categories and sequential lessons', () => {
-  const manifest = loadDefaultManifest();
+  const manifest = manifestFixture;
   assert.ok(manifest, 'Expected default manifest to load from data directory');
   assert.equal(manifest.courseTitle, 'Jr. MCWC Videos');
   assert.equal(manifest.categories.length, 23, 'Must preserve all 23 calculation categories');
@@ -316,6 +369,7 @@ test('3. Enrolled student can list categories with accurate lesson counts', asyn
     { id: 'lec-2', category_id: 'cat-1', title: 'Addition Part 2', status: 'active', lesson_order: 2 },
     { id: 'lec-3', category_id: 'cat-1', title: 'Addition Part 3', status: 'draft', lesson_order: 3 }, // draft
     { id: 'lec-4', category_id: 'cat-2', title: 'Subtraction Part 1', status: 'active', lesson_order: 1 },
+    { id: 'lec-5', category_id: 'cat-1', title: 'Senior Addition', status: 'active', lesson_order: 4, target_level: 'Senior' },
   ];
 
   const supabase = createMockSupabase(student, { categories: mockCategories, lectures: mockLectures });
@@ -400,12 +454,13 @@ test('6. Admin Classroom Import & Draft Preview enforces role boundary', async (
 
   // Admin call to import_preview should succeed
   const adminSupabase = createMockSupabase(admin);
-  const { req: admReq, res: admRes } = createMockReqRes({ body: { action: 'import_preview' } });
+  const { req: admReq, res: admRes } = createMockReqRes({ body: { action: 'import_preview', manifest: manifestFixture } });
   await handleLecturesRequest(admReq, admRes, { supabase: adminSupabase });
   assert.equal(admRes.statusCode, 200);
   assert.equal(admRes.body.ok, true);
   assert.equal(admRes.body.preview.categoriesCount, 23);
   assert.equal(admRes.body.preview.totalLessonsCount, 28);
+  assert.equal(admRes.body.preview.warnings.length, 28);
   assert.ok(Array.isArray(admRes.body.preview.categories));
 });
 
@@ -495,6 +550,13 @@ test('8. Database errors fail with 500 DATABASE_ERROR without silent manifest fa
 
 test('9. Admin publish_import enforces pre-validation and atomic publishing', async () => {
   const admin = { id: 'adm-1', email: 'admin@example.com', role: 'admin', active: true };
+  for (const manifest of [undefined, manifestFixture]) {
+    const supabase = createMockSupabase(admin);
+    const { req, res } = createMockReqRes({ body: { action: 'publish_import', manifest } });
+    await handleLecturesRequest(req, res, { supabase });
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.body.code, 'INVALID_MANIFEST');
+  }
   const dbState = { categories: [], lectures: [] };
   const supabase = createMockSupabase(admin, dbState);
 

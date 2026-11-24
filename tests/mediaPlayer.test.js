@@ -180,7 +180,7 @@ test('5. Native player controls: skip, volume toggle, and keyboard shortcuts dis
   player.destroy();
 });
 
-test('6. All three Jr. MCWC Addition lecture videos load authorized Classroom source references without sample clips', () => {
+test('6. Addition fixture renders the three ordered Drive preview links', () => {
   const manifest = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../data/jr_mcwc_classroom_manifest.json'), 'utf-8'));
   const addition = manifest.categories.find((c) => c.slug === 'addition');
   assert.ok(addition, 'Addition category must exist');

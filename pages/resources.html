@@ -73,7 +73,7 @@
           <!-- Top Navigation Tabs -->
           <div class="tabs-nav" style="display: flex; gap: var(--space-2); margin-bottom: var(--space-5); border-bottom: 1px solid var(--border-hairline); padding-bottom: var(--space-2);">
             <button type="button" id="tab-btn-lectures" class="btn btn-sm btn-primary tab-active">
-              Jr. MCWC Lectures (23 Topics)
+              Jr. MCWC Lectures
             </button>
             <button type="button" id="tab-btn-materials" class="btn btn-sm btn-outline">
               Study Materials &amp; Guides
@@ -104,7 +104,7 @@
                   <strong style="font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">
                     Curriculum Topics
                   </strong>
-                  <span id="lectures-categories-count" class="badge badge-neutral" style="font-size: 11px;">23 Topics</span>
+                  <span id="lectures-categories-count" class="badge badge-neutral" style="font-size: 11px;"></span>
                 </div>
                 <div style="padding: 8px 12px; background: #fff; border-bottom: 1px solid var(--border-hairline);">
                   <input
@@ -134,13 +134,12 @@
                   <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-hairline); padding-bottom: 10px;">
                     <div>
                       <h3 id="current-category-title" style="margin: 0; font-size: var(--text-base); font-weight: 700;">
-                        Addition
+                        Lessons
                       </h3>
                       <p id="current-category-desc" style="margin: 2px 0 0 0; font-size: var(--text-xs); color: var(--text-muted);">
-                        Junior MCWC addition foundation, speed drills, and multi-digit chaining.
                       </p>
                     </div>
-                    <span id="current-category-badge" class="badge badge-info" style="font-size: 11px;">3 Lessons</span>
+                    <span id="current-category-badge" class="badge badge-info" style="font-size: 11px;"></span>
                   </div>
 
                   <div class="lectures-queue-list" id="lectures-queue-list">
@@ -324,14 +323,17 @@
         </div>
 
         <div style="padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-4); max-height: 480px; overflow-y: auto;">
+          <label for="classroom-manifest-file" class="form-label">Classroom catalogue manifest (.json)</label>
+          <input id="classroom-manifest-file" type="file" accept=".json,application/json" class="form-input" />
+          <p id="classroom-import-status" role="status" style="margin: 0;"></p>
           <!-- Metrics Row -->
           <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); text-align: center;">
             <div style="background: var(--bg-surface-elevated, #f8fafc); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: 10px;">
-              <div id="import-categories-count" style="font-size: 1.25rem; font-weight: 800; color: var(--color-primary, #2563eb);">23</div>
+              <div id="import-categories-count" style="font-size: 1.25rem; font-weight: 800; color: var(--color-primary, #2563eb);">0</div>
               <div style="font-size: 11px; color: var(--text-muted); font-weight: 600;">Topics &amp; Categories</div>
             </div>
             <div style="background: var(--bg-surface-elevated, #f8fafc); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: 10px;">
-              <div id="import-lessons-count" style="font-size: 1.25rem; font-weight: 800; color: #10b981;">27</div>
+              <div id="import-lessons-count" style="font-size: 1.25rem; font-weight: 800; color: #10b981;">0</div>
               <div style="font-size: 11px; color: var(--text-muted); font-weight: 600;">Video Lessons</div>
             </div>
             <div style="background: var(--bg-surface-elevated, #f8fafc); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: 10px;">
@@ -359,7 +361,7 @@
 
         <div style="display: flex; justify-content: flex-end; gap: var(--space-2); padding: var(--space-4) var(--space-5); border-top: 1px solid var(--border-hairline); background: var(--bg-surface-elevated, #f8fafc);">
           <button type="button" class="btn btn-outline" data-close-modal="modal-classroom-import">Cancel</button>
-          <button type="button" id="btn-publish-classroom-import" class="btn btn-primary">
+          <button type="button" id="btn-publish-classroom-import" class="btn btn-primary" disabled>
             Publish to Catalogue
           </button>
         </div>

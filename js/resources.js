@@ -483,6 +483,7 @@ function escapeHtml(str) {
 }
 
 let currentLoggedInProfile = null;
+let classroomImportManifest = null;
 
 export async function loadLectureCategories() {
   const listEl = document.getElementById('lectures-category-list');
@@ -507,22 +508,6 @@ export async function loadLectureCategories() {
     }
 
     lectureCategories = data.categories || [];
-    if (lectureCategories.length === 0) {
-      // Fallback from manifest
-      try {
-        const manifestRes = await fetch('/data/jr_mcwc_classroom_manifest.json');
-        if (manifestRes.ok) {
-          const manifest = await manifestRes.json();
-          lectureCategories = (manifest.categories || []).map((c, i) => ({
-            title: c.title,
-            slug: c.slug,
-            description: c.description,
-            sortOrder: c.sortOrder || i + 1,
-            lessonCount: c.lessons?.length || 0,
-          }));
-        }
-      } catch (_) {}
-    }
 
     if (countBadge) {
       countBadge.textContent = `${lectureCategories.length} Topics`;
@@ -551,7 +536,8 @@ export function renderCategoriesList(filterQuery = '') {
   }
 
   if (filtered.length === 0) {
-    listEl.innerHTML = `<li style="padding: 16px; color: var(--text-muted); font-size: 13px; text-align: center;">No topics matching "${filterQuery}"</li>`;
+    const message = filterQuery ? 'No matching topics.' : 'No currently available lecture topics.';
+    listEl.innerHTML = `<li style="padding: 16px; color: var(--text-muted); font-size: 13px; text-align: center;">${message}</li>`;
     return;
   }
 
@@ -579,6 +565,13 @@ export function renderCategoriesList(filterQuery = '') {
 
 export async function selectCategory(categorySlug) {
   selectedCategorySlug = categorySlug;
+  const request = ++lecturePlaybackRequest;
+  currentPlayingLectureId = null;
+  currentCategoryLessons = [];
+  activeLecturesPlayer?.destroy();
+  activeLecturesPlayer = null;
+  const mount = document.getElementById('lectures-player-mount');
+  if (mount) mount.textContent = '';
   renderCategoriesList(document.getElementById('search-lectures')?.value || '');
 
   const cat = lectureCategories.find((c) => c.slug === categorySlug);
@@ -605,31 +598,10 @@ export async function selectCategory(categorySlug) {
     });
 
     const data = await res.json();
-    currentCategoryLessons = (data && data.lectures) || [];
+    if (request !== lecturePlaybackRequest) return;
+    if (!res.ok || !data.ok) throw new Error(data.error || 'Failed to load lectures.');
+    currentCategoryLessons = data.lectures || [];
 
-    if (currentCategoryLessons.length === 0) {
-      // Fallback from manifest
-      try {
-        const manifestRes = await fetch('/data/jr_mcwc_classroom_manifest.json');
-        if (manifestRes.ok) {
-          const manifest = await manifestRes.json();
-          const mCat = (manifest.categories || []).find((c) => c.slug === categorySlug);
-          if (mCat && Array.isArray(mCat.lessons)) {
-            currentCategoryLessons = mCat.lessons.map((l, i) => ({
-              id: `manifest-${categorySlug}-${i + 1}`,
-              title: l.title,
-              lessonOrder: l.lessonOrder || i + 1,
-              durationSeconds: l.durationSeconds || 0,
-              mediaType: l.mediaType || 'drive_embed',
-              mediaUrl: l.mediaUrl,
-              notes: l.notes,
-              categoryTitle: mCat.title,
-              categorySlug: mCat.slug,
-            }));
-          }
-        }
-      } catch (_) {}
-    }
 
     if (badgeEl) {
       badgeEl.textContent = `${currentCategoryLessons.length} ${currentCategoryLessons.length === 1 ? 'Lesson' : 'Lessons'}`;
@@ -642,7 +614,9 @@ export async function selectCategory(categorySlug) {
       playLecture(currentCategoryLessons[0].id);
     }
   } catch (err) {
-    if (queueEl) queueEl.innerHTML = `<div style="padding: 12px; color: #ef4444; font-size: 13px;">Error loading lessons: ${err.message}</div>`;
+    if (queueEl && request === lecturePlaybackRequest) {
+      queueEl.textContent = err.message || 'Failed to load lectures.';
+    }
   }
 }
 
@@ -751,13 +725,39 @@ export async function playLecture(lectureId) {
   });
 }
 
-export async function openClassroomImportModal() {
-  const tbody = document.getElementById('import-preview-tbody');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 16px;">Loading import preview from Google Classroom...</td></tr>';
-
+export function openClassroomImportModal() {
+  const file = document.getElementById('classroom-manifest-file');
+  if (file) file.value = '';
+  resetClassroomImportPreview();
   openModal('modal-classroom-import');
+}
+
+function resetClassroomImportPreview() {
+  classroomImportManifest = null;
+  const publish = document.getElementById('btn-publish-classroom-import');
+  if (publish) publish.disabled = true;
+  const tbody = document.getElementById('import-preview-tbody');
+  tbody?.replaceChildren();
+  for (const id of ['import-categories-count', 'import-lessons-count', 'import-warnings-count']) {
+    const count = document.getElementById(id);
+    if (count) count.textContent = '0';
+  }
+  const status = document.getElementById('classroom-import-status');
+  if (status) status.textContent = 'Choose an approved manifest to preview.';
+}
+
+async function previewClassroomImport(event) {
+  resetClassroomImportPreview();
+  const input = event.currentTarget;
+  const file = input.files?.[0];
+  if (!file) return;
+  const status = document.getElementById('classroom-import-status');
+  const tbody = document.getElementById('import-preview-tbody');
+  const publish = document.getElementById('btn-publish-classroom-import');
+  status.textContent = 'Checking manifest…';
 
   try {
+    const manifest = JSON.parse(await file.text());
     const supabase = await getSupabase();
     const { data: { session } } = await supabase.auth.getSession();
     const res = await fetch('/api/lectures', {
@@ -766,13 +766,14 @@ export async function openClassroomImportModal() {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${session?.access_token || ''}`,
       },
-      body: JSON.stringify({ action: 'import_preview' }),
+      body: JSON.stringify({ action: 'import_preview', manifest }),
     });
 
     const data = await res.json();
     if (!res.ok || !data.ok) {
       throw new Error(data.error || 'Failed to generate classroom import preview.');
     }
+    if (input.files?.[0] !== file) return;
 
     const { preview } = data;
     const catCount = document.getElementById('import-categories-count');
@@ -786,22 +787,31 @@ export async function openClassroomImportModal() {
     if (tbody) {
       tbody.innerHTML = preview.categories.map((cat) => `
         <tr style="border-bottom: 1px solid var(--border-hairline);">
-          <td style="padding: 8px 12px; font-weight: 600;">${cat.title}</td>
-          <td style="padding: 8px 12px; font-family: monospace;">#${cat.sortOrder}</td>
+          <td style="padding: 8px 12px; font-weight: 600;">${escapeHtml(cat.title)}</td>
+          <td style="padding: 8px 12px; font-family: monospace;">#${escapeHtml(String(cat.sortOrder))}</td>
           <td style="padding: 8px 12px;"><span class="badge badge-info">${cat.lessonCount}</span></td>
-          <td style="padding: 8px 12px; color: var(--text-muted);">${cat.lessons[0]?.title || '—'}</td>
+          <td style="padding: 8px 12px; color: var(--text-muted);">${escapeHtml(cat.lessons[0]?.title || '—')}</td>
         </tr>
       `).join('');
     }
-  } catch (err) {
-    if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="4" style="color: #ef4444; padding: 16px; text-align: center;">${err.message}</td></tr>`;
+    if (preview.warnings?.length) {
+      status.textContent = preview.warnings[0];
+      return;
     }
+    status.textContent = 'Manifest ready to publish.';
+    classroomImportManifest = manifest;
+    publish.disabled = false;
+  } catch (err) {
+    if (input.files?.[0] === file) status.textContent = err.message || 'Could not read the manifest.';
   }
 }
 
 export async function publishClassroomImport() {
+  const manifest = classroomImportManifest;
+  if (!manifest) return;
   const btn = document.getElementById('btn-publish-classroom-import');
+  const input = document.getElementById('classroom-manifest-file');
+  if (input) input.disabled = true;
   if (btn) {
     btn.disabled = true;
     btn.textContent = 'Publishing Catalogue...';
@@ -816,7 +826,7 @@ export async function publishClassroomImport() {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${session?.access_token || ''}`,
       },
-      body: JSON.stringify({ action: 'publish_import' }),
+      body: JSON.stringify({ action: 'publish_import', manifest }),
     });
 
     const data = await res.json();
@@ -825,13 +835,15 @@ export async function publishClassroomImport() {
     }
 
     closeModal('modal-classroom-import');
+    classroomImportManifest = null;
     showToast(data.message || 'Classroom lectures successfully imported!', 'success');
     await loadLectureCategories();
   } catch (err) {
     showToast(err.message, 'error');
   } finally {
+    if (input) input.disabled = false;
     if (btn) {
-      btn.disabled = false;
+      btn.disabled = !classroomImportManifest;
       btn.textContent = 'Publish to Catalogue';
     }
   }
@@ -901,6 +913,7 @@ export async function initResourcesPage() {
   }
 
   document.getElementById('btn-publish-classroom-import')?.addEventListener('click', publishClassroomImport);
+  document.getElementById('classroom-manifest-file')?.addEventListener('change', previewClassroomImport);
 
   // Search input in lectures sidebar
   document.getElementById('search-lectures')?.addEventListener('input', (e) => {

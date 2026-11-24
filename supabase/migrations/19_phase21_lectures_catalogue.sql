@@ -11,7 +11,7 @@
 --    - Preserves sequential structure (e.g. Jr. MCWC Addition 3 videos in order)
 --    - Supports drive_embed, video_mp4, and youtube_embed media types
 -- 3. Strict Row Level Security:
---    - Active categories and published lessons viewable by all authenticated students/staff
+--    - Active lessons are available to staff and eligible students
 --    - Modifications, draft management, and import strictly Admin-only
 -- =====================================================================
 
@@ -78,7 +78,25 @@ CREATE POLICY "Authenticated users can view active lectures"
   ON public.lectures
   FOR SELECT
   TO authenticated
-  USING (status = 'active' OR public.is_admin());
+  USING (
+    public.is_admin()
+    OR (
+      status = 'active'
+      AND EXISTS (
+        SELECT 1 FROM public.lecture_categories AS category
+        WHERE category.id = lectures.category_id AND category.active
+      )
+      AND EXISTS (
+        SELECT 1 FROM public.profiles AS profile
+        WHERE profile.id = (SELECT auth.uid())
+          AND profile.active
+          AND (
+            profile.role = 'teacher'
+            OR (profile.role = 'student' AND (lectures.target_level IS NULL OR lectures.target_level = profile.level))
+          )
+      )
+    )
+  );
 
 DROP POLICY IF EXISTS "Admins have full access to lectures" ON public.lectures;
 CREATE POLICY "Admins have full access to lectures"
@@ -203,6 +221,10 @@ BEGIN
           v_lec_media_url NOT LIKE 'private://%'
         ) THEN
           RAISE EXCEPTION 'Lesson "%" in category % has invalid media URL.', v_lec_title, v_cat_title USING ERRCODE = '22023';
+        END IF;
+
+        IF v_lec_media_url ~ '/file/d/1[A-Z0-9]+(_[A-Z0-9]+)+/(preview|view)([?#]|$)' THEN
+          RAISE EXCEPTION 'Lesson "%" needs a verified video reference.', v_lec_title USING ERRCODE = '22023';
         END IF;
 
         -- Enforce configured private lectures bucket for storage references
