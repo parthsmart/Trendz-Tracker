@@ -1472,7 +1472,7 @@ test('13. Production migration 17_phase20_live_classes_feature.sql and rollback 
   assert.equal(triggerReapplied.rows.length, 1, 'Trigger restored after re-application');
 });
 
-test('14. Live class create authorization, server-side assignee validation, and admin self-assignment', async () => {
+test('14. Live class scheduling validates staff and student audiences and creates rooms as needed', async (t) => {
   const adminProfile1 = {
     id: 'a0000000-0000-0000-0000-000000000001',
     full_name: 'Sunil Admin',
@@ -1502,10 +1502,11 @@ test('14. Live class create authorization, server-side assignee validation, and 
     active: false,
   };
   const studentProfile = {
-    id: 's0000000-0000-0000-0000-000000000001',
+    id: 'b0000000-0000-0000-0000-000000000001',
     full_name: 'Rohan Student',
     role: 'student',
     email: 'rohan@trendz.local',
+    level: 'Basic 1',
     active: true,
   };
 
@@ -1536,7 +1537,20 @@ test('14. Live class create authorization, server-side assignee validation, and 
       if (table === 'profiles') {
         return {
           select: () => ({
-            eq: (col, val) => ({
+            eq: (col, val) => col === 'role' ? {
+              eq: (activeColumn, active) => ({
+                in: async (idColumn, ids) => ({
+                  data: allProfiles.filter((profile) => profile[col] === val && profile[activeColumn] === active && ids.includes(profile[idColumn])),
+                  error: null,
+                }),
+                eq: (levelColumn, level) => ({
+                  limit: async () => ({
+                    data: allProfiles.filter((profile) => profile[col] === val && profile[activeColumn] === active && profile[levelColumn] === level).slice(0, 1),
+                    error: null,
+                  }),
+                }),
+              }),
+            } : ({
               single: async () => {
                 const match = allProfiles.find((p) => p.id === val);
                 return {
@@ -1577,11 +1591,19 @@ test('14. Live class create authorization, server-side assignee validation, and 
     },
   };
 
-  const mockFetch = async () => ({
-    ok: true,
-    status: 200,
-    text: async () => JSON.stringify({ success: true, data: { token: 'mock-token', expiresInSeconds: 600 } }),
-  });
+  const providerRequests = [];
+  const mockFetch = async (url, options) => {
+    if (url.endsWith('/webinar/')) {
+      providerRequests.push(JSON.parse(options.body));
+      const id = `generated-room-${providerRequests.length}`;
+      return { ok: true, json: async () => ({ data: { id } }) };
+    }
+    return {
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ success: true, data: { token: 'mock-token', expiresInSeconds: 600 } }),
+    };
+  };
 
   const runApi = async (callerToken, body) => {
     let statusCode = 200;
@@ -1724,4 +1746,45 @@ test('14. Live class create authorization, server-side assignee validation, and 
   });
   assert.equal(matchingJoin.statusCode, 200);
   assert.equal(matchingJoin.jsonResult.isHost, true);
+
+  const previousToken = process.env.WEBINAR_GG_TOKEN;
+  process.env.WEBINAR_GG_TOKEN = 'test-provider-token';
+  t.after(() => {
+    if (previousToken === undefined) delete process.env.WEBINAR_GG_TOKEN;
+    else process.env.WEBINAR_GG_TOKEN = previousToken;
+  });
+  const schedule = {
+    action: 'create',
+    title: 'After-school practice',
+    teacher_id: adminProfile1.id,
+    scheduled_start_time: '2027-04-15T12:30:00.000Z',
+    duration_minutes: 45,
+  };
+  const adminToken = `token-${adminProfile1.id}`;
+
+  const missingStudents = await runApi(adminToken, { ...schedule, audience: 'students', target_student_ids: [] });
+  assert.equal(missingStudents.statusCode, 400);
+  assert.equal(providerRequests.length, 0);
+
+  const selected = await runApi(adminToken, { ...schedule, audience: 'students', target_student_ids: [studentProfile.id] });
+  assert.equal(selected.statusCode, 201);
+  assert.equal(selected.jsonResult.class.webinar_id, 'generated-room-1');
+  assert.deepEqual(selected.jsonResult.class.target_student_ids, [studentProfile.id]);
+  const { passcode, ...providerSchedule } = providerRequests[0];
+  assert.match(passcode, /^[a-f0-9]{16}$/);
+  assert.deepEqual(providerSchedule, {
+    title: schedule.title,
+    date: '2027-04-15',
+    time: '06:00',
+    meridiem: 'PM',
+    durationMinutes: 45,
+    timezone: 'Asia/Kolkata',
+    recordingEnabled: true,
+    requireApproval: true,
+  });
+
+  const level = await runApi(adminToken, { ...schedule, audience: 'level', target_level: 'Basic 1' });
+  assert.equal(level.statusCode, 201);
+  assert.equal(level.jsonResult.class.target_level, 'Basic 1');
+  assert.equal(level.jsonResult.class.target_student_ids, null);
 });

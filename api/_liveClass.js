@@ -12,6 +12,7 @@
  * Adheres to Vercel Hobby serverless limits (delegated from api/live-class.js).
  */
 
+import { randomBytes } from 'node:crypto';
 import { getAdminClient, getCallerClient } from './_supabaseAdmin.js';
 import { hasSupabaseAdminConfig } from './_configHelper.js';
 
@@ -190,6 +191,7 @@ async function fetchProviderWebinarInfo(webinarId, fetchImpl = fetch) {
       status: json?.data?.status || null,
       recordingEnabled: json?.data?.recordingEnabled === true,
       title: json?.data?.title || null,
+      passcode: typeof json?.data?.passcode === 'string' ? json.data.passcode : '',
     };
   } catch (_) {
     return null;
@@ -576,7 +578,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           lastName: participant.lastName,
           email: participant.email,
           phone: participant.phone,
-          passcode: '',
+          passcode: providerInfo?.passcode || '',
         }, fetchImpl);
 
         const embedUrl = `https://webinar.gg/webinar-page/${liveClass.webinar_id}?token=${tokenData.token}`;
@@ -698,6 +700,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           teacher_id,
           target_level,
           target_student_ids,
+          audience,
           invited_teacher_ids,
           scheduled_start_time,
           duration_minutes = 60,
@@ -709,13 +712,14 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           stream_url = null,
         } = body;
 
-        const effectiveWebinarId = inputWebinarId
-          ? inputWebinarId.trim()
-          : (class_type === 'prerecorded' ? `prerecorded-${Date.now()}` : null);
-
-        if (!title || !effectiveWebinarId || !teacher_id || !scheduled_start_time) {
+        let effectiveWebinarId = typeof inputWebinarId === 'string' ? inputWebinarId.trim() : '';
+        const startsAt = new Date(scheduled_start_time);
+        const duration = Number(duration_minutes);
+        if (typeof title !== 'string' || !title.trim() || !teacher_id || !scheduled_start_time ||
+            !Number.isFinite(startsAt.getTime()) || !Number.isInteger(duration) ||
+            duration < 15 || duration > 240 || (class_type === 'stream' && !effectiveWebinarId)) {
           return res.status(400).json({
-            error: 'Missing required fields: title, webinar_id, teacher_id, scheduled_start_time.',
+            error: 'Enter a class title, teacher, valid start time, and duration from 15 to 240 minutes. Streams require an existing room.',
             code: 'INVALID_REQUEST',
           });
         }
@@ -744,6 +748,85 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           });
         }
 
+        if (audience !== undefined) {
+          const hasLevel = typeof target_level === 'string' && Boolean(target_level.trim());
+          const hasStudents = Array.isArray(target_student_ids) && target_student_ids.length > 0;
+          if (!['all', 'level', 'students'].includes(audience) ||
+              hasLevel !== (audience === 'level') || hasStudents !== (audience === 'students')) {
+            return res.status(400).json({ error: 'Choose who can attend and complete the audience selection.', code: 'INVALID_AUDIENCE' });
+          }
+          if (hasLevel || hasStudents) {
+            let roster = supabase.from('profiles').select('id').eq('role', 'student').eq('active', true);
+            const ids = hasStudents ? [...new Set(target_student_ids)] : [];
+            if (ids.some((id) => typeof id !== 'string' || !/^[\da-f-]{36}$/i.test(id))) {
+              return res.status(400).json({ error: 'Choose active students from the roster.', code: 'INVALID_AUDIENCE' });
+            }
+            const { data: eligible, error: rosterError } = await (hasLevel
+              ? roster.eq('level', target_level).limit(1)
+              : roster.in('id', ids));
+            if (rosterError) {
+              return res.status(500).json({ error: 'Could not verify the student roster.', code: 'ROSTER_ERROR' });
+            }
+            if (eligible.length !== (hasLevel ? 1 : ids.length)) {
+              return res.status(400).json({ error: 'Choose a level with active students or select active students from the roster.', code: 'INVALID_AUDIENCE' });
+            }
+          }
+        }
+
+        let effectiveHostEmail = host_email ? host_email.trim() : null;
+        let createdProviderRoom = false;
+        if (class_type === 'prerecorded' && !effectiveWebinarId) {
+          effectiveWebinarId = `prerecorded-${Date.now()}`;
+        } else if (class_type === 'live' && !effectiveWebinarId) {
+          const providerToken = getWebinarGgToken();
+          if (!providerToken) {
+            return res.status(503).json({ error: 'Automatic room creation is unavailable. Ask your administrator to check the live class setup.', code: 'PROVIDER_UNAVAILABLE' });
+          }
+          try {
+            const localStart = new Date(startsAt.getTime() + 330 * 60_000);
+            const hours = localStart.getUTCHours();
+            const time = `${String(hours % 12 || 12).padStart(2, '0')}:${String(localStart.getUTCMinutes()).padStart(2, '0')}`;
+            const response = await fetchImpl(`${WEBINAR_API_BASE}/webinar/`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${providerToken}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                title: title.trim(),
+                date: localStart.toISOString().slice(0, 10),
+                time,
+                meridiem: hours < 12 ? 'AM' : 'PM',
+                durationMinutes: duration,
+                timezone: 'Asia/Kolkata',
+                recordingEnabled: recording_enabled !== false,
+                requireApproval: true,
+                passcode: randomBytes(8).toString('hex'),
+              }),
+              signal: AbortSignal.timeout(8000),
+            });
+            const payload = response.ok ? await response.json() : null;
+            const roomId = payload?.data?.id || payload?.id;
+            if (typeof roomId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(roomId)) {
+              throw new Error('No valid Webinar.gg room ID returned.');
+            }
+            effectiveWebinarId = roomId;
+            effectiveHostEmail = process.env.WEBINAR_GG_HOST_EMAIL?.trim() || caller.email;
+            createdProviderRoom = true;
+          } catch {
+            return res.status(502).json({ error: 'Trendz could not confirm the live room. Check the Webinar.gg schedule before trying again.', code: 'PROVIDER_CREATE_FAILED' });
+          }
+        }
+        if (!effectiveWebinarId) {
+          return res.status(400).json({ error: 'Choose a valid class type and room.', code: 'INVALID_REQUEST' });
+        }
+
+        const databaseFailure = (error) => res.status(500).json(createdProviderRoom
+          ? {
+              error: 'The room was created, but the class could not be saved. Retry to use the same room.',
+              code: 'DATABASE_ERROR',
+              existingRoomId: effectiveWebinarId,
+              existingHostEmail: effectiveHostEmail,
+            }
+          : { error: error.message, code: 'DATABASE_ERROR' });
+
         // Keep invited teachers separate from the primary assigned teacher
         const cleanedInvitedTeacherIds = Array.isArray(invited_teacher_ids) && invited_teacher_ids.length > 0
           ? invited_teacher_ids.filter((id) => id && id !== teacher_id)
@@ -753,12 +836,12 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           title: title.trim(),
           webinar_id: effectiveWebinarId,
           teacher_id,
-          host_email: host_email ? host_email.trim() : null,
+          host_email: effectiveHostEmail,
           target_level: target_level || null,
           target_student_ids: Array.isArray(target_student_ids) && target_student_ids.length > 0 ? target_student_ids : null,
           invited_teacher_ids: cleanedInvitedTeacherIds && cleanedInvitedTeacherIds.length > 0 ? cleanedInvitedTeacherIds : null,
           scheduled_start_time,
-          duration_minutes: Number(duration_minutes) || 60,
+          duration_minutes: duration,
           status: 'scheduled',
           notes: notes ? notes.trim() : null,
           created_by: caller.id,
@@ -808,7 +891,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
             .single();
 
           if (fallbackError) {
-            return res.status(500).json({ error: fallbackError.message, code: 'DATABASE_ERROR' });
+            return databaseFailure(fallbackError);
           }
           newClass = {
             ...fallbackClass,
@@ -821,7 +904,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
         }
 
         if (error) {
-          return res.status(500).json({ error: error.message, code: 'DATABASE_ERROR' });
+          return databaseFailure(error);
         }
 
         return res.status(201).json({
