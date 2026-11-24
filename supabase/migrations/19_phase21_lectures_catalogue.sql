@@ -131,8 +131,16 @@ DECLARE
   v_idx INT := 0;
   v_lidx INT := 0;
 BEGIN
-  -- Strict Admin check at database boundary
-  IF NOT public.is_admin() THEN
+  -- Strict Admin check at database boundary (trusted service_role or authenticated admin)
+  IF NOT (
+    COALESCE(
+      NULLIF(current_setting('request.jwt.claim.role', true), ''),
+      NULLIF(auth.role(), ''),
+      NULLIF(current_setting('role', true), ''),
+      ''
+    ) = 'service_role'
+    OR public.is_admin()
+  ) THEN
     RAISE EXCEPTION 'Forbidden: Only administrators can publish lecture catalogues.'
       USING ERRCODE = '42501';
   END IF;
@@ -187,8 +195,21 @@ BEGIN
           RAISE EXCEPTION 'Lesson #% in category % missing title.', v_lidx, v_cat_title USING ERRCODE = '22023';
         END IF;
 
-        IF v_lec_media_url IS NULL OR (v_lec_media_url NOT LIKE 'http://%' AND v_lec_media_url NOT LIKE 'https://%') THEN
+        -- Validate media URL: http://, https://, or storage:// / private:// references
+        IF v_lec_media_url IS NULL OR (
+          v_lec_media_url NOT LIKE 'http://%' AND
+          v_lec_media_url NOT LIKE 'https://%' AND
+          v_lec_media_url NOT LIKE 'storage://%' AND
+          v_lec_media_url NOT LIKE 'private://%'
+        ) THEN
           RAISE EXCEPTION 'Lesson "%" in category % has invalid media URL.', v_lec_title, v_cat_title USING ERRCODE = '22023';
+        END IF;
+
+        -- Enforce configured private lectures bucket for storage references
+        IF v_lec_media_url LIKE 'storage://%' OR v_lec_media_url LIKE 'private://%' THEN
+          IF v_lec_media_url NOT LIKE 'storage://lectures/%' AND v_lec_media_url NOT LIKE 'private://lectures/%' THEN
+            RAISE EXCEPTION 'Lesson "%" in category % references unauthorized storage bucket. Storage references must point to the configured "lectures" bucket.', v_lec_title, v_cat_title USING ERRCODE = '22023';
+          END IF;
         END IF;
 
         INSERT INTO public.lectures (
@@ -245,4 +266,4 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION public.publish_classroom_catalogue(JSONB) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.publish_classroom_catalogue(JSONB) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.publish_classroom_catalogue(JSONB) TO authenticated, service_role;

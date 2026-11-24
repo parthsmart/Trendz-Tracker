@@ -1145,7 +1145,13 @@ export async function handleLiveClassRequest(req, res, options = {}) {
         if (recordingUrl.startsWith('storage://') || recordingUrl.startsWith('private://')) {
           const rawPath = recordingUrl.replace(/^(storage|private):\/\//, '');
           const slashIdx = rawPath.indexOf('/');
-          const bucket = slashIdx !== -1 ? rawPath.slice(0, slashIdx) : rawPath;
+          if (slashIdx === -1 || !rawPath.slice(slashIdx + 1).trim()) {
+            return res.status(400).json({
+              error: 'Invalid storage reference. Format must be storage://<bucket>/<path>.',
+              code: 'INVALID_STORAGE_URI',
+            });
+          }
+          const bucket = rawPath.slice(0, slashIdx);
           if (bucket !== PRIVATE_RECORDINGS_BUCKET) {
             return res.status(400).json({
               error: `Invalid storage reference. Private recordings must be located within the configured "${PRIVATE_RECORDINGS_BUCKET}" bucket.`,

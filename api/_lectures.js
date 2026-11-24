@@ -504,7 +504,7 @@ export async function handleLecturesRequest(req, res, options = {}) {
               slug: l.slug || `${cat.slug}-part-${lIdx + 1}`,
               lessonOrder: l.lessonOrder || lIdx + 1,
               durationSeconds: l.durationSeconds || 0,
-              mediaType: l.mediaType || 'drive_embed',
+              mediaType: l.mediaType || (typeof l.mediaUrl === 'string' && (l.mediaUrl.startsWith('storage://') || l.mediaUrl.startsWith('private://')) ? 'video_mp4' : 'drive_embed'),
               mediaUrl: l.mediaUrl,
               notes: l.notes || '',
             })),
@@ -553,11 +553,42 @@ export async function handleLecturesRequest(req, res, options = {}) {
                 code: 'INVALID_MANIFEST',
               });
             }
-            if (!l.mediaUrl || typeof l.mediaUrl !== 'string' || (!l.mediaUrl.startsWith('http://') && !l.mediaUrl.startsWith('https://'))) {
+            if (!l.mediaUrl || typeof l.mediaUrl !== 'string') {
               return res.status(400).json({
-                error: `Validation error in category "${cat.title}" lesson "${l.title}": Valid media URL (http/https) is required.`,
+                error: `Validation error in category "${cat.title}" lesson "${l.title}": Media URL is required.`,
                 code: 'INVALID_MANIFEST',
               });
+            }
+
+            const isHttp = l.mediaUrl.startsWith('http://') || l.mediaUrl.startsWith('https://');
+            const isStorage = l.mediaUrl.startsWith('storage://') || l.mediaUrl.startsWith('private://');
+
+            if (!isHttp && !isStorage) {
+              return res.status(400).json({
+                error: `Validation error in category "${cat.title}" lesson "${l.title}": Valid media URL (http/https or storage://${PRIVATE_LECTURES_BUCKET}/...) is required.`,
+                code: 'INVALID_MANIFEST',
+              });
+            }
+
+            if (isStorage) {
+              const rawPath = l.mediaUrl.replace(/^(storage|private):\/\//, '');
+              const slashIdx = rawPath.indexOf('/');
+              const bucket = slashIdx !== -1 ? rawPath.slice(0, slashIdx) : rawPath;
+              const objectPath = slashIdx !== -1 ? rawPath.slice(slashIdx + 1) : '';
+
+              if (slashIdx === -1 || !objectPath.trim()) {
+                return res.status(400).json({
+                  error: `Validation error in category "${cat.title}" lesson "${l.title}": Invalid storage reference format. Expected storage://<bucket>/<path>.`,
+                  code: 'INVALID_STORAGE_URI',
+                });
+              }
+
+              if (bucket !== PRIVATE_LECTURES_BUCKET) {
+                return res.status(400).json({
+                  error: `Validation error in category "${cat.title}" lesson "${l.title}": Private lecture storage references must point to the configured "${PRIVATE_LECTURES_BUCKET}" bucket. Bucket "${bucket}" is rejected.`,
+                  code: 'BUCKET_RESTRICTED',
+                });
+              }
             }
           }
         }

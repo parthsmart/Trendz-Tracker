@@ -104,12 +104,25 @@ function createMockSupabase(callerProfile, dbState = {}) {
           catCount++;
           const lessons = Array.isArray(cat.lessons) ? cat.lessons : [];
           for (const l of lessons) {
+            if (l.mediaUrl && (l.mediaUrl.startsWith('storage://') || l.mediaUrl.startsWith('private://'))) {
+              if (!l.mediaUrl.startsWith('storage://lectures/') && !l.mediaUrl.startsWith('private://lectures/')) {
+                return { data: null, error: { message: `Lesson "${l.title}" references unauthorized storage bucket`, code: '22023' } };
+              }
+            }
             let existingLec = lectures.find((lec) => lec.category_id === existingCat.id && lec.lesson_order === l.lessonOrder);
             if (!existingLec) {
-              existingLec = { id: `lec-${lectures.length + 1}`, category_id: existingCat.id, ...l };
+              existingLec = {
+                id: `lec-${lectures.length + 1}`,
+                category_id: existingCat.id,
+                status: 'active',
+                ...l,
+                media_url: l.mediaUrl,
+                duration_seconds: l.durationSeconds || 0,
+                lesson_order: l.lessonOrder || 1,
+              };
               lectures.push(existingLec);
             } else {
-              Object.assign(existingLec, l);
+              Object.assign(existingLec, l, { media_url: l.mediaUrl || existingLec.media_url });
             }
             lecCount++;
           }
@@ -548,6 +561,97 @@ test('9. Admin publish_import enforces pre-validation and atomic publishing', as
     assert.equal(dbState.categories.length, 1, 'Previous good category must be preserved');
     assert.equal(dbState.categories[0].slug, 'addition', 'Addition category must be preserved');
     assert.equal(dbState.lectures.length, 1, 'Previous good lecture must be preserved');
+    delete dbState.shouldFailRpc;
+  }
+
+  // 4. Manifest with unauthorized storage bucket (e.g. storage://recordings/...) is rejected with 400 BUCKET_RESTRICTED
+  {
+    const badBucketManifest = {
+      categories: [
+        {
+          title: 'Addition',
+          slug: 'addition',
+          lessons: [
+            { title: 'Part 2', lessonOrder: 2, mediaUrl: 'storage://recordings/webinars/rec.mp4' },
+          ],
+        },
+      ],
+    };
+    const { req, res } = createMockReqRes({ body: { action: 'publish_import', manifest: badBucketManifest } });
+    await handleLecturesRequest(req, res, { supabase });
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.body.code, 'BUCKET_RESTRICTED');
+  }
+
+  // 5. Manifest with malformed storage URI is rejected with 400 INVALID_STORAGE_URI
+  {
+    const badUriManifest = {
+      categories: [
+        {
+          title: 'Addition',
+          slug: 'addition',
+          lessons: [
+            { title: 'Part 2', lessonOrder: 2, mediaUrl: 'storage://no-slash-path' },
+          ],
+        },
+      ],
+    };
+    const { req, res } = createMockReqRes({ body: { action: 'publish_import', manifest: badUriManifest } });
+    await handleLecturesRequest(req, res, { supabase });
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.body.code, 'INVALID_STORAGE_URI');
+  }
+
+  // 6. Admin import → publish → eligible student playback flow (no manual lecture row insertion)
+  {
+    const student = { id: 'stu-flow-user', email: 'student@example.com', role: 'student', active: true };
+    const validStorageManifest = {
+      courseId: 'course-addition-foundation',
+      categories: [
+        {
+          title: 'Addition Foundation Private',
+          slug: 'addition-foundation-priv',
+          description: 'Private video lessons hosted in lectures bucket',
+          sortOrder: 2,
+          lessons: [
+            {
+              title: 'Addition Part 1 — Single Digit Speed',
+              slug: 'addition-part-1-speed',
+              lessonOrder: 1,
+              durationSeconds: 720,
+              mediaType: 'video_mp4',
+              mediaUrl: 'storage://lectures/addition/part1-speed.mp4',
+              notes: 'Imported via admin publication flow',
+            },
+          ],
+        },
+      ],
+    };
+
+    // Step 6a: Admin publishes manifest
+    const { req: pubReq, res: pubRes } = createMockReqRes({ body: { action: 'publish_import', manifest: validStorageManifest } });
+    await handleLecturesRequest(pubReq, pubRes, { supabase });
+    assert.equal(pubRes.statusCode, 200);
+    assert.equal(pubRes.body.ok, true);
+
+    // Verify category and lecture were created in database by publication routine
+    const createdCat = dbState.categories.find((c) => c.slug === 'addition-foundation-priv');
+    assert.ok(createdCat, 'Category should be created by publish_import');
+    const createdLec = dbState.lectures.find((l) => l.category_id === createdCat.id && l.lesson_order === 1);
+    assert.ok(createdLec, 'Lecture should be created by publish_import');
+    assert.equal(createdLec.media_url, 'storage://lectures/addition/part1-speed.mp4');
+
+    // Step 6b: Eligible student requests get_lecture without manual insertion
+    const studentSupabase = createMockSupabase(student, dbState);
+    const { req: playReq, res: playRes } = createMockReqRes({ body: { action: 'get_lecture', lectureId: createdLec.id } });
+    await handleLecturesRequest(playReq, playRes, { supabase: studentSupabase });
+    assert.equal(playRes.statusCode, 200);
+    assert.equal(playRes.body.ok, true);
+    assert.ok(
+      playRes.body.lecture.mediaUrl.startsWith('https://signed.supabase.co/storage/v1/object/sign/lectures/addition/part1-speed.mp4?token='),
+      `Expected signed URL, got: ${playRes.body.lecture.mediaUrl}`
+    );
+    assert.equal(playRes.body.lecture.title, 'Addition Part 1 — Single Digit Speed');
   }
 });
 
