@@ -120,6 +120,26 @@ export async function handleLecturesRequest(req, res, options = {}) {
           .order('sort_order', { ascending: true });
 
         if (error) {
+          if (
+            process.env.STAGING_PREVIEW === 'true' &&
+            process.env.NODE_ENV !== 'production' &&
+            !options.supabase &&
+            (error.code === 'PGRST205' || error.code === '42P01' || error.message?.includes('schema cache') || error.message?.includes('does not exist'))
+          ) {
+            console.warn('[Lectures] Table public.lecture_categories not yet applied to database schema cache; serving staging preview catalogue.');
+            const manifest = loadDefaultManifest();
+            const cats = manifest?.categories || [];
+            const formatted = cats.map((cat, idx) => ({
+              id: `cat-${cat.slug}`,
+              title: cat.title,
+              slug: cat.slug,
+              description: cat.description || '',
+              sortOrder: cat.sortOrder || idx + 1,
+              active: true,
+              lessonCount: Array.isArray(cat.lessons) ? cat.lessons.length : 0,
+            }));
+            return res.status(200).json({ ok: true, categories: formatted });
+          }
           return res.status(500).json({ error: error.message || 'Database error accessing lecture categories.', code: 'DATABASE_ERROR' });
         }
 
@@ -176,6 +196,53 @@ export async function handleLecturesRequest(req, res, options = {}) {
 
         const { data: lectures, error } = await query;
         if (error) {
+          if (
+            process.env.STAGING_PREVIEW === 'true' &&
+            process.env.NODE_ENV !== 'production' &&
+            !options.supabase &&
+            (error.code === 'PGRST205' || error.code === '42P01' || error.message?.includes('schema cache') || error.message?.includes('does not exist'))
+          ) {
+            console.warn('[Lectures] Table public.lectures not yet applied to database schema cache; serving staging preview lectures.');
+            const manifest = loadDefaultManifest();
+            const cats = manifest?.categories || [];
+            let filteredCats = cats;
+            if (categorySlug) {
+              filteredCats = cats.filter((c) => c.slug === categorySlug);
+            }
+            let allLessons = [];
+            filteredCats.forEach((c) => {
+              (c.lessons || []).forEach((l, lIdx) => {
+                allLessons.push({
+                  id: `lec-${c.slug}-${l.lessonOrder || lIdx + 1}`,
+                  categoryId: `cat-${c.slug}`,
+                  categoryTitle: c.title,
+                  categorySlug: c.slug,
+                  title: l.title,
+                  slug: l.slug || `${c.slug}-part-${l.lessonOrder || lIdx + 1}`,
+                  lessonOrder: l.lessonOrder || lIdx + 1,
+                  durationSeconds: l.durationSeconds || 0,
+                  mediaType: l.mediaType || 'video_mp4',
+                  mediaUrl: l.mediaUrl,
+                  thumbnailUrl: l.thumbnailUrl || null,
+                  notes: l.notes || '',
+                  targetLevel: l.targetLevel || null,
+                  status: 'active',
+                });
+              });
+            });
+            if (caller.role === 'student') {
+              allLessons = allLessons.filter((l) => !l.targetLevel || l.targetLevel === caller.level);
+            }
+            if (search) {
+              const s = search.toLowerCase();
+              allLessons = allLessons.filter((l) =>
+                l.title.toLowerCase().includes(s) ||
+                l.categoryTitle.toLowerCase().includes(s) ||
+                l.notes.toLowerCase().includes(s)
+              );
+            }
+            return res.status(200).json({ ok: true, lectures: allLessons });
+          }
           return res.status(500).json({ error: error.message || 'Database error accessing lectures.', code: 'DATABASE_ERROR' });
         }
 
@@ -245,6 +312,60 @@ export async function handleLecturesRequest(req, res, options = {}) {
           .single();
 
         if (error || !lecture) {
+          if (
+            process.env.STAGING_PREVIEW === 'true' &&
+            process.env.NODE_ENV !== 'production' &&
+            !options.supabase &&
+            (error?.code === 'PGRST205' || error?.code === '42P01' || error?.message?.includes('schema cache') || error?.message?.includes('does not exist'))
+          ) {
+            console.warn('[Lectures] Table public.lectures not yet applied to database schema cache; resolving staging preview lecture details.');
+            const manifest = loadDefaultManifest();
+            const cats = manifest?.categories || [];
+            let foundLesson = null;
+            let foundCat = null;
+            let siblings = [];
+            for (const c of cats) {
+              const lessons = c.lessons || [];
+              for (const l of lessons) {
+                const id = `lec-${c.slug}-${l.lessonOrder}`;
+                if (id === lectureId || l.slug === lectureId) {
+                  foundLesson = l;
+                  foundCat = c;
+                  siblings = lessons;
+                  break;
+                }
+              }
+              if (foundLesson) break;
+            }
+            if (!foundLesson) {
+              return res.status(404).json({ error: 'Lecture not found.', code: 'LECTURE_NOT_FOUND' });
+            }
+            const currentIndex = siblings.findIndex((s) => s === foundLesson);
+            const prev = currentIndex > 0 ? siblings[currentIndex - 1] : null;
+            const next = currentIndex < siblings.length - 1 ? siblings[currentIndex + 1] : null;
+            return res.status(200).json({
+              ok: true,
+              lecture: {
+                id: `lec-${foundCat.slug}-${foundLesson.lessonOrder}`,
+                categoryId: `cat-${foundCat.slug}`,
+                categoryTitle: foundCat.title,
+                categorySlug: foundCat.slug,
+                title: foundLesson.title,
+                slug: foundLesson.slug,
+                lessonOrder: foundLesson.lessonOrder,
+                totalLessons: siblings.length,
+                durationSeconds: foundLesson.durationSeconds || 0,
+                mediaType: foundLesson.mediaType || 'video_mp4',
+                mediaUrl: foundLesson.mediaUrl,
+                notes: foundLesson.notes || '',
+                targetLevel: foundLesson.targetLevel || null,
+                previousLectureId: prev ? `lec-${foundCat.slug}-${prev.lessonOrder}` : null,
+                previousLectureTitle: prev ? prev.title : null,
+                nextLectureId: next ? `lec-${foundCat.slug}-${next.lessonOrder}` : null,
+                nextLectureTitle: next ? next.title : null,
+              },
+            });
+          }
           return res.status(404).json({ error: 'Lecture not found.', code: 'LECTURE_NOT_FOUND' });
         }
 

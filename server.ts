@@ -82,6 +82,7 @@ app.all(['/api/lectures', '/api/lectures.js'], safeHandler(lecturesHandler));
 
 async function startServer() {
   if (isStaging) {
+    process.env.STAGING_PREVIEW = 'true';
     const stagingCheck = validateStagingIsolation();
     console.log(`[STAGING ISOLATION] Verified staging project isolation: ${stagingCheck.url}`);
   }
