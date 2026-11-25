@@ -68,6 +68,7 @@ describe('Phase 18 — Teacher API HTTP Handlers & Identity Enforcement', () => 
   let interceptedRequests = [];
   let simulateRpcFailure = false;
   let deletedAuthUserIds = [];
+  let webinarEmail;
 
   before(() => {
     process.env.SUPABASE_URL = 'https://mockproject123.supabase.co';
@@ -135,6 +136,11 @@ describe('Phase 18 — Teacher API HTTP Handlers & Identity Enforcement', () => 
         const userId = urlStr.split('/auth/v1/admin/users/')[1];
         deletedAuthUserIds.push(userId);
         return new Response(JSON.stringify({}), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (urlStr.endsWith(`/auth/v1/admin/users/${targetTeacherId}`) && ['GET', 'PUT'].includes(method)) {
+        if (method === 'PUT') webinarEmail = body?.app_metadata?.webinar_cohost_email;
+        return Response.json({ id: targetTeacherId, email: 'tch02@trendz.local', app_metadata: { webinar_cohost_email: webinarEmail } });
       }
 
       // 4. REST: profiles query (GET /rest/v1/profiles)
@@ -219,6 +225,7 @@ describe('Phase 18 — Teacher API HTTP Handlers & Identity Enforcement', () => 
     interceptedRequests = [];
     simulateRpcFailure = false;
     deletedAuthUserIds = [];
+    webinarEmail = undefined;
   });
 
   // ---------------------------------------------------------------------------
@@ -499,6 +506,29 @@ describe('Phase 18 — Teacher API HTTP Handlers & Identity Enforcement', () => 
   // ---------------------------------------------------------------------------
   // 5. manage-teacher Handler: Actions & Verified Admin Identity
   // ---------------------------------------------------------------------------
+  it('only an admin can save and read a teacher’s Webinar email without changing their login', async () => {
+    const call = async (action, token, webinar_email) => {
+      const res = createMockRes();
+      await manageTeacherHandler({
+        method: 'POST', headers: { authorization: `Bearer ${token}` },
+        body: { action, teacher_id: targetTeacherId, webinar_email },
+      }, res);
+      return res;
+    };
+    const denied = await call('set_webinar_email', teacherToken, 'teacher@example.com');
+    assert.equal(denied.getStatusCode(), 403);
+    const internal = await call('set_webinar_email', validAdminToken, 'tch02@trendz.local');
+    assert.equal(internal.getStatusCode(), 400);
+    assert.equal(interceptedRequests.some((request) => request.method === 'PUT'), false);
+
+    const saved = await call('set_webinar_email', validAdminToken, ' Teacher@Example.com ');
+    assert.equal(saved.getStatusCode(), 200);
+    const write = interceptedRequests.find((request) => request.method === 'PUT');
+    assert.deepEqual(write.body, { app_metadata: { webinar_cohost_email: 'teacher@example.com' } });
+    const details = await call('get_webinar_email', validAdminToken);
+    assert.equal(details.getData().webinar_email, 'teacher@example.com');
+  });
+
   it('manage-teacher: update_assignments invokes RPC with caller token and admin actor_id', async () => {
     const res = createMockRes();
     await manageTeacherHandler(

@@ -175,6 +175,12 @@
               <span class="form-hint">Minimum 6 characters. Give this to the teacher.</span>
             </div>
 
+            <div class="form-group">
+              <label for="new-teacher-webinar-email" class="form-label">Webinar email (optional)</label>
+              <input type="email" id="new-teacher-webinar-email" class="form-input" aria-describedby="new-teacher-webinar-help" />
+              <span id="new-teacher-webinar-help" class="form-hint">Trendz uses this email to invite the teacher when you assign a live class.</span>
+            </div>
+
             <!-- Permissions Checkboxes -->
             <fieldset style="border: 1px solid var(--border-color, #e2e8f0); border-radius: var(--radius-md, 8px); padding: var(--space-4);">
               <legend style="font-size: var(--text-sm); font-weight: 600; padding: 0 var(--space-2);">
@@ -342,6 +348,31 @@
             Save Permissions
           </button>
         </footer>
+      </div>
+    </div>
+
+    <!-- Webinar Email Modal -->
+    <div id="teacher-webinar-email-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="teacher-webinar-email-title">
+      <div class="modal-dialog" style="max-width: 480px;">
+        <header class="modal-header">
+          <div>
+            <h2 id="teacher-webinar-email-title" class="modal-title">Webinar email</h2>
+            <p id="teacher-webinar-email-name" class="modal-subtitle"></p>
+          </div>
+          <button type="button" class="modal-close" data-close-modal="teacher-webinar-email-modal" aria-label="Close dialog">&times;</button>
+        </header>
+        <form id="teacher-webinar-email-form">
+          <div class="modal-body">
+            <label for="teacher-webinar-email" class="form-label">Teacher’s email</label>
+            <input type="email" id="teacher-webinar-email" class="form-input" aria-describedby="teacher-webinar-email-help" required />
+            <p id="teacher-webinar-email-help" class="form-hint">Used for co-host invites when you schedule new live classes.</p>
+            <p id="teacher-webinar-email-status" role="status" class="form-hint"></p>
+          </div>
+          <footer class="modal-footer">
+            <button type="button" class="btn btn-outline" data-close-modal="teacher-webinar-email-modal">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="btn-save-teacher-webinar-email">Save email</button>
+          </footer>
+        </form>
       </div>
     </div>
 
