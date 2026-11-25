@@ -1011,11 +1011,14 @@ test('Phase 17b — Staging Bootstrap Verbatim Parity with Contract Snapshot (su
 
   const contractPath = path.resolve(process.cwd(), 'docs/JMCWC_DATABASE_CONTRACT.json');
   const contract = JSON.parse(fs.readFileSync(contractPath, 'utf8'));
-  const bootstrapSql = fs.readFileSync(bootstrapPath, 'utf8');
+  // Compare text with Unix line endings: the snapshot keeps the CRLF line endings the
+  // live functions were created with, while the bootstrap SQL file uses LF.
+  const toLf = (s) => String(s).replace(/\r\n/g, '\n');
+  const bootstrapSql = toLf(fs.readFileSync(bootstrapPath, 'utf8'));
 
   // 1. Every single function definition must occur verbatim
   for (const fn of contract.functions) {
-    const verbatim = fn.definition.trim();
+    const verbatim = toLf(fn.definition).trim();
     assert.equal(
       bootstrapSql.includes(verbatim),
       true,
