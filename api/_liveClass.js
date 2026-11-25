@@ -940,7 +940,10 @@ export async function handleLiveClassRequest(req, res, options = {}) {
                 durationMinutes: duration,
                 timezone: 'Asia/Kolkata',
                 recordingEnabled: recording_enabled === true,
-                requireApproval: true,
+                // No waiting room: students already need their Trendz login, a one-time join
+                // token and the passcode. With approval on, Webinar.gg holds back the stream
+                // until a host admits each student, which left students on a black stage.
+                requireApproval: false,
                 passcode: randomBytes(8).toString('hex'),
               }),
               signal: AbortSignal.timeout(8000),
