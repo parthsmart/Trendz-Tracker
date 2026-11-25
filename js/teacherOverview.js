@@ -9,6 +9,7 @@
  * 4. Upcoming weekly tests
  */
 
+import { renderStaffHome } from './staffHome.js';
 import { requireAuth } from './guard.js';
 import { getSupabase } from './supabaseClient.js';
 import { isSupabaseConfigured } from './config.js';
@@ -205,6 +206,7 @@ export async function loadTeacherOverviewData(supabase, profile) {
 export async function initTeacherOverview() {
   currentProfile = await requireAuth(['teacher', 'admin']);
   if (!currentProfile) return;
+  renderStaffHome(currentProfile);
 
   const todayIst = getTodayIst();
   const dateEl = document.getElementById('overview-today-ist');

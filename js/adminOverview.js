@@ -16,6 +16,7 @@
  * - Never use browser clock for "today"; authoritative Indian Standard Time is used.
  */
 
+import { renderStaffHome } from './staffHome.js';
 import { isSupabaseConfigured } from './config.js';
 import { isDemoMode } from './demoDb.js';
 import { requireAuth } from './guard.js';
@@ -89,6 +90,7 @@ async function initAdminOverview() {
   if (!profile) return;
 
   setupAdminNav(profile);
+  renderStaffHome(profile);
   setupModalListeners();
   renderDemoBanner();
 

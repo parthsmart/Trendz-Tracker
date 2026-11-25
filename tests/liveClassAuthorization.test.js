@@ -1625,6 +1625,10 @@ test('14. Live class scheduling validates staff and student audiences and create
                 return { data: match || null, error: match ? null : new Error('Not found') };
               },
             }),
+            order: () => {
+              const listed = { data: [...createdClasses], error: null };
+              return { ...listed, or: () => listed };
+            },
           }),
         };
       }
@@ -1779,6 +1783,23 @@ test('14. Live class scheduling validates staff and student audiences and create
   const teacherRoom = await runApi(`token-${teacherProfile.id}`, { action: 'get_class_details', classId: teacherAssigned.jsonResult.class.id });
   assert.equal(teacherRoom.jsonResult.class.hostDashboardUrl, 'https://webinar.gg/webinar-page/wgg-tch-101');
   assert.equal(teacherRoom.jsonResult.class.isHost, true);
+
+  // A class whose teacher was never invited (e.g. email saved after scheduling) is repaired on open.
+  cohostEmails.delete('wgg-tch-101');
+  const invitesBeforeRepair = cohostInvites.length;
+  const repairedRoom = await runApi(`token-${teacherProfile.id}`, { action: 'get_class_details', classId: teacherAssigned.jsonResult.class.id });
+  assert.equal(cohostInvites.length, invitesBeforeRepair + 1);
+  assert.deepEqual(cohostInvites.at(-1).emails, [teacherCohostEmail]);
+  assert.equal(repairedRoom.jsonResult.class.hostDashboardUrl, 'https://webinar.gg/webinar-page/wgg-tch-101');
+  const openedAgain = await runApi(`token-${teacherProfile.id}`, { action: 'get_class_details', classId: teacherAssigned.jsonResult.class.id });
+  assert.equal(openedAgain.jsonResult.class.isHost, true);
+  assert.equal(cohostInvites.length, invitesBeforeRepair + 1, 'no duplicate invite once the teacher is a co-host');
+
+  // The assigned teacher's schedule row links straight to Start class.
+  const teacherList = await runApi(`token-${teacherProfile.id}`, { action: 'list' });
+  const teacherRow = (teacherList.jsonResult.classes || []).find((c) => c.id === teacherAssigned.jsonResult.class.id);
+  assert.ok(teacherRow, 'assigned class is listed for the teacher');
+  assert.equal(teacherRow.teacherStartUrl, `/pages/live-room.html?classId=${encodeURIComponent(teacherRow.id)}&start=1`);
   failCohostPolicy = true;
   const blockedTeacherRoom = await runApi(`token-${teacherProfile.id}`, { action: 'get_class_details', classId: teacherAssigned.jsonResult.class.id });
   assert.equal(blockedTeacherRoom.jsonResult.class.hostDashboardUrl, null);
@@ -1864,4 +1885,12 @@ test('14. Live class scheduling validates staff and student audiences and create
   assert.equal(level.jsonResult.class.target_level, 'Basic 1');
   assert.equal(level.jsonResult.class.target_student_ids, null);
   assert.equal(providerRequests[1].recordingEnabled, true);
+});
+
+test('15. Host email matching ignores letter case and spaces', async () => {
+  const { isSameEmail } = await import('../api/_liveClass.js');
+  assert.equal(isSameEmail('Owner@Trendz.in ', 'owner@trendz.in'), true);
+  assert.equal(isSameEmail('owner@trendz.in', 'other@trendz.in'), false);
+  assert.equal(isSameEmail('', ''), false);
+  assert.equal(isSameEmail(null, 'owner@trendz.in'), false);
 });

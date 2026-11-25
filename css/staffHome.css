@@ -1,0 +1,39 @@
+/* ==========================================================================
+   Teacher / admin Home header and quick actions (pages/admin.html, pages/teacher.html)
+   Same look as the student Home header (css/studentHome.css .sh-hero).
+   ========================================================================== */
+.sf-hero { position: relative; overflow: hidden; display: flex; align-items: center; gap: var(--space-5); margin-bottom: var(--space-4); padding: 20px 26px; border: 1px solid #BFDBFE; border-bottom: 3px solid var(--color-primary); border-radius: 16px;
+  background: radial-gradient(circle at 100% 0, rgba(37, 99, 235, .10), transparent 45%), linear-gradient(180deg, #F5F9FF, #FFFFFF); }
+.sf-hero .who { flex: 1; min-width: 0; display: grid; gap: 8px; }
+.sf-eyebrow { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-dim); }
+.sf-hero h1 { margin: 0; font-size: 1.6rem; font-weight: 800; letter-spacing: -0.02em; color: #1E40AF; }
+.sf-hero .facts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; font-size: 14px; color: var(--text-muted); }
+.sf-hero .facts b, .sf-hero .facts strong { color: var(--text-main); }
+.sf-hero .facts .badge { font-size: 12px; font-weight: 600; }
+.sf-sub { margin: 0; font-size: 13.5px; color: var(--text-muted); max-width: 72ch; }
+.sf-hero .emblem { flex: none; width: 128px; height: 128px; margin: -16px -6px -16px 0; border-radius: 50%; background: radial-gradient(circle, rgba(37, 99, 235, .12), rgba(37, 99, 235, .04) 70%); display: grid; place-items: center; }
+.sf-hero .emblem div { width: 88px; height: 88px; border-radius: 16px; background: #fff; box-shadow: 0 6px 20px rgba(37, 99, 235, .16); display: grid; place-items: center; text-align: center; }
+.sf-hero .emblem b { display: block; font-size: 30px; line-height: 1; }
+.sf-hero .emblem small { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--text-muted); }
+
+.sf-quick { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-bottom: var(--space-6); }
+.sf-quick[hidden], .sf-tile[hidden] { display: none !important; }
+.sf-tile { display: grid; grid-template-columns: 40px 1fr; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border-hairline); border-radius: 14px; background: var(--bg-surface); color: var(--text-main); text-decoration: none; transition: border-color var(--transition-fast), transform var(--transition-fast); min-width: 0; }
+.sf-tile:hover { border-color: #93C5FD; transform: translateY(-1px); }
+.sf-tile .ic { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; font-size: 19px; background: linear-gradient(180deg, #F5F9FF, #EEF4FF); }
+.sf-tile .t { display: grid; min-width: 0; }
+.sf-tile b { font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sf-tile small { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+@media (max-width: 1439.98px) { .sf-quick { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 640px) {
+  .sf-hero { padding: 16px; border-radius: 16px; }
+  .sf-hero h1 { font-size: 1.35rem; }
+  .sf-hero .emblem, .sf-sub { display: none; }
+  .sf-hero .facts { font-size: 13px; gap: 4px 12px; }
+  .sf-quick { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: var(--space-4); }
+  .sf-tile { grid-template-columns: 34px 1fr; padding: 8px 10px; gap: 8px; }
+  .sf-tile .ic { width: 34px; height: 34px; font-size: 16px; border-radius: 10px; }
+  .sf-tile b { font-size: 13.5px; }
+  .sf-tile small { display: none; }
+}

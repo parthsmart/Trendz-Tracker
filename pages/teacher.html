@@ -6,6 +6,7 @@
     <title>Teacher Overview - Trendz Tracker</title>
     <meta name="description" content="Teacher dashboard for tracking assigned students' practice, review, and tests." />
     <link rel="stylesheet" href="/css/style.css" />
+    <link rel="stylesheet" href="/css/staffHome.css" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#2563EB" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -66,23 +67,28 @@
         <div class="container">
           <div id="config-banner-placeholder"></div>
 
-          <!-- Page Heading -->
-          <div class="section-header-row" style="margin-bottom: var(--space-6); display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: var(--space-4);">
-            <div>
-              <div style="display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-2);">
-                <h1 style="margin: 0;">Teacher Workspace</h1>
-                <span class="badge badge-info" id="badge-scope" style="font-size: var(--text-xs); font-weight: 600;">
-                  Assigned students only
-                </span>
+          <!-- Page Heading: Home header + quick actions (css/staffHome.css) -->
+          <section class="sf-hero" aria-labelledby="overview-heading">
+            <div class="who">
+              <p class="sf-eyebrow">Teacher Workspace</p>
+              <h1 id="overview-heading"><span data-staff-greeting>Hello</span>, <span data-staff-first-name>there</span> <span aria-hidden="true">👋</span></h1>
+              <div class="facts">
+                <span>📅 <strong id="overview-today-ist" class="num">—</strong> <span class="sr-only">(IST)</span></span>
+                <span class="badge badge-info" id="badge-scope">Assigned students only</span>
               </div>
-              <p style="font-size: var(--text-sm); margin: 0; color: var(--text-muted);">
-                Monitor daily practice, review scores, and track upcoming tests for your assigned students.
-              </p>
+              <p class="sf-sub">Monitor daily practice, review scores, and track upcoming tests for your assigned students.</p>
             </div>
-            <div class="meta-row" style="font-size: var(--text-sm);">
-              <span>Today (IST): <strong id="overview-today-ist" class="num">—</strong></span>
-            </div>
-          </div>
+            <div class="emblem" aria-hidden="true"><div><span><b>🧑‍🏫</b><small>Teacher</small></span></div></div>
+          </section>
+
+          <nav class="sf-quick" aria-label="Quick actions">
+            <a class="sf-tile" href="/pages/attendance.html" data-perm="can_mark_attendance"><span class="ic" aria-hidden="true">✅</span><span class="t"><b>Attendance</b><small>Mark today's class</small></span></a>
+            <a class="sf-tile" href="/pages/review.html" data-perm="can_review_scores"><span class="ic" aria-hidden="true">🔍</span><span class="t"><b>Review</b><small>Verify scores</small></span></a>
+            <a class="sf-tile" href="/pages/todos.html" data-perm="can_manage_tasks"><span class="ic" aria-hidden="true">☑️</span><span class="t"><b>Tasks</b><small>Daily to-dos</small></span></a>
+            <a class="sf-tile" href="/pages/weekly-tests.html" data-perm="can_manage_tests"><span class="ic" aria-hidden="true">📝</span><span class="t"><b>Weekly tests</b><small>Create and score</small></span></a>
+            <a class="sf-tile" href="/pages/live-classes.html"><span class="ic" aria-hidden="true">🎥</span><span class="t"><b>Live classes</b><small>Your schedule</small></span></a>
+            <a class="sf-tile" href="/pages/announcements.html" data-perm="can_publish_announcements"><span class="ic" aria-hidden="true">📣</span><span class="t"><b>Announcements</b><small>Tell your class</small></span></a>
+          </nav>
 
           <!-- Summary Cards (4 Cards) -->
           <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-bottom: var(--space-6);">

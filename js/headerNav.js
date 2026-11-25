@@ -36,7 +36,7 @@ import {
 } from './navMenuState.js';
 import { openModal, closeModal } from './modal.js';
 import { attachLinkPrefetchListeners } from './perf.js';
-import { mountStudentRail } from './studentRail.js';
+import { mountAppRail } from './appRail.js';
 
 const BRAND_LOGO_SVG = `
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -309,10 +309,8 @@ export function setupHeaderNavigation(profile = null) {
     return;
   }
 
-  // Desktop side rail for students (hidden below 1024px, where this header menu is used)
-  if (resolvedRole === 'student') {
-    mountStudentRail(profile, { onAccount: () => { window.location.href = '/pages/account.html'; } });
-  }
+  // Side menu (desktop) and top bar + bottom tabs (phones) for every signed-in role
+  mountAppRail(profile, { onAccount: () => { window.location.href = '/pages/account.html'; } });
 
   const headerInner = header.querySelector('.header-inner');
   if (!headerInner) return;
@@ -858,11 +856,7 @@ export function setupHeaderNavigation(profile = null) {
       if (action === 'account') {
         e.preventDefault();
         closeMenu({ returnFocus: false });
-        if (resolvedRole === 'student') {
-          window.location.href = '/pages/account.html';
-          return;
-        }
-        openHeaderAccountModal(profile);
+        window.location.href = '/pages/account.html';
         return;
       }
 

@@ -1,10 +1,12 @@
 /**
- * Trendz Tracker — Student "My account" page (js/account.js)
+ * Trendz Tracker — "My account" page for every role (js/account.js)
  *
- * Read-only account details (name, ID, level, status, joined date), a summary of the
+ * Students: read-only details (name, ID, level, status, joined date), a summary of the
  * practice access the trainer has set, device preferences (Flash Anzan sound, menu
- * labels), install-app and sign-out. No form collects student information: details
- * are changed by the trainer/admin, and passwords are reset by the trainer.
+ * labels), install-app and sign-out.
+ * Teachers and admins: the same page with their role, what they are allowed to do
+ * (teacher permissions, or full access for admins), menu labels, install and sign-out.
+ * No form collects personal information; details are changed by an admin.
  */
 
 import { requireAuth } from './guard.js';
@@ -173,20 +175,6 @@ function setupPreferences() {
     });
   }
 
-  const labels = document.getElementById('pref-rail-expanded');
-  if (labels) {
-    const sync = () => {
-      labels.checked = document.body.classList.contains('rail-expanded');
-    };
-    sync();
-    labels.addEventListener('change', () => {
-      // Reuse the side menu's own toggle so its saved state and labels stay in step.
-      const toggle = document.getElementById('btn-rail-toggle');
-      if (toggle && labels.checked !== document.body.classList.contains('rail-expanded')) toggle.click();
-      sync();
-    });
-    document.getElementById('btn-rail-toggle')?.addEventListener('click', () => setTimeout(sync, 0));
-  }
 }
 
 function setupActions() {
@@ -202,10 +190,125 @@ function setupActions() {
   });
 }
 
+/** Teacher permission keys, in the order the Teachers page lists them. Exported for tests. */
+export const TEACHER_PERMISSIONS = [
+  { key: 'can_view_students', icon: '👥', name: 'View students', text: 'See your assigned students and their practice' },
+  { key: 'can_mark_attendance', icon: '✅', name: 'Mark attendance', text: 'Take attendance for your classes' },
+  { key: 'can_correct_attendance', icon: '✏️', name: 'Correct attendance', text: 'Change attendance already marked' },
+  { key: 'can_review_scores', icon: '🔍', name: 'Review scores', text: 'Verify scores students enter' },
+  { key: 'can_request_corrections', icon: '↩️', name: 'Request corrections', text: 'Ask students to fix a score' },
+  { key: 'can_manage_tasks', icon: '☑️', name: 'Manage tasks', text: 'Set daily to-dos' },
+  { key: 'can_manage_tests', icon: '📝', name: 'Manage weekly tests', text: 'Create tests and enter results' },
+  { key: 'can_generate_reports', icon: '📊', name: 'Monthly reports', text: 'Open and print student reports' },
+  { key: 'can_publish_announcements', icon: '📣', name: 'Announcements', text: 'Post news to students' },
+  { key: 'can_manage_resources', icon: '📁', name: 'Resources', text: 'Share files and links' },
+];
+
+/** One row per teacher permission. Missing keys count as allowed, as in the navigation. */
+export function summarizeTeacherPermissions(permissions) {
+  const p = permissions || {};
+  return TEACHER_PERMISSIONS.map((perm) => ({
+    icon: perm.icon,
+    name: perm.name,
+    text: perm.text,
+    state: p[perm.key] !== false ? 'full' : 'none',
+  }));
+}
+
+const ADMIN_SUMMARY = [
+  { icon: '👥', name: 'Students and teachers', text: 'Add students, manage teachers and access', state: 'full' },
+  { icon: '🔍', name: 'Results', text: 'Review scores, weekly tests and reports', state: 'full' },
+  { icon: '🎥', name: 'Classes', text: 'Attendance, live classes and homework', state: 'full' },
+  { icon: '⚙️', name: 'Settings', text: 'Categories, rounds, targets, import and backup', state: 'full' },
+];
+
+function renderAccessRows(listId, rows, labels) {
+  const list = document.getElementById(listId);
+  if (!list) return;
+  list.innerHTML = rows
+    .map(
+      (r) => `<li class="ac-acc is-${r.state}">
+        <span class="ac-acc-ic" aria-hidden="true">${r.icon}</span>
+        <span class="ac-acc-t"><b>${escapeHtml(r.name)}</b><span>${escapeHtml(r.text)}</span></span>
+        <span class="ac-acc-pill">${labels[r.state]}</span>
+      </li>`
+    )
+    .join('');
+}
+
+function showRoleSections(isStaff) {
+  document.querySelectorAll('[data-account-role]').forEach((el) => {
+    const want = el.getAttribute('data-account-role');
+    el.hidden = isStaff ? want !== 'staff' : want !== 'student';
+  });
+}
+
+function renderStaffAccount(p) {
+  const isAdmin = p.role === 'admin';
+  const roleLabel = isAdmin ? 'Admin' : 'Teacher';
+  const name = p.full_name || roleLabel;
+  const code = p.student_code || '—';
+  const active = p.active !== false;
+  const joined = formatJoined(p.created_at);
+
+  setText('account-avatar', name.trim().charAt(0).toUpperCase() || roleLabel.charAt(0));
+  setText('account-name', name);
+  setText('account-code', code);
+  setText('account-level-icon', isAdmin ? '🛡️' : '🧑‍🏫');
+  setText('account-level', roleLabel);
+  const joinedFact = document.getElementById('account-joined-fact');
+  if (joinedFact) joinedFact.hidden = !joined;
+  setText('account-joined', joined);
+  const status = document.getElementById('account-status');
+  if (status) {
+    status.textContent = active ? 'Active' : 'Paused';
+    status.classList.toggle('is-off', !active);
+  }
+
+  const links = document.getElementById('account-hero-links');
+  if (links) {
+    links.innerHTML = isAdmin
+      ? '<a href="/pages/admin.html" class="btn btn-outline btn-sm">🏠 Overview</a><a href="/pages/settings.html" class="btn btn-outline btn-sm">⚙️ Settings</a>'
+      : '<a href="/pages/teacher.html" class="btn btn-outline btn-sm">🏠 Overview</a><a href="/pages/live-classes.html" class="btn btn-outline btn-sm">🎥 Live classes</a>';
+  }
+
+  setText('account-details-sub', isAdmin ? 'Your sign-in profile' : 'Ask an admin to change these');
+  setText('account-detail-name', name);
+  setText('account-detail-code-label', 'Sign-in ID');
+  setText('account-detail-code', code);
+  setText('account-detail-level-label', 'Role');
+  setText('account-detail-level', roleLabel);
+  setText('account-detail-status', active ? 'Active' : 'Paused');
+  setText('account-detail-joined', joined || '—');
+
+  if (isAdmin) {
+    setText('account-perms-source', 'Admins can open every page');
+    renderAccessRows('account-perms-list', ADMIN_SUMMARY, { full: 'Full', none: 'Off' });
+    setText('account-password-text', 'Admin passwords are changed by the Trendz system owner.');
+    setText('account-password-tag', '🔒 Managed centrally');
+  } else {
+    const rows = summarizeTeacherPermissions(p.permissions);
+    const allowed = rows.filter((r) => r.state === 'full').length;
+    setText('account-perms-source', `${allowed} of ${rows.length} allowed · set by an admin`);
+    renderAccessRows('account-perms-list', rows, { full: 'Allowed', none: 'Off' });
+    setText('account-password-text', 'Forgot it or want a new one? Ask an admin to reset it from the Teachers page.');
+    setText('account-password-tag', '🔒 Managed by an admin');
+  }
+}
+
 async function initAccountPage() {
-  const profile = await requireAuth(['student']);
+  const profile = await requireAuth(['student', 'teacher', 'admin']);
   if (!profile) return;
 
+  if (profile.role !== 'student') {
+    showRoleSections(true);
+    renderStaffAccount(profile);
+    setupPreferences();
+    setupActions();
+    return;
+  }
+
+  showRoleSections(false);
   renderDetails(profile);
   setupPreferences();
   setupActions();

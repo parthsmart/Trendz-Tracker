@@ -209,9 +209,22 @@ async function fetchProviderWebinarStatus(webinarId, fetchImpl = fetch) {
   return info?.status || null;
 }
 
+/** Same mailbox, ignoring case and surrounding spaces (Webinar.gg treats addresses case-insensitively). */
+export function isSameEmail(a, b) {
+  const clean = (value) => (typeof value === 'string' ? value.trim().toLowerCase() : '');
+  const left = clean(a);
+  return left.includes('@') && left === clean(b);
+}
+
+function isTeacherStartable(liveClass) {
+  return (liveClass.class_type || 'live') === 'live' &&
+    !['ended', 'cancelled'].includes(liveClass.status) &&
+    !['ended', 'completed'].includes(liveClass.provider_status);
+}
+
 function getHostDashboardUrl(caller, liveClass) {
   const { host_email, class_type, status, provider_status, webinar_id } = liveClass;
-  if (caller.role !== 'admin' || !host_email || caller.email !== host_email ||
+  if (caller.role !== 'admin' || !host_email || !isSameEmail(caller.email, host_email) ||
       (class_type || 'live') !== 'live' || ['ended', 'cancelled'].includes(status) ||
       ['ended', 'completed'].includes(provider_status) || !/^[a-zA-Z0-9_-]+$/.test(webinar_id || '')) {
     return null;
@@ -240,6 +253,23 @@ async function hasWebinarCohost(webinarId, email, fetchImpl) {
   if (!Array.isArray(cohosts)) throw new Error('Webinar.gg returned an invalid co-host list.');
   return cohosts.some((entry) => [entry.email, entry.user?.email]
     .some((address) => normalizeCohostEmail(address) === email));
+}
+
+/**
+ * Lets the teacher start the room without the owner and invites them as co-host if needed.
+ * Safe to repeat: the policy update is idempotent and the invite is skipped when already present.
+ */
+async function ensureTeacherCohost(webinarId, email, fetchImpl, alreadyInvited) {
+  const invited = alreadyInvited ?? await hasWebinarCohost(webinarId, email, fetchImpl);
+  await requestCohostSetup(webinarId, 'cohost-policy', fetchImpl, 'PATCH', {
+    cohostStartWithoutHost: true,
+    cohostPermissions: { startWebinar: true },
+  });
+  if (!invited) {
+    await requestCohostSetup(webinarId, 'cohosts', fetchImpl, 'POST', {
+      kind: 'email', emails: [email],
+    });
+  }
 }
 
 /**
@@ -382,8 +412,8 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           Array.isArray(liveClass.invited_teacher_ids) && liveClass.invited_teacher_ids.includes(caller.id)
         );
         const isAssignedTeacher = caller.role === 'teacher' && caller.id === liveClass.teacher_id;
-        const isHost = caller.role === 'admin' && Boolean(liveClass.host_email && caller.email === liveClass.host_email);
-        const isHostIdentityMismatch = caller.role === 'admin' && Boolean(liveClass.host_email && caller.email !== liveClass.host_email);
+        const isHost = caller.role === 'admin' && isSameEmail(caller.email, liveClass.host_email);
+        const isHostIdentityMismatch = caller.role === 'admin' && Boolean(liveClass.host_email) && !isHost;
         const classType = liveClass.class_type || 'live';
         let hostDashboardUrl = getHostDashboardUrl(caller, {
           ...liveClass, status: currentStatus, provider_status: providerStatus,
@@ -400,16 +430,29 @@ export async function handleLiveClassRequest(req, res, options = {}) {
         }
 
         const teacherEmail = normalizeCohostEmail(caller.cohostEmail);
-        if (isAssignedTeacher && teacherEmail && classType === 'live' && providerInfo?.cohostsCanStart &&
-            !['ended', 'cancelled'].includes(currentStatus) && !['ended', 'completed'].includes(providerStatus) &&
+        if (isAssignedTeacher && teacherEmail && getWebinarGgToken() &&
+            isTeacherStartable({ class_type: classType, status: currentStatus, provider_status: providerStatus }) &&
             /^[a-zA-Z0-9_-]+$/.test(liveClass.webinar_id || '')) {
+          let invited;
           try {
-            if (await hasWebinarCohost(liveClass.webinar_id, teacherEmail, fetchImpl)) {
-              hostDashboardUrl = `https://webinar.gg/webinar-page/${liveClass.webinar_id}`;
-            }
+            invited = await hasWebinarCohost(liveClass.webinar_id, teacherEmail, fetchImpl);
           } catch {
             return res.status(502).json({ error: 'Could not confirm your Webinar.gg hosting access. Try again.', code: 'COHOST_LOOKUP_FAILED' });
           }
+          let ready = invited && providerInfo?.cohostsCanStart === true;
+          if (!ready) {
+            // Classes scheduled before the teacher's Webinar email was saved (or before co-host setup
+            // existed) never got an invite. Set it up now instead of leaving the teacher stuck.
+            try {
+              await ensureTeacherCohost(liveClass.webinar_id, teacherEmail, fetchImpl, invited);
+              const refreshed = await fetchProviderWebinarInfo(liveClass.webinar_id, fetchImpl);
+              ready = refreshed?.cohostsCanStart === true &&
+                await hasWebinarCohost(liveClass.webinar_id, teacherEmail, fetchImpl);
+            } catch {
+              ready = false;
+            }
+          }
+          if (ready) hostDashboardUrl = `https://webinar.gg/webinar-page/${liveClass.webinar_id}`;
         }
         const isTeacherCohost = isAssignedTeacher && Boolean(hostDashboardUrl);
         const hostingDisabled = caller.role === 'teacher' && !isInvitedParticipant && !isTeacherCohost;
@@ -438,6 +481,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
             isHost: isHost || isTeacherCohost,
             hostDashboardUrl,
             hostingDisabled,
+            teacherEmailMissing: hostingDisabled && isAssignedTeacher && !teacherEmail,
             isInvitedParticipant,
             isHostIdentityMismatch,
             requiredHostEmail: liveClass.host_email,
@@ -607,7 +651,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           participant = formatWebinarParticipant(caller.fullName, caller.email, caller.id);
         } else if (caller.role === 'admin') {
           // Admin can only host if their own account email matches the configured host_email
-          if (liveClass.host_email && caller.email === liveClass.host_email) {
+          if (isSameEmail(caller.email, liveClass.host_email)) {
             isHost = true;
             participant = {
               firstName: caller.fullName.split(/\s+/)[0] || 'Admin',
@@ -744,6 +788,10 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           classes: (classes || []).map((liveClass) => ({
             ...liveClass,
             hostDashboardUrl: getHostDashboardUrl(caller, liveClass),
+            // The room page checks (and if needed sets up) co-host access, then opens Webinar.gg.
+            teacherStartUrl: caller.role === 'teacher' && liveClass.teacher_id === caller.id && isTeacherStartable(liveClass)
+              ? `/pages/live-room.html?classId=${encodeURIComponent(liveClass.id)}&start=1`
+              : null,
           })),
         });
       }
@@ -896,16 +944,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
 
         if (teacherCohostEmail) {
           try {
-            const alreadyInvited = await hasWebinarCohost(effectiveWebinarId, teacherCohostEmail, fetchImpl);
-            await requestCohostSetup(effectiveWebinarId, 'cohost-policy', fetchImpl, 'PATCH', {
-              cohostStartWithoutHost: true,
-              cohostPermissions: { startWebinar: true },
-            });
-            if (!alreadyInvited) {
-              await requestCohostSetup(effectiveWebinarId, 'cohosts', fetchImpl, 'POST', {
-                kind: 'email', emails: [teacherCohostEmail],
-              });
-            }
+            await ensureTeacherCohost(effectiveWebinarId, teacherCohostEmail, fetchImpl);
           } catch {
             return res.status(502).json({
               error: 'The room exists, but teacher hosting could not be set up. Retry to use the same room.',

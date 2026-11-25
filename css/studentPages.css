@@ -30,7 +30,7 @@
 
 /* ---------- Flash Anzan: full-screen stage (number fills the screen, no counter) ---------- */
 body.flash-playing { overflow: hidden; }
-body.flash-playing .student-rail { display: none !important; }
+body.flash-playing .app-rail { display: none !important; }
 body.flash-playing .main-content { padding-left: 0 !important; }
 body.flash-playing #flash-play-screen { position: fixed; inset: 0; z-index: 200; margin: 0 !important; border: 0; border-radius: 0; box-shadow: none; background: #F8FBFF; overflow: auto; }
 body.flash-playing #flash-play-screen > div:first-child { display: none; } /* progress bar */
@@ -114,39 +114,53 @@ body.flash-playing #flash-answer-panel { width: min(520px, 100%); background: #f
 /* ---------- Weekly Test: use the full content width (sections sit four across) ---------- */
 body.has-student-rail .wt-container { max-width: 1200px !important; }
 
-/* ---------- Leaderboard: metric tiles + podium (students) ---------- */
-.lb-podium { display: none; }
-body.has-student-rail .lb-board { display: grid; grid-template-columns: 360px minmax(0, 1fr); align-items: stretch; }
-body.has-student-rail .lb-podium:not([hidden]) { display: grid; grid-template-columns: 1fr 1.12fr 1fr; gap: 10px; align-items: end; padding: 22px; border-right: 1px solid var(--border-hairline); background: linear-gradient(180deg, #F8FBFF, var(--bg-surface)); }
-body.has-student-rail .lb-podium[hidden] + .table-wrapper { grid-column: 1 / -1; }
-.lb-pd { text-align: center; display: grid; gap: 4px; justify-items: center; min-width: 0; }
-.lb-pd .av { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 18px; color: #fff; background: #64748B; }
-.lb-pd b { font-size: 13.5px; color: var(--text-main); overflow-wrap: anywhere; }
-.lb-pd .pts { font-size: 12.5px; font-weight: 700; color: var(--text-dim); }
-.lb-pd .blk { width: 100%; border-radius: 10px 10px 0 0; display: grid; place-items: center; font-weight: 800; font-size: 20px; color: #fff; }
-.lb-pd.p1 .av { width: 60px; height: 60px; background: #CA8A04; box-shadow: 0 0 0 4px #FEF08A; }
-.lb-pd.p1 .blk { height: 110px; background: #EAB308; }
-.lb-pd.p2 .av { background: var(--color-primary); box-shadow: 0 0 0 4px #BFDBFE; }
-.lb-pd.p2 .blk { height: 80px; background: var(--color-primary); }
-.lb-pd.p3 .av { background: #B45309; }
-.lb-pd.p3 .blk { height: 60px; background: #B45309; }
-.lb-pd .crown { font-size: 20px; line-height: 1; }
-@media (max-width: 1100px) {
-  body.has-student-rail .lb-board { grid-template-columns: minmax(0, 1fr); }
-  body.has-student-rail .lb-podium:not([hidden]) { border-right: 0; border-bottom: 1px solid var(--border-hairline); max-width: 460px; margin: 0 auto; width: 100%; }
+/* ---------- Leaderboard: top-five bar graph, everyone else listed below (students) ---------- */
+.lb-podium, .lb-rest-title { display: none; }
+body.has-app-rail .lb-board { display: block; }
+body.has-app-rail .lb-graph:not([hidden]) { display: block; padding: 20px 20px 16px; border-bottom: 1px solid var(--border-hairline); background: linear-gradient(180deg, #F8FBFF, var(--bg-surface)); }
+.lb-graph-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.lb-graph-title { margin: 0; font-size: 16px; font-weight: 800; color: var(--text-main); }
+.lb-graph-metric { font-size: 12.5px; font-weight: 600; color: var(--text-muted); }
+.lb-bars { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(var(--cols, 5), minmax(0, 1fr)); }
+.lb-col { min-width: 0; display: grid; gap: 8px; cursor: default; }
+.lb-plot { height: 180px; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; padding: 0 6px; border-bottom: 1px solid var(--border-color, #CBD5E1); }
+.lb-val { font-size: 13px; font-weight: 700; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.lb-bar { display: block; width: min(56px, 78%); min-height: 6px; border-radius: 4px 4px 0 0; background: var(--color-primary); transition: filter .15s; }
+.lb-col:hover .lb-bar { filter: brightness(1.12); }
+.lb-col.is-me .lb-bar { background: #1E3A8A; }
+.lb-who { display: grid; justify-items: center; gap: 3px; text-align: center; min-width: 0; padding: 0 4px; }
+.lb-rank { font-size: 12px; font-weight: 800; color: var(--text-muted); white-space: nowrap; }
+.lb-medal { margin-right: 2px; }
+.lb-av { width: 32px; height: 32px; flex: none; border-radius: 50%; display: inline-grid; place-items: center; font-weight: 800; font-size: 14px; color: var(--color-primary-text, #1E40AF); background: var(--color-primary-subtle, #DBEAFE); }
+.lb-col.is-me .lb-av { background: #1E3A8A; color: #fff; }
+.lb-name { font-size: 13px; color: var(--text-main); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lb-you { font-size: 11px; font-weight: 700; color: #fff; background: #1E3A8A; border-radius: 999px; padding: 1px 8px; }
+body.has-app-rail .lb-rest-title:not([hidden]) { display: block; margin: 0; padding: 14px 20px 6px; font-size: 14px; font-weight: 800; color: var(--text-main); }
+body.has-app-rail #leaderboard-table-body .lb-who-cell > div { vertical-align: middle; }
+body.has-app-rail #leaderboard-table-body .lb-who-cell .lb-av { margin-right: 10px; vertical-align: middle; }
+body.has-app-rail #leaderboard-table-body td:first-child .num { display: inline-grid; place-items: center; min-width: 40px; height: 28px; padding: 0 8px; border-radius: 999px; background: var(--bg-muted, #F1F5F9); font-size: 13px; }
+.lb-meter { display: block; height: 4px; margin: 6px 0 0 42px; border-radius: 4px; background: var(--border-hairline, #E2E8F0); overflow: hidden; max-width: 260px; }
+.lb-meter i { display: block; height: 100%; border-radius: 4px; background: var(--color-primary); }
+@media (max-width: 600px) {
+  body.has-app-rail .lb-graph:not([hidden]) { padding: 16px 10px 12px; }
+  .lb-plot { height: 140px; padding: 0 3px; }
+  .lb-val { font-size: 11.5px; }
+  .lb-av { width: 26px; height: 26px; font-size: 12px; }
+  .lb-name { font-size: 11.5px; }
+  .lb-rank { font-size: 11px; }
 }
-body.has-student-rail .segmented-control[aria-label="Leaderboard type"] { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; background: none; border: 0; padding: 0; width: 100%; }
-body.has-student-rail .segmented-control[aria-label="Leaderboard type"] .segmented-btn { border: 1px solid var(--border-hairline); border-radius: 12px; padding: 10px 12px; font-size: 14px; font-weight: 700; background: var(--bg-surface); color: var(--text-muted); text-align: left; }
-body.has-student-rail .segmented-control[aria-label="Leaderboard type"] .segmented-btn.active { border: 2px solid var(--color-primary); background: var(--color-primary-subtle); color: var(--color-primary-text); box-shadow: none; }
+body.has-app-rail .segmented-control[aria-label="Leaderboard type"] { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; background: none; border: 0; padding: 0; width: 100%; }
+body.has-app-rail .segmented-control[aria-label="Leaderboard type"] .segmented-btn { border: 1px solid var(--border-hairline); border-radius: 12px; padding: 10px 12px; font-size: 14px; font-weight: 700; background: var(--bg-surface); color: var(--text-muted); text-align: left; }
+body.has-app-rail .segmented-control[aria-label="Leaderboard type"] .segmented-btn.active { border: 2px solid var(--color-primary); background: var(--color-primary-subtle); color: var(--color-primary-text); box-shadow: none; }
 
 /* ============================================================
    Monthly Report: one report sheet, delta arrows, bars, focus card
-   Student layout on screen only; admin view and print stay as before.
+   Same layout for students and staff on screen; print stays as before.
    ============================================================ */
 .mr-av, .mr-delta, .mr-ic, .mr-wbar, .mr-accbar, .mr-focus { display: none; }
 
 @media screen {
-  body.has-student-rail .mr-sheet {
+  body.has-app-rail .mr-sheet {
     background: var(--bg-surface, #fff);
     border: 1px solid var(--border-color, #E2E8F0);
     border-radius: var(--radius-lg, 16px);
@@ -154,104 +168,105 @@ body.has-student-rail .segmented-control[aria-label="Leaderboard type"] .segment
     margin-bottom: var(--space-5);
     box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   }
-  body.has-student-rail .mr-sheet > .card,
-  body.has-student-rail .mr-sheet > .summary-strip > .card {
+  body.has-app-rail .mr-sheet > .card,
+  body.has-app-rail .mr-sheet > .summary-strip > .card {
     border: 0;
     border-radius: 0;
     box-shadow: none;
     margin: 0 !important;
   }
-  body.has-student-rail .mr-sheet > .summary-strip { margin: 0 !important; gap: 0; }
+  body.has-app-rail .mr-sheet > .summary-strip { margin: 0 !important; gap: 0; }
 
   /* Header band */
-  body.has-student-rail .mr-sheet .report-header-card {
+  body.has-app-rail .mr-sheet .report-header-card {
     background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);
     color: #fff;
   }
-  body.has-student-rail .mr-sheet .report-header-card .card-body { padding: 22px 26px; justify-content: flex-start !important; gap: 18px !important; }
-  body.has-student-rail .mr-av {
+  body.has-app-rail .mr-sheet .report-header-card .card-body { padding: 22px 26px; justify-content: flex-start !important; gap: 18px !important; }
+  body.has-app-rail .mr-av {
     display: grid; place-items: center; flex: none;
     width: 56px; height: 56px; border-radius: 50%;
     background: rgba(255, 255, 255, 0.18); font-size: 22px; font-weight: 800;
   }
-  body.has-student-rail .mr-id > div:first-child { color: rgba(255,255,255,.82) !important; font-size: 12px !important; letter-spacing: .08em; text-transform: uppercase; font-weight: 700 !important; }
-  body.has-student-rail #report-student-name { color: #fff !important; font-size: 24px !important; font-weight: 800 !important; }
-  body.has-student-rail .mr-id .badge { background: rgba(255,255,255,.16); color: #fff; border: 0; }
-  body.has-student-rail .mr-sheet .report-header-card .card-body > div:last-child { margin-left: auto; }
-  body.has-student-rail #report-date-range { color: #fff !important; font-size: 17px !important; }
-  body.has-student-rail #report-days-elapsed { color: rgba(255,255,255,.85) !important; }
+  body.has-app-rail .mr-id > div:first-child { color: rgba(255,255,255,.82) !important; font-size: 12px !important; letter-spacing: .08em; text-transform: uppercase; font-weight: 700 !important; }
+  body.has-app-rail #report-student-name { color: #fff !important; font-size: 24px !important; font-weight: 800 !important; }
+  body.has-app-rail .mr-id .badge { background: rgba(255,255,255,.16); color: #fff; border: 0; }
+  body.has-app-rail .mr-sheet .report-header-card .card-body > div:last-child { margin-left: auto; }
+  body.has-app-rail #report-date-range { color: #fff !important; font-size: 17px !important; }
+  body.has-app-rail #report-days-elapsed { color: rgba(255,255,255,.85) !important; }
 
   /* KPI row */
-  body.has-student-rail .mr-kpi { grid-template-columns: repeat(4, minmax(0, 1fr)) !important; border-bottom: 1px solid var(--border-color, #E2E8F0); }
-  body.has-student-rail .mr-kpi > .card { padding: 18px 22px; }
-  body.has-student-rail .mr-kpi > .card + .card,
-  body.has-student-rail .mr-k3 > .card + .card { border-left: 1px solid var(--border-color, #E2E8F0); }
-  body.has-student-rail .mr-kpi .stat-value { font-size: 28px; font-weight: 800; letter-spacing: -0.02em; }
-  body.has-student-rail .mr-delta:not([hidden]) { display: block; font-size: 12.5px; font-weight: 700; color: var(--text-muted); margin: 2px 0; }
-  body.has-student-rail .mr-delta.up { color: #15803D; }
-  body.has-student-rail .mr-delta.down { color: #B45309; }
+  body.has-app-rail .mr-kpi { grid-template-columns: repeat(4, minmax(0, 1fr)) !important; border-bottom: 1px solid var(--border-color, #E2E8F0); }
+  body.has-app-rail .mr-kpi > .card { padding: 18px 22px; }
+  body.has-app-rail .mr-kpi > .card + .card,
+  body.has-app-rail .mr-k3 > .card + .card { border-left: 1px solid var(--border-color, #E2E8F0); }
+  body.has-app-rail .mr-kpi .stat-value { font-size: 28px; font-weight: 800; letter-spacing: -0.02em; }
+  body.has-app-rail .mr-delta:not([hidden]) { display: block; font-size: 12.5px; font-weight: 700; color: var(--text-muted); margin: 2px 0; }
+  body.has-app-rail .mr-delta.up { color: #15803D; }
+  body.has-app-rail .mr-delta.down { color: #B45309; }
 
   /* Points / attendance / targets row */
-  body.has-student-rail .mr-k3 { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
-  body.has-student-rail .mr-k3 > .card {
+  body.has-app-rail .mr-k3 { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+  body.has-app-rail .mr-k3 > .card {
     display: grid; grid-template-columns: 38px minmax(0, 1fr); column-gap: 12px; align-items: center;
     padding: 14px 22px;
   }
-  body.has-student-rail .mr-k3 .mr-ic {
+  body.has-app-rail .mr-k3 .mr-ic {
     display: grid; place-items: center; grid-row: 1 / span 3;
     width: 38px; height: 38px; border-radius: 10px; background: #EFF6FF; font-size: 18px;
   }
-  body.has-student-rail .mr-k3 .stat-value { font-size: 16px !important; }
+  body.has-app-rail .mr-k3 .stat-value { font-size: 16px !important; }
 
   /* Weeks + focus, categories full width */
-  body.has-student-rail .mr-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: var(--space-5); }
-  body.has-student-rail .mr-grid > .mr-cats { grid-column: 1 / -1; }
-  body.has-student-rail .mr-focus { display: block; }
-  body.has-student-rail .mr-weeks .mr-wnum { display: none; }
-  body.has-student-rail .mr-weeks td:nth-child(2) { width: 100%; text-align: left !important; }
-  body.has-student-rail .mr-weeks td:first-child { white-space: nowrap; }
-  body.has-student-rail .mr-weeks th:nth-child(2) { text-align: left !important; }
-  body.has-student-rail .mr-wbar { display: block; height: 26px; background: #F1F5F9; border-radius: 7px; overflow: hidden; }
-  body.has-student-rail .mr-wbar i {
+  body.has-app-rail .mr-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: var(--space-5); }
+  body.has-app-rail .mr-grid > .mr-cats { grid-column: 1 / -1; }
+  body.has-app-rail .mr-focus { display: block; }
+  body.has-app-rail .mr-weeks .mr-wnum { display: none; }
+  body.has-app-rail .mr-weeks td:nth-child(2) { width: 100%; text-align: left !important; }
+  body.has-app-rail .mr-weeks td:first-child { white-space: nowrap; }
+  body.has-app-rail .mr-weeks th:nth-child(2) { text-align: left !important; }
+  body.has-app-rail .mr-wbar { display: block; height: 26px; background: #F1F5F9; border-radius: 7px; overflow: hidden; }
+  body.has-app-rail .mr-wbar i {
     display: flex; align-items: center; height: 100%; padding-left: 8px; white-space: nowrap;
     background: #2563EB; color: #fff; border-radius: 7px; font-size: 12px; font-weight: 700; font-style: normal;
   }
-  body.has-student-rail .mr-weeks .data-table td { border-bottom: 0; }
+  body.has-app-rail .mr-weeks .data-table td { border-bottom: 0; }
 
-  body.has-student-rail .mr-focus-list { display: grid; gap: 10px; padding: 0 var(--space-5) var(--space-5); }
-  body.has-student-rail .mr-fi {
+  body.has-app-rail .mr-focus-list { display: grid; gap: 10px; padding: 0 var(--space-5) var(--space-5); }
+  body.has-app-rail .mr-fi {
     display: flex; align-items: center; gap: 12px; padding: 10px 12px;
     border-radius: 12px; background: #FFFBEB; border: 1px solid #FDE68A;
   }
-  body.has-student-rail .mr-fi b:first-of-type { flex: 1; }
-  body.has-student-rail .mr-fi-sec { color: var(--text-muted); font-size: 13px; text-transform: capitalize; }
-  body.has-student-rail .mr-focus-empty { color: var(--text-muted); font-size: 14px; margin: 0; }
+  body.has-app-rail .mr-fi b:first-of-type { flex: 1; }
+  body.has-app-rail .mr-fi-sec { color: var(--text-muted); font-size: 13px; text-transform: capitalize; }
+  body.has-app-rail .mr-focus-empty { color: var(--text-muted); font-size: 14px; margin: 0; }
 
-  body.has-student-rail .mr-cats tbody tr { background: none !important; }
-  body.has-student-rail .mr-needs {
+  body.has-app-rail .mr-cats tbody tr { background: none !important; }
+  body.has-app-rail .mr-needs {
     display: inline-block; padding: 2px 8px; border-radius: 99px;
     background: #FEF3C7; color: #92400E !important; font-weight: 700;
   }
-  body.has-student-rail .mr-accbar {
+  body.has-app-rail .mr-accbar {
     display: inline-block; vertical-align: middle; width: 90px; height: 7px; margin-right: 10px;
     border-radius: 99px; background: #F1F5F9; overflow: hidden;
   }
-  body.has-student-rail .mr-accbar i { display: block; height: 100%; background: #22C55E; }
-  body.has-student-rail .mr-accbar i.is-low { background: #F59E0B; }
+  body.has-app-rail .mr-accbar i { display: block; height: 100%; background: #22C55E; }
+  body.has-app-rail .mr-accbar i.is-low { background: #F59E0B; }
 
   @media (max-width: 1100px) {
-    body.has-student-rail .mr-kpi { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
-    body.has-student-rail .mr-k3,
-    body.has-student-rail .mr-grid { grid-template-columns: minmax(0, 1fr) !important; }
-    body.has-student-rail .mr-k3 > .card + .card { border-left: 0; border-top: 1px solid var(--border-color, #E2E8F0); }
+    body.has-app-rail .mr-kpi { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+    body.has-app-rail .mr-k3,
+    body.has-app-rail .mr-grid { grid-template-columns: minmax(0, 1fr) !important; }
+    body.has-app-rail .mr-k3 > .card + .card { border-left: 0; border-top: 1px solid var(--border-color, #E2E8F0); }
   }
 }
 
-/* Leaderboard: ranks 1-3 live on the podium, the table continues from rank 4 */
+/* Leaderboard: the top five live in the graph, the table continues below it */
 .lb-rest-note { display: none; }
-body.has-student-rail #leaderboard-table-body tr.lb-on-podium { display: none; }
-body.has-student-rail #leaderboard-table-body tr.lb-rest-note { display: table-row; }
-body.has-student-rail .lb-rest-note td { text-align: center; color: var(--text-muted); padding: var(--space-5); font-size: var(--text-sm); }
+body.has-app-rail #leaderboard-table-body tr.lb-on-podium { display: none; }
+body.has-app-rail #leaderboard-table-body tr.lb-rest-note { display: table-row; }
+body.has-app-rail .lb-no-rest #leaderboard-table-head { display: none; }
+body.has-app-rail .lb-rest-note td { text-align: center; color: var(--text-muted); padding: var(--space-5); font-size: var(--text-sm); }
 
 /* ============================================================
    Weekly Test: test cards with date block, section tiles, compact past rows
@@ -417,6 +432,7 @@ body.has-student-rail .lb-rest-note td { text-align: center; color: var(--text-m
   body.has-student-rail #today-summary-metrics .info-tip-wrapper { margin-left: auto; }
   body.has-student-rail #today-summary-metrics .info-tip-trigger { width: 28px; height: 28px; min-width: 28px; background: transparent; }
   body.has-student-rail .sh-hero .note { font-size: 12px; gap: 2px 10px; }
+  body.has-student-rail #today-summary-metrics > span:last-child:nth-child(odd) { grid-column: 1 / -1; }
 
   /* Home: view switcher fills the width; Main Round shortcut sits under it */
   body.has-student-rail .sh-viewbar .segmented-control { width: 100%; display: flex; }
@@ -455,3 +471,6 @@ body.has-student-rail .lb-rest-note td { text-align: center; color: var(--text-m
   body.has-student-rail .mr-fi { flex-wrap: wrap; }
   body.has-student-rail .mr-fi-sec { display: none; }
 }
+
+/* ---------- Account page: role-specific sections (js/account.js) ---------- */
+[data-account-role][hidden] { display: none !important; }
