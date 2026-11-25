@@ -349,6 +349,13 @@ export async function handleLiveClassRequest(req, res, options = {}) {
         const isHost = caller.role === 'admin' && Boolean(liveClass.host_email && caller.email === liveClass.host_email);
         const isHostIdentityMismatch = caller.role === 'admin' && Boolean(liveClass.host_email && caller.email !== liveClass.host_email);
         const hostingDisabled = caller.role === 'teacher' && !isInvitedParticipant;
+        const classType = liveClass.class_type || 'live';
+        const hostDashboardUrl = isHost && classType === 'live' &&
+          currentStatus !== 'ended' && currentStatus !== 'cancelled' &&
+          providerStatus !== 'ended' && providerStatus !== 'completed' &&
+          /^[a-zA-Z0-9_-]+$/.test(liveClass.webinar_id || '')
+          ? `https://webinar.gg/webinars/schedule-webinar/details/webinardetails/${liveClass.webinar_id}`
+          : null;
 
         if (caller.role === 'teacher') {
           if (!isInvitedParticipant && !isAssignedTeacher) {
@@ -372,7 +379,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
             durationMinutes: liveClass.duration_minutes,
             status: currentStatus,
             providerStatus: providerStatus,
-            classType: liveClass.class_type || 'live',
+            classType,
             recordingEnabled: liveClass.recording_enabled !== false,
             recordingConfirmed: isRecordingConfirmed,
             prerecordedAssetUrl: liveClass.prerecorded_asset_url || null,
@@ -382,6 +389,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
               : null,
             notes: liveClass.notes,
             isHost,
+            hostDashboardUrl,
             hostingDisabled,
             isInvitedParticipant,
             isHostIdentityMismatch,

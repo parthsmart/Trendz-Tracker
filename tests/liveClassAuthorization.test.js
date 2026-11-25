@@ -291,12 +291,20 @@ test('3. Server-side Live Class join authorization and host identity protection'
   assert.equal(adminOwnerMeta.statusCode, 200);
   assert.equal(adminOwnerMeta.jsonResult.class.isHost, true);
   assert.equal(adminOwnerMeta.jsonResult.class.hostingDisabled, false);
+  assert.equal(adminOwnerMeta.jsonResult.class.hostDashboardUrl,
+    'https://webinar.gg/webinars/schedule-webinar/details/webinardetails/wgg-webinar-abc');
+
+  mockClass.status = 'cancelled';
+  const cancelledHostMeta = await runRequest('token-admin-matching', 'get_class_details');
+  assert.equal(cancelledHostMeta.jsonResult.class.hostDashboardUrl, null);
+  mockClass.status = 'scheduled';
 
   // H2: Admin with mismatched host email has isHost: false, hostingDisabled: false
   const adminMismatchMeta = await runRequest('token-admin-mismatch', 'get_class_details');
   assert.equal(adminMismatchMeta.statusCode, 200);
   assert.equal(adminMismatchMeta.jsonResult.class.isHost, false);
   assert.equal(adminMismatchMeta.jsonResult.class.hostingDisabled, false);
+  assert.equal(adminMismatchMeta.jsonResult.class.hostDashboardUrl, null);
 
   // H3: Teacher has isHost: false, hostingDisabled: true
   const teacherMeta = await runRequest('token-teacher-assigned', 'get_class_details');
@@ -309,6 +317,7 @@ test('3. Server-side Live Class join authorization and host identity protection'
   assert.equal(studentMeta.statusCode, 200);
   assert.equal(studentMeta.jsonResult.class.isHost, false);
   assert.equal(studentMeta.jsonResult.class.hostingDisabled, false);
+  assert.equal(studentMeta.jsonResult.class.hostDashboardUrl, null);
 
   // H5: Ineligible student is rejected from get_class_details with 403 NOT_ENROLLED
   const studentIneligibleMeta = await runRequest('token-student-ineligible', 'get_class_details');
@@ -321,6 +330,7 @@ test('3. Server-side Live Class join authorization and host identity protection'
   assert.equal(teacherInvitedMeta.jsonResult.class.isHost, false);
   assert.equal(teacherInvitedMeta.jsonResult.class.hostingDisabled, false);
   assert.equal(teacherInvitedMeta.jsonResult.class.isInvitedParticipant, true);
+  assert.equal(teacherInvitedMeta.jsonResult.class.hostDashboardUrl, null);
 
   // H8: Uninvited unrelated teacher is rejected from get_class_details with 403 NOT_INVITED
   const teacherUninvitedMeta = await runRequest('token-teacher-other', 'get_class_details');
