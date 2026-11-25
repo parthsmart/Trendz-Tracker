@@ -114,26 +114,40 @@ body.flash-playing #flash-answer-panel { width: min(520px, 100%); background: #f
 /* ---------- Weekly Test: use the full content width (sections sit four across) ---------- */
 body.has-student-rail .wt-container { max-width: 1200px !important; }
 
-/* ---------- Leaderboard: metric tiles + podium (students) ---------- */
-.lb-podium { display: none; }
-body.has-student-rail .lb-board { display: grid; grid-template-columns: 360px minmax(0, 1fr); align-items: stretch; }
-body.has-student-rail .lb-podium:not([hidden]) { display: grid; grid-template-columns: 1fr 1.12fr 1fr; gap: 10px; align-items: end; padding: 22px; border-right: 1px solid var(--border-hairline); background: linear-gradient(180deg, #F8FBFF, var(--bg-surface)); }
-body.has-student-rail .lb-podium[hidden] + .table-wrapper { grid-column: 1 / -1; }
-.lb-pd { text-align: center; display: grid; gap: 4px; justify-items: center; min-width: 0; }
-.lb-pd .av { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 18px; color: #fff; background: #64748B; }
-.lb-pd b { font-size: 13.5px; color: var(--text-main); overflow-wrap: anywhere; }
-.lb-pd .pts { font-size: 12.5px; font-weight: 700; color: var(--text-dim); }
-.lb-pd .blk { width: 100%; border-radius: 10px 10px 0 0; display: grid; place-items: center; font-weight: 800; font-size: 20px; color: #fff; }
-.lb-pd.p1 .av { width: 60px; height: 60px; background: #CA8A04; box-shadow: 0 0 0 4px #FEF08A; }
-.lb-pd.p1 .blk { height: 110px; background: #EAB308; }
-.lb-pd.p2 .av { background: var(--color-primary); box-shadow: 0 0 0 4px #BFDBFE; }
-.lb-pd.p2 .blk { height: 80px; background: var(--color-primary); }
-.lb-pd.p3 .av { background: #B45309; }
-.lb-pd.p3 .blk { height: 60px; background: #B45309; }
-.lb-pd .crown { font-size: 20px; line-height: 1; }
-@media (max-width: 1100px) {
-  body.has-student-rail .lb-board { grid-template-columns: minmax(0, 1fr); }
-  body.has-student-rail .lb-podium:not([hidden]) { border-right: 0; border-bottom: 1px solid var(--border-hairline); max-width: 460px; margin: 0 auto; width: 100%; }
+/* ---------- Leaderboard: top-five bar graph, everyone else listed below (students) ---------- */
+.lb-podium, .lb-rest-title { display: none; }
+body.has-student-rail .lb-board { display: block; }
+body.has-student-rail .lb-graph:not([hidden]) { display: block; padding: 20px 20px 16px; border-bottom: 1px solid var(--border-hairline); background: linear-gradient(180deg, #F8FBFF, var(--bg-surface)); }
+.lb-graph-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.lb-graph-title { margin: 0; font-size: 16px; font-weight: 800; color: var(--text-main); }
+.lb-graph-metric { font-size: 12.5px; font-weight: 600; color: var(--text-muted); }
+.lb-bars { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(var(--cols, 5), minmax(0, 1fr)); }
+.lb-col { min-width: 0; display: grid; gap: 8px; cursor: default; }
+.lb-plot { height: 180px; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; padding: 0 6px; border-bottom: 1px solid var(--border-color, #CBD5E1); }
+.lb-val { font-size: 13px; font-weight: 700; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.lb-bar { display: block; width: min(56px, 78%); min-height: 6px; border-radius: 4px 4px 0 0; background: var(--color-primary); transition: filter .15s; }
+.lb-col:hover .lb-bar { filter: brightness(1.12); }
+.lb-col.is-me .lb-bar { background: #1E3A8A; }
+.lb-who { display: grid; justify-items: center; gap: 3px; text-align: center; min-width: 0; padding: 0 4px; }
+.lb-rank { font-size: 12px; font-weight: 800; color: var(--text-muted); white-space: nowrap; }
+.lb-medal { margin-right: 2px; }
+.lb-av { width: 32px; height: 32px; flex: none; border-radius: 50%; display: inline-grid; place-items: center; font-weight: 800; font-size: 14px; color: var(--color-primary-text, #1E40AF); background: var(--color-primary-subtle, #DBEAFE); }
+.lb-col.is-me .lb-av { background: #1E3A8A; color: #fff; }
+.lb-name { font-size: 13px; color: var(--text-main); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lb-you { font-size: 11px; font-weight: 700; color: #fff; background: #1E3A8A; border-radius: 999px; padding: 1px 8px; }
+body.has-student-rail .lb-rest-title:not([hidden]) { display: block; margin: 0; padding: 14px 20px 6px; font-size: 14px; font-weight: 800; color: var(--text-main); }
+body.has-student-rail #leaderboard-table-body .lb-who-cell > div { vertical-align: middle; }
+body.has-student-rail #leaderboard-table-body .lb-who-cell .lb-av { margin-right: 10px; vertical-align: middle; }
+body.has-student-rail #leaderboard-table-body td:first-child .num { display: inline-grid; place-items: center; min-width: 40px; height: 28px; padding: 0 8px; border-radius: 999px; background: var(--bg-muted, #F1F5F9); font-size: 13px; }
+.lb-meter { display: block; height: 4px; margin: 6px 0 0 42px; border-radius: 4px; background: var(--border-hairline, #E2E8F0); overflow: hidden; max-width: 260px; }
+.lb-meter i { display: block; height: 100%; border-radius: 4px; background: var(--color-primary); }
+@media (max-width: 600px) {
+  body.has-student-rail .lb-graph:not([hidden]) { padding: 16px 10px 12px; }
+  .lb-plot { height: 140px; padding: 0 3px; }
+  .lb-val { font-size: 11.5px; }
+  .lb-av { width: 26px; height: 26px; font-size: 12px; }
+  .lb-name { font-size: 11.5px; }
+  .lb-rank { font-size: 11px; }
 }
 body.has-student-rail .segmented-control[aria-label="Leaderboard type"] { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; background: none; border: 0; padding: 0; width: 100%; }
 body.has-student-rail .segmented-control[aria-label="Leaderboard type"] .segmented-btn { border: 1px solid var(--border-hairline); border-radius: 12px; padding: 10px 12px; font-size: 14px; font-weight: 700; background: var(--bg-surface); color: var(--text-muted); text-align: left; }
@@ -247,10 +261,11 @@ body.has-student-rail .segmented-control[aria-label="Leaderboard type"] .segment
   }
 }
 
-/* Leaderboard: ranks 1-3 live on the podium, the table continues from rank 4 */
+/* Leaderboard: the top five live in the graph, the table continues below it */
 .lb-rest-note { display: none; }
 body.has-student-rail #leaderboard-table-body tr.lb-on-podium { display: none; }
 body.has-student-rail #leaderboard-table-body tr.lb-rest-note { display: table-row; }
+body.has-student-rail .lb-no-rest #leaderboard-table-head { display: none; }
 body.has-student-rail .lb-rest-note td { text-align: center; color: var(--text-muted); padding: var(--space-5); font-size: var(--text-sm); }
 
 /* ============================================================
