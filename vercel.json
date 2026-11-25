@@ -8,6 +8,17 @@
       "maxDuration": 60
     }
   },
+  "redirects": [
+    {
+      "source": "/",
+      "missing": [
+        { "type": "query", "key": "source", "value": "pwa" },
+        { "type": "query", "key": "returnTo" }
+      ],
+      "destination": "/landing.html",
+      "permanent": false
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/jmcwc-drive-sync",
