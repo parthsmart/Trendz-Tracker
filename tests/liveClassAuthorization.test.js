@@ -262,11 +262,11 @@ test('3. Server-side Live Class join authorization and host identity protection'
   assert.equal(adminMismatch.statusCode, 403);
   assert.equal(adminMismatch.jsonResult.code, 'HOST_IDENTITY_MISMATCH');
 
-  // Case D: Assigned teacher CANNOT obtain owner host token; hosting is kept disabled
+  // Case D: Assigned teacher without a saved Webinar email CANNOT obtain a host token
   const teacherJoin = await runRequest('token-teacher-assigned');
   assert.equal(teacherJoin.statusCode, 403);
   assert.equal(teacherJoin.jsonResult.code, 'TEACHER_HOSTING_DISABLED');
-  assert.ok(teacherJoin.jsonResult.error.includes('Teacher hosting is currently disabled'));
+  assert.ok(teacherJoin.jsonResult.error.includes('Webinar.gg email is not saved'));
 
   // Case E: Eligible student receives attendee live room access (non-host)
   const studentJoin = await runRequest('token-student-eligible');
@@ -1637,6 +1637,7 @@ test('14. Live class scheduling validates staff and student audiences and create
   };
 
   const providerRequests = [];
+  const joinTokenRequests = [];
   const mockFetch = async (url, options) => {
     const cohostPath = url.match(/\/webinar\/([^/]+)\/(cohosts|cohost-policy)$/);
     if (cohostPath) {
@@ -1654,9 +1655,11 @@ test('14. Live class scheduling validates staff and student audiences and create
     }
     if (options.method === 'GET' && /\/webinar\/[^/]+$/.test(url)) {
       return { ok: true, json: async () => ({ success: true, data: {
+        passcode: 'room-pass',
         cohostPermissions: { startWebinar: !failCohostPolicy },
       } }) };
     }
+    if (url.endsWith('/webinar/join-token')) joinTokenRequests.push(JSON.parse(options.body));
     if (url.endsWith('/webinar/')) {
       providerRequests.push(JSON.parse(options.body));
       const id = `generated-room-${providerRequests.length}`;
@@ -1799,7 +1802,17 @@ test('14. Live class scheduling validates staff and student audiences and create
   const teacherList = await runApi(`token-${teacherProfile.id}`, { action: 'list' });
   const teacherRow = (teacherList.jsonResult.classes || []).find((c) => c.id === teacherAssigned.jsonResult.class.id);
   assert.ok(teacherRow, 'assigned class is listed for the teacher');
-  assert.equal(teacherRow.teacherStartUrl, `/pages/live-room.html?classId=${encodeURIComponent(teacherRow.id)}&start=1`);
+  assert.equal(teacherRow.startUrl, `/pages/live-room.html?classId=${encodeURIComponent(teacherRow.id)}&start=1`);
+
+  // Start class mints a co-host join token with the teacher's Webinar email and the room passcode.
+  const tokenRequestsBefore = joinTokenRequests.length;
+  const teacherStart = await runApi(`token-${teacherProfile.id}`, { action: 'join', classId: teacherAssigned.jsonResult.class.id });
+  assert.equal(teacherStart.statusCode, 200);
+  assert.equal(teacherStart.jsonResult.isHost, true);
+  assert.match(teacherStart.jsonResult.embedUrl, /^https:\/\/webinar\.gg\/webinar-page\/wgg-tch-101\?token=/);
+  assert.equal(joinTokenRequests.length, tokenRequestsBefore + 1);
+  assert.equal(joinTokenRequests.at(-1).email, teacherCohostEmail);
+  assert.equal(joinTokenRequests.at(-1).passcode, 'room-pass');
   failCohostPolicy = true;
   const blockedTeacherRoom = await runApi(`token-${teacherProfile.id}`, { action: 'get_class_details', classId: teacherAssigned.jsonResult.class.id });
   assert.equal(blockedTeacherRoom.jsonResult.class.hostDashboardUrl, null);

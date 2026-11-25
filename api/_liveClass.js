@@ -628,22 +628,38 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           const isInvitedParticipant = Boolean(
             Array.isArray(liveClass.invited_teacher_ids) && liveClass.invited_teacher_ids.includes(caller.id)
           );
-          if (!isInvitedParticipant) {
-            if (caller.id === liveClass.teacher_id) {
+          const teacherEmail = normalizeCohostEmail(caller.cohostEmail);
+          if (!isInvitedParticipant && caller.id === liveClass.teacher_id) {
+            // Assigned teacher starts the class as a co-host. The join token carries their own
+            // Webinar.gg email and the room passcode, so Webinar.gg skips the passcode screen.
+            if (!teacherEmail || (liveClass.class_type || 'live') !== 'live') {
               return res.status(403).json({
-                error: 'Teacher hosting is currently disabled. Hosting requires an individual Webinar.gg host account or configured co-host delegation without impersonation.',
+                error: 'Your Webinar.gg email is not saved yet. Ask the administrator to add it in Settings → Teachers.',
                 code: 'TEACHER_HOSTING_DISABLED',
               });
             }
+            try {
+              await ensureTeacherCohost(liveClass.webinar_id, teacherEmail, fetchImpl);
+            } catch {
+              return res.status(502).json({ error: 'Could not confirm your Webinar.gg hosting access. Try again.', code: 'COHOST_LOOKUP_FAILED' });
+            }
+            isHost = true;
+            participant = {
+              firstName: caller.fullName.split(/\s+/)[0] || 'Teacher',
+              lastName: caller.fullName.split(/\s+/).slice(1).join(' ') || 'Host',
+              email: teacherEmail,
+              phone: '+919999999999',
+            };
+          } else if (!isInvitedParticipant) {
             return res.status(403).json({
               error: 'You are not invited as a participant to this live class.',
               code: 'NOT_INVITED',
             });
+          } else {
+            // Invited teacher joins strictly as a participant under their own identity (NEVER owner's host email)
+            isHost = false;
+            participant = formatWebinarParticipant(caller.fullName, caller.email, caller.id);
           }
-
-          // Invited teacher joins strictly as a participant under their own identity (NEVER owner's host email)
-          isHost = false;
-          participant = formatWebinarParticipant(caller.fullName, caller.email, caller.id);
         } else if (caller.role === 'student') {
           if (!isStudentInAudience(caller, liveClass)) {
             return res.status(403).json({ error: 'You are not enrolled in this live class.', code: 'NOT_ENROLLED' });
@@ -789,7 +805,10 @@ export async function handleLiveClassRequest(req, res, options = {}) {
             ...liveClass,
             hostDashboardUrl: getHostDashboardUrl(caller, liveClass),
             // The room page checks (and if needed sets up) co-host access, then opens Webinar.gg.
-            teacherStartUrl: caller.role === 'teacher' && liveClass.teacher_id === caller.id && isTeacherStartable(liveClass)
+            // Start class goes through the room page, which mints a host/co-host join token so
+            // Webinar.gg opens the room directly instead of asking for the passcode.
+            startUrl: (caller.role === 'teacher' && liveClass.teacher_id === caller.id && isTeacherStartable(liveClass)) ||
+              getHostDashboardUrl(caller, liveClass)
               ? `/pages/live-room.html?classId=${encodeURIComponent(liveClass.id)}&start=1`
               : null,
           })),

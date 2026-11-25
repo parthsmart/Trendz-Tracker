@@ -340,11 +340,9 @@ async function loadClassMetadata(classId) {
   }
   if (hostLink) {
     hostLink.hidden = !isLiveHost || !currentClassMeta.hostDashboardUrl;
-    if (!hostLink.hidden) {
-      hostLink.href = currentClassMeta.hostDashboardUrl;
-    } else {
-      hostLink.removeAttribute('href');
-    }
+    // Start goes through startAsHost (token + passcode), never the bare room address.
+    hostLink.setAttribute('href', '#');
+    hostLink.setAttribute('role', 'button');
   }
   if (deviceTip) deviceTip.hidden = isLiveHost;
 
@@ -387,12 +385,40 @@ async function loadClassMetadata(classId) {
     return;
   }
 
-  if (isLiveHost && userRole === 'teacher' && new URLSearchParams(window.location.search).get('start') === '1') {
-    window.location.replace(currentClassMeta.hostDashboardUrl);
+  if (isLiveHost && new URLSearchParams(window.location.search).get('start') === '1') {
+    startAsHost();
     return;
   }
 
   showSection('prejoin-lobby');
+}
+
+let isStarting = false;
+
+/**
+ * Host / co-host start: the server mints a join token for the host's own Webinar.gg email
+ * (with the room passcode), and the room opens in this tab with full host controls.
+ * Without the token Webinar.gg shows a passcode form nobody was given.
+ */
+async function startAsHost() {
+  if (isStarting) return;
+  isStarting = true;
+  const hostLink = document.getElementById('link-webinar-host');
+  if (hostLink) hostLink.textContent = 'Opening Webinar.gg…';
+  showSection('room-loading');
+  try {
+    const data = await requestLiveClassWithRecovery('join', { classId: currentClassId });
+    if (!data || !data.ok || !data.embedUrl) {
+      showError(data?.error || 'Could not open the Webinar.gg host room.', data?.code, data?.meta);
+      return;
+    }
+    window.location.replace(data.embedUrl);
+  } catch (err) {
+    showError(err.message || 'Connection failed.', 'ERROR');
+  } finally {
+    isStarting = false;
+    if (hostLink) hostLink.textContent = 'Start class →';
+  }
 }
 
 /**
@@ -574,6 +600,8 @@ export async function initLiveRoomPage() {
 
   const joinBtn = document.getElementById('btn-confirm-join');
   if (joinBtn) joinBtn.addEventListener('click', joinRoom);
+  const hostStartLink = document.getElementById('link-webinar-host');
+  if (hostStartLink) hostStartLink.addEventListener('click', (event) => { event.preventDefault(); startAsHost(); });
 
   const retryBtn = document.getElementById('btn-retry-load');
   if (retryBtn) retryBtn.addEventListener('click', () => loadClassMetadata(currentClassId));
