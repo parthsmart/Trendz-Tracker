@@ -283,12 +283,11 @@ async function syncTodoTaskFilterOptions() {
 }
 
 /**
- * Renders the Task filter dropdown and quick chip buttons (with "All tasks" as default).
+ * Renders the Task filter dropdown (with "All tasks" as default).
  */
 function renderTodoTaskFilterUI() {
   const wrapper = document.getElementById('todo-task-filter-wrapper');
   const selectEl = document.getElementById('select-todo-task');
-  const pillsContainer = document.getElementById('todo-task-pills');
 
   if (!wrapper) return;
 
@@ -311,37 +310,6 @@ function renderTodoTaskFilterUI() {
       )
       .join('');
     selectEl.innerHTML = allOptionHtml + taskOptionsHtml;
-  }
-
-  if (pillsContainer) {
-    pillsContainer.style.display = 'flex';
-    const allChipHtml = `
-      <button
-        type="button"
-        class="segmented-btn ${isAllActive ? 'active' : ''}"
-        data-todo-task-id="all"
-        aria-pressed="${isAllActive ? 'true' : 'false'}"
-      >
-        All tasks
-      </button>
-    `;
-    const taskChipsHtml = todoTaskOptions
-      .map(opt => {
-        const isActive = String(opt.id) === String(currentTaskId);
-        return `
-          <button
-            type="button"
-            class="segmented-btn ${isActive ? 'active' : ''}"
-            data-todo-task-id="${escapeHtml(opt.id)}"
-            aria-pressed="${isActive ? 'true' : 'false'}"
-            title="${escapeHtml(opt.optionLabel)}"
-          >
-            ${escapeHtml(opt.title)}
-          </button>
-        `;
-      })
-      .join('');
-    pillsContainer.innerHTML = allChipHtml + taskChipsHtml;
   }
 }
 
@@ -988,20 +956,6 @@ function setupControls() {
   if (taskSelectEl) {
     taskSelectEl.addEventListener('change', () => {
       const chosenId = taskSelectEl.value || 'all';
-      if (chosenId === currentTaskId) return;
-      currentTaskId = chosenId;
-      renderTodoTaskFilterUI();
-      loadActiveBoard();
-    });
-  }
-
-  // Daily To-Do Task Quick Chip Buttons (All tasks + each task)
-  const taskPillsEl = document.getElementById('todo-task-pills');
-  if (taskPillsEl) {
-    taskPillsEl.addEventListener('click', e => {
-      const btn = e.target.closest('[data-todo-task-id]');
-      if (!btn) return;
-      const chosenId = btn.getAttribute('data-todo-task-id') || 'all';
       if (chosenId === currentTaskId) return;
       currentTaskId = chosenId;
       renderTodoTaskFilterUI();

@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My account - Trendz Tracker</title>
+    <meta name="description" content="Your Trendz Tracker student account, practice access and app preferences." />
+
+    <!-- Design tokens & unified styles -->
+    <link rel="stylesheet" href="/css/style.css" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#2563EB" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Trendz Tracker" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- Top Bar Contract: 3-Zone Navigation -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <!-- Zone 1: Wordmark & Brand -->
+          <a href="/pages/student.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <!-- Mobile Menu Toggle -->
+          <button type="button" class="mobile-menu-btn" id="btn-mobile-menu" aria-label="Toggle Navigation" aria-expanded="false">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+
+          <!-- Zone 2: Navigation Links -->
+          <nav class="nav-zone" id="student-nav-zone" aria-label="Student Primary Navigation"></nav>
+
+          <!-- Zone 3: User Details & Logout Action -->
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Student</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-code" class="num" style="color: var(--text-muted);">STU</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Page Content -->
+      <main class="main-content">
+        <div class="container ac-container" style="max-width: 960px;">
+          <div id="config-banner-placeholder"></div>
+
+          <!-- Who you are -->
+          <section class="card ac-hero" aria-labelledby="account-name">
+            <span class="ac-av" id="account-avatar" aria-hidden="true">S</span>
+            <div class="ac-who">
+              <p class="ac-eyebrow">My account</p>
+              <h1 id="account-name">Student</h1>
+              <div class="ac-facts">
+                <span class="ac-fact"><span aria-hidden="true">🪪</span> <b id="account-code" class="num">—</b></span>
+                <span class="ac-fact"><span aria-hidden="true">🎓</span> <b id="account-level">—</b></span>
+                <span class="ac-fact" id="account-joined-fact" hidden><span aria-hidden="true">📅</span> Joined <b id="account-joined">—</b></span>
+                <span class="ac-status" id="account-status">Active</span>
+              </div>
+            </div>
+            <div class="ac-hero-links">
+              <a href="/pages/monthly-report.html" class="btn btn-outline btn-sm">📊 Monthly report</a>
+              <a href="/pages/leaderboard.html" class="btn btn-outline btn-sm">🏆 Leaderboard</a>
+            </div>
+          </section>
+
+          <div class="ac-grid">
+            <!-- Details -->
+            <section class="card ac-card" aria-labelledby="account-details-heading">
+              <div class="ac-card-h">
+                <h2 id="account-details-heading">Details</h2>
+                <span class="ac-sub">Ask your trainer to change these</span>
+              </div>
+              <dl class="ac-kvs">
+                <dt>Name</dt><dd id="account-detail-name">—</dd>
+                <dt>Student ID</dt><dd id="account-detail-code" class="num">—</dd>
+                <dt>Level</dt><dd id="account-detail-level">—</dd>
+                <dt>Account</dt><dd id="account-detail-status">—</dd>
+                <dt>On the leaderboard</dt><dd id="account-detail-leaderboard">—</dd>
+                <dt>Joined</dt><dd id="account-detail-joined">—</dd>
+              </dl>
+            </section>
+
+            <!-- Practice access -->
+            <section class="card ac-card" aria-labelledby="account-access-heading">
+              <div class="ac-card-h">
+                <h2 id="account-access-heading">What you can practise</h2>
+                <span class="ac-sub" id="account-access-source">Set by your trainer</span>
+              </div>
+              <ul class="ac-access" id="account-access-list">
+                <li class="ac-loading">Loading your practice access…</li>
+              </ul>
+            </section>
+          </div>
+
+          <!-- Preferences (saved on this device) -->
+          <section class="card ac-card" aria-labelledby="account-prefs-heading">
+            <div class="ac-card-h">
+              <h2 id="account-prefs-heading">Preferences</h2>
+              <span class="ac-sub">Saved on this device</span>
+            </div>
+            <div class="ac-row">
+              <span class="ac-row-t"><b>Flash Anzan sound</b><span>Play a beep with each number</span></span>
+              <label class="ac-switch">
+                <input type="checkbox" id="pref-flash-sound" />
+                <span class="ac-switch-ui" aria-hidden="true"></span>
+                <span class="sr-only">Flash Anzan sound</span>
+              </label>
+            </div>
+            <div class="ac-row">
+              <span class="ac-row-t"><b>Menu labels</b><span>Show names next to the icons in the side menu</span></span>
+              <label class="ac-switch">
+                <input type="checkbox" id="pref-rail-expanded" />
+                <span class="ac-switch-ui" aria-hidden="true"></span>
+                <span class="sr-only">Show menu labels</span>
+              </label>
+            </div>
+          </section>
+
+          <!-- Sign-in & app -->
+          <section class="card ac-card" aria-labelledby="account-signin-heading">
+            <div class="ac-card-h">
+              <h2 id="account-signin-heading">Sign-in &amp; app</h2>
+            </div>
+            <div class="ac-row">
+              <span class="ac-row-t"><b>Password</b><span>Forgot it or want a new one? Ask your trainer to reset it.</span></span>
+              <span class="ac-tag">🔒 Managed by your trainer</span>
+            </div>
+            <div class="ac-row" id="account-install-row" style="display: none;">
+              <span class="ac-row-t"><b>Install the app</b><span>Add Trendz Tracker to your home screen</span></span>
+              <button type="button" class="btn btn-outline btn-sm" id="btn-account-install">📲 Install</button>
+            </div>
+            <div class="ac-row">
+              <span class="ac-row-t"><b>Sign out</b><span>Sign out of Trendz Tracker on this device</span></span>
+              <button type="button" class="btn btn-outline btn-sm ac-danger" id="btn-account-signout">Sign out</button>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+    <script type="module" src="/js/account.js"></script>
+  </body>
+</html>

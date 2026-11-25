@@ -141,10 +141,12 @@
 
           <!-- Printable Report Container -->
           <div id="report-main-content" class="report-sheet" style="display: none;">
+            <div class="mr-sheet">
             <!-- Report Banner / Student Identity Header -->
             <div class="card report-header-card" style="margin-bottom: var(--space-5);">
               <div class="card-body" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-4);">
-                <div>
+                <span class="mr-av" id="report-student-avatar" aria-hidden="true">S</span>
+                <div class="mr-id">
                   <div style="font-size: var(--text-sm); color: var(--text-muted); font-weight: 600;">Trendz Abacus Progress Report</div>
                   <h2 id="report-student-name" style="font-size: var(--text-lg); font-weight: 700; margin: var(--space-1) 0; color: var(--text-main);">--</h2>
                   <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
@@ -160,57 +162,65 @@
             </div>
 
             <!-- Primary KPI Cards (with vs Previous Month comparison) -->
-            <section class="summary-strip" style="margin-bottom: var(--space-5);" aria-label="Monthly Summary Indicators">
+            <section class="summary-strip mr-kpi" style="margin-bottom: var(--space-5);" aria-label="Monthly Summary Indicators">
               <div class="card stat-card">
                 <div class="stat-label">Practice Days</div>
                 <div class="stat-value num" id="metric-practice-days">0 days</div>
+                <span class="mr-delta" id="metric-practice-days-delta" hidden></span>
                 <div class="stat-sub" id="metric-practice-days-sub">0 days elapsed · Last month: 0 days</div>
               </div>
 
               <div class="card stat-card">
                 <div class="stat-label">Practice Entries</div>
                 <div class="stat-value num" id="metric-entries">0</div>
+                <span class="mr-delta" id="metric-entries-delta" hidden></span>
                 <div class="stat-sub" id="metric-entries-sub">0 / 0 correct · 0 rounds · Last month: 0</div>
               </div>
 
               <div class="card stat-card">
                 <div class="stat-label">Overall Accuracy</div>
                 <div class="stat-value num" id="metric-accuracy">--</div>
+                <span class="mr-delta" id="metric-accuracy-delta" hidden></span>
                 <div class="stat-sub" id="metric-accuracy-sub">Last month: --</div>
               </div>
 
               <div class="card stat-card">
                 <div class="stat-label">Speed (QPM)</div>
                 <div class="stat-value num" id="metric-qpm">--</div>
+                <span class="mr-delta" id="metric-qpm-delta" hidden></span>
                 <div class="stat-sub" id="metric-qpm-sub">Last month: --</div>
               </div>
             </section>
 
             <!-- Secondary Summary Strip: Streak & Points, Attendance, Basics Targets -->
-            <section class="summary-strip" style="margin-bottom: var(--space-5); grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));" aria-label="Points, Streak, Attendance, and Targets">
+            <section class="summary-strip mr-k3" style="margin-bottom: var(--space-5); grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));" aria-label="Points, Streak, Attendance, and Targets">
               <div class="card stat-card">
+                <span class="mr-ic" aria-hidden="true">🔥</span>
                 <div class="stat-label">Monthly Points &amp; Streak</div>
                 <div class="stat-value num" style="font-size: var(--text-lg);" id="metric-points">0 pts</div>
                 <div class="stat-sub" id="metric-streak">0d current · Best: 0d</div>
               </div>
 
               <div class="card stat-card">
+                <span class="mr-ic" aria-hidden="true">🧑‍🏫</span>
                 <div class="stat-label">Session Attendance</div>
                 <div class="stat-value num" style="font-size: var(--text-lg);" id="metric-attendance-pct">--</div>
                 <div class="stat-sub" id="metric-attendance-counts">0 present · 0 absent · 0 excused</div>
               </div>
 
               <div class="card stat-card">
+                <span class="mr-ic" aria-hidden="true">🎯</span>
                 <div class="stat-label">Basics Targets</div>
                 <div class="stat-value num" style="font-size: var(--text-lg);" id="metric-targets-main">0 of 0 met target</div>
                 <div class="stat-sub" id="metric-targets-sub">Basics speed &amp; accuracy target benchmark</div>
               </div>
             </section>
+            </div>
 
             <!-- Two-Column Breakdown: Weekly Progression & Category Performance -->
-            <div class="dashboard-top-grid" style="margin-bottom: var(--space-5);">
+            <div class="dashboard-top-grid mr-grid" style="margin-bottom: var(--space-5);">
               <!-- Week-by-Week Breakdown -->
-              <section class="card" aria-labelledby="rpt-weeks-heading">
+              <section class="card mr-weeks" aria-labelledby="rpt-weeks-heading">
                 <div class="card-header">
                   <h2 id="rpt-weeks-heading" class="card-title">Week-by-Week Practice</h2>
                   <p style="font-size: var(--text-sm); color: var(--text-muted); margin-top: var(--space-1);">Entries and accuracy for each week in this month</p>
@@ -231,8 +241,19 @@
                 </div>
               </section>
 
+              <!-- Focus Areas (student layout only) -->
+              <section class="card mr-focus" aria-labelledby="rpt-focus-heading">
+                <div class="card-header">
+                  <h2 id="rpt-focus-heading" class="card-title">Focus Areas</h2>
+                  <p style="font-size: var(--text-sm); color: var(--text-muted); margin-top: var(--space-1);">Lowest accuracy first</p>
+                </div>
+                <div class="mr-focus-list" id="report-focus-list">
+                  <p class="mr-focus-empty">Complete at least 3 entries in a category to see focus areas.</p>
+                </div>
+              </section>
+
               <!-- Categories Breakdown (Sorted by accuracy ascending, min 3 entries) -->
-              <section class="card" aria-labelledby="rpt-categories-heading">
+              <section class="card mr-cats" aria-labelledby="rpt-categories-heading">
                 <div class="card-header">
                   <h2 id="rpt-categories-heading" class="card-title">Categories Practised (3+ Entries)</h2>
                   <p id="report-focus-categories" style="font-size: var(--text-sm); color: var(--text-muted); margin-top: var(--space-1);">Sorted lowest accuracy first to highlight focus areas</p>

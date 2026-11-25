@@ -117,6 +117,7 @@ export default defineConfig(({ command }) => {
           weeklyTests: path.resolve(__dirname, 'pages/weekly-tests.html'),
           weeklyTest: path.resolve(__dirname, 'pages/weekly-test.html'),
           notifications: path.resolve(__dirname, 'pages/notifications.html'),
+          account: path.resolve(__dirname, 'pages/account.html'),
           announcements: path.resolve(__dirname, 'pages/announcements.html'),
           import: path.resolve(__dirname, 'pages/import.html'),
           homework: path.resolve(__dirname, 'pages/homework.html'),
