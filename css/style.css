@@ -1521,6 +1521,23 @@ body.nav-menu-open .app-header {
   background: #fff;
 }
 
+/* Sign-in page (index.html): same look as the public homepage
+   (deep navy, Trendz orange, Bricolage Grotesque headings). Scoped to body.login-body. */
+.login-body {
+  --lp-ink: #0f1b3d;
+  --lp-navy-2: #24366b;
+  --lp-ink-soft: #4b5675;
+  --lp-orange: #ff7a1a;
+  --lp-orange-deep: #e05e00;
+  --lp-orange-tint: #fff1e4;
+  --lp-line: #e3e6ef;
+  --lp-display: "Bricolage Grotesque", "Inter", system-ui, sans-serif;
+  --lp-body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--lp-body);
+  color: var(--lp-ink);
+  background: #fff;
+}
+
 .login-page-wrapper {
   min-height: 100vh;
   min-height: 100dvh;
@@ -1553,11 +1570,10 @@ body.nav-menu-open .app-header {
 }
 .login-brand > * { position: relative; z-index: 1; }
 .login-brand-top { display: flex; align-items: center; gap: 12px; font: 800 20px/1 var(--lp-display); letter-spacing: -0.02em; }
-.login-mark {
-  width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center;
-  background: var(--lp-orange); color: #fff; font: 800 22px/1 var(--lp-display);
-  box-shadow: 0 10px 24px -10px rgba(255, 122, 26, .8);
-}
+/* Official logo on a white chip, as in the homepage header */
+.login-logo-chip { display: block; flex: none; background: #fff; border-radius: 12px; padding: 4px 8px; box-shadow: 0 10px 24px -14px rgba(0, 0, 0, .6); }
+.login-logo-chip img { display: block; height: 56px; width: auto; }
+.login-brand-name { padding-left: 14px; border-left: 1.5px solid rgba(255, 255, 255, .22); line-height: 1.2; }
 .login-brand-copy { max-width: 560px; }
 .login-eyebrow,
 .login-pill {
@@ -1651,8 +1667,13 @@ body.nav-menu-open .app-header {
     padding: 26px 20px;
   }
   .login-title { font-size: 32px; }
+  .login-logo-chip img { height: 44px; }
+  .login-brand-top { font-size: 17px; }
 }
 @media (max-width: 360px) {
+  .login-logo-chip img { height: 38px; }
+  .login-brand-top { gap: 10px; font-size: 15px; }
+  .login-brand-name { padding-left: 10px; }
   .login-brand-title { font-size: 27px; }
   .login-card { padding: 22px 16px; }
 }

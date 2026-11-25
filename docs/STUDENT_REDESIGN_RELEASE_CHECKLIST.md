@@ -19,7 +19,7 @@ Scope: student pages only. Teacher and admin pages are unchanged.
   - Read-only details, a summary of practice access, and preferences (Flash sound, menu labels).
   - Install app and sign out.
   - No form collects student information.
-- **Sign-in page** (`index.html`, login styles in `css/style.css`, scoped to `body.login-body`): matches the public homepage, with a deep navy panel, Trendz orange, and Bricolage Grotesque headings loaded from Google Fonts (the system font is used if they don't load). Desktop shows the panel beside the form; phones show a navy band above it. Adds a Show/Hide password button and a "forgot password" note. Same IDs and login script. This is the only app page that uses navy and orange; the student pages stay blue.
+- **Sign-in page** (`index.html`, login styles in `css/style.css`, scoped to `body.login-body`): matches the public homepage, with a deep navy panel, Trendz orange, and Bricolage Grotesque headings loaded from Google Fonts (the system font is used if they don't load). Desktop shows the panel beside the form; phones show a navy band above it. Shows the official Trendz Edutech Services logo (`public/brand/`, copied from the landing page) on a white chip. Adds a Show/Hide password button and a "forgot password" note. Same IDs and login script. This is the only app page that uses navy and orange; the student pages stay blue.
 - All existing element IDs, routes, login, protected routes and APIs are kept.
 
 ## Checked before this commit
