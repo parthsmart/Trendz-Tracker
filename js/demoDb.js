@@ -3967,6 +3967,11 @@ export const DemoDB = {
       pool = pool.filter(item => item.level === p_level);
     }
 
+    // Highest value first, as the SQL leaderboard orders them (fixtures with a set rank keep it).
+    if (!pool.some(item => item.rank != null)) {
+      pool = [...pool].sort((a, b) => b.value - a.value);
+    }
+
     const ranked = pool.map((item, idx) => ({
       rank: item.rank ?? idx + 1,
       student_id: isAdmin ? item.student_id : null,

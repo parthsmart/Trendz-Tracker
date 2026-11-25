@@ -170,8 +170,8 @@ export async function loadLiveClasses() {
               ${renderStatusBadge(cls.status, cls.provider_status)}
             </td>
             <td style="padding: var(--space-3) var(--space-4); text-align: right; white-space: nowrap;">
-              <a href="${cls.hostDashboardUrl || `/pages/live-room.html?classId=${encodeURIComponent(cls.id)}`}" class="btn btn-primary btn-sm" style="text-decoration: none; margin-right: 4px;">
-                ${cls.hostDashboardUrl ? 'Start class' : 'View class'} &rarr;
+              <a href="${cls.hostDashboardUrl || cls.teacherStartUrl || `/pages/live-room.html?classId=${encodeURIComponent(cls.id)}`}" class="btn btn-primary btn-sm" style="text-decoration: none; margin-right: 4px;">
+                ${cls.hostDashboardUrl || cls.teacherStartUrl ? 'Start class' : 'View class'} &rarr;
               </a>
               <button type="button" class="btn btn-outline btn-sm btn-sync-status" data-id="${cls.id}" title="Sync status with Webinar.gg">
                 Sync
@@ -486,6 +486,21 @@ function openDeleteRecordingModal(id, title) {
  */
 export async function initLiveClassesPage() {
   const supabase = await getSupabase();
+  if (!supabase) {
+    // Demo mode has no database client: keep the menu working and explain the empty page.
+    const { getCurrentProfile } = await import('./auth.js');
+    const demoProfile = await getCurrentProfile().catch(() => null);
+    if (!demoProfile || (demoProfile.role !== 'admin' && demoProfile.role !== 'teacher')) {
+      window.location.href = '/index.html';
+      return;
+    }
+    setupHeaderNavigation(demoProfile);
+    const list = document.querySelector('#view-classes-tab .card-body, #view-classes-tab');
+    const loading = [...document.querySelectorAll('#view-classes-tab *')].find((el) => el.children.length === 0 && /Loading live classes/i.test(el.textContent));
+    if (loading) loading.textContent = 'Live classes need the live database. They are not available in demo mode.';
+    else if (list) list.insertAdjacentHTML('beforeend', '<p class="text-muted" style="padding: 16px;">Live classes need the live database. They are not available in demo mode.</p>');
+    return;
+  }
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.user) {
     window.location.href = '/index.html';

@@ -3,8 +3,9 @@
    ========================================================================== */
 @import './variables.css';
 @import './practiceUi.css';
-@import './studentRail.css';
+@import './appRail.css';
 @import './studentPages.css';
+@import './staffPages.css';
 
 /* ==========================================================================
    2. Base Reset & Typography

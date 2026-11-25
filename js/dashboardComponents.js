@@ -81,6 +81,15 @@ export function renderStreakCard(streakData, todos = []) {
 
   const shieldCount = Number(streak.shields) || 0;
   if (shieldCountEl) shieldCountEl.textContent = shieldCount;
+  const shieldWordEl = document.getElementById('stat-shield-word');
+  if (shieldWordEl) shieldWordEl.textContent = shieldCount === 1 ? 'shield' : 'shields';
+  const shieldWrapEl = document.getElementById('streak-shield');
+  if (shieldWrapEl) {
+    const cur = Number(streak.current_streak) || 0;
+    shieldWrapEl.title = shieldCount > 0
+      ? 'A shield saves your streak on a missed day.'
+      : `Next shield at day ${Math.ceil((cur + 1) / 7) * 7}`;
+  }
 
   if (shieldLblEl) {
     if (shieldCount > 0) {

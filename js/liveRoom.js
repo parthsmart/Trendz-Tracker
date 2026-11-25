@@ -375,7 +375,9 @@ async function loadClassMetadata(classId) {
   }
   if (currentClassMeta.hostingDisabled) {
     showError(
-      'Your co-host invite has not been set up for this class. Ask the administrator who scheduled it to check your teacher email.',
+      currentClassMeta.teacherEmailMissing
+        ? 'Your Webinar.gg email is not saved yet. Ask the administrator to add it in Settings → Teachers, then open this class again.'
+        : 'Webinar.gg did not accept your co-host access for this class. Check that you are signed in to Webinar.gg with your teacher email, then try again.',
       'TEACHER_HOSTING_DISABLED'
     );
     return;
