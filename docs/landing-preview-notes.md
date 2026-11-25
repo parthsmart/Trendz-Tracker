@@ -1,6 +1,6 @@
-# Public homepage preview: review notes
+# Public homepage release notes
 
-The preview is served at `/landing.html`. The site root (`/`) is still the Trendz Tracker sign-in page, and every "Student sign in" link points there.
+The homepage ships at `/landing.html` on Trendz Tracker. The root (`/`) serves the portal sign-in page. Every student sign-in link opens the portal. The existing Trendz Abacus domain remains the source for the linked legacy pages until a separate domain cutover.
 
 Files: `landing.html`, `css/landing.css`, `js/landing.js`, `public/landing/img/` (local WebP copies). The new page is listed in `vite.config.ts` and in `NAV_STAGE_AND_PUBLIC_ALLOWLIST`.
 
@@ -22,9 +22,9 @@ Files: `landing.html`, `css/landing.css`, `js/landing.js`, `public/landing/img/`
 
 **Left out:** nc1/nc2 posters (expired registration details), Mission.jpg (duplicates jr-mcwc-2018-6), International_Community_1 (duplicates jr-mcwc-2018-4), illustrations, the franchise stock image, and the Limca inner-page scans.
 
-## To confirm before publishing
+## Content review
 
-- **Photo reuse:** get approval for every photo above, especially those showing identifiable children, and for the Limca covers, which are a third party's artwork.
+- Trendz confirmed permission to republish the student photos and Limca covers on the homepage and in the public repository on 25 November 2026.
 - **Captions:** the year comes from each file name. The descriptions are based on what each photo shows and need a check.
 - **Records claim:** confirm "Trendz students' performances recorded in Limca editions including 2018 and 2019". No headline counters were used (590+ records, 37 champions, 10000+ students, "4 years in a row", "since 2006").
 - **Courses:** no age ranges or course details are published. The old site says ages 5–18.
