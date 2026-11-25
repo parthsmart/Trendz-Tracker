@@ -1628,10 +1628,34 @@ describe('Phase 18 — Isolated PostgreSQL Engine: Teacher Role & Workspace', ()
     assert.equal(ov4Data.upcoming_tests.length, 0, 'Revoking can_manage_tests empties upcoming_tests');
   });
 
-  it('22. API handler admin identity: verify admin caller JWT and service-role requests record administrator consistently', async () => {
+  it('22. Teacher creation initializes the default student profile and keeps the site role guard enabled', async (t) => {
     // Test admin_create_teacher_entry with explicit p_actor_id (matching API handler path)
     const newTeacherId = '88888888-8888-8888-8888-888888888888';
-    
+    await db.exec(`
+      CREATE FUNCTION public.test_profiles_role_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF auth.uid() IS NOT NULL AND NEW.role IS DISTINCT FROM OLD.role THEN
+          RAISE EXCEPTION 'The role cannot be changed from the site.';
+        END IF;
+        RETURN NEW;
+      END;
+      $$;
+      CREATE TRIGGER test_profiles_role_guard BEFORE UPDATE ON public.profiles
+        FOR EACH ROW EXECUTE FUNCTION public.test_profiles_role_guard();
+    `);
+    t.after(async () => {
+      await db.exec(`DROP TRIGGER test_profiles_role_guard ON public.profiles; DROP FUNCTION public.test_profiles_role_guard();`);
+    });
+    await db.query(
+      `INSERT INTO public.profiles (id, student_code, full_name, role, active) VALUES ($1, 'TCH03', 'Teacher Chitra', 'student', true)`,
+      [newTeacherId]
+    );
+    await setAuth(adminId);
+    await assert.rejects(db.query(
+      `SELECT public.admin_create_teacher_entry($1, 'TCH03', 'Teacher Chitra', '{}'::jsonb, '{}'::uuid[], $2)`,
+      [newTeacherId, adminId]
+    ), /The role cannot be changed from the site/);
+
     // Simulate service-role call without user subject (auth.uid() is null, p_actor_id is adminId)
     await setAuth(null, 'service_role');
     const createRes = await db.query(
@@ -1640,6 +1664,8 @@ describe('Phase 18 — Isolated PostgreSQL Engine: Teacher Role & Workspace', ()
     );
     const createData = typeof createRes.rows[0].res === 'string' ? JSON.parse(createRes.rows[0].res) : createRes.rows[0].res;
     assert.equal(createData.ok, true);
+    const profile = await db.query('SELECT role FROM public.profiles WHERE id = $1', [newTeacherId]);
+    assert.equal(profile.rows[0].role, 'teacher');
 
     // Verify teacher_audit_log recorded adminId as actor_id, NEVER newTeacherId
     const auditRes = await db.query(

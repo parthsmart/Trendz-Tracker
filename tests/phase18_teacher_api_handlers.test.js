@@ -187,6 +187,9 @@ describe('Phase 18 — Teacher API HTTP Handlers & Identity Enforcement', () => 
           });
         }
         if (urlStr.includes('admin_create_teacher_entry')) {
+          if (authHeader !== 'Bearer mock-service-role-key-12345') {
+            return Response.json({ message: 'The role cannot be changed from the site.' }, { status: 400 });
+          }
           return new Response(JSON.stringify({ ok: true, teacher_id: body?.p_teacher_id }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
@@ -386,7 +389,7 @@ describe('Phase 18 — Teacher API HTTP Handlers & Identity Enforcement', () => 
   // ---------------------------------------------------------------------------
   // 4. create-teacher Handler: Success & Compensating Cleanup
   // ---------------------------------------------------------------------------
-  it('create-teacher: validates inputs, creates Auth user, and passes admin caller context to RPC', async () => {
+  it('create-teacher: initializes the new Auth user through the service role and audits the verified admin', async () => {
     // 1. Input validation errors
     const resMissing = createMockRes();
     await createTeacherHandler(
@@ -429,10 +432,11 @@ describe('Phase 18 — Teacher API HTTP Handlers & Identity Enforcement', () => 
     assert.equal(resSuccess.getStatusCode(), 200);
     assert.equal(resSuccess.getData().success, true);
 
-    // Verify RPC call was made with caller's token and admin actor ID
+    // Verify the initialization targets the new Auth user and records the admin actor.
     const rpcCall = interceptedRequests.find((r) => r.url.includes('admin_create_teacher_entry'));
     assert.ok(rpcCall, 'admin_create_teacher_entry RPC was invoked');
-    assert.equal(rpcCall.authHeader, `Bearer ${validAdminToken}`, 'Caller token used for RPC');
+    assert.equal(rpcCall.authHeader, 'Bearer mock-service-role-key-12345');
+    assert.equal(rpcCall.body.p_teacher_id, targetTeacherId);
     assert.equal(rpcCall.body.p_actor_id, adminUserId, 'Actor ID is the verified administrator');
     assert.notEqual(rpcCall.body.p_actor_id, targetTeacherId, 'Actor ID is NEVER the target teacher');
   });

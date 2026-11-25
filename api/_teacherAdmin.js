@@ -6,7 +6,7 @@
  * 1. createTeacher:
  *    - Validates inputs (teacher_code, full_name, password >= 6 chars)
  *    - Creates Auth user with service role (email = <code lower>@trendz.local)
- *    - Invokes admin_create_teacher_entry RPC using caller's verified admin context
+ *    - Initializes the new teacher through the service client and records the verified admin
  *    - Executes compensating cleanup (deletes Auth user) if database initialization fails
  * 2. manageTeacher:
  *    - Validates target teacher profile
@@ -87,10 +87,9 @@ export async function createTeacher(req, res, adminCaller = null) {
     ? assigned_student_ids.filter((id) => typeof id === 'string' && id.trim().length > 0)
     : [];
 
-  // 3. Invoke atomic database initialization RPC with caller context
-  const dbClient = getCallerClient(caller.accessToken);
-
-  const { data: rpcData, error: rpcError } = await dbClient.rpc(
+  // Auth may have created a default student profile. Initialize only this new user
+  // through the server-only client, with the verified admin as the audit actor.
+  const { data: rpcData, error: rpcError } = await supabaseAdmin.rpc(
     'admin_create_teacher_entry',
     {
       p_teacher_id: teacherUserId,
