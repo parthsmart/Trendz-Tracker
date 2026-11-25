@@ -13,15 +13,19 @@
     <link rel="stylesheet" href="/css/style.css" />
       <!-- Progressive Web App & Icons -->
     <link rel="manifest" href="/manifest.webmanifest" />
-    <meta name="theme-color" content="#2563EB" />
+    <meta name="theme-color" content="#0f1b3d" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Trendz Tracker" />
+    <!-- Same display and body fonts as the public homepage; the system font is used if they don't load -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Inter:wght@400;500;600;700&display=swap" />
   </head>
-  <body>
+  <body class="login-body">
     <div class="login-page-wrapper">
       <aside class="login-brand" aria-label="About Trendz Tracker">
         <div class="login-brand-top">
@@ -29,24 +33,23 @@
           <span class="login-brand-name">Trendz Tracker</span>
         </div>
         <div class="login-brand-copy">
-          <p class="login-eyebrow">Trendz Abacus</p>
-          <h2 class="login-brand-title">Practice every day.<br />See yourself improve.</h2>
-          <ul class="login-points">
-            <li><span aria-hidden="true">✏️</span> Daily practice in Basics, Flash Anzan, Elements and Memoriad</li>
-            <li><span aria-hidden="true">📝</span> Weekly tests with clear section scores</li>
-            <li><span aria-hidden="true">📈</span> Progress, monthly reports and class rankings</li>
+          <p class="login-eyebrow">Trendz Abacus · Student practice</p>
+          <h2 class="login-brand-title">Practice every day. <em>See&nbsp;yourself&nbsp;grow.</em></h2>
+          <p class="login-lede">Daily practice, weekly tests and your progress, all in one place.</p>
+          <ul class="login-points" aria-label="What's inside">
+            <li><strong>Practice</strong><span>Basics, Flash Anzan, Elements, Memoriad</span></li>
+            <li><strong>Tests</strong><span>Weekly tests with section scores</span></li>
+            <li><strong>Progress</strong><span>Reports and class rankings</span></li>
           </ul>
         </div>
-        <div class="login-beads" aria-hidden="true">
-          <span></span><span></span><span></span><span></span><span></span>
-        </div>
+        <p class="login-brand-foot">Junior Mental Calculation World Championship practice</p>
       </aside>
 
       <main class="login-card">
         <header class="login-header">
-          <div class="login-logo" aria-hidden="true">T</div>
+          <p class="login-pill">Welcome back</p>
           <h1 class="login-title">Sign in</h1>
-          <p class="login-subtitle">Junior Mental Calculation World Championship Practice</p>
+          <p class="login-subtitle">Use the ID and password your trainer gave you.</p>
         </header>
 
         <form id="login-form" novalidate>
