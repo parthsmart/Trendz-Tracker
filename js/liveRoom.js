@@ -25,7 +25,7 @@ function showSection(sectionId) {
   const sections = ['prejoin-lobby', 'room-loading', 'room-error', 'room-ended', 'embed-frame-wrapper'];
   sections.forEach((id) => {
     const el = document.getElementById(id);
-    if (el) el.style.display = id === sectionId ? (id === 'embed-frame-wrapper' ? 'block' : 'flex') : 'none';
+    if (el) el.style.display = id === sectionId ? 'block' : 'none';
   });
 }
 
@@ -320,7 +320,7 @@ async function loadClassMetadata(classId) {
   const lobbyTeacher = document.getElementById('lobby-teacher');
   const confirmJoinBtn = document.getElementById('btn-confirm-join');
   const hostLink = document.getElementById('link-webinar-host');
-  const hostInstructions = document.getElementById('lobby-host-instructions');
+  const deviceTip = document.getElementById('lobby-device-tip');
   const isLiveHost = currentClassMeta.isHost && currentClassMeta.classType === 'live';
 
   if (titleEl) titleEl.textContent = currentClassMeta.title;
@@ -346,7 +346,7 @@ async function loadClassMetadata(classId) {
       hostLink.removeAttribute('href');
     }
   }
-  if (hostInstructions) hostInstructions.hidden = !isLiveHost;
+  if (deviceTip) deviceTip.hidden = isLiveHost;
 
   updateStatusBadge(currentClassMeta.status, currentClassMeta.isHost, currentClassMeta.isInvitedParticipant);
 

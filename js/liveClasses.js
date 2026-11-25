@@ -5,7 +5,7 @@
  * - List active, scheduled, and past classes
  * - Schedule a room, assign a teacher, and select the student audience
  * - Real-time provider sync button
- * - Quick "Open host room" navigation
+ * - Start class directly from the schedule
  */
 
 import { getSupabase } from './supabaseClient.js';
@@ -170,8 +170,8 @@ export async function loadLiveClasses() {
               ${renderStatusBadge(cls.status, cls.provider_status)}
             </td>
             <td style="padding: var(--space-3) var(--space-4); text-align: right; white-space: nowrap;">
-              <a href="/pages/live-room.html?classId=${cls.id}" class="btn btn-primary btn-sm" style="text-decoration: none; margin-right: 4px;">
-                Open host room &rarr;
+              <a href="${cls.hostDashboardUrl || `/pages/live-room.html?classId=${encodeURIComponent(cls.id)}`}" class="btn btn-primary btn-sm" style="text-decoration: none; margin-right: 4px;">
+                ${cls.hostDashboardUrl ? 'Start class' : 'View class'} &rarr;
               </a>
               <button type="button" class="btn btn-outline btn-sm btn-sync-status" data-id="${cls.id}" title="Sync status with Webinar.gg">
                 Sync
