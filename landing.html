@@ -15,8 +15,8 @@
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" />
-    <link rel="preload" as="image" href="/landing/img/jmcwc-2018-stage-900.webp" imagesrcset="/landing/img/jmcwc-2018-stage-480.webp 480w, /landing/img/jmcwc-2018-stage-900.webp 900w" imagesizes="(min-width: 960px) 52vw, 100vw" fetchpriority="high" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&display=swap" />
+    <link rel="preload" as="image" href="/landing/img/jmcwc-2018-stage-900.webp" imagesrcset="/landing/img/jmcwc-2018-stage-480.webp 480w, /landing/img/jmcwc-2018-stage-900.webp 900w" imagesizes="(min-width: 960px) 46vw, 100vw" fetchpriority="high" />
     <link rel="stylesheet" href="/css/landing.css" />
   </head>
   <body class="lp">
@@ -65,38 +65,47 @@
         <div class="wrap hero-grid">
           <div class="hero-copy">
             <p class="eyebrow">Trendz Abacus · Kota, Rajasthan</p>
-            <h1 id="hero-title">From the abacus to the world&nbsp;stage.</h1>
+            <h1 id="hero-title">From the abacus to the <em>world&nbsp;stage.</em></h1>
             <p class="lede">Mental maths training, daily practice and competition preparation, with Vedic Maths and Rubik’s Cube alongside.</p>
             <div class="hero-ctas">
               <a class="btn btn-primary btn-lg" href="#enquire">Enquire about classes</a>
-              <a class="btn btn-ghost btn-lg" href="/">I’m a student — sign in</a>
+              <a class="btn btn-outline-light btn-lg" href="/">I’m a student — sign in</a>
             </div>
             <ul class="hero-points" aria-label="Highlights">
-              <li><strong>Abacus</strong> to mental arithmetic</li>
-              <li><strong>Jr MCWC</strong> teams, Germany 2016–2019</li>
-              <li><strong>Trendz Tracker</strong> for daily practice</li>
+              <li><strong>Abacus</strong><span>to mental arithmetic</span></li>
+              <li><strong>World stage</strong><span>Jr MCWC teams, 2016–2019</span></li>
+              <li><strong>Tracker</strong><span>daily practice at home</span></li>
             </ul>
           </div>
 
-          <figure class="hero-photo">
-            <img
-              src="/landing/img/jmcwc-2018-stage-900.webp"
-              srcset="/landing/img/jmcwc-2018-stage-480.webp 480w, /landing/img/jmcwc-2018-stage-900.webp 900w"
-              sizes="(min-width: 960px) 52vw, 100vw"
-              width="900" height="600"
-              fetchpriority="high"
-              alt="Trendz students and mentors on stage at the Junior Mental Calculation World Championship 2018, holding trophies and making victory signs in front of the championship banner." />
-            <figcaption>
-              <span class="cap-year">2018</span>
-              Junior Mental Calculation World Championship, Germany
-            </figcaption>
-          </figure>
+          <div class="hero-collage">
+            <figure class="hc-main">
+              <img
+                src="/landing/img/jmcwc-2018-stage-900.webp"
+                srcset="/landing/img/jmcwc-2018-stage-480.webp 480w, /landing/img/jmcwc-2018-stage-900.webp 900w"
+                sizes="(min-width: 960px) 46vw, 100vw"
+                width="900" height="600"
+                fetchpriority="high"
+                alt="Trendz students and mentors on stage at the Junior Mental Calculation World Championship 2018, holding trophies and making victory signs in front of the championship banner." />
+              <figcaption><span class="cap-year">2018</span> Jr Mental Calculation World Championship, Germany</figcaption>
+            </figure>
+            <figure class="hc-side hc-side-1" aria-hidden="true">
+              <img src="/landing/img/jmcwc-2019-flag-480.webp" width="480" height="320" alt="" />
+            </figure>
+            <figure class="hc-side hc-side-2" aria-hidden="true">
+              <img src="/landing/img/jmcwc-2016-trophy-480.webp" width="480" height="320" alt="" />
+            </figure>
+            <div class="hc-badge" aria-hidden="true">
+              <span class="hc-badge-k">Jr MCWC</span>
+              <span class="hc-badge-v">Germany<br />2016 – 2019</span>
+            </div>
+          </div>
         </div>
       </section>
 
       <div class="subject-strip" aria-hidden="true">
         <div class="wrap">
-          <span>Abacus</span><i></i><span>Mental arithmetic</span><i></i><span>Vedic Maths</span><i></i><span>Rubik’s Cube</span><i></i><span>Competition training</span>
+          <span>Abacus</span><i>✦</i><span>Mental arithmetic</span><i>✦</i><span>Vedic Maths</span><i>✦</i><span>Rubik’s Cube</span><i>✦</i><span>Competition training</span>
         </div>
       </div>
 
@@ -110,7 +119,7 @@
           </header>
 
           <div class="courses">
-            <article class="course reveal">
+            <article class="course course-a reveal">
               <img src="/landing/img/practice-abacus-300.webp" width="300" height="200" loading="lazy" decoding="async"
                    alt="A young student in a red uniform working on a large yellow-and-black abacus in class." />
               <div class="course-body">
@@ -118,7 +127,7 @@
                 <p>Addition, subtraction, multiplication and division on the abacus, then by visualising the beads. Builds speed, accuracy, concentration and confidence with numbers.</p>
               </div>
             </article>
-            <article class="course reveal">
+            <article class="course course-b reveal">
               <img src="/landing/img/practice-paper-300.webp" width="300" height="200" loading="lazy" decoding="async"
                    alt="Two students in red uniforms writing answers on a worksheet." />
               <div class="course-body">
@@ -126,7 +135,7 @@
                 <p>Short, elegant methods for multiplication, squares and more, worked on paper and in the head. A useful companion to school maths.</p>
               </div>
             </article>
-            <article class="course reveal">
+            <article class="course course-c reveal">
               <img src="/landing/img/teacher-cube-300.webp" width="300" height="200" loading="lazy" decoding="async"
                    alt="A Trendz trainer in a blue team jacket sitting behind a stack of solved Rubik’s Cubes." />
               <div class="course-body">
