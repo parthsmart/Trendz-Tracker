@@ -107,29 +107,6 @@
 .cu-pill.prog { background: #FEF08A; color: #713F12; }
 .cu-pill.done { background: #DEF7EC; color: #03543F; }
 
-/* ---------- Coming up: bottom strip of the My Day card ---------- */
-.myday > .sh-coming-myday {
-  grid-column: 1 / -1; border: 0; border-top: 1px solid var(--border-hairline); border-radius: 0;
-  display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 1fr); background: var(--bg-surface-subtle);
-}
-.sh-coming-myday .head { grid-column: 1 / -1; flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 16px 8px; }
-.sh-coming-myday .head h2 { font-size: 1rem; }
-.sh-coming-myday .head .sh-link { font-size: 12.5px; text-decoration: none; }
-.sh-coming-myday .cu-row { border-top: 1px solid var(--border-hairline); border-left: 1px solid var(--border-hairline); padding: 12px 14px; gap: 10px; background: var(--bg-surface); }
-.sh-coming-myday .cu-row.cu-active { background: var(--color-primary-subtle); }
-.sh-coming-myday .cu-row .ic { width: 32px; height: 32px; font-size: 15px; }
-.sh-coming-myday .cu-row:nth-child(2) { border-left: 0; }
-.sh-coming-myday .cu-row .t b { font-size: 14px; }
-.sh-coming-myday .cu-row .btn { padding: 5px 12px; }
-.sh-coming-myday .cu-row .cu-pill { display: none; }
-.sh-coming-myday .cu-row .cu-sub .cu-pill { display: inline-block; }
-.sh-coming-myday .cu-empty { grid-column: 1 / -1; background: var(--bg-surface); display: flex; align-items: center; }
-@media (max-width: 1100px) {
-  .myday > .sh-coming-myday { grid-template-columns: minmax(0, 1fr); }
-  .sh-coming-myday .cu-row, .sh-coming-myday .cu-empty { border-left: 0; border-top: 1px solid var(--border-hairline); grid-column: auto; }
-  .sh-coming-myday .head { flex-direction: row; align-items: center; justify-content: space-between; }
-}
-
 /* ---------- Score Sheet & Progress: sheet on top, chart + "This week" tabs below ---------- */
 .sp-row { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: var(--space-5); align-items: stretch; margin-bottom: var(--space-5); }
 .sp-chart { min-width: 0; display: flex; }
@@ -155,13 +132,25 @@
 #student-pane-progress .sheet-table thead th > div + div { margin-left: 6px; }
 #student-pane-progress .sheet-table thead th:first-child { z-index: 4; }
 
-/* ---------- Top area: compact hero + "At a glance" on the left, Practice & More on the right ---------- */
+/* ---------- Top area: hero and My Day on the left; Practice & More, live class, lectures, Coming up on the right ---------- */
 .sh-home { display: grid; gap: var(--space-4); margin-bottom: var(--space-5); }
 .sh-top { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: var(--space-5); align-items: start; }
 .sh-top-main { display: grid; gap: var(--space-4); min-width: 0; }
-.sh-top-main > :empty { display: none; }
-.sh-top-main #student-live-class-card-container > *,
-.sh-top-main #student-live-class-card-container .card { margin-bottom: 0 !important; }
+.sh-top-main > :empty, .sh-top-side > :empty { display: none; }
+.sh-top-side { gap: var(--space-4); }
+.sh-top-side #student-live-class-card-container > *,
+.sh-top-side #student-live-class-card-container .card { margin-bottom: 0 !important; }
+.sh-hero .facts #streak-shield { cursor: help; }
+
+/* Jr. MCWC Video Lectures: compact dark card in the right column */
+.sh-lectures { display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 16px; text-decoration: none; color: #fff;
+  background: linear-gradient(135deg, #1E3A8A, #0F172A); box-shadow: 0 6px 18px rgba(15, 23, 42, .18); transition: transform var(--transition-fast); }
+.sh-lectures:hover { transform: translateY(-1px); }
+.sh-lectures .ic { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; font-size: 17px; background: rgba(255, 255, 255, .14); }
+.sh-lectures .t { display: grid; gap: 2px; min-width: 0; }
+.sh-lectures b { font-size: 15px; font-weight: 800; }
+.sh-lectures .t span { font-size: 12.5px; color: rgba(255, 255, 255, .72); }
+.sh-lectures .go { font-size: 22px; color: rgba(255, 255, 255, .8); }
 .sh-grid.sh-grid-full { grid-template-columns: minmax(0, 1fr); margin-bottom: 0; }
 
 /* Compact hero */
@@ -173,25 +162,11 @@
 .sh-hero .emblem b { font-size: 27px; }
 .sh-hero .emblem small { font-size: 10px; }
 
-/* At a glance: four small facts */
-.sh-glance { border: 1px solid var(--border-hairline); border-radius: 16px; background: var(--bg-surface); padding: 14px 16px 16px; }
-.sh-glance-h { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
-.sh-glance-h h2 { margin: 0; font-size: 1rem; font-weight: 800; color: var(--text-main); }
-.sh-glance-h span { font-size: 12.5px; color: var(--text-muted); }
-.sh-glance-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-.sh-g { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 10px 12px; border-radius: 12px; background: var(--bg-surface-subtle, #F8FAFC); border: 1px solid var(--border-hairline); }
-.sh-g .ic { flex: none; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; font-size: 17px; background: #fff; border: 1px solid var(--border-hairline); }
-.sh-g > div { min-width: 0; display: grid; gap: 1px; }
-.sh-g b { font-size: 14.5px; font-weight: 800; color: var(--text-main); line-height: 1.25; }
-.sh-g b * { color: inherit !important; }
-.sh-g small { font-size: 12px; color: var(--text-muted); }
-@media (max-width: 1400px) { .sh-glance-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-
 /* Practice & More beside the hero */
 .sh-top-side .sh-tiles { gap: 10px; }
 .sh-top-side .sh-tile { grid-template-rows: 64px auto; }
 
-/* Below 1100px: one column, and Practice & More moves after My Day as before */
+/* Below 1100px: one column; the right column follows My Day */
 @media (max-width: 1100px) {
   .sh-home { display: flex; flex-direction: column; gap: var(--space-4); }
   .sh-top { display: contents; }

@@ -154,7 +154,7 @@ export function setupAdminNav(profile = null) {
   }
 
   // 2. Inject "Settings > <Page>" breadcrumb on Settings sub-pages if not already present
-  if (breadcrumbMeta && !document.querySelector('.breadcrumb-nav')) {
+  if (breadcrumbMeta && !document.querySelector('.breadcrumb-nav, .settings-breadcrumb, nav[aria-label="Breadcrumb"]')) {
     const mainContainer =
       document.querySelector('.main-content .container') ||
       document.querySelector('.page-main .container') ||

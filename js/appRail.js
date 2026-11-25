@@ -2,8 +2,9 @@
  * Trendz Tracker - App side navigation (js/appRail.js)
  *
  * One navigation shell for students, teachers and admins:
- * - Desktop (>= 1024px): a 76px icon rail (default) or a 232px sidebar with labels and
- *   groups. The choice is remembered in localStorage ('tt-side-expanded').
+ * - Desktop (>= 1024px): a 76px icon rail. Every page opens with it closed; ☰ opens a
+ *   232px sidebar with labels and groups over the page (the content never shifts), and
+ *   clicking outside it, pressing Escape or following a link closes it again.
  * - Below 1024px: a slim top bar (brand, bell, account) and a bottom tab bar. Tabs that
  *   hold several pages open a sheet (students: Practice and More; staff: More).
  *
@@ -13,9 +14,8 @@
  * Mounted from headerNav.setupHeaderNavigation for verified profiles (and cached students).
  */
 
+import { STAFF_PAGE_ICONS, enhanceStaffUi } from './staffUi.js';
 import { getRoleNavItems, isNavItemCurrent } from './navConfig.js';
-
-const STORAGE_KEY = 'tt-side-expanded';
 
 /**
  * Per-role layout.
@@ -118,22 +118,6 @@ function esc(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
-}
-
-function readExpanded() {
-  try {
-    return window.localStorage.getItem(STORAGE_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-
-function writeExpanded(value) {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, value ? '1' : '0');
-  } catch {
-    /* storage unavailable: keep in-memory state only */
-  }
 }
 
 async function signOut() {
@@ -242,12 +226,28 @@ export function mountAppRail(profile, { onAccount } = {}) {
     t.setAttribute('aria-expanded', expanded ? 'true' : 'false');
     t.setAttribute('aria-label', expanded ? 'Collapse menu' : 'Expand menu');
   };
-  applyExpanded(readExpanded());
-  rail.querySelector('#btn-rail-toggle').addEventListener('click', () => {
-    const next = !document.body.classList.contains('rail-expanded');
-    writeExpanded(next);
-    applyExpanded(next);
+  // Always start closed. The open sidebar floats over the page, so close it on any
+  // click outside it, on Escape, and when a link inside it is followed.
+  applyExpanded(false);
+  rail.querySelector('#btn-rail-toggle').addEventListener('click', (e) => {
+    e.stopPropagation();
+    applyExpanded(!document.body.classList.contains('rail-expanded'));
   });
+  rail.querySelector('.rail-links')?.addEventListener('click', (e) => {
+    if (e.target.closest('a')) applyExpanded(false);
+  });
+  if (!rail.dataset.expandListeners) {
+    rail.dataset.expandListeners = '1';
+    document.addEventListener('click', (e) => {
+      if (document.body.classList.contains('rail-expanded') && !rail.contains(e.target)) applyExpanded(false);
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && document.body.classList.contains('rail-expanded')) {
+        applyExpanded(false);
+        rail.querySelector('#btn-rail-toggle')?.focus();
+      }
+    });
+  }
 
   const btn = rail.querySelector('#btn-rail-account');
   const menu = rail.querySelector('#rail-account-menu');
@@ -290,9 +290,37 @@ export function mountAppRail(profile, { onAccount } = {}) {
   });
 
   mountMobileBars(profile, layout, byId, { name, initial, who });
+  if (role !== 'student') {
+    decorateStaffPageHeader(layout, byId);
+    enhanceStaffUi();
+  }
   document.body.classList.add('has-app-rail');
   document.body.classList.toggle('has-student-rail', role === 'student');
   document.body.classList.toggle('has-staff-rail', role !== 'student');
+}
+
+/**
+ * Teacher / admin pages: turns the page title row into the same soft header card the
+ * student Home uses, with the page's icon beside the title. Visual only; safe to repeat.
+ */
+function decorateStaffPageHeader(layout, byId) {
+  const container = document.querySelector('.main-content .container');
+  const h1 = container?.querySelector('h1');
+  if (!h1 || document.querySelector('.sf-hero')) return; // Home pages already have their header
+  let head = h1.parentElement;
+  while (head && head.parentElement && head.parentElement !== container) head = head.parentElement;
+  if (!head || head === h1 || head.parentElement !== container || head.classList.contains('card') || head.classList.contains('sf-page-head')) return;
+
+  const file = (window.location.pathname || '').split('/').pop();
+  const current = [...byId.values()].find((i) => i.current);
+  const railIcon = current ? (layout.rail.find((r) => r.id === current.id)?.icon || '') : '';
+  const icon = STAFF_PAGE_ICONS[file] || railIcon;
+
+  head.classList.add('sf-page-head');
+  let title = h1;
+  while (title.parentElement && title.parentElement !== head) title = title.parentElement;
+  title.classList.add('sf-page-title');
+  if (icon) title.insertAdjacentHTML('beforebegin', `<span class="sf-page-emblem" aria-hidden="true">${icon}</span>`);
 }
 
 /** @deprecated kept for older imports; use mountAppRail. */

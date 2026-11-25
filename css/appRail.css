@@ -1,6 +1,6 @@
 /* ==========================================================================
    App side navigation (js/appRail.js): students, teachers and admins
-   Desktop (>= 1024px): collapsed 76px icon rail, or expanded 232px sidebar.
+   Desktop (>= 1024px): 76px icon rail; the 232px sidebar opens over the page.
    Below 1024px: slim top bar, bottom tab bar and pop-up sheets.
    ========================================================================== */
 .app-rail { display: none; }
@@ -8,14 +8,14 @@
 @media (min-width: 1024px) {
   body.has-app-rail .app-header { display: none; }
   body.has-app-rail .main-content { padding-left: 84px; }
-  body.has-app-rail.rail-expanded .main-content { padding-left: 240px; }
   body.has-app-rail .app-rail {
     display: flex; flex-direction: column; gap: 2px;
     position: fixed; inset: 0 auto 0 0; width: 76px; z-index: 40;
     padding: 14px 8px; background: var(--bg-surface); border-right: 1px solid var(--border-hairline);
     overflow-y: auto; overflow-x: hidden;
   }
-  body.has-app-rail.rail-expanded .app-rail { width: 232px; padding: 14px 12px; }
+  /* Open sidebar floats over the page; the content keeps its place */
+  body.has-app-rail.rail-expanded .app-rail { width: 232px; padding: 14px 12px; z-index: 80; box-shadow: 0 12px 40px rgba(15, 23, 42, .18); }
   body.stage-focus-mode .app-rail,
   body.memoriad-stage-mode .app-rail { display: none !important; }
   body.stage-focus-mode.has-app-rail .main-content,

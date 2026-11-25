@@ -175,20 +175,6 @@ function setupPreferences() {
     });
   }
 
-  const labels = document.getElementById('pref-rail-expanded');
-  if (labels) {
-    const sync = () => {
-      labels.checked = document.body.classList.contains('rail-expanded');
-    };
-    sync();
-    labels.addEventListener('change', () => {
-      // Reuse the side menu's own toggle so its saved state and labels stay in step.
-      const toggle = document.getElementById('btn-rail-toggle');
-      if (toggle && labels.checked !== document.body.classList.contains('rail-expanded')) toggle.click();
-      sync();
-    });
-    document.getElementById('btn-rail-toggle')?.addEventListener('click', () => setTimeout(sync, 0));
-  }
 }
 
 function setupActions() {

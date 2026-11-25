@@ -4,7 +4,7 @@
  * Student layout only: a bar graph of the top five on the current board, with everyone
  * else listed underneath. It reads the rows js/leaderboard.js already rendered (no extra
  * data calls), so every board, period, scope and privacy rule stays exactly as before.
- * Hidden by CSS unless body.has-student-rail (teacher/admin views are unchanged).
+ * Shown by CSS when the side menu is mounted (body.has-app-rail), for students and staff.
  */
 
 const TOP_N = 5;
