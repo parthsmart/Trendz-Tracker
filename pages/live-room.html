@@ -126,6 +126,20 @@
         line-height: 1.5;
       }
 
+      .golive-tip {
+        background: rgba(249, 115, 22, 0.1);
+        border: 1px solid rgba(249, 115, 22, 0.35);
+        border-radius: var(--radius-md, 8px);
+        padding: var(--space-3, 12px);
+        margin-bottom: var(--space-4, 16px);
+        font-size: var(--text-sm, 14px);
+        color: #fed7aa;
+        text-align: left;
+        line-height: 1.5;
+      }
+      .golive-tip strong { display: block; color: #fb923c; margin-bottom: 4px; }
+      .golive-tip[hidden] { display: none; }
+
       .pulse-dot {
         width: 8px;
         height: 8px;
@@ -181,6 +195,11 @@
           <button type="button" id="btn-confirm-join" class="btn btn-primary" style="width: 100%; padding: var(--space-3) var(--space-4); font-size: var(--text-base); font-weight: 700;">
             Enter Live Room &rarr;
           </button>
+          <div id="lobby-golive-tip" class="golive-tip" hidden>
+            <strong>Students can't see you until you click Go Live.</strong>
+            When Webinar.gg opens, you'll see yourself on stage straight away, but students only get your video
+            after you press the <b>Go Live</b> button in the room.
+          </div>
           <a id="link-webinar-host" class="btn btn-primary" hidden style="width: 100%; padding: var(--space-3) var(--space-4); font-size: var(--text-base); font-weight: 700;">
             Start class &rarr;
           </a>

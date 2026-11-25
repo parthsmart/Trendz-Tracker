@@ -345,6 +345,8 @@ async function loadClassMetadata(classId) {
     hostLink.setAttribute('role', 'button');
   }
   if (deviceTip) deviceTip.hidden = isLiveHost;
+  const goLiveTip = document.getElementById('lobby-golive-tip');
+  if (goLiveTip) goLiveTip.hidden = !isLiveHost;
 
   updateStatusBadge(currentClassMeta.status, currentClassMeta.isHost, currentClassMeta.isInvitedParticipant);
 
@@ -385,11 +387,8 @@ async function loadClassMetadata(classId) {
     return;
   }
 
-  if (isLiveHost && new URLSearchParams(window.location.search).get('start') === '1') {
-    startAsHost();
-    return;
-  }
-
+  // Start class (start=1) stops on the lobby so the host reads the Go Live reminder:
+  // Webinar.gg shows the host on stage at once, but students get no video until Go Live.
   showSection('prejoin-lobby');
 }
 
