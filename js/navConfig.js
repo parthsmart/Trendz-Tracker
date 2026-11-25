@@ -29,6 +29,7 @@ export const SETTINGS_SUBPAGE_PATHS = Object.freeze([
 
 export const NAV_STAGE_AND_PUBLIC_ALLOWLIST = Object.freeze([
   '/index.html',
+  '/landing.html',
   '/pages/basics-practice.html',
   '/pages/element-drill.html',
   '/pages/memoriad-play.html',

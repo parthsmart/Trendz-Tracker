@@ -94,6 +94,7 @@ export default defineConfig(({ command }) => {
       rollupOptions: {
         input: {
           main: path.resolve(__dirname, 'index.html'),
+          landing: path.resolve(__dirname, 'landing.html'),
           student: path.resolve(__dirname, 'pages/student.html'),
           roundScores: path.resolve(__dirname, 'pages/round-scores.html'),
           basics: path.resolve(__dirname, 'pages/basics.html'),
