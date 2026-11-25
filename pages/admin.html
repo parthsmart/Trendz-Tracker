@@ -8,6 +8,7 @@
     
     <!-- Design tokens & unified styles -->
     <link rel="stylesheet" href="/css/style.css" />
+    <link rel="stylesheet" href="/css/staffHome.css" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#2563EB" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -81,18 +82,28 @@
             <a href="/pages/backup.html" class="btn btn-outline btn-sm" style="text-decoration: none;">Open Backup Page &rarr;</a>
           </div>
 
-          <!-- Page Heading -->
-          <div class="section-header-row" style="margin-bottom: var(--space-6);">
-            <div>
-              <h1>Institute Practice Overview</h1>
-              <p style="font-size: var(--text-sm);">
-                Daily practice completion, active streaks, milestone alerts, weekly email reports, and 7-day performance tracking.
-              </p>
+          <!-- Page Heading: Home header + quick actions (css/staffHome.css) -->
+          <section class="sf-hero" aria-labelledby="overview-heading">
+            <div class="who">
+              <p class="sf-eyebrow">Institute Practice Overview</p>
+              <h1 id="overview-heading"><span data-staff-greeting>Hello</span>, <span data-staff-first-name>there</span> <span aria-hidden="true">👋</span></h1>
+              <div class="facts">
+                <span>📅 <strong id="overview-today-ist" class="num">—</strong> <span class="sr-only">(IST)</span></span>
+                <span class="badge badge-info">Admin · full access</span>
+              </div>
+              <p class="sf-sub">Daily practice completion, active streaks, milestone alerts, weekly email reports, and 7-day performance tracking.</p>
             </div>
-            <div class="meta-row" style="font-size: var(--text-sm);">
-              <span>Date (IST): <strong id="overview-today-ist" class="num">—</strong></span>
-            </div>
-          </div>
+            <div class="emblem" aria-hidden="true"><div><span><b>🏫</b><small>Institute</small></span></div></div>
+          </section>
+
+          <nav class="sf-quick" aria-label="Quick actions">
+            <a class="sf-tile" href="/pages/attendance.html"><span class="ic" aria-hidden="true">✅</span><span class="t"><b>Attendance</b><small>Mark today's class</small></span></a>
+            <a class="sf-tile" href="/pages/review.html"><span class="ic" aria-hidden="true">🔍</span><span class="t"><b>Review</b><small>Verify scores</small></span></a>
+            <a class="sf-tile" href="/pages/weekly-tests.html"><span class="ic" aria-hidden="true">📝</span><span class="t"><b>Weekly tests</b><small>Create and score</small></span></a>
+            <a class="sf-tile" href="/pages/live-classes.html"><span class="ic" aria-hidden="true">🎥</span><span class="t"><b>Live classes</b><small>Schedule and start</small></span></a>
+            <a class="sf-tile" href="/pages/homework.html"><span class="ic" aria-hidden="true">📚</span><span class="t"><b>Homework</b><small>Assign work</small></span></a>
+            <a class="sf-tile" href="/pages/student-access.html"><span class="ic" aria-hidden="true">🔐</span><span class="t"><b>Student access</b><small>What each level sees</small></span></a>
+          </nav>
 
           <!-- Summary Cards (5 Cards) -->
           <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom: var(--space-6);">

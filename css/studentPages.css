@@ -30,7 +30,7 @@
 
 /* ---------- Flash Anzan: full-screen stage (number fills the screen, no counter) ---------- */
 body.flash-playing { overflow: hidden; }
-body.flash-playing .student-rail { display: none !important; }
+body.flash-playing .app-rail { display: none !important; }
 body.flash-playing .main-content { padding-left: 0 !important; }
 body.flash-playing #flash-play-screen { position: fixed; inset: 0; z-index: 200; margin: 0 !important; border: 0; border-radius: 0; box-shadow: none; background: #F8FBFF; overflow: auto; }
 body.flash-playing #flash-play-screen > div:first-child { display: none; } /* progress bar */
@@ -475,3 +475,6 @@ body.has-student-rail .lb-rest-note td { text-align: center; color: var(--text-m
   body.has-student-rail .mr-fi { flex-wrap: wrap; }
   body.has-student-rail .mr-fi-sec { display: none; }
 }
+
+/* ---------- Account page: role-specific sections (js/account.js) ---------- */
+[data-account-role][hidden] { display: none !important; }

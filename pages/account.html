@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>My account - Trendz Tracker</title>
-    <meta name="description" content="Your Trendz Tracker student account, practice access and app preferences." />
+    <meta name="description" content="Your Trendz Tracker account details, access and app preferences." />
 
     <!-- Design tokens & unified styles -->
     <link rel="stylesheet" href="/css/style.css" />
@@ -67,12 +67,12 @@
               <h1 id="account-name">Student</h1>
               <div class="ac-facts">
                 <span class="ac-fact"><span aria-hidden="true">🪪</span> <b id="account-code" class="num">—</b></span>
-                <span class="ac-fact"><span aria-hidden="true">🎓</span> <b id="account-level">—</b></span>
+                <span class="ac-fact"><span aria-hidden="true" id="account-level-icon">🎓</span> <b id="account-level">—</b></span>
                 <span class="ac-fact" id="account-joined-fact" hidden><span aria-hidden="true">📅</span> Joined <b id="account-joined">—</b></span>
                 <span class="ac-status" id="account-status">Active</span>
               </div>
             </div>
-            <div class="ac-hero-links">
+            <div class="ac-hero-links" id="account-hero-links">
               <a href="/pages/monthly-report.html" class="btn btn-outline btn-sm">📊 Monthly report</a>
               <a href="/pages/leaderboard.html" class="btn btn-outline btn-sm">🏆 Leaderboard</a>
             </div>
@@ -83,26 +83,37 @@
             <section class="card ac-card" aria-labelledby="account-details-heading">
               <div class="ac-card-h">
                 <h2 id="account-details-heading">Details</h2>
-                <span class="ac-sub">Ask your trainer to change these</span>
+                <span class="ac-sub" id="account-details-sub">Ask your trainer to change these</span>
               </div>
               <dl class="ac-kvs">
                 <dt>Name</dt><dd id="account-detail-name">—</dd>
-                <dt>Student ID</dt><dd id="account-detail-code" class="num">—</dd>
-                <dt>Level</dt><dd id="account-detail-level">—</dd>
+                <dt id="account-detail-code-label">Student ID</dt><dd id="account-detail-code" class="num">—</dd>
+                <dt id="account-detail-level-label">Level</dt><dd id="account-detail-level">—</dd>
                 <dt>Account</dt><dd id="account-detail-status">—</dd>
-                <dt>On the leaderboard</dt><dd id="account-detail-leaderboard">—</dd>
+                <dt data-account-role="student">On the leaderboard</dt><dd data-account-role="student" id="account-detail-leaderboard">—</dd>
                 <dt>Joined</dt><dd id="account-detail-joined">—</dd>
               </dl>
             </section>
 
-            <!-- Practice access -->
-            <section class="card ac-card" aria-labelledby="account-access-heading">
+            <!-- Practice access (students) -->
+            <section class="card ac-card" aria-labelledby="account-access-heading" data-account-role="student">
               <div class="ac-card-h">
                 <h2 id="account-access-heading">What you can practise</h2>
                 <span class="ac-sub" id="account-access-source">Set by your trainer</span>
               </div>
               <ul class="ac-access" id="account-access-list">
                 <li class="ac-loading">Loading your practice access…</li>
+              </ul>
+            </section>
+
+            <!-- What a teacher or admin can do -->
+            <section class="card ac-card" aria-labelledby="account-perms-heading" data-account-role="staff" hidden>
+              <div class="ac-card-h">
+                <h2 id="account-perms-heading">What you can do</h2>
+                <span class="ac-sub" id="account-perms-source">Set by an admin</span>
+              </div>
+              <ul class="ac-access" id="account-perms-list">
+                <li class="ac-loading">Loading…</li>
               </ul>
             </section>
           </div>
@@ -113,7 +124,7 @@
               <h2 id="account-prefs-heading">Preferences</h2>
               <span class="ac-sub">Saved on this device</span>
             </div>
-            <div class="ac-row">
+            <div class="ac-row" data-account-role="student">
               <span class="ac-row-t"><b>Flash Anzan sound</b><span>Play a beep with each number</span></span>
               <label class="ac-switch">
                 <input type="checkbox" id="pref-flash-sound" />
@@ -137,8 +148,8 @@
               <h2 id="account-signin-heading">Sign-in &amp; app</h2>
             </div>
             <div class="ac-row">
-              <span class="ac-row-t"><b>Password</b><span>Forgot it or want a new one? Ask your trainer to reset it.</span></span>
-              <span class="ac-tag">🔒 Managed by your trainer</span>
+              <span class="ac-row-t"><b>Password</b><span id="account-password-text">Forgot it or want a new one? Ask your trainer to reset it.</span></span>
+              <span class="ac-tag" id="account-password-tag">🔒 Managed by your trainer</span>
             </div>
             <div class="ac-row" id="account-install-row" style="display: none;">
               <span class="ac-row-t"><b>Install the app</b><span>Add Trendz Tracker to your home screen</span></span>
