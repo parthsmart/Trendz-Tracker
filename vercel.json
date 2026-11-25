@@ -10,6 +10,14 @@
   },
   "rewrites": [
     {
+      "source": "/",
+      "missing": [
+        { "type": "query", "key": "source", "value": "pwa" },
+        { "type": "query", "key": "returnTo" }
+      ],
+      "destination": "/landing.html"
+    },
+    {
       "source": "/api/jmcwc-drive-sync",
       "destination": "/api/jmcwc?drive_sync=1"
     },
