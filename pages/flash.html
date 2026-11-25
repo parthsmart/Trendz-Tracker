@@ -122,9 +122,6 @@
             </div>
           </div>
 
-          <!-- Highest Records Ever Section -->
-          <div id="flash-records-container"></div>
-
           <!-- ================================================================
                SCREEN 1: SETUP SCREEN (#flash-setup-screen)
                ================================================================ -->
@@ -141,73 +138,9 @@
             </div>
 
             <form id="flash-setup-form" novalidate>
-              <div class="card-body">
-                <!-- Top Summary Banner: Compact summary of current settings & expected duration -->
-                <div
-                  class="flash-setup-summary-banner"
-                  id="flash-last-used-card"
-                >
-                  <div
-                    class="flash-compact-summary-text num"
-                    id="flash-last-used-text"
-                  >
-                    1 digit · 10 numbers · 1 second · Addition
-                  </div>
-                  <div
-                    class="flash-setup-duration-text num"
-                    id="flash-setup-duration-line"
-                  >
-                    Expected duration: 10 seconds
-                  </div>
-                </div>
-
-                <!-- Two Actions directly below the summary -->
-                <div class="flash-setup-actions-bar">
-                  <button
-                    type="submit"
-                    id="btn-flash-start"
-                    class="btn btn-primary btn-flash-start-action"
-                  >
-                    Start practice
-                  </button>
-                  <button
-                    type="button"
-                    id="btn-toggle-flash-settings"
-                    class="btn btn-outline btn-flash-settings-toggle"
-                    aria-expanded="false"
-                    aria-controls="flash-settings-drawer"
-                  >
-                    <span aria-hidden="true">⚙️</span>
-                    <span id="flash-settings-toggle-text">Change settings</span>
-                    <span class="disclosure-arrow" aria-hidden="true">▾</span>
-                  </button>
-                </div>
-
-                <!-- Inline Confirmation Box for Long Tries (> 5 minutes) -->
-                <div
-                  id="flash-long-confirm-box"
-                  class="card"
-                  style="display: none; margin-bottom: var(--space-4); padding: var(--space-3) var(--space-4); border: 1px solid var(--color-primary); background: var(--color-primary-subtle);"
-                  role="region"
-                  aria-label="Confirm Long Try Duration"
-                >
-                  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3);">
-                    <div id="flash-long-confirm-text" style="font-weight: 700; color: var(--text-main); font-size: var(--text-sm);">
-                      This will take about 6 minutes. Start?
-                    </div>
-                    <div style="display: flex; gap: var(--space-2);">
-                      <button type="button" id="btn-confirm-long-cancel" class="btn btn-outline btn-sm">
-                        Cancel
-                      </button>
-                      <button type="button" id="btn-confirm-long-yes" class="btn btn-primary btn-sm">
-                        Yes, Start
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Settings Drawer (collapsed by default, toggled by Change settings button) -->
-                <div id="flash-settings-drawer" class="flash-settings-drawer" hidden>
+              <div class="card-body flash-cfg">
+                <!-- Left: settings (always visible) -->
+                <div id="flash-settings-drawer" class="flash-settings-drawer flash-cfg-left">
                   <!-- Custom Controls Grid (visible below, no presets) -->
                   <div class="flash-control-grid">
                     <!-- Control A: Digits (1 to 5) -->
@@ -387,9 +320,82 @@
                       />
                     </label>
                   </div>
+                </div>
 
-                  <!-- Your Results at These Settings + Most-Practised Settings -->
-                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--space-5); margin-top: var(--space-6); padding-top: var(--space-5); border-top: 1px solid var(--border-hairline);">
+                <!-- Right: summary of this try + Start -->
+                <div class="flash-cfg-right">
+                  <span class="flash-cfg-kicker">Your try</span>
+                  <!-- Top Summary Banner: Compact summary of current settings & expected duration -->
+                <div
+                  class="flash-setup-summary-banner"
+                  id="flash-last-used-card"
+                >
+                  <div
+                    class="flash-compact-summary-text num"
+                    id="flash-last-used-text"
+                  >
+                    1 digit · 10 numbers · 1 second · Addition
+                  </div>
+                  <div
+                    class="flash-setup-duration-text num"
+                    id="flash-setup-duration-line"
+                  >
+                    Expected duration: 10 seconds
+                  </div>
+                </div>
+                  <div class="flash-cfg-kv"><span>Counts toward</span><b>Streak · To-do</b></div>
+                  <!-- Two Actions directly below the summary -->
+                <div class="flash-setup-actions-bar">
+                  <button
+                    type="submit"
+                    id="btn-flash-start"
+                    class="btn btn-primary btn-flash-start-action"
+                  >
+                    Start practice
+                  </button>
+                  <button
+                    type="button"
+                    id="btn-toggle-flash-settings"
+                    hidden
+                    class="btn btn-outline btn-flash-settings-toggle"
+                    aria-expanded="false"
+                    aria-controls="flash-settings-drawer"
+                  >
+                    <span aria-hidden="true">⚙️</span>
+                    <span id="flash-settings-toggle-text">Change settings</span>
+                    <span class="disclosure-arrow" aria-hidden="true">▾</span>
+                  </button>
+                </div>
+                  <!-- Inline Confirmation Box for Long Tries (> 5 minutes) -->
+                <div
+                  id="flash-long-confirm-box"
+                  class="card"
+                  style="display: none; margin-bottom: var(--space-4); padding: var(--space-3) var(--space-4); border: 1px solid var(--color-primary); background: var(--color-primary-subtle);"
+                  role="region"
+                  aria-label="Confirm Long Try Duration"
+                >
+                  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3);">
+                    <div id="flash-long-confirm-text" style="font-weight: 700; color: var(--text-main); font-size: var(--text-sm);">
+                      This will take about 6 minutes. Start?
+                    </div>
+                    <div style="display: flex; gap: var(--space-2);">
+                      <button type="button" id="btn-confirm-long-cancel" class="btn btn-outline btn-sm">
+                        Cancel
+                      </button>
+                      <button type="button" id="btn-confirm-long-yes" class="btn btn-primary btn-sm">
+                        Yes, Start
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                  <span class="flash-cfg-hint">Numbers flash full screen · press Esc to stop</span>
+                </div>
+              </div>
+
+              <!-- Your results at these settings + most-practised settings -->
+              <div class="flash-cfg-stats">
+                <!-- Your Results at These Settings + Most-Practised Settings -->
+                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--space-5); ">
                     <!-- Table 1: Your results at these settings -->
                     <div>
                       <h3 style="font-size: var(--text-sm); font-weight: 700; margin-bottom: var(--space-2); color: var(--text-main);">
@@ -438,7 +444,6 @@
                       </div>
                     </div>
                   </div>
-                </div> <!-- end flash-settings-drawer -->
               </div>
             </form>
           </section>
@@ -722,6 +727,9 @@
               </details>
             </div>
           </section>
+
+          <!-- Highest Records Ever Section -->
+          <div id="flash-records-container"></div>
 
           <!-- ================================================================
                RECENT HISTORY SECTION (Last 20 Tries)

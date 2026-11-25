@@ -59,6 +59,25 @@ export function getRecordsRulesExplanation(section) {
 }
 
 /**
+ * Basics category id from a record's attempt link (basics-practice.html?cat=...).
+ */
+function basicsCategoryIdOf(record) {
+  const m = /[?&]cat=([^&]+)/.exec(String(record.attemptUrl || ''));
+  return m ? decodeURIComponent(m[1]) : '';
+}
+
+/**
+ * Basics drills are grouped like the Elements page: Add & Sub, Multiplication, Division.
+ * Category names follow the "2d4r" / "2dx1d" / "3dby1d" or "3d/1d" pattern.
+ */
+export function basicsRecordGroupOf(title) {
+  const t = String(title || '').toLowerCase();
+  if (/by|\/|÷/.test(t)) return 'Division';
+  if (/\dd\s*[x×*]\s*\d/.test(t) || /mult/.test(t)) return 'Multiplication';
+  return 'Addition & Subtraction';
+}
+
+/**
  * Renders the HTML markup for a single record card.
  */
 export function renderRecordCardHtml(record) {
@@ -68,113 +87,59 @@ export function renderRecordCardHtml(record) {
 
   let holdersHtml = '';
   if (isMyBest) {
-    if (hasRecord) {
-      holdersHtml = `
-        <div class="record-card-holder-row" style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 4px;">
-          <span style="font-weight: 600;">Personal Record:</span>
-          <span class="record-holder-name" style="font-weight: 700; color: var(--text-main);">${escapeHtml(record.holders[0]?.display_name || 'You')}</span>
-        </div>
-      `;
-    } else {
-      holdersHtml = `
-        <div class="record-card-holder-row" style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 4px;">
-          <span>No personal record yet</span>
-        </div>
-      `;
-    }
-  } else {
-    if (hasRecord && Array.isArray(record.holders) && record.holders.length > 0) {
-      const names = record.holders.map((h) => escapeHtml(h.display_name)).join(', ');
-      const label = record.holders.length > 1 ? 'Record holders (Tied)' : 'Record holder';
-      holdersHtml = `
-        <div class="record-card-holder-row" style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 4px;">
-          <span style="font-weight: 600;">${label}:</span>
-          <span class="record-holder-name" style="font-weight: 700; color: var(--text-main);">${names}</span>
-        </div>
-      `;
-    } else if (!hasRecord) {
-      holdersHtml = `
-        <div class="record-card-holder-row" style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 4px;">
-          <span>No holder yet &mdash; be the first!</span>
-        </div>
-      `;
-    }
+    holdersHtml = hasRecord
+      ? `<div class="record-card-holder-row"><span>Personal Record:</span> <span class="record-holder-name">${escapeHtml(record.holders?.[0]?.display_name || 'You')}</span></div>`
+      : '<div class="record-card-holder-row"><span>No personal record yet</span></div>';
+  } else if (hasRecord && Array.isArray(record.holders) && record.holders.length > 0) {
+    const names = record.holders.map((h) => escapeHtml(h.display_name)).join(', ');
+    const label = record.holders.length > 1 ? 'Record holders (Tied)' : 'Record holder';
+    holdersHtml = `<div class="record-card-holder-row"><span>${label}:</span> <span class="record-holder-name">${names}</span></div>`;
+  } else if (!hasRecord) {
+    holdersHtml = '<div class="record-card-holder-row"><span>No holder yet &mdash; be the first!</span></div>';
   }
 
   const youHoldItBadge = isHeldByMe
-    ? `
-      <div class="record-you-hold-badge" style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: var(--radius-full, 9999px); background: #fef3c7; color: #92400e; font-size: 11px; font-weight: 700; margin-bottom: 6px; border: 1px solid #fde68a;">
-        <span aria-hidden="true">⭐</span>
-        <span>${isMyBest ? 'Your Personal Best' : (record.holders?.length > 1 ? 'You share this record!' : 'You hold this record!')}</span>
-      </div>
-    `
+    ? `<span class="record-you-hold-badge"><span aria-hidden="true">⭐</span> <span>${isMyBest ? 'Your Personal Best' : (record.holders?.length > 1 ? 'You share this record!' : 'You hold this record!')}</span></span>`
     : '';
 
   const scoreClass = hasRecord ? 'record-score-active' : 'record-score-empty';
-  const scoreStyle = hasRecord
-    ? 'font-size: var(--text-lg); font-weight: 700; color: var(--color-primary); line-height: 1.2;'
-    : 'font-size: var(--text-sm); font-weight: 600; color: var(--text-muted); font-style: italic;';
-
   const emptyScoreText = isMyBest ? 'No personal record yet' : 'No record yet';
   const headerScoreLabel = hasRecord ? (isMyBest ? 'Personal Best' : 'Highest Record') : 'Status';
 
-  const actionButton = record.section === 'flash'
-    ? `
-      <button
+  const attemptBtn = record.section === 'flash'
+    ? `<button
         type="button"
         class="btn btn-primary btn-sm btn-flash-attempt-record"
         data-digits="${record.rawSettings?.digits || record.digits || 1}"
         data-count="${record.rawSettings?.count || record.count || 10}"
         data-speed="${record.rawSettings?.speed_ms || record.speed_ms || DEFAULT_FLASH_RECORD_SPEED_MS}"
         data-mode="${record.rawSettings?.mode || record.mode || DEFAULT_FLASH_RECORD_MODE}"
-        style="width: 100%; justify-content: center;"
-      >
-        ${escapeHtml(record.attemptLabel || 'Attempt online')} &rarr;
-      </button>
-    `
-    : `
-      <a
-        href="${escapeHtml(record.attemptUrl || '#')}"
-        class="btn ${isHeldByMe ? 'btn-outline' : 'btn-primary'} btn-sm"
-        style="width: 100%; justify-content: center; text-decoration: none;"
-      >
-        ${escapeHtml(record.attemptLabel || 'Attempt online')} &rarr;
-      </a>
-    `;
+      >${escapeHtml(record.attemptLabel || 'Attempt online')} &rarr;</button>`
+    : `<a href="${escapeHtml(record.attemptUrl || '#')}" class="btn ${isHeldByMe ? 'btn-outline' : 'btn-primary'} btn-sm">${escapeHtml(record.attemptLabel || 'Attempt online')} &rarr;</a>`;
+
+  // Basics: "Log" opens the paper-drill form below with this category selected.
+  const catId = record.section === 'basics' ? basicsCategoryIdOf(record) : '';
+  const logBtn = catId
+    ? `<button type="button" class="btn btn-outline btn-sm btn-records-log" data-cat="${escapeHtml(catId)}" title="Log a paper drill for ${escapeHtml(record.title)}">Log</button>`
+    : '';
 
   return `
     <div
       class="card record-card ${isHeldByMe ? 'record-card-mine' : ''}"
       data-record-id="${escapeHtml(record.id)}"
-      style="display: flex; flex-direction: column; justify-content: space-between; padding: var(--space-4); border: 1px solid ${isHeldByMe ? 'var(--color-primary)' : 'var(--border-hairline)'}; border-radius: var(--radius-md); background: ${isHeldByMe ? 'var(--color-primary-soft, #f0fdf4)' : 'var(--color-surface, #fff)'}; position: relative;"
+      data-record-title="${escapeHtml(String(record.title || '').toLowerCase())}"
     >
-      <div>
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-2); margin-bottom: 4px;">
-          <h4 style="margin: 0; font-size: var(--text-sm); font-weight: 700; color: var(--text-main);">
-            ${escapeHtml(record.title)}
-          </h4>
-          <span class="badge" style="font-size: 10px; font-weight: 600; text-transform: uppercase;">
-            ${escapeHtml(record.settingsSummary || '')}
-          </span>
-        </div>
-
-        ${youHoldItBadge}
-
-        <div style="margin: var(--space-2) 0;">
-          <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600;">
-            ${headerScoreLabel}
-          </div>
-          <div class="${scoreClass} num" style="${scoreStyle}">
-            ${hasRecord ? escapeHtml(record.scoreDisplay) : emptyScoreText}
-          </div>
-        </div>
-
-        ${holdersHtml}
+      <div class="record-card-top">
+        <h4 class="record-card-title">${escapeHtml(record.title)}</h4>
+        <span class="record-card-tag">${escapeHtml(record.settingsSummary || '')}</span>
       </div>
-
-      <div style="margin-top: var(--space-3); padding-top: var(--space-2); border-top: 1px solid var(--border-hairline);">
-        ${actionButton}
+      ${youHoldItBadge}
+      <div class="record-card-score">
+        <span class="record-card-score-label">${headerScoreLabel}</span>
+        <span class="${scoreClass} num">${hasRecord ? escapeHtml(record.scoreDisplay) : emptyScoreText}</span>
       </div>
+      ${holdersHtml}
+      <div class="record-card-acts">${attemptBtn}${logBtn}</div>
     </div>
   `;
 }
@@ -339,17 +304,36 @@ export async function setupPracticeRecordsSection(
         `;
       }
 
-      const cardsGridHtml = records.length > 0
-        ? `
-          <div class="practice-records-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--space-3); margin-top: var(--space-3);">
-            ${records.map((r) => renderRecordCardHtml({ ...r, view: currentView })).join('')}
-          </div>
-        `
-        : `
-          <div style="text-align: center; padding: var(--space-5); color: var(--text-muted); font-size: var(--text-sm);">
+      const renderCards = (list) => list.map((r) => renderRecordCardHtml({ ...r, view: currentView })).join('');
+      let cardsGridHtml;
+      if (records.length === 0) {
+        cardsGridHtml = `
+          <div class="practice-records-empty">
             ${currentView === 'my_best' ? 'No personal records found.' : 'No records found for this section.'}
           </div>
         `;
+      } else if (section === 'basics') {
+        // Grouped like the Elements page, with a quick search.
+        const groups = new Map();
+        records.forEach((r) => {
+          const g = basicsRecordGroupOf(r.title);
+          if (!groups.has(g)) groups.set(g, []);
+          groups.get(g).push(r);
+        });
+        const order = ['Addition & Subtraction', 'Multiplication', 'Division'];
+        cardsGridHtml = order.filter((g) => groups.has(g)).map((g) => `
+          <div class="practice-records-group" data-group="${escapeHtml(g)}">
+            <div class="practice-records-group-h"><h4>${escapeHtml(g)}</h4><span>${groups.get(g).length} drills</span></div>
+            <div class="practice-records-grid">${renderCards(groups.get(g))}</div>
+          </div>
+        `).join('') + '<div class="practice-records-empty practice-records-nomatch" hidden>No category matches your search.</div>';
+      } else {
+        cardsGridHtml = `<div class="practice-records-grid">${renderCards(records)}</div>`;
+      }
+
+      const searchHtml = section === 'basics' && records.length > 0
+        ? '<input type="search" class="form-input practice-records-search" placeholder="Find a category, e.g. 2d4r" aria-label="Find a Basics category" />'
+        : '';
 
       containerEl.innerHTML = `
         <div class="card practice-highest-records-card" style="margin-bottom: var(--space-5); padding: var(--space-4) var(--space-5);">
@@ -379,6 +363,7 @@ export async function setupPracticeRecordsSection(
               </p>
             </div>
             <div class="practice-records-toolbar" style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+              ${searchHtml}
               ${viewToggleHtml}
               ${sectionFiltersHtml}
             </div>
@@ -451,6 +436,36 @@ export async function setupPracticeRecordsSection(
           }
         });
       }
+
+      // Basics: quick search across category cards
+      const searchEl = containerEl.querySelector('.practice-records-search');
+      if (searchEl) {
+        searchEl.addEventListener('input', () => {
+          const q = searchEl.value.trim().toLowerCase();
+          let shown = 0;
+          containerEl.querySelectorAll('.practice-records-group').forEach((grp) => {
+            let inGroup = 0;
+            grp.querySelectorAll('.record-card').forEach((card) => {
+              const match = !q || (card.getAttribute('data-record-title') || '').includes(q);
+              card.hidden = !match;
+              if (match) inGroup += 1;
+            });
+            grp.hidden = inGroup === 0;
+            shown += inGroup;
+          });
+          const none = containerEl.querySelector('.practice-records-nomatch');
+          if (none) none.hidden = shown > 0;
+        });
+      }
+
+      // Basics: "Log" fills the paper-drill form with this category
+      containerEl.querySelectorAll('.btn-records-log').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          window.dispatchEvent(new CustomEvent('practice-record-log', {
+            detail: { section, categoryId: btn.getAttribute('data-cat') },
+          }));
+        });
+      });
 
       // Event listener for Flash "Attempt online" buttons
       containerEl.querySelectorAll('.btn-flash-attempt-record').forEach((btn) => {

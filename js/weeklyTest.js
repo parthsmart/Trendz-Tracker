@@ -560,61 +560,37 @@ function renderWeeklyTestsGroups() {
 
   if (availableNow.length === 0 && upcoming.length === 0 && past.length === 0) {
     container.innerHTML = `
-      <div class="card" style="text-align: center; padding: var(--space-8); color: var(--text-muted);">
-        <div style="font-size: 2rem; margin-bottom: var(--space-2);" aria-hidden="true">📝</div>
-        <h2 style="font-size: var(--text-lg); color: var(--text-main); margin-bottom: var(--space-1);">
-          No weekly tests yet
-        </h2>
-        <p style="font-size: var(--text-sm); margin: 0;">
-          When your trainer schedules an online or offline weekly test for your level, it will appear here.
-        </p>
+      <div class="card wt-empty">
+        <div class="wt-empty-ic" aria-hidden="true">📝</div>
+        <h2>No weekly tests yet</h2>
+        <p>When your trainer schedules an online or offline weekly test for your level, it will appear here.</p>
       </div>
     `;
     return;
   }
 
+  const countText = (n) => `${n} ${n === 1 ? 'test' : 'tests'}`;
+  const group = (title, list, kind, extraHead = '') => `
+    <section class="wt-group wt-group-${kind}" aria-label="${escapeHtml(title)}">
+      <div class="wt-grp">
+        ${kind === 'available' ? '<span class="wt-dot" aria-hidden="true"></span>' : ''}
+        <h2>${escapeHtml(title)}</h2>
+        <span class="wt-grp-count">${countText(list.length)}</span>
+        ${extraHead}
+      </div>
+      <div class="wt-list">
+        ${list.map((test) => renderTestCard(test, kind)).join('')}
+      </div>
+    </section>
+  `;
+
   let html = '';
-
-  if (availableNow.length > 0) {
-    html += `
-      <div style="margin-bottom: var(--space-6);">
-        <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3);">
-          <h2 style="font-size: var(--text-lg); margin: 0;">Available now</h2>
-          <span class="status-chip chip-verified" style="font-size: 11px;">${availableNow.length}</span>
-        </div>
-        <div style="display: flex; flex-direction: column; gap: var(--space-4);">
-          ${availableNow.map((test) => renderTestCard(test, 'available')).join('')}
-        </div>
-      </div>
-    `;
-  }
-
-  if (upcoming.length > 0) {
-    html += `
-      <div style="margin-bottom: var(--space-6);">
-        <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3);">
-          <h2 style="font-size: var(--text-lg); margin: 0;">Upcoming</h2>
-          <span class="status-chip chip-unverified" style="font-size: 11px;">${upcoming.length}</span>
-        </div>
-        <div style="display: flex; flex-direction: column; gap: var(--space-4);">
-          ${upcoming.map((test) => renderTestCard(test, 'upcoming')).join('')}
-        </div>
-      </div>
-    `;
-  }
-
+  if (availableNow.length > 0) html += group('Available now', availableNow, 'available');
+  if (upcoming.length > 0) html += group('Upcoming', upcoming, 'upcoming');
   if (past.length > 0) {
-    html += `
-      <div style="margin-bottom: var(--space-6);">
-        <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3);">
-          <h2 style="font-size: var(--text-lg); margin: 0;">Past</h2>
-          <span class="status-chip chip-unverified" style="font-size: 11px;">${past.length}</span>
-        </div>
-        <div style="display: flex; flex-direction: column; gap: var(--space-4);">
-          ${past.map((test) => renderTestCard(test, 'past')).join('')}
-        </div>
-      </div>
-    `;
+    const accs = past.map((t) => testTotals(t)).filter((t) => t.total > 0).map((t) => (t.correct / t.total) * 100);
+    const avg = accs.length ? `<span class="wt-grp-avg">Average ${Math.round(accs.reduce((a, b) => a + b, 0) / accs.length)}%</span>` : '';
+    html += group('Past', past, 'past', avg);
   }
 
   container.innerHTML = html;
@@ -655,280 +631,262 @@ function renderWeeklyTestsGroups() {
   });
 }
 
+/**
+ * Calendar block (weekday + day) for a YYYY-MM-DD test date.
+ */
+function testCalendarHtml(ymd) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(ymd || ''));
+  if (!m) return '<div class="wt-cal" aria-hidden="true"><span>—</span><b>—</b></div>';
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  const wd = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'][d.getUTCDay()];
+  return `<div class="wt-cal" aria-hidden="true"><span>${wd}</span><b class="num">${Number(m[3])}</b></div>`;
+}
+
+/**
+ * Sections in position order, plus the scored rows (sections with a score, or teacher score rows).
+ */
+function testSections(test) {
+  return Array.isArray(test.sections)
+    ? [...test.sections].sort((a, b) => (Number(a.position) || 0) - (Number(b.position) || 0))
+    : [];
+}
+
+function testTotals(test) {
+  const isOnline = String(test.type || test.test_type || 'offline').toLowerCase() === 'online';
+  const sections = testSections(test);
+  let rows;
+  if (sections.length > 0) {
+    rows = sections.filter((sec) => (isOnline ? sec.attempt === 'submitted' : true) && Number(sec.total) > 0);
+  } else {
+    rows = (Array.isArray(test.scores) ? test.scores : []).filter((sc) => Number(sc.total) > 0);
+  }
+  return rows.reduce(
+    (acc, r) => ({ correct: acc.correct + (Number(r.correct) || 0), total: acc.total + (Number(r.total) || 0), n: acc.n + 1 }),
+    { correct: 0, total: 0, n: 0 }
+  );
+}
+
 function renderTestCard(test, groupKind) {
   const isOnline = String(test.type || test.test_type || 'offline').toLowerCase() === 'online';
   const dateLabel = formatDisplayDateIST(test.test_date);
   const state = String(test.state || '').toLowerCase();
-  const sections = Array.isArray(test.sections)
-    ? [...test.sections].sort((a, b) => (Number(a.position) || 0) - (Number(b.position) || 0))
-    : [];
+  const sections = testSections(test);
   const lbReady = Boolean(test.leaderboard_ready);
   const lbBtnHtml = lbReady
-    ? `<button type="button" class="btn btn-outline btn-sm btn-open-test-leaderboard" data-test-id="${escapeHtml(test.id)}">Leaderboard</button>`
+    ? `<button type="button" class="btn btn-outline btn-sm btn-open-test-leaderboard" data-test-id="${escapeHtml(test.id)}"><span aria-hidden="true">🏆</span> Leaderboard</button>`
     : '';
+  const typeChip = isOnline
+    ? '<span class="wt-chip wt-chip-blue">Online</span>'
+    : '<span class="wt-chip">With your trainer</span>';
+  const metaLine = isOnline
+    ? `<span class="num"><b>${escapeHtml(dateLabel)}</b></span> &middot; <span>Window: ${escapeHtml(windowText(test.opens_at, test.closes_at))}</span>`
+    : `<span class="num"><b>${escapeHtml(dateLabel)}</b></span> &middot; Offline assessment`;
+  const notesHtml = test.notes ? `<p class="wt-notes">${escapeHtml(test.notes)}</p>` : '';
 
-  if (isOnline) {
-    const winLabel = windowText(test.opens_at, test.closes_at);
-    const borderStyle =
-      groupKind === 'available'
-        ? 'border-left: 4px solid var(--color-primary);'
-        : '';
-
+  // ---------- Past: one compact row with total score and per-section pills ----------
+  if (groupKind === 'past') {
+    const totals = testTotals(test);
+    const pct = totals.total > 0 ? Math.round((totals.correct / totals.total) * 1000) / 10 : null;
+    const accClass = pct === null ? '' : pct >= 90 ? 'is-good' : pct >= 75 ? 'is-warn' : 'is-low';
+    const pills = renderPastSectionPills(test, sections, isOnline, state);
     return `
-      <article class="card" data-test-card-id="${escapeHtml(test.id)}" style="padding: var(--space-5); ${borderStyle}">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3);">
-          <div>
-            <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
-              <h3 style="font-size: var(--text-base); font-weight: 700; margin: 0;">
-                ${escapeHtml(test.title)}
-              </h3>
-              <span class="status-chip" style="background: #DBEAFE; color: #1E40AF; font-size: 11px;">
-                Online
-              </span>
-            </div>
-            <div style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 4px;">
-              <span class="num" style="font-weight: 600;">${escapeHtml(dateLabel)}</span>
-              &middot;
-              <span>Window: ${escapeHtml(winLabel)}</span>
-            </div>
+      <article class="card wt-test wt-past" data-test-card-id="${escapeHtml(test.id)}">
+        <div class="wt-th">
+          ${testCalendarHtml(test.test_date)}
+          <div class="wt-th-body">
+            <h3>${escapeHtml(test.title)} ${typeChip}</h3>
+            <div class="wt-meta">${metaLine}</div>
+          </div>
+          <div class="wt-th-side">
             ${
-              test.notes
-                ? `<p style="font-size: var(--text-xs); color: var(--text-dim); margin: 6px 0 0 0;">${escapeHtml(test.notes)}</p>`
+              pct !== null
+                ? `<div class="wt-total"><b class="num">${totals.correct} / ${totals.total}</b><span class="wt-acc ${accClass} num">${pct}%</span></div>`
                 : ''
             }
+            ${lbBtnHtml}
           </div>
-          ${lbBtnHtml}
         </div>
-
-        <!-- Online Sections List in Position Order (All Section Kinds) -->
-        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--space-3); margin-top: var(--space-3);">
-          ${sections
-            .map((sec, idx) => {
-              const kindLabel = sectionKindLabel(sec.kind);
-              const summaryText = sectionSummary(sec);
-              const statusText = sectionStatusLabel(sec, state);
-              const startable = isSectionStartable(sec, state);
-              const resumable = isSectionResumable(sec, state);
-              const comingSoon = isSectionComingSoon(sec, state);
-              const hasScore =
-                sec.attempt === 'submitted' &&
-                sec.total !== null &&
-                sec.total !== undefined &&
-                Number(sec.total) > 0;
-              const fb = hasScore ? getWeeklyTestScoreFeedback(sec.correct, sec.total, sec) : null;
-
-              let chipHtml = '';
-              if (statusText.startsWith('Done:')) {
-                if (fb) {
-                  chipHtml = `
-                    <span class="status-chip ${fb.badgeClass}" style="color: ${fb.colorVar}; background: ${fb.bgVar}; font-size: 11px;">
-                      ${escapeHtml(statusText)} &middot; ${escapeHtml(fb.wrongText)}
-                    </span>
-                  `;
-                } else {
-                  chipHtml = `<span class="status-chip chip-verified" style="font-size: 11px;">${escapeHtml(statusText)}</span>`;
-                }
-              } else if (statusText.startsWith('In progress:')) {
-                chipHtml = `<span class="status-chip" style="background: #DBEAFE; color: #1E40AF; font-size: 11px;">${escapeHtml(statusText)}</span>`;
-              } else if (statusText === 'Missed') {
-                chipHtml = `<span class="status-chip chip-flagged" style="font-size: 11px;">Missed</span>`;
-              } else {
-                chipHtml = `<span class="status-chip chip-unverified" style="font-size: 11px;">To do</span>`;
-              }
-
-              let actionBtnHtml = '';
-              if (startable || resumable) {
-                const btnLabel = resumable ? 'Continue' : 'Start';
-                actionBtnHtml = `
-                  <button
-                    type="button"
-                    class="btn btn-primary btn-sm btn-start-test-section"
-                    data-test-id="${escapeHtml(test.id)}"
-                    data-test-title="${escapeHtml(test.title)}"
-                    data-section-id="${escapeHtml(sec.section_id || sec.id || '')}"
-                    data-kind="${escapeHtml(String(sec.kind || 'basics').toLowerCase())}"
-                    data-category-id="${escapeHtml(sec.category_id || '')}"
-                    data-category-name="${escapeHtml(sec.name || summaryText)}"
-                    data-summary="${escapeHtml(summaryText)}"
-                    data-seconds="${Number(sec.seconds) || 60}"
-                    data-resume="${resumable ? 'true' : 'false'}"
-                    style="width: 100%; justify-content: center;"
-                  >
-                    ${btnLabel}
-                  </button>
-                `;
-              } else if (comingSoon) {
-                actionBtnHtml = `
-                  <button
-                    type="button"
-                    class="btn btn-outline btn-sm"
-                    disabled
-                    style="width: 100%; justify-content: center; opacity: 0.7; cursor: not-allowed;"
-                  >
-                    Available soon
-                  </button>
-                `;
-              }
-
-              return `
-                <div data-section-item="true" data-section-id="${escapeHtml(sec.section_id || sec.id || '')}" data-category-id="${escapeHtml(sec.category_id || '')}" style="padding: var(--space-3) var(--space-4); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-surface-subtle); display: flex; flex-direction: column; justify-content: space-between; gap: var(--space-3);">
-                  <div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2);">
-                      <span class="status-chip chip-unverified" style="font-size: 10px; padding: 1px 6px;">
-                        ${escapeHtml(kindLabel)}
-                      </span>
-                      <span class="num" style="font-size: 11px; color: var(--text-muted); font-weight: 600;">
-                        #${idx + 1}
-                      </span>
-                    </div>
-                    <div style="font-weight: 700; font-size: var(--text-sm); color: var(--text-main); margin-top: 6px;">
-                      ${escapeHtml(summaryText)}
-                    </div>
-                    <div style="margin-top: var(--space-2); display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                      ${chipHtml}
-                      ${
-                        hasScore && sec.time_seconds != null
-                          ? `<span class="num" style="font-size: 11px; color: var(--text-muted);">(${escapeHtml(formatSecondsToTime(sec.time_seconds))})</span>`
-                          : ''
-                      }
-                    </div>
-                  </div>
-                  ${actionBtnHtml}
-                </div>
-              `;
-            })
-            .join('')}
-        </div>
+        ${pills}
       </article>
     `;
   }
 
-  // Offline Test Card (with sections and/or scores)
+  // ---------- Available / Upcoming ----------
+  let progressChip = '';
+  if (isOnline && sections.length > 0) {
+    const done = sections.filter((s) => s.attempt === 'submitted').length;
+    progressChip = `<span class="wt-chip ${done === sections.length ? 'wt-chip-ok' : ''} num">${done} of ${sections.length} done</span>`;
+  }
+
+  const sectionsHtml = isOnline
+    ? sections.map((sec, idx) => renderOnlineSectionTile(test, sec, idx, state)).join('')
+    : sections.map((sec, idx) => renderOfflineSectionTile(sec, idx)).join('');
+
   const scores = Array.isArray(test.scores) ? test.scores : [];
+  let bodyHtml = '';
+  if (sections.length > 0) {
+    bodyHtml = `<div class="wt-secs">${sectionsHtml}</div>`;
+  } else if (!isOnline && scores.length > 0) {
+    bodyHtml = `<div class="wt-secs">${scores.map((sc) => renderScoreRowTile(sc)).join('')}</div>`;
+  } else if (!isOnline) {
+    bodyHtml = '<p class="wt-pending">Scores will appear here once entered by your trainer.</p>';
+  }
 
   return `
-    <article class="card" data-test-card-id="${escapeHtml(test.id)}" style="padding: var(--space-5);">
-      <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: var(--space-2);">
-        <div>
-          <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
-            <h3 style="font-size: var(--text-base); font-weight: 700; margin: 0;">
-              ${escapeHtml(test.title)}
-            </h3>
-            <span class="status-chip chip-unverified" style="font-size: 11px;">
-              With your trainer
-            </span>
-          </div>
-          <div style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 4px;">
-            <span class="num" style="font-weight: 600;">${escapeHtml(dateLabel)}</span>
-            &middot; Offline assessment
-          </div>
-          ${
-            test.notes
-              ? `<p style="font-size: var(--text-xs); color: var(--text-dim); margin: 6px 0 0 0;">${escapeHtml(test.notes)}</p>`
-              : ''
-          }
+    <article class="card wt-test ${groupKind === 'available' ? 'is-live' : ''}" data-test-card-id="${escapeHtml(test.id)}">
+      <div class="wt-th">
+        ${testCalendarHtml(test.test_date)}
+        <div class="wt-th-body">
+          <h3>${escapeHtml(test.title)} ${typeChip}</h3>
+          <div class="wt-meta">${metaLine}</div>
+          ${notesHtml}
         </div>
-        ${lbBtnHtml}
+        <div class="wt-th-side">${progressChip}${lbBtnHtml}</div>
       </div>
-
-      ${
-        sections.length > 0
-          ? `
-            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: var(--space-3); margin-top: var(--space-3);">
-              ${sections
-                .map((sec, idx) => {
-                  const kindLabel = sectionKindLabel(sec.kind);
-                  const summaryText = sectionSummary(sec);
-                  const hasScore =
-                    sec.total !== null &&
-                    sec.total !== undefined &&
-                    Number(sec.total) > 0;
-                  const fb = hasScore ? getWeeklyTestScoreFeedback(sec.correct, sec.total, sec) : null;
-
-                  return `
-                    <div data-section-item="true" data-section-id="${escapeHtml(sec.section_id || sec.id || '')}" data-category-id="${escapeHtml(sec.category_id || '')}" style="padding: var(--space-3) var(--space-4); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-surface-subtle);">
-                      <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2);">
-                        <span class="status-chip chip-unverified" style="font-size: 10px; padding: 1px 6px;">
-                          ${escapeHtml(kindLabel)}
-                        </span>
-                        <span class="num" style="font-size: 11px; color: var(--text-muted); font-weight: 600;">
-                          #${idx + 1}
-                        </span>
-                      </div>
-                      <div style="font-weight: 700; font-size: var(--text-sm); color: var(--text-main); margin-top: 6px;">
-                        ${escapeHtml(summaryText)}
-                      </div>
-                      ${
-                        hasScore && fb
-                          ? `
-                            <div style="margin-top: var(--space-2); display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap;">
-                              <span class="status-chip ${fb.badgeClass}" style="color: ${fb.colorVar}; background: ${fb.bgVar}; font-size: 11px;">
-                                ${sec.correct} of ${sec.total} &middot; ${escapeHtml(fb.wrongText)}
-                              </span>
-                              ${
-                                sec.time_seconds != null
-                                  ? `<span class="num" style="font-size: 11px; color: var(--text-muted);">${escapeHtml(formatSecondsToTime(sec.time_seconds))}</span>`
-                                  : ''
-                              }
-                            </div>
-                            <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
-                              Entered by teacher
-                            </div>
-                          `
-                          : `
-                            <div style="font-size: 11px; color: var(--text-muted); margin-top: 6px;">
-                              With your trainer
-                            </div>
-                          `
-                      }
-                    </div>
-                  `;
-                })
-                .join('')}
-            </div>
-          `
-          : scores.length > 0
-            ? `
-              <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--space-3); margin-top: var(--space-3);">
-                ${scores
-                  .map((sc) => {
-                    const fb = getWeeklyTestScoreFeedback(sc.correct, sc.total, sc);
-                    const sourceLabel =
-                      sc.source === 'online' ? 'Online' : 'Entered by teacher';
-                    const labelText =
-                      sc.category || sectionKindLabel(sc.kind) || 'Section';
-                    return `
-                      <div data-section-item="true" data-section-id="${escapeHtml(sec.section_id || sec.id || '')}" data-category-id="${escapeHtml(sec.category_id || '')}" style="padding: var(--space-3) var(--space-4); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-surface-subtle);">
-                        <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2);">
-                          <span style="font-weight: 700; font-size: var(--text-sm); color: var(--text-main);">
-                            ${escapeHtml(labelText)}
-                          </span>
-                          <span class="status-chip ${fb.badgeClass}" style="color: ${fb.colorVar}; background: ${fb.bgVar}; font-size: 11px;">
-                            ${sc.correct} of ${sc.total} &middot; ${escapeHtml(fb.wrongText)}
-                          </span>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; font-size: 11px; color: var(--text-muted);">
-                          <span>${escapeHtml(sourceLabel)}</span>
-                          ${
-                            sc.time_seconds != null
-                              ? `<span class="num">${escapeHtml(formatSecondsToTime(sc.time_seconds))}</span>`
-                              : ''
-                          }
-                        </div>
-                      </div>
-                    `;
-                  })
-                  .join('')}
-              </div>
-            `
-            : `
-              <p style="font-size: var(--text-xs); color: var(--text-muted); margin: var(--space-3) 0 0 0;">
-                Scores will appear here once entered by your trainer.
-              </p>
-            `
-      }
+      ${bodyHtml}
     </article>
   `;
+}
+
+function sectionTileHead(sec, idx) {
+  return `
+    <div class="wt-sec-r">
+      <span class="wt-kind">${escapeHtml(sectionKindLabel(sec.kind))}</span>
+      <span class="wt-pos num">#${idx + 1}</span>
+    </div>
+    <b class="wt-sec-title">${escapeHtml(sectionSummary(sec))}</b>
+  `;
+}
+
+function renderOnlineSectionTile(test, sec, idx, state) {
+  const summaryText = sectionSummary(sec);
+  const statusText = sectionStatusLabel(sec, state);
+  const startable = isSectionStartable(sec, state);
+  const resumable = isSectionResumable(sec, state);
+  const comingSoon = isSectionComingSoon(sec, state);
+  const hasScore = sec.attempt === 'submitted' && sec.total !== null && sec.total !== undefined && Number(sec.total) > 0;
+  const fb = hasScore ? getWeeklyTestScoreFeedback(sec.correct, sec.total, sec) : null;
+
+  let chipHtml = '';
+  let tileState = '';
+  if (statusText.startsWith('Done:')) {
+    tileState = 'is-done';
+    chipHtml = fb
+      ? `<span class="status-chip ${fb.badgeClass} wt-status" style="color: ${fb.colorVar}; background: ${fb.bgVar};">${escapeHtml(statusText)} &middot; ${escapeHtml(fb.wrongText)}</span>`
+      : `<span class="status-chip chip-verified wt-status">${escapeHtml(statusText)}</span>`;
+  } else if (statusText.startsWith('In progress:')) {
+    tileState = 'is-prog';
+    chipHtml = `<span class="wt-chip wt-chip-blue wt-status">${escapeHtml(statusText)}</span>`;
+  } else if (statusText === 'Missed') {
+    tileState = 'is-missed';
+    chipHtml = '<span class="status-chip chip-flagged wt-status">Missed</span>';
+  } else {
+    chipHtml = '<span class="wt-chip wt-status">To do</span>';
+  }
+
+  let actionBtnHtml = '';
+  if (startable || resumable) {
+    const btnLabel = resumable ? 'Continue' : 'Start';
+    actionBtnHtml = `
+      <button
+        type="button"
+        class="btn btn-primary btn-sm btn-start-test-section"
+        data-test-id="${escapeHtml(test.id)}"
+        data-test-title="${escapeHtml(test.title)}"
+        data-section-id="${escapeHtml(sec.section_id || sec.id || '')}"
+        data-kind="${escapeHtml(String(sec.kind || 'basics').toLowerCase())}"
+        data-category-id="${escapeHtml(sec.category_id || '')}"
+        data-category-name="${escapeHtml(sec.name || summaryText)}"
+        data-summary="${escapeHtml(summaryText)}"
+        data-seconds="${Number(sec.seconds) || 60}"
+        data-resume="${resumable ? 'true' : 'false'}"
+      >${btnLabel}</button>
+    `;
+  } else if (comingSoon) {
+    actionBtnHtml = '<button type="button" class="btn btn-outline btn-sm wt-soon" disabled>Available soon</button>';
+  }
+
+  return `
+    <div class="wt-sec ${tileState}" data-section-item="true" data-section-id="${escapeHtml(sec.section_id || sec.id || '')}" data-category-id="${escapeHtml(sec.category_id || '')}">
+      ${sectionTileHead(sec, idx)}
+      <div class="wt-sec-status">
+        ${chipHtml}
+        ${hasScore && sec.time_seconds != null ? `<span class="wt-time num">${escapeHtml(formatSecondsToTime(sec.time_seconds))}</span>` : ''}
+      </div>
+      ${actionBtnHtml}
+    </div>
+  `;
+}
+
+function renderOfflineSectionTile(sec, idx) {
+  const hasScore = sec.total !== null && sec.total !== undefined && Number(sec.total) > 0;
+  const fb = hasScore ? getWeeklyTestScoreFeedback(sec.correct, sec.total, sec) : null;
+  return `
+    <div class="wt-sec ${hasScore ? 'is-done' : ''}" data-section-item="true" data-section-id="${escapeHtml(sec.section_id || sec.id || '')}" data-category-id="${escapeHtml(sec.category_id || '')}">
+      ${sectionTileHead(sec, idx)}
+      ${
+        hasScore && fb
+          ? `<div class="wt-sec-status">
+               <span class="status-chip ${fb.badgeClass} wt-status" style="color: ${fb.colorVar}; background: ${fb.bgVar};">${sec.correct} of ${sec.total} &middot; ${escapeHtml(fb.wrongText)}</span>
+               ${sec.time_seconds != null ? `<span class="wt-time num">${escapeHtml(formatSecondsToTime(sec.time_seconds))}</span>` : ''}
+             </div>
+             <span class="wt-src">Entered by teacher</span>`
+          : '<span class="wt-src">With your trainer</span>'
+      }
+    </div>
+  `;
+}
+
+function renderScoreRowTile(sc) {
+  const fb = getWeeklyTestScoreFeedback(sc.correct, sc.total, sc);
+  const sourceLabel = sc.source === 'online' ? 'Online' : 'Entered by teacher';
+  const labelText = sc.category || sectionKindLabel(sc.kind) || 'Section';
+  return `
+    <div class="wt-sec is-done" data-section-item="true" data-section-id="${escapeHtml(sc.section_id || sc.id || '')}" data-category-id="${escapeHtml(sc.category_id || '')}">
+      <b class="wt-sec-title">${escapeHtml(labelText)}</b>
+      <div class="wt-sec-status">
+        <span class="status-chip ${fb.badgeClass} wt-status" style="color: ${fb.colorVar}; background: ${fb.bgVar};">${sc.correct} of ${sc.total} &middot; ${escapeHtml(fb.wrongText)}</span>
+        ${sc.time_seconds != null ? `<span class="wt-time num">${escapeHtml(formatSecondsToTime(sc.time_seconds))}</span>` : ''}
+      </div>
+      <span class="wt-src">${escapeHtml(sourceLabel)}</span>
+    </div>
+  `;
+}
+
+/**
+ * Past tests: one small pill per section (score + time), so the row stays compact.
+ */
+function renderPastSectionPills(test, sections, isOnline, state) {
+  const pill = (id, catId, label, scoreHtml, extra = '') => `
+    <span class="wt-pill ${extra}" data-section-item="true" data-section-id="${escapeHtml(id || '')}" data-category-id="${escapeHtml(catId || '')}">
+      <span class="wt-pill-l">${escapeHtml(label)}</span>${scoreHtml}
+    </span>`;
+  const scoreSpan = (r) => {
+    const fb = getWeeklyTestScoreFeedback(r.correct, r.total, r);
+    return `<b class="num" style="color: ${fb.colorVar};" title="${escapeHtml(fb.wrongText)}">${r.correct}/${r.total}</b>${
+      r.time_seconds != null ? `<span class="wt-time num">${escapeHtml(formatSecondsToTime(r.time_seconds))}</span>` : ''
+    }`;
+  };
+
+  let items = [];
+  if (sections.length > 0) {
+    items = sections.map((sec) => {
+      const label = sectionSummary(sec);
+      const scored = Number(sec.total) > 0 && (!isOnline || sec.attempt === 'submitted');
+      if (scored) return pill(sec.section_id || sec.id, sec.category_id, label, scoreSpan(sec));
+      const status = isOnline ? sectionStatusLabel(sec, state) : 'With your trainer';
+      return pill(sec.section_id || sec.id, sec.category_id, label, `<span class="wt-pill-s">${escapeHtml(status)}</span>`, status === 'Missed' ? 'is-missed' : 'is-muted');
+    });
+  } else {
+    const scores = Array.isArray(test.scores) ? test.scores : [];
+    items = scores.map((sc) =>
+      pill(sc.section_id || sc.id, sc.category_id, sc.category || sectionKindLabel(sc.kind) || 'Section', scoreSpan(sc) + `<span class="wt-pill-s">${sc.source === 'online' ? 'Online' : 'Entered by teacher'}</span>`)
+    );
+  }
+  if (items.length === 0) {
+    return isOnline ? '' : '<p class="wt-pending">Scores will appear here once entered by your trainer.</p>';
+  }
+  return `<div class="wt-pills">${items.join('')}</div>`;
 }
 
 // ============================================================================
