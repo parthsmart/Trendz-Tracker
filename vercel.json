@@ -8,15 +8,18 @@
       "maxDuration": 60
     }
   },
-  "rewrites": [
+  "redirects": [
     {
       "source": "/",
       "missing": [
         { "type": "query", "key": "source", "value": "pwa" },
         { "type": "query", "key": "returnTo" }
       ],
-      "destination": "/landing.html"
-    },
+      "destination": "/landing.html",
+      "permanent": false
+    }
+  ],
+  "rewrites": [
     {
       "source": "/api/jmcwc-drive-sync",
       "destination": "/api/jmcwc?drive_sync=1"

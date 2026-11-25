@@ -91,11 +91,11 @@ async function startServer() {
   const distPath = path.join(__dirname, 'dist');
 
   // Match the Vercel homepage route while preserving installed-app and sign-in return links.
-  app.get('/', (req, _res, next) => {
-    if (req.query.source !== 'pwa' && !Object.hasOwn(req.query, 'returnTo')) {
-      req.url = req.url.replace(/^\//, '/landing.html');
+  app.get('/', (req, res, next) => {
+    if (req.query.source === 'pwa' || Object.hasOwn(req.query, 'returnTo')) {
+      return next();
     }
-    next();
+    return res.redirect(307, req.originalUrl.replace(/^\//, '/landing.html'));
   });
 
   // In production or staging preview, serve the built static bundle from dist/ directly.

@@ -1,6 +1,6 @@
 # Public homepage release notes
 
-The homepage opens at the Trendz Tracker root (`/`). The public `/landing.html` link also works. Student sign-in opens `/index.html`. The installed app launch URL and existing sign-in links with a return destination still open the portal. The existing Trendz Abacus domain remains the source for the linked legacy pages until a separate domain cutover.
+Opening the Trendz Tracker root (`/`) takes visitors to the public homepage at `/landing.html`. Student sign-in opens `/index.html`. The installed app launch URL and existing sign-in links with a return destination still open the portal. The existing Trendz Abacus domain remains the source for the linked legacy pages until a separate domain cutover.
 
 Files: `landing.html`, `css/landing.css`, `js/landing.js`, `public/landing/img/` (local WebP copies). The new page is listed in `vite.config.ts` and in `NAV_STAGE_AND_PUBLIC_ALLOWLIST`.
 
