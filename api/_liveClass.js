@@ -206,6 +206,16 @@ async function fetchProviderWebinarStatus(webinarId, fetchImpl = fetch) {
   return info?.status || null;
 }
 
+function getHostDashboardUrl(caller, liveClass) {
+  const { host_email, class_type, status, provider_status, webinar_id } = liveClass;
+  if (caller.role !== 'admin' || !host_email || caller.email !== host_email ||
+      (class_type || 'live') !== 'live' || ['ended', 'cancelled'].includes(status) ||
+      ['ended', 'completed'].includes(provider_status) || !/^[a-zA-Z0-9_-]+$/.test(webinar_id || '')) {
+    return null;
+  }
+  return `https://webinar.gg/webinars/schedule-webinar/details/webinardetails/${webinar_id}`;
+}
+
 /**
  * Main Live Class Request Handler
  */
@@ -350,12 +360,9 @@ export async function handleLiveClassRequest(req, res, options = {}) {
         const isHostIdentityMismatch = caller.role === 'admin' && Boolean(liveClass.host_email && caller.email !== liveClass.host_email);
         const hostingDisabled = caller.role === 'teacher' && !isInvitedParticipant;
         const classType = liveClass.class_type || 'live';
-        const hostDashboardUrl = isHost && classType === 'live' &&
-          currentStatus !== 'ended' && currentStatus !== 'cancelled' &&
-          providerStatus !== 'ended' && providerStatus !== 'completed' &&
-          /^[a-zA-Z0-9_-]+$/.test(liveClass.webinar_id || '')
-          ? `https://webinar.gg/webinars/schedule-webinar/details/webinardetails/${liveClass.webinar_id}`
-          : null;
+        const hostDashboardUrl = getHostDashboardUrl(caller, {
+          ...liveClass, status: currentStatus, provider_status: providerStatus,
+        });
 
         if (caller.role === 'teacher') {
           if (!isInvitedParticipant && !isAssignedTeacher) {
@@ -661,9 +668,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           return res.status(403).json({ error: 'Only teachers and administrators can list classes.', code: 'FORBIDDEN' });
         }
 
-        let query = supabase
-          .from('live_classes')
-          .select(`
+        const columns = `
             id,
             title,
             webinar_id,
@@ -678,21 +683,28 @@ export async function handleLiveClassRequest(req, res, options = {}) {
             provider_status,
             created_at,
             teacher:profiles!teacher_id (id, full_name, student_code)
-          `)
-          .order('scheduled_start_time', { ascending: false });
-
-        if (caller.role === 'teacher') {
-          query = query.or(`teacher_id.eq.${caller.id},invited_teacher_ids.cs.["${caller.id}"]`);
+          `;
+        const listClasses = (projection) => {
+          const query = supabase.from('live_classes').select(projection)
+            .order('scheduled_start_time', { ascending: false });
+          return caller.role === 'teacher'
+            ? query.or(`teacher_id.eq.${caller.id},invited_teacher_ids.cs.["${caller.id}"]`)
+            : query;
+        };
+        let { data: classes, error } = await listClasses(`${columns}, class_type`);
+        if (['42703', 'PGRST204'].includes(error?.code) && error.message?.includes('class_type')) {
+          ({ data: classes, error } = await listClasses(columns));
         }
-
-        const { data: classes, error } = await query;
         if (error) {
           return res.status(500).json({ error: error.message, code: 'DATABASE_ERROR' });
         }
 
         return res.status(200).json({
           ok: true,
-          classes: classes || [],
+          classes: (classes || []).map((liveClass) => ({
+            ...liveClass,
+            hostDashboardUrl: getHostDashboardUrl(caller, liveClass),
+          })),
         });
       }
 

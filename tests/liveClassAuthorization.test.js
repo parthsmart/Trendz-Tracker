@@ -168,6 +168,11 @@ test('3. Server-side Live Class join authorization and host identity protection'
     },
     from: (table) => ({
       select: (projection = '*') => ({
+        order: () => {
+          const result = Promise.resolve({ data: [projectColumns(mockClass, projection)], error: null });
+          result.or = () => result;
+          return result;
+        },
         eq: (col, val) => ({
           single: async () => {
             if (table === 'profiles') {
@@ -331,6 +336,17 @@ test('3. Server-side Live Class join authorization and host identity protection'
   assert.equal(teacherInvitedMeta.jsonResult.class.hostingDisabled, false);
   assert.equal(teacherInvitedMeta.jsonResult.class.isInvitedParticipant, true);
   assert.equal(teacherInvitedMeta.jsonResult.class.hostDashboardUrl, null);
+
+  const ownerList = await runRequest('token-admin-matching', 'list');
+  assert.equal(ownerList.jsonResult.classes[0].hostDashboardUrl, adminOwnerMeta.jsonResult.class.hostDashboardUrl);
+  const otherAdminList = await runRequest('token-admin-mismatch', 'list');
+  assert.equal(otherAdminList.jsonResult.classes[0].hostDashboardUrl, null);
+  const invitedList = await runRequest('token-teacher-invited', 'list');
+  assert.equal(invitedList.jsonResult.classes[0].hostDashboardUrl, null);
+  mockClass.class_type = 'prerecorded';
+  const prerecordedList = await runRequest('token-admin-matching', 'list');
+  assert.equal(prerecordedList.jsonResult.classes[0].hostDashboardUrl, null);
+  delete mockClass.class_type;
 
   // H8: Uninvited unrelated teacher is rejected from get_class_details with 403 NOT_INVITED
   const teacherUninvitedMeta = await runRequest('token-teacher-other', 'get_class_details');
