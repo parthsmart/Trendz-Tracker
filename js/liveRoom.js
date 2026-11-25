@@ -56,7 +56,7 @@ function updateStatusBadge(status, isHost, isInvitedParticipant) {
 
   if (isHost) {
     badge.className = 'badge badge-primary';
-    badge.innerHTML = 'Host Studio';
+    badge.textContent = 'Class Host';
     return;
   }
 
@@ -319,6 +319,9 @@ async function loadClassMetadata(classId) {
   const lobbyTitle = document.getElementById('lobby-title');
   const lobbyTeacher = document.getElementById('lobby-teacher');
   const confirmJoinBtn = document.getElementById('btn-confirm-join');
+  const hostLink = document.getElementById('link-webinar-host');
+  const hostInstructions = document.getElementById('lobby-host-instructions');
+  const isLiveHost = currentClassMeta.isHost && currentClassMeta.classType === 'live';
 
   if (titleEl) titleEl.textContent = currentClassMeta.title;
   if (teacherEl) teacherEl.textContent = `with ${currentClassMeta.teacherName}`;
@@ -326,14 +329,24 @@ async function loadClassMetadata(classId) {
   if (lobbyTeacher) lobbyTeacher.textContent = `with ${currentClassMeta.teacherName}`;
 
   if (confirmJoinBtn) {
-    if (currentClassMeta.isHost) {
-      confirmJoinBtn.textContent = 'Enter Host Studio →';
+    confirmJoinBtn.hidden = isLiveHost;
+    if (currentClassMeta.classType === 'prerecorded') {
+      confirmJoinBtn.textContent = 'Watch Scheduled Class →';
     } else if (currentClassMeta.isInvitedParticipant) {
       confirmJoinBtn.textContent = 'Join Live Class as Participant →';
     } else {
       confirmJoinBtn.textContent = 'Enter Live Room →';
     }
   }
+  if (hostLink) {
+    hostLink.hidden = !isLiveHost || !currentClassMeta.hostDashboardUrl;
+    if (!hostLink.hidden) {
+      hostLink.href = currentClassMeta.hostDashboardUrl;
+    } else {
+      hostLink.removeAttribute('href');
+    }
+  }
+  if (hostInstructions) hostInstructions.hidden = !isLiveHost;
 
   updateStatusBadge(currentClassMeta.status, currentClassMeta.isHost, currentClassMeta.isInvitedParticipant);
 
@@ -367,6 +380,10 @@ async function loadClassMetadata(classId) {
     );
     return;
   }
+  if (isLiveHost && !currentClassMeta.hostDashboardUrl) {
+    showError('Could not open the Webinar.gg host page for this class. Check the linked webinar in Live Classes.', 'HOST_ROOM_UNAVAILABLE');
+    return;
+  }
 
   showSection('prejoin-lobby');
 }
@@ -375,10 +392,11 @@ async function loadClassMetadata(classId) {
  * Requests join token from server and mounts Webinar.gg embedded iframe
  */
 async function joinRoom() {
-  if (isJoining) return;
+  if (isJoining || (currentClassMeta?.isHost && currentClassMeta.classType === 'live')) return;
   isJoining = true;
 
   const joinBtn = document.getElementById('btn-confirm-join');
+  const joinLabel = joinBtn?.textContent;
   if (joinBtn) {
     joinBtn.disabled = true;
     joinBtn.textContent = 'Connecting...';
@@ -423,13 +441,7 @@ async function joinRoom() {
     isJoining = false;
     if (joinBtn) {
       joinBtn.disabled = false;
-      if (currentClassMeta?.isHost) {
-        joinBtn.textContent = 'Enter Host Studio →';
-      } else if (currentClassMeta?.isInvitedParticipant) {
-        joinBtn.textContent = 'Join Live Class as Participant →';
-      } else {
-        joinBtn.textContent = 'Enter Live Room →';
-      }
+      joinBtn.textContent = joinLabel;
     }
   }
 }
