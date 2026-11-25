@@ -24,6 +24,7 @@
  */
 
 import { getAdminClient, getCallerClient, verifyAdminCaller } from './_supabaseAdmin.js';
+import { getTeacherWebinarEmail, normalizeCohostEmail } from './_teacherWebinarEmail.js';
 
 /**
  * Handles teacher creation with compensating cleanup on database failure
@@ -35,6 +36,7 @@ export async function createTeacher(req, res, adminCaller = null) {
     teacher_code,
     full_name,
     password,
+    webinar_email,
     permissions = {},
     assigned_student_ids = []
   } = req.body || {};
@@ -54,6 +56,10 @@ export async function createTeacher(req, res, adminCaller = null) {
   const cleanCode = teacher_code.trim().toUpperCase();
   const cleanName = full_name.trim();
   const email = `${cleanCode.toLowerCase()}@trendz.local`;
+  const webinarEmail = normalizeCohostEmail(webinar_email);
+  if (webinar_email && (!webinarEmail || webinarEmail === normalizeCohostEmail(process.env.WEBINAR_GG_HOST_EMAIL))) {
+    return res.status(400).json({ error: 'Enter the teacher’s own email for Webinar.gg.' });
+  }
 
   const supabaseAdmin = getAdminClient();
 
@@ -62,6 +68,7 @@ export async function createTeacher(req, res, adminCaller = null) {
     email,
     password: password.trim(),
     email_confirm: true,
+    ...(webinarEmail ? { app_metadata: { webinar_cohost_email: webinarEmail } } : {}),
     user_metadata: {
       teacher_code: cleanCode,
       full_name: cleanName,
@@ -151,6 +158,28 @@ export async function manageTeacher(req, res, adminCaller = null) {
 
   if (teacherProfile.role !== 'teacher') {
     return res.status(400).json({ error: 'Target user is not a teacher.' });
+  }
+
+  if (action === 'get_webinar_email') {
+    const { data, error } = await supabaseAdmin.auth.admin.getUserById(teacher_id);
+    if (error || !data?.user) {
+      return res.status(502).json({ error: 'Could not load the teacher’s Webinar email. Try again.' });
+    }
+    return res.status(200).json({ success: true, webinar_email: getTeacherWebinarEmail(data.user) });
+  }
+
+  if (action === 'set_webinar_email') {
+    const email = normalizeCohostEmail(req.body.webinar_email);
+    if (!email || email === normalizeCohostEmail(process.env.WEBINAR_GG_HOST_EMAIL)) {
+      return res.status(400).json({ error: 'Enter the teacher’s own email for Webinar.gg.' });
+    }
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(teacher_id, {
+      app_metadata: { webinar_cohost_email: email },
+    });
+    if (error) {
+      return res.status(502).json({ error: 'Could not save the teacher’s Webinar email. Try again.' });
+    }
+    return res.status(200).json({ success: true });
   }
 
   // Action: Update Assignments (Transactional Replacement)

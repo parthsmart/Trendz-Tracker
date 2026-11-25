@@ -15,6 +15,7 @@
 import { randomBytes } from 'node:crypto';
 import { getAdminClient, getCallerClient } from './_supabaseAdmin.js';
 import { hasSupabaseAdminConfig } from './_configHelper.js';
+import { getTeacherWebinarEmail, normalizeCohostEmail } from './_teacherWebinarEmail.js';
 
 const WEBINAR_API_BASE = 'https://webinar-api.webinar.gg/api/v1';
 const PRIVATE_RECORDINGS_BUCKET = process.env.PRIVATE_RECORDINGS_BUCKET || 'recordings';
@@ -80,7 +81,7 @@ async function authenticateCaller(supabase, req) {
     fullName: profile.full_name || 'User',
     role: profile.role,
     level: profile.level,
-    cohostEmail: user.app_metadata?.webinar_cohost_email,
+    cohostEmail: profile.role === 'teacher' ? getTeacherWebinarEmail(user) : '',
   };
 }
 
@@ -216,11 +217,6 @@ function getHostDashboardUrl(caller, liveClass) {
     return null;
   }
   return `https://webinar.gg/webinars/schedule-webinar/details/webinardetails/${webinar_id}`;
-}
-
-function normalizeCohostEmail(value) {
-  const email = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && !email.endsWith('.local') ? email : '';
 }
 
 async function requestCohostSetup(webinarId, resource, fetchImpl, method = 'GET', body) {
@@ -769,7 +765,6 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           scheduled_start_time,
           duration_minutes = 60,
           host_email = null,
-          teacher_email = null,
           notes,
           class_type = 'live',
           recording_enabled = false,
@@ -844,23 +839,13 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           if (error || !data?.user) {
             return res.status(502).json({ error: 'Could not load the assigned teacher’s email. Try again.', code: 'TEACHER_EMAIL_LOOKUP_FAILED' });
           }
-          const savedEmail = normalizeCohostEmail(data.user.app_metadata?.webinar_cohost_email);
-          const enteredEmail = normalizeCohostEmail(teacher_email);
-          teacherCohostEmail = savedEmail || enteredEmail;
-          const ownerEmail = normalizeCohostEmail(process.env.WEBINAR_GG_HOST_EMAIL || host_email || caller.email);
-          if (!teacherCohostEmail || teacherCohostEmail === ownerEmail || (teacher_email && savedEmail && enteredEmail !== savedEmail)) {
+          teacherCohostEmail = getTeacherWebinarEmail(data.user);
+          const ownerEmails = [process.env.WEBINAR_GG_HOST_EMAIL, host_email, caller.email].map(normalizeCohostEmail);
+          if (!teacherCohostEmail || ownerEmails.includes(teacherCohostEmail)) {
             return res.status(400).json({
-              error: savedEmail ? 'Use the teacher’s saved email or leave the email field blank.' : 'Enter the teacher’s own email for the Webinar.gg invite.',
+              error: 'Save this teacher’s own Webinar email in Settings → Teachers, then schedule the class.',
               code: 'TEACHER_EMAIL_REQUIRED',
             });
-          }
-          if (!savedEmail) {
-            const { error: saveError } = await supabase.auth.admin.updateUserById(teacher_id, {
-              app_metadata: { webinar_cohost_email: teacherCohostEmail },
-            });
-            if (saveError) {
-              return res.status(502).json({ error: 'Could not save the teacher’s email. Try again.', code: 'TEACHER_EMAIL_SAVE_FAILED' });
-            }
           }
         }
 

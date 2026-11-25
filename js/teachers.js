@@ -213,6 +213,9 @@ export function renderTeachersTable() {
                     <button type="button" class="btn btn-outline btn-sm btn-open-perms" data-id="${escapeHtml(t.id)}">
                       Perms
                     </button>
+                    <button type="button" class="btn btn-outline btn-sm btn-open-webinar-email" data-id="${escapeHtml(t.id)}">
+                      Webinar email
+                    </button>
                     <button type="button" class="btn btn-outline btn-sm btn-open-reset" data-id="${escapeHtml(t.id)}">
                       Reset Pwd
                     </button>
@@ -255,6 +258,13 @@ function attachTableEventListeners() {
       const teacherId = btn.getAttribute('data-id');
       const teacher = allTeachers.find((t) => t.id === teacherId);
       if (teacher) openEditPermissionsModal(teacher);
+    });
+  });
+
+  container.querySelectorAll('.btn-open-webinar-email').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const teacher = allTeachers.find((t) => t.id === btn.dataset.id);
+      if (teacher) openWebinarEmailModal(teacher);
     });
   });
 
@@ -375,6 +385,7 @@ function setupUIEventListeners() {
           teacher_code: code,
           full_name: name,
           password,
+          webinar_email: document.getElementById('new-teacher-webinar-email')?.value.trim(),
           permissions,
         });
 
@@ -599,8 +610,50 @@ function openEditPermissionsModal(teacher) {
 }
 
 // -------------------------------------------------------------
-// Reset Password Modal
+// Webinar Email Modal
 // -------------------------------------------------------------
+async function openWebinarEmailModal(teacher) {
+  const modalId = 'teacher-webinar-email-modal';
+  const form = document.getElementById('teacher-webinar-email-form');
+  const input = document.getElementById('teacher-webinar-email');
+  const status = document.getElementById('teacher-webinar-email-status');
+  const save = document.getElementById('btn-save-teacher-webinar-email');
+  document.getElementById('teacher-webinar-email-name').textContent = teacher.full_name;
+  form.reset();
+  input.disabled = save.disabled = true;
+  status.textContent = 'Loading email…';
+
+  const submit = async (event) => {
+    event.preventDefault();
+    if (save.disabled) return;
+    save.disabled = true;
+    status.textContent = '';
+    try {
+      await manageTeacher({ action: 'set_webinar_email', teacher_id: teacher.id, webinar_email: input.value });
+      if (form.onsubmit === submit) closeModal(modalId);
+      showToast('success', 'Webinar email saved.');
+    } catch (err) {
+      if (form.onsubmit === submit) status.textContent = err.message;
+    } finally {
+      if (form.onsubmit === submit) save.disabled = false;
+    }
+  };
+
+  form.onsubmit = submit;
+  openModal(modalId);
+  try {
+    const data = await manageTeacher({ action: 'get_webinar_email', teacher_id: teacher.id });
+    if (form.onsubmit !== submit) return;
+    input.value = data.webinar_email || '';
+    input.disabled = save.disabled = false;
+    status.textContent = '';
+    if (document.getElementById(modalId).getAttribute('aria-hidden') === 'false') input.focus();
+  } catch (err) {
+    if (form.onsubmit === submit) status.textContent = err.message;
+  }
+}
+
+// Reset Password Modal
 function openResetPasswordModal(teacher) {
   const idEl = document.getElementById('reset-teacher-id');
   const nameEl = document.getElementById('reset-teacher-display-name');

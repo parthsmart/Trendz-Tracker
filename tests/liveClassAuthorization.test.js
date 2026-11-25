@@ -1562,11 +1562,6 @@ test('14. Live class scheduling validates staff and student audiences and create
     auth: {
       admin: {
         getUserById: async (id) => ({ data: { user: { id, app_metadata: { webinar_cohost_email: savedTeacherEmail } } } }),
-        updateUserById: async (id, attributes) => {
-          assert.equal(id, teacherProfile.id);
-          savedTeacherEmail = attributes.app_metadata.webinar_cohost_email;
-          return { error: null };
-        },
       },
       getUser: async (token) => {
         const profile = allProfiles.find((p) => `token-${p.id}` === token);
@@ -1761,7 +1756,7 @@ test('14. Live class scheduling validates staff and student audiences and create
   assert.equal(otherAdminAssignee.statusCode, 400);
   assert.equal(otherAdminAssignee.jsonResult.code, 'INVALID_ASSIGNEE');
 
-  // 7. Only a real teacher email can be invited, then later schedules reuse it.
+  // 7. Scheduling reads the teacher's saved address and ignores addresses in the schedule payload.
   const teacherSchedule = {
     action: 'create',
     title: 'Teacher Handled Class',
@@ -1770,15 +1765,15 @@ test('14. Live class scheduling validates staff and student audiences and create
     host_email: 'sunil@trendz.local',
     scheduled_start_time: new Date().toISOString(),
   };
-  const noTeacherEmail = await runApi(`token-${adminProfile1.id}`, teacherSchedule);
+  const noTeacherEmail = await runApi(`token-${adminProfile1.id}`, { ...teacherSchedule, teacher_email: 'other@example.com' });
   assert.equal(noTeacherEmail.jsonResult.code, 'TEACHER_EMAIL_REQUIRED');
   assert.equal(cohostInvites.length, 0);
-  const teacherAssigned = await runApi(`token-${adminProfile1.id}`, { ...teacherSchedule, teacher_email: teacherCohostEmail });
+  savedTeacherEmail = teacherCohostEmail;
+  const teacherAssigned = await runApi(`token-${adminProfile1.id}`, teacherSchedule);
   assert.equal(teacherAssigned.statusCode, 201);
   assert.equal(teacherAssigned.jsonResult.ok, true);
   assert.equal(teacherAssigned.jsonResult.class.teacher_id, teacherProfile.id);
   assert.equal(teacherAssigned.jsonResult.class.teacher.full_name, 'Pooja Teacher');
-  assert.equal(savedTeacherEmail, teacherCohostEmail);
   assert.deepEqual(cohostInvites[0], { room: 'wgg-tch-101', kind: 'email', emails: [teacherCohostEmail] });
   assert.deepEqual(cohostPolicies[0].cohostPermissions, { startWebinar: true });
   const teacherRoom = await runApi(`token-${teacherProfile.id}`, { action: 'get_class_details', classId: teacherAssigned.jsonResult.class.id });
