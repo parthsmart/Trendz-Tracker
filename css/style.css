@@ -1506,53 +1506,120 @@ body.nav-menu-open .app-header {
    ========================================================================== */
 .login-page-wrapper {
   min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-4);
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
   background-color: var(--bg-page);
 }
 
+/* Left: brand panel */
+.login-brand {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--space-8);
+  padding: 40px 48px;
+  color: #fff;
+  background:
+    radial-gradient(circle at 85% 12%, rgba(255, 255, 255, .16) 0, rgba(255, 255, 255, 0) 38%),
+    linear-gradient(150deg, #1D4ED8 0%, #2563EB 55%, #3B82F6 100%);
+}
+.login-brand-top { display: flex; align-items: center; gap: 12px; font-weight: 800; font-size: 18px; }
+.login-mark {
+  width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center;
+  background: #fff; color: #1D4ED8; font-weight: 800; font-size: 20px;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, .18);
+}
+.login-brand-copy { max-width: 460px; position: relative; z-index: 1; }
+.login-eyebrow { margin: 0 0 10px; font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: #BFDBFE; }
+.login-brand-title { margin: 0 0 24px; font-size: clamp(1.9rem, 3vw, 2.6rem); line-height: 1.15; font-weight: 800; color: #fff; }
+.login-points { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.login-points li {
+  display: flex; align-items: center; gap: 12px; font-size: 15px; line-height: 1.4; color: #EFF6FF;
+  background: rgba(255, 255, 255, .1); border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: 14px; padding: 12px 14px;
+}
+.login-points li span { font-size: 18px; flex: none; }
+
+/* Decorative abacus rods and beads */
+.login-beads { display: grid; gap: 14px; opacity: .55; }
+.login-beads span {
+  position: relative; display: block; height: 4px; border-radius: 4px; background: rgba(255, 255, 255, .35);
+}
+.login-beads span::before, .login-beads span::after {
+  content: ''; position: absolute; top: 50%; width: 22px; height: 16px; border-radius: 50%;
+  transform: translateY(-50%); background: #fff; box-shadow: 26px 0 0 #fff, 52px 0 0 #BFDBFE;
+}
+.login-beads span::before { left: 8%; }
+.login-beads span::after { right: 18%; box-shadow: -26px 0 0 #BFDBFE; }
+.login-beads span:nth-child(2)::before { left: 22%; }
+.login-beads span:nth-child(3)::before { left: 4%; }
+.login-beads span:nth-child(3)::after { right: 34%; }
+.login-beads span:nth-child(4)::before { left: 30%; }
+.login-beads span:nth-child(5)::after { right: 8%; }
+
+/* Right: form */
 .login-card {
+  align-self: center;
+  justify-self: center;
   width: 100%;
-  max-width: 400px;
+  max-width: 420px;
+  margin: var(--space-8) var(--space-4);
   background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-none);
-  padding: var(--space-8);
+  border: 1px solid var(--border-hairline, var(--border-color));
+  border-radius: 20px;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, .08);
+  padding: 36px 32px;
 }
 
-.login-header {
-  text-align: center;
-  margin-bottom: var(--space-6);
-}
-
+.login-header { text-align: left; margin-bottom: var(--space-6); }
 .login-logo {
-  width: 40px;
-  height: 40px;
-  background-color: var(--color-primary);
-  color: var(--text-inverse);
-  border-radius: var(--radius-md);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: var(--text-lg);
-  margin-bottom: var(--space-3);
+  width: 44px; height: 44px; border-radius: 12px;
+  background-color: var(--color-primary); color: var(--text-inverse);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 20px; margin-bottom: var(--space-4);
 }
+.login-title { margin: 0; font-size: 1.6rem; font-weight: 800; color: var(--text-main); }
+.login-subtitle { font-size: var(--text-sm); color: var(--text-muted); margin-top: var(--space-1); }
 
-.login-title {
-  font-size: var(--text-xl);
-  font-weight: 600;
-  color: var(--text-main);
+.login-card .form-input { min-height: 48px; font-size: 16px; border-radius: 12px; }
+.login-card .form-hint { display: block; margin-top: 6px; }
+.login-password { position: relative; }
+.login-password .form-input { padding-right: 76px; }
+.login-eye {
+  position: absolute; top: 50%; right: 6px; transform: translateY(-50%);
+  min-width: 60px; height: 36px; padding: 0 10px; border: 0; border-radius: 9px;
+  background: var(--color-primary-subtle, #EFF6FF); color: var(--color-primary-text, #1D4ED8);
+  font: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
 }
+.login-eye:hover { background: #DBEAFE; }
+.login-eye:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 
-.login-subtitle {
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-  margin-top: var(--space-1);
+.login-submit { min-height: 50px; font-size: 16px; font-weight: 700; border-radius: 12px; }
+.login-help { margin: var(--space-4) 0 0; text-align: center; font-size: 13px; color: var(--text-muted); }
+
+/* Tablets and phones: brand becomes a compact band above the form */
+@media (max-width: 860px) {
+  .login-page-wrapper { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .login-brand { padding: 22px 20px 64px; gap: 14px; }
+  .login-brand-copy { max-width: none; }
+  .login-eyebrow { display: none; }
+  .login-brand-title { font-size: 1.4rem; margin: 0; }
+  .login-points, .login-beads { display: none; }
+  .login-card {
+    align-self: start;
+    margin: -44px auto var(--space-6);
+    width: calc(100% - 24px);
+    padding: 26px 20px;
+    position: relative;
+  }
+  .login-header .login-logo { display: none; }
+}
+@media (max-width: 360px) {
+  .login-brand-title { font-size: 1.2rem; }
+  .login-card { padding: 22px 16px; }
 }
 
 /* Admin Settings Hub (/pages/settings.html) */

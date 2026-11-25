@@ -23,10 +23,29 @@
   </head>
   <body>
     <div class="login-page-wrapper">
+      <aside class="login-brand" aria-label="About Trendz Tracker">
+        <div class="login-brand-top">
+          <span class="login-mark" aria-hidden="true">T</span>
+          <span class="login-brand-name">Trendz Tracker</span>
+        </div>
+        <div class="login-brand-copy">
+          <p class="login-eyebrow">Trendz Abacus</p>
+          <h2 class="login-brand-title">Practice every day.<br />See yourself improve.</h2>
+          <ul class="login-points">
+            <li><span aria-hidden="true">✏️</span> Daily practice in Basics, Flash Anzan, Elements and Memoriad</li>
+            <li><span aria-hidden="true">📝</span> Weekly tests with clear section scores</li>
+            <li><span aria-hidden="true">📈</span> Progress, monthly reports and class rankings</li>
+          </ul>
+        </div>
+        <div class="login-beads" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
+      </aside>
+
       <main class="login-card">
         <header class="login-header">
-          <div class="login-logo" aria-hidden="true">🧮</div>
-          <h1 class="login-title">Trendz Tracker</h1>
+          <div class="login-logo" aria-hidden="true">T</div>
+          <h1 class="login-title">Sign in</h1>
           <p class="login-subtitle">Junior Mental Calculation World Championship Practice</p>
         </header>
 
@@ -40,6 +59,8 @@
               class="form-input"
               placeholder="Enter your assigned ID"
               autocomplete="username"
+              autocapitalize="characters"
+              spellcheck="false"
               required
             />
             <span class="form-hint">Enter your assigned ID. No email required.</span>
@@ -47,24 +68,29 @@
 
           <div class="form-group">
             <label for="password" class="form-label">Password</label>
-            <input
-              type="password"
-              id="password"
-              name="password"
-              class="form-input"
-              placeholder="••••••••"
-              autocomplete="current-password"
-              required
-            />
+            <div class="login-password">
+              <input
+                type="password"
+                id="password"
+                name="password"
+                class="form-input"
+                placeholder="Enter your password"
+                autocomplete="current-password"
+                required
+              />
+              <button type="button" id="btn-toggle-password" class="login-eye" aria-label="Show password" aria-pressed="false">Show</button>
+            </div>
           </div>
 
           <div id="login-error-container" class="banner banner-error" style="display: none; margin-bottom: var(--space-4);" role="alert">
             <span id="login-error-text"></span>
           </div>
 
-          <button type="submit" id="btn-submit-login" class="btn btn-primary btn-full">
+          <button type="submit" id="btn-submit-login" class="btn btn-primary btn-full login-submit">
             <span id="login-btn-text">Sign In</span>
           </button>
+
+          <p class="login-help">Forgot your password? Ask your trainer to reset it.</p>
 
           <!-- Compact Install Option (shown when beforeinstallprompt or iOS Safari is active) -->
           <div id="login-pwa-install-container" class="login-pwa-install-zone" style="display: none; margin-top: var(--space-3); text-align: center;">
@@ -122,6 +148,16 @@
       const btnText = document.getElementById('login-btn-text');
       const errorContainer = document.getElementById('login-error-container');
       const errorText = document.getElementById('login-error-text');
+
+      const toggleBtn = document.getElementById('btn-toggle-password');
+      toggleBtn?.addEventListener('click', () => {
+        const show = passwordInput.type === 'password';
+        passwordInput.type = show ? 'text' : 'password';
+        toggleBtn.textContent = show ? 'Hide' : 'Show';
+        toggleBtn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+        toggleBtn.setAttribute('aria-pressed', String(show));
+        passwordInput.focus();
+      });
 
       function showError(msg) {
         errorText.textContent = msg;
