@@ -170,8 +170,8 @@ export async function loadLiveClasses() {
               ${renderStatusBadge(cls.status, cls.provider_status)}
             </td>
             <td style="padding: var(--space-3) var(--space-4); text-align: right; white-space: nowrap;">
-              <a href="${cls.hostDashboardUrl || cls.teacherStartUrl || `/pages/live-room.html?classId=${encodeURIComponent(cls.id)}`}" class="btn btn-primary btn-sm" style="text-decoration: none; margin-right: 4px;">
-                ${cls.hostDashboardUrl || cls.teacherStartUrl ? 'Start class' : 'View class'} &rarr;
+              <a href="${cls.startUrl || `/pages/live-room.html?classId=${encodeURIComponent(cls.id)}`}" class="btn btn-primary btn-sm" style="text-decoration: none; margin-right: 4px;">
+                ${cls.startUrl ? 'Start class' : 'View class'} &rarr;
               </a>
               <button type="button" class="btn btn-outline btn-sm btn-sync-status" data-id="${cls.id}" title="Sync status with Webinar.gg">
                 Sync
