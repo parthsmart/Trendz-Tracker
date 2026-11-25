@@ -1067,6 +1067,17 @@ async function initBasics() {
   currentProfile = await requireAuth(['student', 'admin', 'teacher']);
   if (!currentProfile) return;
 
+  // "Log" on a category card: select that category in the paper-drill form.
+  window.addEventListener('practice-record-log', (e) => {
+    const catId = e.detail?.categoryId;
+    const selectEl = document.getElementById('basics-category-select');
+    if (!catId || !selectEl || selectEl.disabled || !selectEl.querySelector(`option[value="${CSS.escape(catId)}"]`)) return;
+    selectEl.value = catId;
+    selectEl.dispatchEvent(new Event('change'));
+    document.getElementById('basics-entry-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    document.getElementById('basics-correct')?.focus({ preventScroll: true });
+  });
+
   const urlParams = new URLSearchParams(window.location.search);
   const requestedStudentId = urlParams.get('student_id') || urlParams.get('student');
   const supabase = isSupabaseConfigured() ? await getSupabase() : null;
