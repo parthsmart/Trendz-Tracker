@@ -80,6 +80,7 @@ async function authenticateCaller(supabase, req) {
     fullName: profile.full_name || 'User',
     role: profile.role,
     level: profile.level,
+    cohostEmail: user.app_metadata?.webinar_cohost_email,
   };
 }
 
@@ -190,6 +191,7 @@ async function fetchProviderWebinarInfo(webinarId, fetchImpl = fetch) {
     return {
       status: json?.data?.status || null,
       recordingEnabled: json?.data?.recordingEnabled === true,
+      cohostsCanStart: json?.data?.cohostPermissions?.startWebinar === true,
       title: json?.data?.title || null,
       passcode: typeof json?.data?.passcode === 'string' ? json.data.passcode : '',
     };
@@ -214,6 +216,34 @@ function getHostDashboardUrl(caller, liveClass) {
     return null;
   }
   return `https://webinar.gg/webinars/schedule-webinar/details/webinardetails/${webinar_id}`;
+}
+
+function normalizeCohostEmail(value) {
+  const email = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && !email.endsWith('.local') ? email : '';
+}
+
+async function requestCohostSetup(webinarId, resource, fetchImpl, method = 'GET', body) {
+  const token = getWebinarGgToken();
+  if (!token) throw new Error('Webinar.gg is not configured.');
+  const response = await fetchImpl(`${WEBINAR_API_BASE}/webinar/${encodeURIComponent(webinarId)}/${resource}`, {
+    method,
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(4000),
+  });
+  if (!response.ok) throw new Error('Webinar.gg could not confirm teacher hosting.');
+  const result = await response.json();
+  if (result.success !== true) throw new Error('Webinar.gg could not confirm teacher hosting.');
+  return result.data;
+}
+
+async function hasWebinarCohost(webinarId, email, fetchImpl) {
+  const data = await requestCohostSetup(webinarId, 'cohosts', fetchImpl);
+  const cohosts = Array.isArray(data) ? data : data?.cohosts;
+  if (!Array.isArray(cohosts)) throw new Error('Webinar.gg returned an invalid co-host list.');
+  return cohosts.some((entry) => [entry.email, entry.user?.email]
+    .some((address) => normalizeCohostEmail(address) === email));
 }
 
 /**
@@ -358,9 +388,8 @@ export async function handleLiveClassRequest(req, res, options = {}) {
         const isAssignedTeacher = caller.role === 'teacher' && caller.id === liveClass.teacher_id;
         const isHost = caller.role === 'admin' && Boolean(liveClass.host_email && caller.email === liveClass.host_email);
         const isHostIdentityMismatch = caller.role === 'admin' && Boolean(liveClass.host_email && caller.email !== liveClass.host_email);
-        const hostingDisabled = caller.role === 'teacher' && !isInvitedParticipant;
         const classType = liveClass.class_type || 'live';
-        const hostDashboardUrl = getHostDashboardUrl(caller, {
+        let hostDashboardUrl = getHostDashboardUrl(caller, {
           ...liveClass, status: currentStatus, provider_status: providerStatus,
         });
 
@@ -373,6 +402,21 @@ export async function handleLiveClassRequest(req, res, options = {}) {
         if (caller.role === 'student' && !isStudentInAudience(caller, liveClass)) {
           return res.status(403).json({ error: 'You are not enrolled in this live class.', code: 'NOT_ENROLLED' });
         }
+
+        const teacherEmail = normalizeCohostEmail(caller.cohostEmail);
+        if (isAssignedTeacher && teacherEmail && classType === 'live' && providerInfo?.cohostsCanStart &&
+            !['ended', 'cancelled'].includes(currentStatus) && !['ended', 'completed'].includes(providerStatus) &&
+            /^[a-zA-Z0-9_-]+$/.test(liveClass.webinar_id || '')) {
+          try {
+            if (await hasWebinarCohost(liveClass.webinar_id, teacherEmail, fetchImpl)) {
+              hostDashboardUrl = `https://webinar.gg/webinar-page/${liveClass.webinar_id}`;
+            }
+          } catch {
+            return res.status(502).json({ error: 'Could not confirm your Webinar.gg hosting access. Try again.', code: 'COHOST_LOOKUP_FAILED' });
+          }
+        }
+        const isTeacherCohost = isAssignedTeacher && Boolean(hostDashboardUrl);
+        const hostingDisabled = caller.role === 'teacher' && !isInvitedParticipant && !isTeacherCohost;
 
         return res.status(200).json({
           ok: true,
@@ -395,7 +439,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
               ? 'This live class is being recorded for academic review.'
               : null,
             notes: liveClass.notes,
-            isHost,
+            isHost: isHost || isTeacherCohost,
             hostDashboardUrl,
             hostingDisabled,
             isInvitedParticipant,
@@ -725,6 +769,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           scheduled_start_time,
           duration_minutes = 60,
           host_email = null,
+          teacher_email = null,
           notes,
           class_type = 'live',
           recording_enabled = false,
@@ -793,6 +838,32 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           }
         }
 
+        let teacherCohostEmail = '';
+        if (isActiveTeacher && class_type === 'live') {
+          const { data, error } = await supabase.auth.admin.getUserById(teacher_id);
+          if (error || !data?.user) {
+            return res.status(502).json({ error: 'Could not load the assigned teacher’s email. Try again.', code: 'TEACHER_EMAIL_LOOKUP_FAILED' });
+          }
+          const savedEmail = normalizeCohostEmail(data.user.app_metadata?.webinar_cohost_email);
+          const enteredEmail = normalizeCohostEmail(teacher_email);
+          teacherCohostEmail = savedEmail || enteredEmail;
+          const ownerEmail = normalizeCohostEmail(process.env.WEBINAR_GG_HOST_EMAIL || host_email || caller.email);
+          if (!teacherCohostEmail || teacherCohostEmail === ownerEmail || (teacher_email && savedEmail && enteredEmail !== savedEmail)) {
+            return res.status(400).json({
+              error: savedEmail ? 'Use the teacher’s saved email or leave the email field blank.' : 'Enter the teacher’s own email for the Webinar.gg invite.',
+              code: 'TEACHER_EMAIL_REQUIRED',
+            });
+          }
+          if (!savedEmail) {
+            const { error: saveError } = await supabase.auth.admin.updateUserById(teacher_id, {
+              app_metadata: { webinar_cohost_email: teacherCohostEmail },
+            });
+            if (saveError) {
+              return res.status(502).json({ error: 'Could not save the teacher’s email. Try again.', code: 'TEACHER_EMAIL_SAVE_FAILED' });
+            }
+          }
+        }
+
         let effectiveHostEmail = host_email ? host_email.trim() : null;
         let createdProviderRoom = false;
         if (class_type === 'prerecorded' && !effectiveWebinarId) {
@@ -836,6 +907,28 @@ export async function handleLiveClassRequest(req, res, options = {}) {
         }
         if (!effectiveWebinarId) {
           return res.status(400).json({ error: 'Choose a valid class type and room.', code: 'INVALID_REQUEST' });
+        }
+
+        if (teacherCohostEmail) {
+          try {
+            const alreadyInvited = await hasWebinarCohost(effectiveWebinarId, teacherCohostEmail, fetchImpl);
+            await requestCohostSetup(effectiveWebinarId, 'cohost-policy', fetchImpl, 'PATCH', {
+              cohostStartWithoutHost: true,
+              cohostPermissions: { startWebinar: true },
+            });
+            if (!alreadyInvited) {
+              await requestCohostSetup(effectiveWebinarId, 'cohosts', fetchImpl, 'POST', {
+                kind: 'email', emails: [teacherCohostEmail],
+              });
+            }
+          } catch {
+            return res.status(502).json({
+              error: 'The room exists, but teacher hosting could not be set up. Retry to use the same room.',
+              code: 'TEACHER_COHOST_SETUP_FAILED',
+              existingRoomId: effectiveWebinarId,
+              existingHostEmail: effectiveHostEmail,
+            });
+          }
         }
 
         const databaseFailure = (error) => res.status(500).json(createdProviderRoom

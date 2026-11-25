@@ -375,13 +375,18 @@ async function loadClassMetadata(classId) {
   }
   if (currentClassMeta.hostingDisabled) {
     showError(
-      'Teacher hosting is currently disabled. Hosting requires an individual Webinar.gg host account or configured co-host delegation without impersonation.',
+      'Your co-host invite has not been set up for this class. Ask the administrator who scheduled it to check your teacher email.',
       'TEACHER_HOSTING_DISABLED'
     );
     return;
   }
   if (isLiveHost && !currentClassMeta.hostDashboardUrl) {
     showError('Could not open the Webinar.gg host page for this class. Check the linked webinar in Live Classes.', 'HOST_ROOM_UNAVAILABLE');
+    return;
+  }
+
+  if (isLiveHost && userRole === 'teacher' && new URLSearchParams(window.location.search).get('start') === '1') {
+    window.location.replace(currentClassMeta.hostDashboardUrl);
     return;
   }
 

@@ -716,6 +716,18 @@ export async function initLiveClassesPage() {
   const selectClassType = document.getElementById('select-class-type');
   const rowPrerecorded = document.getElementById('row-prerecorded-url');
   const helpWebinarId = document.getElementById('help-webinar-id');
+  const teacherSelect = document.getElementById('select-teacher');
+  const teacherEmailRow = document.getElementById('row-teacher-email');
+  const teacherEmailInput = document.getElementById('input-teacher-email');
+  const updateTeacherEmailField = () => {
+    teacherEmailRow.hidden = selectClassType.value !== 'live' ||
+      !teacherSelect.value || teacherSelect.value === currentProfile.id;
+    teacherEmailInput.disabled = teacherEmailRow.hidden;
+  };
+  teacherSelect.addEventListener('change', () => {
+    teacherEmailInput.value = '';
+    updateTeacherEmailField();
+  });
 
   if (selectClassType) {
     selectClassType.addEventListener('change', () => {
@@ -726,6 +738,7 @@ export async function initLiveClassesPage() {
         prerecorded: 'Optional for prerecorded videos.',
         stream: 'Choose an existing Webinar.gg room for a provider stream.',
       }[selectClassType.value];
+      updateTeacherEmailField();
     });
   }
 
@@ -815,6 +828,7 @@ export async function initLiveClassesPage() {
 
   const handleOpenCreateModal = () => {
     prefillStartTime();
+    updateTeacherEmailField();
     if (modalError) {
       modalError.style.display = 'none';
       modalError.textContent = '';
@@ -953,6 +967,7 @@ export async function initLiveClassesPage() {
             prerecorded_asset_url,
             recording_enabled,
             teacher_id,
+            teacher_email: teacherEmailInput.disabled ? null : teacherEmailInput.value.trim() || null,
             invited_teacher_ids,
             target_level,
             target_student_ids,

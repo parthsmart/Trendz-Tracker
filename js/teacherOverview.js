@@ -305,9 +305,11 @@ export async function loadTeacherLiveClasses(supabase, profile) {
                       ? `<a href="/pages/live-room.html?classId=${cls.id}" class="btn btn-primary btn-sm" style="text-decoration: none; font-weight: 600;">
                           Join as participant &rarr;
                         </a>`
-                      : `<span class="badge badge-neutral" style="font-size: var(--text-xs); font-weight: 500;" title="Teacher hosting requires individual Webinar.gg host account configuration">
-                          Host Setup Required
-                        </span>`
+                      : profile.role === 'teacher' && cls.teacher_id === profile.id
+                        ? `<a href="/pages/live-room.html?classId=${encodeURIComponent(cls.id)}&amp;start=1" class="btn btn-primary btn-sm">
+                          Start class &rarr;
+                        </a>`
+                        : ''
                   }
                 </div>
               </div>

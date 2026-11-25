@@ -1545,15 +1545,35 @@ test('14. Live class scheduling validates staff and student audiences and create
   ];
 
   const createdClasses = [];
+  const teacherCohostEmail = 'teacher@example.com';
+  const cohostEmails = new Map();
+  const cohostPolicies = [];
+  const cohostInvites = [];
+  let savedTeacherEmail;
+  let failCohostPolicy = false;
+  const priorProviderToken = process.env.WEBINAR_GG_TOKEN;
+  process.env.WEBINAR_GG_TOKEN = 'test-provider-token';
+  t.after(() => {
+    if (priorProviderToken === undefined) delete process.env.WEBINAR_GG_TOKEN;
+    else process.env.WEBINAR_GG_TOKEN = priorProviderToken;
+  });
 
   const mockSupabase = {
     auth: {
+      admin: {
+        getUserById: async (id) => ({ data: { user: { id, app_metadata: { webinar_cohost_email: savedTeacherEmail } } } }),
+        updateUserById: async (id, attributes) => {
+          assert.equal(id, teacherProfile.id);
+          savedTeacherEmail = attributes.app_metadata.webinar_cohost_email;
+          return { error: null };
+        },
+      },
       getUser: async (token) => {
         const profile = allProfiles.find((p) => `token-${p.id}` === token);
         if (!profile) return { data: { user: null }, error: new Error('Invalid token') };
         return {
           data: {
-            user: { id: profile.id, email: profile.email },
+            user: { id: profile.id, email: profile.email, app_metadata: profile === teacherProfile ? { webinar_cohost_email: savedTeacherEmail } : {} },
           },
           error: null,
         };
@@ -1619,6 +1639,25 @@ test('14. Live class scheduling validates staff and student audiences and create
 
   const providerRequests = [];
   const mockFetch = async (url, options) => {
+    const cohostPath = url.match(/\/webinar\/([^/]+)\/(cohosts|cohost-policy)$/);
+    if (cohostPath) {
+      const [, room, resource] = cohostPath;
+      if (resource === 'cohost-policy') {
+        cohostPolicies.push({ room, ...JSON.parse(options.body) });
+        return { ok: !failCohostPolicy, json: async () => ({ success: !failCohostPolicy }) };
+      }
+      if (options.method === 'POST') {
+        const invite = JSON.parse(options.body);
+        cohostInvites.push({ room, ...invite });
+        cohostEmails.set(room, invite.emails[0]);
+      }
+      return { ok: true, json: async () => ({ success: true, data: cohostEmails.has(room) ? [{ email: cohostEmails.get(room) }] : [] }) };
+    }
+    if (options.method === 'GET' && /\/webinar\/[^/]+$/.test(url)) {
+      return { ok: true, json: async () => ({ success: true, data: {
+        cohostPermissions: { startWebinar: !failCohostPolicy },
+      } }) };
+    }
     if (url.endsWith('/webinar/')) {
       providerRequests.push(JSON.parse(options.body));
       const id = `generated-room-${providerRequests.length}`;
@@ -1722,19 +1761,41 @@ test('14. Live class scheduling validates staff and student audiences and create
   assert.equal(otherAdminAssignee.statusCode, 400);
   assert.equal(otherAdminAssignee.jsonResult.code, 'INVALID_ASSIGNEE');
 
-  // 7. Admin successfully assigns to an active teacher
-  const teacherAssigned = await runApi(`token-${adminProfile1.id}`, {
+  // 7. Only a real teacher email can be invited, then later schedules reuse it.
+  const teacherSchedule = {
     action: 'create',
     title: 'Teacher Handled Class',
     webinar_id: 'wgg-tch-101',
     teacher_id: teacherProfile.id,
     host_email: 'sunil@trendz.local',
     scheduled_start_time: new Date().toISOString(),
-  });
+  };
+  const noTeacherEmail = await runApi(`token-${adminProfile1.id}`, teacherSchedule);
+  assert.equal(noTeacherEmail.jsonResult.code, 'TEACHER_EMAIL_REQUIRED');
+  assert.equal(cohostInvites.length, 0);
+  const teacherAssigned = await runApi(`token-${adminProfile1.id}`, { ...teacherSchedule, teacher_email: teacherCohostEmail });
   assert.equal(teacherAssigned.statusCode, 201);
   assert.equal(teacherAssigned.jsonResult.ok, true);
   assert.equal(teacherAssigned.jsonResult.class.teacher_id, teacherProfile.id);
   assert.equal(teacherAssigned.jsonResult.class.teacher.full_name, 'Pooja Teacher');
+  assert.equal(savedTeacherEmail, teacherCohostEmail);
+  assert.deepEqual(cohostInvites[0], { room: 'wgg-tch-101', kind: 'email', emails: [teacherCohostEmail] });
+  assert.deepEqual(cohostPolicies[0].cohostPermissions, { startWebinar: true });
+  const teacherRoom = await runApi(`token-${teacherProfile.id}`, { action: 'get_class_details', classId: teacherAssigned.jsonResult.class.id });
+  assert.equal(teacherRoom.jsonResult.class.hostDashboardUrl, 'https://webinar.gg/webinar-page/wgg-tch-101');
+  assert.equal(teacherRoom.jsonResult.class.isHost, true);
+  failCohostPolicy = true;
+  const blockedTeacherRoom = await runApi(`token-${teacherProfile.id}`, { action: 'get_class_details', classId: teacherAssigned.jsonResult.class.id });
+  assert.equal(blockedTeacherRoom.jsonResult.class.hostDashboardUrl, null);
+  assert.equal(blockedTeacherRoom.jsonResult.class.hostingDisabled, true);
+  const failedSetup = await runApi(`token-${adminProfile1.id}`, { ...teacherSchedule, webinar_id: 'wgg-tch-102' });
+  assert.equal(failedSetup.jsonResult.code, 'TEACHER_COHOST_SETUP_FAILED');
+  assert.equal(failedSetup.jsonResult.existingRoomId, 'wgg-tch-102');
+  assert.equal(createdClasses.length, 1);
+  failCohostPolicy = false;
+  const retriedSetup = await runApi(`token-${adminProfile1.id}`, { ...teacherSchedule, webinar_id: failedSetup.jsonResult.existingRoomId });
+  assert.equal(retriedSetup.statusCode, 201);
+  assert.deepEqual(cohostInvites[1].emails, [teacherCohostEmail]);
 
   // 8. Admin successfully self-assigns class to themselves
   const selfAssigned = await runApi(`token-${adminProfile1.id}`, {
@@ -1773,12 +1834,6 @@ test('14. Live class scheduling validates staff and student audiences and create
   assert.equal(matchingJoin.statusCode, 200);
   assert.equal(matchingJoin.jsonResult.isHost, true);
 
-  const previousToken = process.env.WEBINAR_GG_TOKEN;
-  process.env.WEBINAR_GG_TOKEN = 'test-provider-token';
-  t.after(() => {
-    if (previousToken === undefined) delete process.env.WEBINAR_GG_TOKEN;
-    else process.env.WEBINAR_GG_TOKEN = previousToken;
-  });
   const schedule = {
     action: 'create',
     title: 'After-school practice',
