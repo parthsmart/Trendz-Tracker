@@ -432,6 +432,11 @@ body.has-student-rail .lb-rest-note td { text-align: center; color: var(--text-m
   body.has-student-rail #today-summary-metrics .info-tip-wrapper { margin-left: auto; }
   body.has-student-rail #today-summary-metrics .info-tip-trigger { width: 28px; height: 28px; min-width: 28px; background: transparent; }
   body.has-student-rail .sh-hero .note { font-size: 12px; gap: 2px 10px; }
+  body.has-student-rail #today-summary-metrics > span:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  body.has-student-rail .sh-glance { padding: 12px; }
+  body.has-student-rail .sh-g { padding: 8px 10px; gap: 8px; }
+  body.has-student-rail .sh-g .ic { width: 30px; height: 30px; font-size: 15px; }
+  body.has-student-rail .sh-g b { font-size: 13.5px; }
 
   /* Home: view switcher fills the width; Main Round shortcut sits under it */
   body.has-student-rail .sh-viewbar .segmented-control { width: 100%; display: flex; }

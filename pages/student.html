@@ -53,11 +53,14 @@
           <div id="config-banner-placeholder"></div>
 
           <!-- Student Home (H1 layout): hero, My Day, Practice & More, Coming up. Every ID that js/student.js fills is kept. -->
-          <section class="sh-hero" id="streak-card" style="margin-bottom: var(--space-5);" aria-labelledby="welcome-heading">
+          <div class="sh-home">
+          <div class="sh-top">
+          <div class="sh-top-main">
+          <section class="sh-hero" id="streak-card" aria-labelledby="welcome-heading">
             <div class="who">
               <h1 id="welcome-heading">Hi <span id="student-first-name">there</span> <span aria-hidden="true">👋</span></h1>
               <div class="facts">
-                <span>🎓 <strong id="student-display-level">—</strong></span>
+                <strong id="student-display-level" hidden>—</strong>
                 <span>🪪 <strong id="student-display-name">Student</strong> &middot; <span id="student-display-code" class="num">—</span></span>
                 <span>📅 <span id="display-today-ist" class="num">—</span></span>
               </div>
@@ -74,25 +77,28 @@
                     <span id="tip-accuracy-7d" class="info-tip-content" role="tooltip">Accuracy = (Correct ÷ Attempted) × 100%. Unattempted questions are not counted as wrong.</span>
                   </span>
                 </span>
-                <span>⚡ <b id="metric-7d-speed" class="num">—</b></span>
                 <span>📆 <b id="metric-7d-days" class="num">—</b></span>
-              </div>
-              <div class="note">
-                <span>Best streak: <strong id="stat-best-streak" class="num">0</strong>d &middot; Shields: <strong id="stat-shield-lbl">0 ready</strong><span id="stat-shield-count" style="display: none;">0</span></span>
-                <strong id="streak-today-badge">Today counts: Not yet</strong>
-                <span id="metric-7d-accuracy-range">Last 7 days</span>
-                <span id="metric-7d-speed-range" hidden>Last 7 days</span>
-                <span id="metric-7d-days-range" hidden>Last 7 days</span>
               </div>
             </div>
             <div class="emblem" aria-hidden="true"><div><span><b id="student-level-short">—</b><small>Level</small></span></div></div>
+          </section>
+
+          <!-- At a glance: the smaller streak and speed facts, in short -->
+          <section class="sh-glance" aria-labelledby="glance-heading">
+            <div class="sh-glance-h"><h2 id="glance-heading">At a glance</h2><span id="metric-7d-accuracy-range">Last 7 days</span></div>
+            <div class="sh-glance-row">
+              <div class="sh-g"><span class="ic" aria-hidden="true">⚡</span><div><b id="metric-7d-speed" class="num">—</b><small>Speed <span id="metric-7d-speed-range" hidden>Last 7 days</span></small></div></div>
+              <div class="sh-g"><span class="ic" aria-hidden="true">🏆</span><div><b><span id="stat-best-streak" class="num">0</span> days</b><small>Best streak</small></div></div>
+              <div class="sh-g"><span class="ic" aria-hidden="true">🛡️</span><div><b id="stat-shield-lbl">0 ready</b><span id="stat-shield-count" hidden>0</span><small>Streak shields</small></div></div>
+              <div class="sh-g"><span class="ic" aria-hidden="true">✅</span><div><b id="streak-today-badge">Today counts: Not yet</b><small>Today's streak</small><span id="metric-7d-days-range" hidden>Last 7 days</span></div></div>
+            </div>
           </section>
 
           <!-- 1bb. Compact Live Class Card (Webinar.gg) -->
           <div id="student-live-class-card-container"></div>
 
           <!-- 1bc. Jr. MCWC Video Lectures Hero Card -->
-          <div id="student-today-lectures-container" style="margin-bottom: var(--space-4);">
+          <div id="student-today-lectures-container">
             <div class="lecture-hero-card" style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border: 1px solid #334155; border-radius: var(--radius-md); padding: var(--space-4); color: #f8fafc; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3);">
               <div style="flex: 1; min-width: 260px;">
                 <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
@@ -110,8 +116,18 @@
             </div>
           </div>
 
+          </div> <!-- /sh-top-main -->
+
+          <aside class="sh-side sh-top-side" aria-label="Practice and more">
+            <section aria-labelledby="practice-more-heading">
+              <div class="sh-sec-h"><h2 id="practice-more-heading">Practice &amp; More</h2></div>
+              <nav class="sh-tiles" id="sh-tiles" aria-label="Practice and more"></nav>
+            </section>
+          </aside>
+          </div> <!-- /sh-top -->
+
           <!-- View switcher: Today / Score Sheet & Progress -->
-          <div class="sh-viewbar" style="margin-bottom: var(--space-4);">
+          <div class="sh-viewbar">
             <div class="segmented-control" role="tablist" aria-label="Dashboard view">
               <button type="button" class="segmented-btn active" id="tab-student-view-focus" data-student-view="focus" role="tab" aria-selected="true">Today</button>
               <button type="button" class="segmented-btn" id="tab-student-view-progress" data-student-view="progress" role="tab" aria-selected="false">Score Sheet &amp; Progress</button>
@@ -121,7 +137,7 @@
 
           <!-- VIEW PANE 1: TODAY (default) -->
           <div id="student-pane-focus">
-            <div class="sh-grid">
+            <div class="sh-grid sh-grid-full">
               <div class="sh-main">
                 <section aria-labelledby="todo-heading">
                   <div class="sh-sec-h">
@@ -172,12 +188,6 @@
 
               </div>
 
-              <aside class="sh-side" aria-label="Practice and upcoming">
-                <section aria-labelledby="practice-more-heading">
-                  <div class="sh-sec-h"><h2 id="practice-more-heading">Practice &amp; More</h2></div>
-                  <nav class="sh-tiles" id="sh-tiles" aria-label="Practice and more"></nav>
-                </section>
-              </aside>
             </div>
           </div> <!-- /student-pane-focus -->
 
@@ -309,6 +319,7 @@
                 </div>
               </section>
           </div> <!-- /student-pane-progress -->
+          </div> <!-- /sh-home -->
 
         </div> <!-- /container -->
       </main>
