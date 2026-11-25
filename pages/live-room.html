@@ -49,6 +49,16 @@
         z-index: 20;
       }
 
+      .live-room-shell .btn-outline {
+        background: transparent;
+        color: #f8fafc;
+        border-color: #64748b;
+      }
+
+      .live-room-shell .btn-outline:hover {
+        background: #334155;
+      }
+
       .live-room-meta {
         display: flex;
         align-items: center;
@@ -72,6 +82,7 @@
 
       .live-room-viewport {
         flex: 1;
+        min-height: 0;
         width: 100%;
         height: calc(100% - 52px);
         position: relative;
@@ -79,6 +90,7 @@
         align-items: center;
         justify-content: center;
         background: #090d16;
+        overflow: auto;
       }
 
       #room-iframe {
@@ -97,6 +109,8 @@
         max-width: 480px;
         width: 90%;
         text-align: center;
+        box-sizing: border-box;
+        margin: auto;
         box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
       }
 
@@ -167,18 +181,15 @@
           <button type="button" id="btn-confirm-join" class="btn btn-primary" style="width: 100%; padding: var(--space-3) var(--space-4); font-size: var(--text-base); font-weight: 700;">
             Enter Live Room &rarr;
           </button>
-          <a id="link-webinar-host" class="btn btn-primary" target="_blank" rel="noopener noreferrer" hidden style="width: 100%; padding: var(--space-3) var(--space-4); font-size: var(--text-base); font-weight: 700;">
-            Open Webinar.gg Host Controls &rarr;
+          <a id="link-webinar-host" class="btn btn-primary" hidden style="width: 100%; padding: var(--space-3) var(--space-4); font-size: var(--text-base); font-weight: 700;">
+            Start class &rarr;
           </a>
-          <p id="lobby-host-instructions" class="permission-tip" hidden>
-            In Webinar.gg, sign in with the host account and choose <strong>Start Webinar</strong>. Students join from Trendz after you go live.
-          </p>
 
           <div id="lobby-recording-notice" style="display: none; align-items: center; justify-content: center; gap: 6px; font-size: 12px; color: #f97316; background: rgba(249, 115, 22, 0.1); border: 1px solid rgba(249, 115, 22, 0.2); padding: 8px 12px; border-radius: 6px; margin-top: 12px; font-weight: 600;">
             <span style="font-size: 14px;">●</span> <span>This live class is being recorded for academic review.</span>
           </div>
 
-          <div class="permission-tip">
+          <div id="lobby-device-tip" class="permission-tip">
             <strong>Device Permissions Notice:</strong><br />
             Camera &amp; microphone permissions will be requested by the room. If denied, you can still watch and listen to your teacher. When called upon, you can enable your mic and camera at any time.<br />
             <span style="color: #60a5fa; margin-top: 4px; display: block;">Abacus Tip: On mobile, position your camera to show your abacus clearly.</span>
