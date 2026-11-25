@@ -256,6 +256,8 @@ export async function loadAndRenderStudentHomework(studentId, studentLevel = nul
         }
       };
     }
+
+    return items;
   } catch (err) {
     console.error('Failed to load student homework:', err);
     container.innerHTML = `
@@ -263,6 +265,7 @@ export async function loadAndRenderStudentHomework(studentId, studentLevel = nul
         Could not load homework: ${escapeHtml(err.message || 'Database error')}
       </div>
     `;
+    return [];
   }
 }
 

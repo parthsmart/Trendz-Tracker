@@ -36,6 +36,7 @@ import {
 } from './navMenuState.js';
 import { openModal, closeModal } from './modal.js';
 import { attachLinkPrefetchListeners } from './perf.js';
+import { mountStudentRail } from './studentRail.js';
 
 const BRAND_LOGO_SVG = `
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -169,7 +170,7 @@ export function syncHeaderMenuNotificationBadge(count, formattedText) {
  *
  * @param {{ full_name?: string, role?: string, student_code?: string, level?: string } | null} profile
  */
-function openHeaderAccountModal(profile) {
+export function openHeaderAccountModal(profile) {
   if (typeof document === 'undefined') return;
 
   let modal = document.getElementById('header-account-modal');
@@ -306,6 +307,11 @@ export function setupHeaderNavigation(profile = null) {
   // If this is a dedicated stage page, keep header hidden and skip mounting the menu
   if (isDedicatedStagePathname(pathname)) {
     return;
+  }
+
+  // Desktop side rail for students (hidden below 1024px, where this header menu is used)
+  if (resolvedRole === 'student') {
+    mountStudentRail(profile, { onAccount: () => { window.location.href = '/pages/account.html'; } });
   }
 
   const headerInner = header.querySelector('.header-inner');
@@ -852,6 +858,10 @@ export function setupHeaderNavigation(profile = null) {
       if (action === 'account') {
         e.preventDefault();
         closeMenu({ returnFocus: false });
+        if (resolvedRole === 'student') {
+          window.location.href = '/pages/account.html';
+          return;
+        }
         openHeaderAccountModal(profile);
         return;
       }

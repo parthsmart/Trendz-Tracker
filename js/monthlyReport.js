@@ -284,6 +284,8 @@ function renderReportContent(report) {
 
   if (titleEl) titleEl.textContent = `Monthly Report — ${formatMonthHeadingIST(report?.month_start)}`;
   if (studentNameEl) studentNameEl.textContent = st.name || 'Student';
+  const avatarEl = document.getElementById('report-student-avatar');
+  if (avatarEl) avatarEl.textContent = String(st.name || 'S').trim().charAt(0).toUpperCase() || 'S';
   if (studentCodeEl) studentCodeEl.textContent = st.code || '—';
   if (studentLevelEl) studentLevelEl.textContent = st.level || 'Unassigned';
   if (dateRangeEl) {
@@ -318,6 +320,12 @@ function renderReportContent(report) {
 
   setText('metric-qpm', formatNumOrDash(prac.qpm, ' QPM', 1));
   setText('metric-qpm-sub', `Last month: ${formatNumOrDash(prev.qpm, ' QPM', 1)}`);
+
+  // Change vs last month (student layout shows these as arrows)
+  setDelta('metric-practice-days-delta', prac.practice_days, prev.practice_days, ' days', 0);
+  setDelta('metric-entries-delta', prac.entries, prev.entries, '', 0);
+  setDelta('metric-accuracy-delta', prac.accuracy, prev.accuracy, ' pts', 1);
+  setDelta('metric-qpm-delta', prac.qpm, prev.qpm, '', 1);
 
   setText('metric-points', `${Number(report?.points ?? 0)} pts`);
   setText('metric-streak', `🔥 ${Number(strk.current ?? 0)}d current · Best: ${Number(strk.best ?? 0)}d`);
@@ -355,6 +363,7 @@ function renderReportContent(report) {
         </tr>
       `;
     } else {
+      const maxEntries = Math.max(1, ...weeks.map((w) => Number(w.entries ?? 0)));
       weeksTbody.innerHTML = weeks
         .map((w) => {
           const weekLabel = w.week_start ? `Week of ${formatDisplayDateIST(w.week_start)}` : 'Week';
@@ -363,7 +372,7 @@ function renderReportContent(report) {
           return `
             <tr>
               <td style="font-weight: 600;">${escapeHtml(weekLabel)}</td>
-              <td class="num" style="text-align: right;">${entries}</td>
+              <td class="num" style="text-align: right;"><span class="mr-wnum">${entries}</span><span class="mr-wbar" aria-hidden="true"><i style="width: ${Math.max(8, Math.round((entries / maxEntries) * 100))}%">${entries} entries</i></span></td>
               <td class="num" style="text-align: right; font-weight: 600;">${escapeHtml(acc)}</td>
             </tr>
           `;
@@ -387,6 +396,23 @@ function renderReportContent(report) {
     }
   }
 
+  const focusList = document.getElementById('report-focus-list');
+  if (focusList) {
+    focusList.innerHTML = categories.length === 0
+      ? '<p class="mr-focus-empty">Complete at least 3 entries in a category to see focus areas.</p>'
+      : categories
+        .slice(0, 3)
+        .map((c) => `
+          <div class="mr-fi">
+            <span aria-hidden="true">⚠️</span>
+            <b>${escapeHtml(c.name)}</b>
+            <span class="mr-fi-sec">${escapeHtml(c.section || 'round')}</span>
+            <b class="num">${escapeHtml(formatNumOrDash(c.accuracy, '%', 1))}</b>
+          </div>
+        `)
+        .join('');
+  }
+
   if (categoriesTbody) {
     if (categories.length === 0) {
       categoriesTbody.innerHTML = `
@@ -404,7 +430,7 @@ function renderReportContent(report) {
             <tr style="${isFocus ? 'background-color: var(--bg-surface-subtle);' : ''}">
               <td style="font-weight: 600;">
                 ${escapeHtml(cat.name)}
-                ${isFocus ? `<span style="font-size: 11px; color: var(--color-warning-text); margin-left: 6px;">Needs practice</span>` : ''}
+                ${isFocus ? `<span class="mr-needs" style="font-size: 11px; color: var(--color-warning-text); margin-left: 6px;">Needs practice</span>` : ''}
               </td>
               <td style="color: var(--text-muted); font-size: var(--text-xs); text-transform: capitalize;">
                 ${escapeHtml(cat.section || 'round')}
@@ -412,6 +438,7 @@ function renderReportContent(report) {
               <td class="num" style="text-align: right;">${Number(cat.entries ?? 0)}</td>
               <td class="num" style="text-align: right;">${Number(cat.wrong ?? 0)}</td>
               <td class="num" style="text-align: right; font-weight: 700;">
+                <span class="mr-accbar" aria-hidden="true"><i class="${isFocus ? 'is-low' : ''}" style="width: ${Math.min(100, Math.max(0, Number(cat.accuracy) || 0))}%"></i></span>
                 ${escapeHtml(formatNumOrDash(cat.accuracy, '%', 1))}
               </td>
             </tr>
@@ -454,6 +481,24 @@ function renderReportContent(report) {
         .join('');
     }
   }
+}
+
+function setDelta(id, cur, prev, unit, decimals) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const a = Number(cur);
+  const b = Number(prev);
+  if (cur === null || cur === undefined || prev === null || prev === undefined || !Number.isFinite(a) || !Number.isFinite(b)) {
+    el.hidden = true;
+    el.textContent = '';
+    return;
+  }
+  const diff = a - b;
+  const fmt = (n) => (decimals > 0 ? Math.abs(n).toFixed(decimals).replace(/\.0$/, '') : String(Math.abs(Math.round(n))));
+  el.hidden = false;
+  el.classList.toggle('up', diff > 0);
+  el.classList.toggle('down', diff < 0);
+  el.textContent = diff === 0 ? '= same as last month' : `${diff > 0 ? '▲' : '▼'} ${fmt(diff)}${unit} vs last month`;
 }
 
 function setText(id, val) {

@@ -26,46 +26,24 @@ import {
   renderFlashThisWeek,
   renderResources,
   renderAttendanceCard,
-  renderWeeklyTestsCard,
   setupScoreSheetController,
   setupProgressChartsController
 } from './dashboardComponents.js';
-import { loadAndRenderLeaderboardCard } from './leaderboardCard.js';
 import { loadAndRenderStudentHomework } from './studentHomeworkView.js';
 import { renderElementsCard } from './elementsCard.js';
 import { renderMemoriadCard } from './memoriadCard.js';
 import { fetchMyNotificationsCached } from './notificationBadge.js';
 import { formatTimeIST } from './liveClasses.js';
 import {
-  stageLabel,
-  formatEventDateChipIST,
-  sanitizeNotificationLink,
-} from './notificationsView.js';
+  renderPracticeTiles,
+  renderHeroIdentity,
+  renderMyDay,
+  renderComingUp,
+} from './studentHome.js';
 
 let cachedDashboardData = null;
 let progressTabLoaded = false;
 let progressTabLoadingPromise = null;
-
-function observeOnceWhenVisible(element, callback) {
-  if (!element || typeof callback !== 'function') return;
-  if (typeof window === 'undefined' || typeof IntersectionObserver === 'undefined') {
-    callback();
-    return;
-  }
-  const observer = new IntersectionObserver(
-    (entries) => {
-      for (const entry of entries) {
-        if (entry.isIntersecting) {
-          observer.disconnect();
-          callback();
-          break;
-        }
-      }
-    },
-    { rootMargin: '160px 0px' }
-  );
-  observer.observe(element);
-}
 
 async function ensureProgressTabLoaded(studentId) {
   if (progressTabLoaded) return;
@@ -157,19 +135,38 @@ async function initStudentDashboard() {
   // Render header details
   renderHeaderUser(loggedInProfile);
   renderStudentHero(loggedInProfile);
+  renderHeroIdentity(loggedInProfile);
+  renderPracticeTiles(loggedInProfile);
+  setupFullPlanToggle();
   setupStudentHomeViewTabs(() => {
     ensureProgressTabLoaded(currentStudentId);
   });
+  setupProgressWeekTabs();
 
-  // Load Available Weekly Test banner (Phase 13a), compact reminders strip (Phase 13b), and Live Class card
-  loadAndRenderAvailableWeeklyTestCard(currentStudentId);
-  loadAndRenderHomeRemindersStrip(currentStudentId);
   loadAndRenderStudentLiveClassCard(currentStudentId);
+  // Weekly tests, homework and reminders are each fetched once and shared by
+  // My Day and the Coming up panel (which also shows today's open weekly test).
+  const testsPromise = fetchMyWeeklyTests(currentStudentId);
 
-  // Lazy-load Leaderboard summary card when scrolled near viewport (Candidate D)
-  const lbContainer = document.getElementById('leaderboard-card-container');
-  observeOnceWhenVisible(lbContainer, () => {
-    loadAndRenderLeaderboardCard('leaderboard-card-container', loggedInProfile);
+  // Today's Homework (Phase 20 - Independent of Streaks); full card lives in "View full plan"
+  const homeworkPromise = loadAndRenderStudentHomework(currentStudentId, loggedInProfile.level)
+    .then((items) => (Array.isArray(items) ? items : []))
+    .catch(() => []);
+
+  const remindersPromise = fetchMyNotificationsCached({ studentId: currentStudentId, forceRefresh: false })
+    .then((items) => (Array.isArray(items) ? items : []))
+    .catch((err) => {
+      console.warn('Could not load reminders:', err);
+      return [];
+    });
+
+  Promise.all([testsPromise, homeworkPromise, remindersPromise]).then(([tests, homework, reminders]) => {
+    renderComingUp({
+      activeTest: pickActiveWeeklyTest(tests),
+      upcomingTests: groupTests(tests).upcoming,
+      homework,
+      reminders,
+    });
   });
 
   // 2. Fetch and render "Today's Focus" dashboard data first (Score Sheet deferred until tab open)
@@ -181,20 +178,22 @@ async function initStudentDashboard() {
     const todayEl = document.getElementById('display-today-ist');
     if (todayEl) todayEl.textContent = formatTodayHeadingIST(data.todayIST);
 
-    // Today's Plan (To-Do List)
+    // Today's Plan: full list (inside "View full plan") + My Day split view
     renderTodoList(data.todos, 'todo-list-container', false, data.categories);
-
-    // Today's Homework (Phase 20 - Independent of Streaks)
-    loadAndRenderStudentHomework(currentStudentId, loggedInProfile.level);
+    homeworkPromise.then((homework) => {
+      renderMyDay({
+        todos: data.todos,
+        categories: data.categories,
+        homework,
+        onOpenFullPlan: (hwId) => setFullPlanOpen(true, hwId),
+      });
+    });
 
     // Compact Streak & Shield Card
     renderStreakCard(data.streak, data.todos);
 
     // Three Small 7-Day Summary Cards: Accuracy, Speed (q/min), Practice days
     renderTodaySummaryMetrics(data.results, data.activityResults, data.todayIST);
-
-    // Weekly Tests Card (Phase 4b)
-    renderWeeklyTestsCard(data.weeklyTests, data.categories, 'weekly-tests-card-container');
 
     // If user already switched to Progress or Show All while initial data was loading, load Tab 2 now
     const progressPane = document.getElementById('student-pane-progress');
@@ -230,98 +229,22 @@ function renderHeaderUser(profile) {
   });
 }
 
-async function loadAndRenderAvailableWeeklyTestCard(studentId) {
-  const container = document.getElementById('available-weekly-test-card-container');
-  if (!container) return;
-
+async function fetchMyWeeklyTests(studentId) {
   try {
-    let tests = [];
     if (isSupabaseConfigured()) {
       const supabase = await getSupabase();
       const { data, error } = await supabase.rpc('my_weekly_tests');
       if (error) throw error;
-      tests = Array.isArray(data) ? data : [];
-    } else if (isDemoMode() && DemoDB && DemoDB.mockMyWeeklyTests) {
-      tests = DemoDB.mockMyWeeklyTests(studentId);
+      return Array.isArray(data) ? data : [];
     }
-
-    const { availableNow } = groupTests(tests);
-    if (!availableNow || availableNow.length === 0) {
-      container.innerHTML = '';
-      return;
+    if (isDemoMode() && DemoDB && DemoDB.mockMyWeeklyTests) {
+      const tests = DemoDB.mockMyWeeklyTests(studentId);
+      return Array.isArray(tests) ? tests : [];
     }
-
-    const testsWithState = availableNow.map((t) => ({
-      test: t,
-      completion: getWeeklyTestCompletionState(t),
-    }));
-
-    // Prioritize an incomplete test (in-progress first, then not-started); otherwise take first completed
-    const chosen =
-      testsWithState.find((item) => item.completion.state === 'partially_completed') ||
-      testsWithState.find((item) => item.completion.state === 'not_started') ||
-      testsWithState[0];
-
-    const activeTest = chosen.test;
-    const completion = chosen.completion;
-    const isOnline =
-      String(activeTest.type || activeTest.test_type || 'offline').toLowerCase() === 'online';
-
-    let badgeHtml = '';
-    let actionBtnHtml = '';
-    let subtitleText = '';
-
-    if (completion.state === 'completed') {
-      badgeHtml = `<span class="badge" style="background: #DEF7EC; color: #03543F; font-size: 11px; font-weight: 700;">Completed</span>`;
-      subtitleText = isOnline
-        ? `All ${completion.totalCount} sections completed &middot; Scores submitted`
-        : 'Scores recorded by your trainer';
-      actionBtnHtml = `
-        <a href="/pages/weekly-test.html" class="btn btn-outline btn-sm" style="text-decoration: none;">
-          View results
-        </a>
-      `;
-    } else if (completion.state === 'partially_completed') {
-      badgeHtml = `<span class="badge" style="background: #FEF08A; color: #713F12; font-size: 11px; font-weight: 700;">In progress</span>`;
-      subtitleText = `${completion.submittedCount} of ${completion.totalCount} completed &middot; ${completion.todoCount} still to do`;
-      actionBtnHtml = `
-        <a href="/pages/weekly-test.html" class="btn btn-primary btn-sm" style="text-decoration: none;">
-          Continue
-        </a>
-      `;
-    } else {
-      badgeHtml = `<span class="badge badge-primary" style="font-size: 11px; font-weight: 700;">To do</span>`;
-      subtitleText = isOnline
-        ? `${completion.totalCount} ${completion.totalCount === 1 ? 'section' : 'sections'} to do`
-        : 'Scheduled for today (with your trainer)';
-      actionBtnHtml = `
-        <a href="/pages/weekly-test.html" class="btn btn-primary btn-sm" style="text-decoration: none;">
-          Start
-        </a>
-      `;
-    }
-
-    container.innerHTML = `
-      <section class="card" style="margin-bottom: var(--space-4); padding: var(--space-4) var(--space-5); border: 1px solid var(--color-primary); background: var(--color-primary-subtle);" aria-label="Available Weekly Test">
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3);">
-          <div>
-            <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
-              <span style="font-weight: 800; font-size: var(--text-base); color: var(--text-main);">
-                Weekly test: ${escapeHtml(activeTest.title)}
-              </span>
-              ${badgeHtml}
-            </div>
-            <div style="font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;">
-              ${subtitleText}
-            </div>
-          </div>
-          ${actionBtnHtml}
-        </div>
-      </section>
-    `;
   } catch (err) {
-    console.warn('Could not load available weekly test card:', err);
+    console.warn('Could not load weekly tests:', err);
   }
+  return [];
 }
 
 /**
@@ -420,88 +343,42 @@ export async function loadAndRenderStudentLiveClassCard(studentId) {
 }
 
 /**
- * Phase 13b: Shows up to 3 reminders in a compact strip above the to-do list,
- * each with its link and a link "See all notifications".
+ * Today's open weekly test for the Coming up panel (in progress first, then not started).
  */
-async function loadAndRenderHomeRemindersStrip(studentId) {
-  const container = document.getElementById('student-home-reminders-strip-container');
-  if (!container) return;
+function pickActiveWeeklyTest(tests) {
+  const { availableNow } = groupTests(Array.isArray(tests) ? tests : []);
+  if (!availableNow || availableNow.length === 0) return null;
+  const withState = availableNow.map((t) => ({ test: t, completion: getWeeklyTestCompletionState(t) }));
+  const chosen =
+    withState.find((item) => item.completion.state === 'partially_completed') ||
+    withState.find((item) => item.completion.state === 'not_started') ||
+    withState[0];
+  const isOnline = String(chosen.test.type || chosen.test.test_type || 'offline').toLowerCase() === 'online';
+  return { ...chosen, isOnline };
+}
 
-  try {
-    const items = await fetchMyNotificationsCached({ studentId, forceRefresh: false });
-    if (!Array.isArray(items) || items.length === 0) {
-      container.innerHTML = '';
-      return;
-    }
-
-    const topItems = items.slice(0, 3);
-    const rowsHtml = topItems
-      .map((item) => {
-        const title = escapeHtml(item.title || 'Reminder');
-        const dateChip = formatEventDateChipIST(item.event_date || item.created_at);
-        const stageText = stageLabel(item.days_left);
-        const link = sanitizeNotificationLink(
-          item.link,
-          item.kind === 'announcement' ? '/pages/notifications.html' : '/pages/weekly-test.html'
-        );
-
-        let stageBadge = '';
-        if (stageText) {
-          let stageStyle = 'color: var(--color-primary-text); font-weight: 700;';
-          if (stageText === 'Today') {
-            stageStyle = 'color: var(--color-danger-text); font-weight: 700;';
-          } else if (stageText === 'Tomorrow') {
-            stageStyle = 'color: var(--color-warning-text); font-weight: 700;';
-          }
-          stageBadge = `<span class="num" style="font-size: 12px; ${stageStyle}">${escapeHtml(stageText)}</span>`;
-        }
-
-        return `
-          <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding: 8px 0; border-bottom: 1px solid var(--border-hairline);">
-            <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; min-width: 0; font-size: var(--text-sm);">
-              ${stageBadge}
-              ${
-                stageBadge && dateChip
-                  ? `<span class="meta-separator" aria-hidden="true">·</span>`
-                  : ''
-              }
-              ${
-                dateChip
-                  ? `<span class="num" style="font-size: 12px; font-weight: 600; color: var(--text-muted);">${escapeHtml(dateChip)}</span>`
-                  : ''
-              }
-              <span class="meta-separator" aria-hidden="true">·</span>
-              <a href="${escapeHtml(link)}" style="font-weight: 600; color: var(--text-main); text-decoration: none;">
-                ${title}
-              </a>
-            </div>
-            <a href="${escapeHtml(link)}" class="btn btn-outline btn-sm" style="font-size: 11px; padding: 2px 10px; text-decoration: none; flex-shrink: 0;">
-              Open
-            </a>
-          </div>
-        `;
-      })
-      .join('');
-
-    container.innerHTML = `
-      <section class="card" style="margin-bottom: var(--space-4); padding: var(--space-3) var(--space-5); background: var(--bg-surface);" aria-label="Reminders and Notifications">
-        <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); margin-bottom: 4px;">
-          <div style="display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);">
-            <span>Reminders</span>
-            <span class="num">(${items.length})</span>
-          </div>
-          <a href="/pages/notifications.html" style="font-size: var(--text-xs); font-weight: 700; color: var(--color-primary); text-decoration: none;">
-            See all notifications &rarr;
-          </a>
-        </div>
-        <div>
-          ${rowsHtml}
-        </div>
-      </section>
-    `;
-  } catch (err) {
-    console.warn('Could not load home reminders strip:', err);
+/**
+ * "View full plan" shows the complete to-do list and the homework card (with history).
+ */
+function setFullPlanOpen(open, hwId = null) {
+  const panel = document.getElementById('sh-full-plan');
+  const btn = document.getElementById('btn-toggle-full-plan');
+  if (!panel || !btn) return;
+  panel.hidden = !open;
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  btn.innerHTML = open ? 'Hide full plan &lsaquo;' : 'View full plan &rsaquo;';
+  if (open) {
+    const target =
+      (hwId && document.querySelector(`#homework-list-container [data-hw-id="${CSS.escape(String(hwId))}"]`)) || panel;
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
+}
+
+function setupFullPlanToggle() {
+  const panel = document.getElementById('sh-full-plan');
+  document.getElementById('btn-toggle-full-plan')?.addEventListener('click', () => {
+    setFullPlanOpen(Boolean(panel?.hidden));
+  });
 }
 
 /**
@@ -525,10 +402,6 @@ function setupStudentHomeViewTabs(onProgressVisible = null) {
       focusPane.style.display = 'none';
       progressPane.style.display = '';
       if (typeof onProgressVisible === 'function') onProgressVisible();
-    } else if (mode === 'all') {
-      focusPane.style.display = '';
-      progressPane.style.display = '';
-      if (typeof onProgressVisible === 'function') onProgressVisible();
     } else {
       focusPane.style.display = '';
       progressPane.style.display = 'none';
@@ -539,6 +412,28 @@ function setupStudentHomeViewTabs(onProgressVisible = null) {
     btn.addEventListener('click', () => {
       const mode = btn.getAttribute('data-student-view') || 'focus';
       applyView(mode);
+    });
+  });
+}
+
+/**
+ * Score Sheet & Progress: one "This week" card with a tab per section (Basics, Flash, ...).
+ */
+function setupProgressWeekTabs() {
+  const tabs = document.querySelectorAll('[data-week-tab]');
+  const panes = document.querySelectorAll('[data-week-pane]');
+  if (tabs.length === 0) return;
+  tabs.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const key = btn.getAttribute('data-week-tab');
+      tabs.forEach((b) => {
+        const on = b === btn;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+      panes.forEach((pane) => {
+        pane.hidden = pane.getAttribute('data-week-pane') !== key;
+      });
     });
   });
 }

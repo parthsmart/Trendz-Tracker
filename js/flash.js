@@ -461,6 +461,9 @@ function showScreen(screenName) {
   const appHeaderEl = document.querySelector('.app-header');
 
   const isPlaying = screenName === 'play';
+  // Full-screen stage (css/studentPages.css): the number fills the screen, no counter.
+  document.body.classList.toggle('flash-playing', isPlaying);
+  document.body.classList.toggle('flash-test-mode', Boolean(isTestMode));
 
   if (setupEl) setupEl.style.display = !isTestMode && screenName === 'setup' ? 'block' : 'none';
   if (playEl) playEl.style.display = isPlaying ? 'block' : 'none';
@@ -611,6 +614,11 @@ async function runTrySequence() {
   if (stopConfirmBtn) {
     stopConfirmBtn.textContent = isTestMode ? 'Leave section' : 'Yes, abandon try';
   }
+  // Widest flashed number (digits + minus sign) sizes the full-screen digit.
+  document.body.style.setProperty(
+    '--flash-chars',
+    String((Number(activeTry.settings.digits) || 1) + (activeTry.settings.mode === 'add_sub' ? 1 : 0))
+  );
   if (progressFill) progressFill.style.width = '0%';
   if (stopConfirmBar) stopConfirmBar.style.display = 'none';
   if (answerPanel) answerPanel.style.display = 'none';
@@ -1605,6 +1613,14 @@ function setupEventListeners() {
 
   document.getElementById('btn-stop-cancel')?.addEventListener('click', () => {
     if (stopConfirmBar) stopConfirmBar.style.display = 'none';
+  });
+
+  // Esc on the full-screen stage opens (or closes) the stop confirmation.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !document.body.classList.contains('flash-playing')) return;
+    if (stopConfirmBar) {
+      stopConfirmBar.style.display = stopConfirmBar.style.display === 'flex' ? 'none' : 'flex';
+    }
   });
 
   document.getElementById('btn-stop-confirm')?.addEventListener('click', () => {

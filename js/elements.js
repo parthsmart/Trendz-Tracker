@@ -162,7 +162,17 @@ async function loadAndRenderCatalog() {
     weekSummaryEl.textContent = `${weekSets.length} set${weekSets.length === 1 ? '' : 's'} completed this week · ${rows.length} total sets`;
   }
 
-  let html = '';
+  const groupCounts = DRILL_GROUPS.map((g) => [g, DRILL_CATALOG_LIST.filter((d) => d.group === g).length]).filter(([, n]) => n > 0);
+  let html = `
+    <div class="elements-toolbar" role="search">
+      <div class="elements-group-pills" role="radiogroup" aria-label="Show drill group">
+        <button type="button" class="elements-group-pill active" data-group="" aria-pressed="true">All <span>${DRILL_CATALOG_LIST.length}</span></button>
+        ${groupCounts.map(([g, n]) => `<button type="button" class="elements-group-pill" data-group="${escapeHtml(g)}" aria-pressed="false">${escapeHtml(g)} <span>${n}</span></button>`).join('')}
+      </div>
+      <input type="search" class="form-input elements-search" placeholder="Find a drill, e.g. Month" aria-label="Find an Elements drill" />
+    </div>
+    <div class="elements-nomatch" hidden>No drill matches your search.</div>
+  `;
 
   for (const groupName of DRILL_GROUPS) {
     const groupDrills = DRILL_CATALOG_LIST.filter((d) => d.group === groupName);
@@ -177,7 +187,7 @@ async function loadAndRenderCatalog() {
           const subDrills = groupDrills.filter((d) => d.subgroup === subName);
           if (subDrills.length === 0) return '';
           return `
-            <div style="margin-bottom: var(--space-5);">
+            <div class="elements-subgroup" style="margin-bottom: var(--space-5);">
               <h3 style="font-size: var(--text-sm); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin: 0 0 var(--space-2) 0;">
                 ${escapeHtml(subName)}
               </h3>
@@ -201,7 +211,7 @@ async function loadAndRenderCatalog() {
     }
 
     html += `
-      <section style="margin-bottom: var(--space-8);" aria-label="${escapeHtml(groupName)} Drills">
+      <section class="elements-group" data-group="${escapeHtml(groupName)}" style="margin-bottom: var(--space-8);" aria-label="${escapeHtml(groupName)} Drills">
         <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: var(--space-3); border-bottom: 1px solid var(--border-hairline); padding-bottom: var(--space-2);">
           <h2 style="font-size: var(--text-lg); font-weight: 700; color: var(--text-main); margin: 0;">
             ${escapeHtml(groupName)}
@@ -232,7 +242,49 @@ async function loadAndRenderCatalog() {
   `;
 
   container.innerHTML = html;
+  wireElementsCatalogFilter(container);
   renderElementsHistoryView();
+}
+
+/**
+ * Group pills + search over the drill cards (no data reload).
+ */
+function wireElementsCatalogFilter(container) {
+  const pills = container.querySelectorAll('.elements-group-pill');
+  const searchEl = container.querySelector('.elements-search');
+  let activeGroup = '';
+  const apply = () => {
+    const q = (searchEl?.value || '').trim().toLowerCase();
+    let shown = 0;
+    container.querySelectorAll('.elements-group').forEach((sec) => {
+      const groupOk = !activeGroup || sec.getAttribute('data-group') === activeGroup;
+      let inGroup = 0;
+      sec.querySelectorAll('.element-drill-card').forEach((card) => {
+        const ok = groupOk && (!q || (card.getAttribute('data-title') || '').includes(q));
+        card.hidden = !ok;
+        if (ok) inGroup += 1;
+      });
+      sec.querySelectorAll('.elements-subgroup').forEach((sub) => {
+        sub.hidden = !sub.querySelector('.element-drill-card:not([hidden])');
+      });
+      sec.hidden = inGroup === 0;
+      shown += inGroup;
+    });
+    const none = container.querySelector('.elements-nomatch');
+    if (none) none.hidden = shown > 0;
+  };
+  pills.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      activeGroup = btn.getAttribute('data-group') || '';
+      pills.forEach((b) => {
+        const on = b === btn;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+      apply();
+    });
+  });
+  searchEl?.addEventListener('input', apply);
 }
 
 function renderElementsHistoryView() {
@@ -478,7 +530,7 @@ function renderDrillCard(drill, drillSummary) {
     `;
 
   return `
-    <article class="element-drill-card ${drill.enabled ? '' : 'disabled'}" data-drill-key="${escapeHtml(drill.key)}">
+    <article class="element-drill-card ${drill.enabled ? '' : 'disabled'}" data-drill-key="${escapeHtml(drill.key)}" data-title="${escapeHtml(`${drill.title} ${drill.subgroup || ''} ${drill.group || ''}`.toLowerCase())}">
       <div>
         <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-2); margin-bottom: 4px;">
           <h3 style="font-size: var(--text-base); font-weight: 700; color: var(--text-main); margin: 0;">

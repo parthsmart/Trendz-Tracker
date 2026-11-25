@@ -133,7 +133,7 @@ export const NAV_CONFIG = Object.freeze({
     Object.freeze({
       id: 'student-account',
       label: 'Account',
-      href: '#account',
+      href: '/pages/account.html',
       group: 'Account',
       action: 'account',
       inline: false,

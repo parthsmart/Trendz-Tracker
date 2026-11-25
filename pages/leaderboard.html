@@ -274,7 +274,7 @@
                 </div>
               </div>
 
-              <!-- Daily To-Do Task Filter (shown when Daily To-Do tab is active: All tasks + individual tasks) -->
+              <!-- Daily To-Do Task Filter (shown when Daily To-Do tab is active: All tasks + individual tasks in one dropdown) -->
               <div
                 id="todo-task-filter-wrapper"
                 style="display: none; flex-direction: column; gap: var(--space-2); padding-top: var(--space-3); border-top: 1px solid var(--border-hairline);"
@@ -289,13 +289,6 @@
                     </select>
                   </div>
                 </div>
-                <div
-                  id="todo-task-pills"
-                  class="segmented-control"
-                  role="group"
-                  aria-label="Filter by task"
-                  style="display: flex; flex-wrap: wrap; gap: var(--space-1); width: fit-content; max-width: 100%;"
-                ></div>
               </div>
 
               <!-- "How it works" explanation built dynamically from competition_rules() / task speed rules -->
@@ -404,5 +397,6 @@
 
     <!-- Leaderboard Controller -->
     <script type="module" src="/js/leaderboard.js"></script>
+    <script type="module" src="/js/leaderboardPodium.js"></script>
   </body>
 </html>
