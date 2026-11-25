@@ -1890,7 +1890,7 @@ test('14. Live class scheduling validates staff and student audiences and create
     durationMinutes: 45,
     timezone: 'Asia/Kolkata',
     recordingEnabled: false,
-    requireApproval: true,
+    requireApproval: false,
   });
 
   const level = await runApi(adminToken, { ...schedule, audience: 'level', target_level: 'Basic 1', recording_enabled: true });
