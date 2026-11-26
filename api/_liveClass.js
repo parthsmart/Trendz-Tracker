@@ -120,6 +120,22 @@ export function formatWebinarParticipant(fullName, email, fallbackId) {
 }
 
 /**
+ * The premium Webinar.gg account that owns the rooms Trendz creates
+ * (WEBINAR_GG_HOST_EMAIL + WEBINAR_GG_HOST_NAME, the name exactly as Webinar.gg shows it).
+ * A join token minted with this email and name signs the person in as the room host.
+ * Teachers and admins start classes under this identity: a co-host's camera and screen
+ * share never reach the attendee broadcast, which left students on a black stage.
+ * Returns null when either value is missing, so the co-host flow stays as the fallback.
+ */
+export function getWebinarOwnerIdentity() {
+  const email = (process.env.WEBINAR_GG_HOST_EMAIL || '').trim();
+  const name = (process.env.WEBINAR_GG_HOST_NAME || '').trim().replace(/\s+/g, ' ');
+  if (!/^[^\s@]+@[^\s@]+$/.test(email) || !name) return null;
+  const [firstName, ...rest] = name.split(' ');
+  return { firstName, lastName: rest.join(' '), email, phone: '+919999999999' };
+}
+
+/**
  * Mints Webinar.gg join token
  */
 async function mintWebinarJoinToken({ webinarId, firstName, lastName, email, phone, passcode = '' }, fetchImpl = fetch) {
@@ -412,10 +428,18 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           Array.isArray(liveClass.invited_teacher_ids) && liveClass.invited_teacher_ids.includes(caller.id)
         );
         const isAssignedTeacher = caller.role === 'teacher' && caller.id === liveClass.teacher_id;
-        const isHost = caller.role === 'admin' && isSameEmail(caller.email, liveClass.host_email);
-        const isHostIdentityMismatch = caller.role === 'admin' && Boolean(liveClass.host_email) && !isHost;
         const classType = liveClass.class_type || 'live';
-        let hostDashboardUrl = getHostDashboardUrl(caller, {
+        // With the owner account configured, the admin and the assigned teacher start the room as its host.
+        const ownerHostUrl = getWebinarOwnerIdentity() && getWebinarGgToken() &&
+          (caller.role === 'admin' || (isAssignedTeacher && !isInvitedParticipant)) &&
+          isTeacherStartable({ class_type: classType, status: currentStatus, provider_status: providerStatus }) &&
+          /^[a-zA-Z0-9_-]+$/.test(liveClass.webinar_id || '')
+          ? `https://webinar.gg/webinar-page/${liveClass.webinar_id}`
+          : null;
+        const isHost = caller.role === 'admin' &&
+          (Boolean(ownerHostUrl) || isSameEmail(caller.email, liveClass.host_email));
+        const isHostIdentityMismatch = caller.role === 'admin' && Boolean(liveClass.host_email) && !isHost;
+        let hostDashboardUrl = ownerHostUrl || getHostDashboardUrl(caller, {
           ...liveClass, status: currentStatus, provider_status: providerStatus,
         });
 
@@ -430,7 +454,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
         }
 
         const teacherEmail = normalizeCohostEmail(caller.cohostEmail);
-        if (isAssignedTeacher && teacherEmail && getWebinarGgToken() &&
+        if (!ownerHostUrl && isAssignedTeacher && teacherEmail && getWebinarGgToken() &&
             isTeacherStartable({ class_type: classType, status: currentStatus, provider_status: providerStatus }) &&
             /^[a-zA-Z0-9_-]+$/.test(liveClass.webinar_id || '')) {
           let invited;
@@ -629,8 +653,14 @@ export async function handleLiveClassRequest(req, res, options = {}) {
             Array.isArray(liveClass.invited_teacher_ids) && liveClass.invited_teacher_ids.includes(caller.id)
           );
           const teacherEmail = normalizeCohostEmail(caller.cohostEmail);
-          if (!isInvitedParticipant && caller.id === liveClass.teacher_id) {
-            // Assigned teacher starts the class as a co-host. The join token carries their own
+          const owner = getWebinarOwnerIdentity();
+          if (!isInvitedParticipant && caller.id === liveClass.teacher_id &&
+              owner && (liveClass.class_type || 'live') === 'live') {
+            // Assigned teacher enters as the room owner (host), so students receive their camera.
+            isHost = true;
+            participant = owner;
+          } else if (!isInvitedParticipant && caller.id === liveClass.teacher_id) {
+            // Fallback without an owner account: assigned teacher starts the class as a co-host. The join token carries their own
             // Webinar.gg email and the room passcode, so Webinar.gg skips the passcode screen.
             if (!teacherEmail || (liveClass.class_type || 'live') !== 'live') {
               return res.status(403).json({
@@ -666,8 +696,13 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           }
           participant = formatWebinarParticipant(caller.fullName, caller.email, caller.id);
         } else if (caller.role === 'admin') {
-          // Admin can only host if their own account email matches the configured host_email
-          if (isSameEmail(caller.email, liveClass.host_email)) {
+          const owner = getWebinarOwnerIdentity();
+          if (owner && (liveClass.class_type || 'live') === 'live') {
+            // Admins start the room as the owner account, like the assigned teacher.
+            isHost = true;
+            participant = owner;
+          } else if (isSameEmail(caller.email, liveClass.host_email)) {
+            // Without an owner account, an admin can only host if their email matches host_email
             isHost = true;
             participant = {
               firstName: caller.fullName.split(/\s+/)[0] || 'Admin',
@@ -901,7 +936,8 @@ export async function handleLiveClassRequest(req, res, options = {}) {
         }
 
         let teacherCohostEmail = '';
-        if (isActiveTeacher && class_type === 'live') {
+        // Teachers only need their own Webinar email (for co-hosting) when no owner account is configured.
+        if (isActiveTeacher && class_type === 'live' && !getWebinarOwnerIdentity()) {
           const { data, error } = await supabase.auth.admin.getUserById(teacher_id);
           if (error || !data?.user) {
             return res.status(502).json({ error: 'Could not load the assigned teacher’s email. Try again.', code: 'TEACHER_EMAIL_LOOKUP_FAILED' });
