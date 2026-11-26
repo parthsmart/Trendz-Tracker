@@ -553,7 +553,7 @@ export function setupHeaderNavigation(profile = null) {
   // Re-apply cached unread notification badge state to newly rendered DOM elements
   syncHeaderMenuNotificationBadge(lastUnreadBadgeState.count, lastUnreadBadgeState.text);
 
-  // Background practice access check for student to omit Flash Anzan when hidden
+  // Background practice access check for student to omit Flash Anzan / Oral Rounds when hidden
   if (resolvedRole === 'student' && !profile?.practice_access && profile?.id) {
     import('./studentAccess.js').then(async ({ fetchStudentEffectiveAccess }) => {
       try {
@@ -563,7 +563,10 @@ export function setupHeaderNavigation(profile = null) {
           ? await (await import('./supabaseClient.js')).getSupabase()
           : null;
         const accessRes = await fetchStudentEffectiveAccess(profile.id, { supabase, isDemo, DemoDB });
-        if (accessRes?.ok && accessRes?.settings?.flash && accessRes.settings.flash.allowed === false) {
+        const s = accessRes?.ok ? accessRes.settings : null;
+        const flashHidden = s?.flash && s.flash.allowed === false;
+        const oralHidden = s?.oral_rounds && !(await import('./oralRounds.js')).isOralRoundsAllowed(s.oral_rounds);
+        if (flashHidden || oralHidden) {
           profile.practice_access = accessRes.settings;
           setupHeaderNavigation(profile);
         }

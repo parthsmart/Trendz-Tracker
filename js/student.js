@@ -123,6 +123,24 @@ async function ensureProgressTabLoaded(studentId) {
   return progressTabLoadingPromise;
 }
 
+/**
+ * Re-renders the Practice tiles once the student's practice access is known,
+ * so hidden sections (Flash Anzan, Oral Rounds) drop out. Non-blocking.
+ */
+async function refreshPracticeTilesWithAccess(profile) {
+  if (!profile?.id || profile.practice_access) return;
+  try {
+    const { fetchStudentEffectiveAccess } = await import('./studentAccess.js');
+    const supabase = !isDemoMode() && isSupabaseConfigured() ? await getSupabase() : null;
+    const res = await fetchStudentEffectiveAccess(profile.id, { supabase, isDemo: isDemoMode(), DemoDB });
+    if (res?.ok && res.settings) {
+      renderPracticeTiles({ ...profile, practice_access: res.settings });
+    }
+  } catch {
+    // Keep the tiles already shown.
+  }
+}
+
 async function initStudentDashboard() {
   // 1. Guard check: Strictly for logged-in students.
   // /pages/student.html must NEVER read a student id from the URL or anywhere else.
@@ -137,6 +155,7 @@ async function initStudentDashboard() {
   renderStudentHero(loggedInProfile);
   renderHeroIdentity(loggedInProfile);
   renderPracticeTiles(loggedInProfile);
+  refreshPracticeTilesWithAccess(loggedInProfile);
   setupFullPlanToggle();
   setupStudentHomeViewTabs(() => {
     ensureProgressTabLoaded(currentStudentId);

@@ -104,6 +104,7 @@ export default defineConfig(({ command }) => {
           elementDrill: path.resolve(__dirname, 'pages/element-drill.html'),
           memoriad: path.resolve(__dirname, 'pages/memoriad.html'),
           memoriadPlay: path.resolve(__dirname, 'pages/memoriad-play.html'),
+          oralRounds: path.resolve(__dirname, 'pages/oral-rounds.html'),
           admin: path.resolve(__dirname, 'pages/admin.html'),
           students: path.resolve(__dirname, 'pages/students.html'),
           categories: path.resolve(__dirname, 'pages/categories.html'),

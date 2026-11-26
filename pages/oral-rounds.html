@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Oral Rounds - Trendz Tracker</title>
+    <meta
+      name="description"
+      content="Listening practice on Trendz Tracker: the computer reads each sum aloud and you type the answer."
+    />
+    <meta property="og:title" content="Oral Rounds - Trendz Tracker" />
+    <meta
+      property="og:description"
+      content="Listening practice on Trendz Tracker: the computer reads each sum aloud and you type the answer."
+    />
+    <link rel="stylesheet" href="/css/style.css" />
+    <style>
+      .oral-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 340px) minmax(0, 1fr);
+        gap: var(--space-5);
+        align-items: start;
+      }
+
+      @media (max-width: 860px) {
+        .oral-layout {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+
+      .oral-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-bottom: var(--space-4);
+      }
+
+      .oral-field > .oral-label {
+        font-size: var(--text-xs);
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--text-muted);
+      }
+
+      .oral-choice-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .oral-choice {
+        position: relative;
+      }
+
+      .oral-choice input {
+        position: absolute;
+        opacity: 0;
+        inset: 0;
+        margin: 0;
+        cursor: pointer;
+      }
+
+      .oral-choice span {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 44px;
+        padding: 6px 12px;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-subtle);
+        background: var(--bg-surface);
+        font-weight: 600;
+        font-size: var(--text-sm);
+        color: var(--text-main);
+      }
+
+      .oral-choice input:checked + span {
+        background: var(--color-primary);
+        border-color: var(--color-primary);
+        color: #fff;
+      }
+
+      .oral-choice input:focus-visible + span {
+        outline: 2px solid var(--color-primary);
+        outline-offset: 2px;
+      }
+
+      .oral-choice input:disabled + span {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      .oral-digits-pair {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .oral-digits-pair select {
+        width: 100%;
+      }
+
+      .oral-op-sign {
+        font-size: 1.25rem;
+        font-weight: 800;
+        color: var(--text-muted);
+      }
+
+      .oral-stage {
+        text-align: center;
+        padding: var(--space-6) var(--space-5);
+      }
+
+      .oral-status {
+        font-size: var(--text-sm);
+        color: var(--text-muted);
+        min-height: 1.5em;
+        margin-bottom: var(--space-3);
+      }
+
+      .oral-big {
+        font-size: clamp(1.75rem, 5vw, 2.75rem);
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        min-height: 1.3em;
+        margin-bottom: var(--space-4);
+      }
+
+      .oral-answer-row {
+        display: flex;
+        gap: 8px;
+        justify-content: center;
+        flex-wrap: wrap;
+        margin-bottom: var(--space-4);
+      }
+
+      .oral-answer-row input {
+        font-size: 1.5rem;
+        text-align: center;
+        width: min(260px, 100%);
+        padding: 8px 12px;
+      }
+
+      .oral-verdict {
+        font-size: var(--text-lg);
+        font-weight: 700;
+        min-height: 1.6em;
+        margin-bottom: var(--space-3);
+      }
+
+      .oral-verdict.is-correct {
+        color: var(--color-success, #15803d);
+      }
+
+      .oral-verdict.is-wrong {
+        color: var(--color-danger, #b91c1c);
+      }
+
+      .oral-score-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: var(--space-2);
+        margin-top: var(--space-4);
+      }
+
+      .oral-score-grid > div {
+        background: var(--bg-surface-subtle);
+        border: 1px solid var(--border-hairline);
+        border-radius: var(--radius-md);
+        padding: var(--space-2);
+      }
+
+      .oral-score-grid .num {
+        display: block;
+        font-size: 1.25rem;
+        font-weight: 800;
+      }
+
+      .oral-score-grid small {
+        font-size: 11px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+
+      .oral-actions {
+        display: flex;
+        gap: 8px;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+    </style>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#2563EB" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Trendz Tracker" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="container header-inner">
+          <a href="/pages/student.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <nav class="nav-zone" id="student-nav-zone" aria-label="Student Primary Navigation"></nav>
+
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Student</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-code" class="num" style="color: var(--text-muted);">STU</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">Sign Out</button>
+          </div>
+        </div>
+      </header>
+
+      <main class="main-content">
+        <div class="container">
+          <div id="config-banner-placeholder"></div>
+
+          <div class="section-header-row" style="align-items: flex-end; flex-wrap: wrap; gap: var(--space-4); margin-bottom: var(--space-4);">
+            <div>
+              <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: 4px;">
+                <span class="badge badge-role">Listening Practice</span>
+                <span style="font-size: var(--text-xs); color: var(--text-muted);">Turn your sound on</span>
+              </div>
+              <h1 style="margin-bottom: 4px;">Oral Rounds</h1>
+              <p style="font-size: var(--text-sm); color: var(--text-muted); margin: 0;">
+                The computer reads each sum aloud. Listen, work it out in your head and type the answer.
+              </p>
+            </div>
+          </div>
+
+          <details class="how-it-works-disclosure" style="margin-bottom: var(--space-5);">
+            <summary>
+              <span class="how-it-works-icon" aria-hidden="true">💡</span>
+              <span>How Oral Rounds work</span>
+            </summary>
+            <div class="how-it-works-content">
+              <ul>
+                <li><strong>Listen:</strong> you hear the question type (for example "2 digit times 2 digit"), then the first number. After your chosen delay you hear the second number.</li>
+                <li><strong>Answer:</strong> type the answer and press Enter. You see straight away whether it is right.</li>
+                <li><strong>Practice only:</strong> your score stays on this screen. It is not saved and does not count toward the leaderboard or your streak.</li>
+              </ul>
+            </div>
+          </details>
+
+          <div id="oral-unavailable" class="card" style="padding: var(--space-5); display: none;" role="status">
+            <h2 class="card-title" style="margin-bottom: 4px;">Oral Rounds is not available</h2>
+            <p style="margin: 0; color: var(--text-muted);" id="oral-unavailable-text">
+              Your teacher has not turned on Oral Rounds for you yet.
+            </p>
+          </div>
+
+          <div id="oral-loading" class="loading-state" style="padding: var(--space-6);">Loading Oral Rounds...</div>
+
+          <div id="oral-main" class="oral-layout" style="display: none;">
+            <form id="oral-settings-form" class="card" style="padding: var(--space-4) var(--space-5);" novalidate>
+              <h2 class="card-title" style="margin-bottom: var(--space-4);">Round settings</h2>
+
+              <fieldset class="oral-field" style="border: 0; padding: 0; margin: 0 0 var(--space-4) 0;">
+                <legend class="oral-label" style="margin-bottom: 6px;">Operation</legend>
+                <div class="oral-choice-row" id="oral-operation-choices"></div>
+              </fieldset>
+
+              <div class="oral-field">
+                <span class="oral-label" id="oral-digits-label">Digits</span>
+                <div class="oral-digits-pair" role="group" aria-labelledby="oral-digits-label">
+                  <select id="oral-digits-a" class="form-input" aria-label="Digits in the first number"></select>
+                  <span class="oral-op-sign" id="oral-op-sign" aria-hidden="true">+</span>
+                  <select id="oral-digits-b" class="form-input" aria-label="Digits in the second number"></select>
+                </div>
+                <span id="oral-digits-hint" style="font-size: 12px; color: var(--text-muted);"></span>
+              </div>
+
+              <div class="oral-field">
+                <label class="oral-label" for="oral-delay">Delay before the second number (seconds)</label>
+                <input id="oral-delay" class="form-input" type="number" inputmode="decimal" min="0" max="15" step="0.5" value="2" />
+              </div>
+
+              <div id="oral-settings-error" class="banner banner-error" style="display: none; margin-bottom: var(--space-3);" role="alert"></div>
+
+              <button type="submit" class="btn btn-primary" id="btn-oral-start" style="width: 100%;">Start round</button>
+            </form>
+
+            <section class="card oral-stage" aria-labelledby="oral-stage-title">
+              <h2 class="card-title" id="oral-stage-title" style="margin-bottom: var(--space-2);">
+                <span id="oral-round-title">Ready when you are</span>
+              </h2>
+              <div class="oral-status" id="oral-status" aria-live="polite">Choose your settings and press Start round.</div>
+              <div class="oral-big num" id="oral-display" aria-hidden="true"></div>
+
+              <form class="oral-answer-row" id="oral-answer-form" novalidate>
+                <label for="oral-answer" class="sr-only">Your answer</label>
+                <input id="oral-answer" class="form-input num" type="text" inputmode="numeric" autocomplete="off" placeholder="Answer" disabled />
+                <button type="submit" class="btn btn-primary" id="btn-oral-check" disabled>Check</button>
+              </form>
+
+              <div class="oral-verdict" id="oral-verdict" aria-live="assertive"></div>
+
+              <div class="oral-actions">
+                <button type="button" class="btn btn-outline" id="btn-oral-repeat" disabled>Hear again</button>
+                <button type="button" class="btn btn-primary" id="btn-oral-next" disabled>Next question</button>
+                <button type="button" class="btn btn-ghost" id="btn-oral-end" disabled>End round</button>
+              </div>
+
+              <div class="oral-score-grid" aria-label="Session score">
+                <div><span class="num" id="oral-score-correct">0</span><small>Correct</small></div>
+                <div><span class="num" id="oral-score-wrong">0</span><small>Wrong</small></div>
+                <div><span class="num" id="oral-score-asked">0</span><small>Answered</small></div>
+                <div><span class="num" id="oral-score-streak">0</span><small>Streak</small></div>
+              </div>
+              <p style="font-size: 12px; color: var(--text-muted); margin: var(--space-3) 0 0 0;">
+                Session score only. Oral Rounds are not saved and never count toward the leaderboard or streaks.
+              </p>
+            </section>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <script type="module" src="/js/oralRoundsPage.js"></script>
+  </body>
+</html>
