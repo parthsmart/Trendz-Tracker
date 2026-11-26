@@ -569,3 +569,56 @@ export function formatCustomLevelPoints(level) {
   const max = toMarks(level?.max_marks);
   return min === max ? `${max} pts` : `${min}–${max} pts`;
 }
+
+// ----------------------------------------------------------------------------
+// Sheet + difficulty builder: questions per sheet and one difficulty.
+// ----------------------------------------------------------------------------
+
+export const JMCWC_CUSTOM_MAX_PER_SHEET = 20;
+export const JMCWC_CUSTOM_DEFAULT_PER_SHEET = 5;
+export const JMCWC_CUSTOM_DIFFICULTIES = Object.freeze([
+  Object.freeze({ key: 'easy', label: 'Easy', hint: 'Only the first questions of each sheet' }),
+  Object.freeze({ key: 'medium', label: 'Medium', hint: 'From the start to a little before the hardest questions' }),
+  Object.freeze({ key: 'hard', label: 'Hard', hint: 'From the whole sheet' }),
+]);
+
+export function normalizeCustomDifficulty(value) {
+  const key = String(value || '').toLowerCase();
+  return JMCWC_CUSTOM_DIFFICULTIES.some((d) => d.key === key) ? key : 'easy';
+}
+
+export function clampSheetCount(value) {
+  const n = Math.floor(Number(value));
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.min(n, JMCWC_CUSTOM_MAX_PER_SHEET);
+}
+
+/** The same question count for every sheet offered. */
+export function buildDefaultSheetCounts(options = [], perSheet = JMCWC_CUSTOM_DEFAULT_PER_SHEET) {
+  const counts = {};
+  for (const cat of Array.isArray(options) ? options : []) {
+    counts[cat.category_key] = clampSheetCount(perSheet);
+  }
+  return counts;
+}
+
+export function summarizeSheetCounts(options = [], counts = {}) {
+  let questions = 0;
+  let sheets = 0;
+  for (const cat of Array.isArray(options) ? options : []) {
+    const c = clampSheetCount(counts[cat.category_key]);
+    if (c > 0) sheets += 1;
+    questions += c;
+  }
+  return { questions, sheets, over_limit: questions > JMCWC_CUSTOM_MAX_QUESTIONS };
+}
+
+/** Request body for `custom_create`, skipping sheets with no questions. */
+export function buildCustomSheetRequest(options = [], counts = {}, difficulty = 'easy') {
+  const sheets = [];
+  for (const cat of Array.isArray(options) ? options : []) {
+    const count = clampSheetCount(counts[cat.category_key]);
+    if (count > 0) sheets.push({ category_key: cat.category_key, count });
+  }
+  return { difficulty: normalizeCustomDifficulty(difficulty), sheets };
+}

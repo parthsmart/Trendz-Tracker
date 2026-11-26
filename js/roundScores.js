@@ -49,18 +49,19 @@ import {
   buildJmcwcSectionedQuestions,
 } from './jmcwcClient.js';
 import {
-  JMCWC_CUSTOM_MAX_PER_LEVEL,
+  JMCWC_CUSTOM_DEFAULT_PER_SHEET,
+  JMCWC_CUSTOM_DIFFICULTIES,
+  JMCWC_CUSTOM_MAX_PER_SHEET,
   JMCWC_CUSTOM_MAX_QUESTIONS,
-  buildCustomSelections,
-  buildDefaultCustomCounts,
+  buildCustomSheetRequest,
+  buildDefaultSheetCounts,
   buildPaperResultModel,
   buildPaperSheetModel,
-  clampCustomCount,
-  customCountKey,
-  formatCustomLevelPoints,
+  clampSheetCount,
   formatJmcwcSheetHeadingLine,
   formatSheetCorrections,
-  summarizeCustomCounts,
+  normalizeCustomDifficulty,
+  summarizeSheetCounts,
 } from './jmcwcPaper.js';
 
 let currentProfile = null;
@@ -3302,6 +3303,7 @@ const JMCWC_CUSTOM_STORAGE_PREFIX = 'trendz.jmcwc.customSet.v1:';
 const JMCWC_CUSTOM_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 let jmcwcCustomOptions = null;
 let jmcwcCustomCounts = {};
+let jmcwcCustomDifficulty = 'easy';
 let jmcwcCustomRun = null;
 let jmcwcCustomTimerId = null;
 let jmcwcCustomSaveTimerId = null;
@@ -3383,27 +3385,47 @@ async function openJmcwcCustomBuilder() {
   const list = document.getElementById('jmcwc-custom-builder-list');
   // Always refresh: access rules or the published paper may have changed.
   if (list && !jmcwcCustomOptions) {
-    list.innerHTML = '<div style="font-size: var(--text-xs); color: var(--text-muted);">Loading levels…</div>';
+    list.innerHTML = '<div style="font-size: var(--text-xs); color: var(--text-muted);">Loading sheets…</div>';
   }
   try {
     const data = await callJmcwcApi({ action: 'custom_options' });
-    const defaults = buildDefaultCustomCounts(data.categories, 1);
+    const defaults = buildDefaultSheetCounts(data.categories, JMCWC_CUSTOM_DEFAULT_PER_SHEET);
     const keepPrevious = jmcwcCustomOptions?.group_key === data.group_key && Object.keys(jmcwcCustomCounts).length > 0;
     jmcwcCustomCounts = keepPrevious
-      ? Object.fromEntries(Object.keys(defaults).map((k) => [k, clampCustomCount(jmcwcCustomCounts[k] ?? 0)]))
+      ? Object.fromEntries(Object.keys(defaults).map((k) => [k, clampSheetCount(jmcwcCustomCounts[k] ?? 0)]))
       : defaults;
     jmcwcCustomOptions = data;
   } catch (err) {
     if (list) list.innerHTML = '';
     jmcwcCustomOptions = null;
-    showJmcwcCustomError('jmcwc-custom-builder-error', err?.message || 'Could not load custom set levels.');
+    showJmcwcCustomError('jmcwc-custom-builder-error', err?.message || 'Could not load the custom set sheets.');
     return;
   }
   const groupLabel = document.getElementById('jmcwc-custom-group-label');
   if (groupLabel) groupLabel.textContent = formatJmcwcGroupLabel(jmcwcCustomOptions.group_key);
-  const maxPer = document.getElementById('jmcwc-custom-max-per-level');
-  if (maxPer) maxPer.textContent = String(jmcwcCustomOptions.max_per_level || JMCWC_CUSTOM_MAX_PER_LEVEL);
+  const maxPer = document.getElementById('jmcwc-custom-max-per-sheet');
+  if (maxPer) maxPer.textContent = String(jmcwcCustomOptions.max_per_sheet || JMCWC_CUSTOM_MAX_PER_SHEET);
+  renderJmcwcCustomDifficulty();
   renderJmcwcCustomBuilderList();
+}
+
+function renderJmcwcCustomDifficulty() {
+  const wrap = document.getElementById('jmcwc-custom-difficulty');
+  if (!wrap) return;
+  jmcwcCustomDifficulty = normalizeCustomDifficulty(jmcwcCustomDifficulty);
+  wrap.innerHTML = JMCWC_CUSTOM_DIFFICULTIES.map(
+    (d) => `
+      <label class="jmcwc-custom-difficulty-option">
+        <input type="radio" name="jmcwc-custom-difficulty" value="${d.key}" ${d.key === jmcwcCustomDifficulty ? 'checked' : ''} />
+        <span><strong>${escapeHtml(d.label)}</strong><small>${escapeHtml(d.hint)}</small></span>
+      </label>`
+  ).join('');
+  wrap.querySelectorAll('input[name="jmcwc-custom-difficulty"]').forEach((inp) => {
+    inp.addEventListener('change', () => {
+      if (inp.checked) jmcwcCustomDifficulty = normalizeCustomDifficulty(inp.value);
+      updateJmcwcCustomSummary();
+    });
+  });
 }
 
 function renderJmcwcCustomBuilderList() {
@@ -3415,55 +3437,43 @@ function renderJmcwcCustomBuilderList() {
     updateJmcwcCustomSummary();
     return;
   }
+  const maxPer = jmcwcCustomOptions.max_per_sheet || JMCWC_CUSTOM_MAX_PER_SHEET;
   list.innerHTML = cats
     .map((cat, catIdx) => {
-      const title = formatJmcwcCategoryTitle(cat.category_key, jmcwcCategoriesList);
-      const heading = formatJmcwcSheetHeadingLine(cat.category_key, title);
-      const levels = cat.levels
-        .map((lvl) => {
-          const key = customCountKey(cat.category_key, lvl.level);
-          const count = clampCustomCount(jmcwcCustomCounts[key]);
-          const inputId = `jmcwc-custom-count-${catIdx}-${lvl.level}`;
-          return `
-            <div class="jmcwc-custom-level">
-              <label for="${inputId}" style="font-weight: 700;">Level ${lvl.level}</label>
-              <span class="num">${escapeHtml(formatCustomLevelPoints(lvl))}</span>
-              <span class="jmcwc-custom-sample num" title="${escapeHtml(lvl.sample_prompt || '')}">${lvl.sample_prompt ? `e.g. ${escapeHtml(lvl.sample_prompt)}` : ''}</span>
-              <span class="jmcwc-custom-stepper">
-                <button type="button" class="btn btn-outline btn-sm" data-custom-step="-1" data-custom-key="${escapeHtml(key)}" aria-label="Fewer ${escapeHtml(title)} level ${lvl.level} questions">−</button>
-                <input id="${inputId}" type="number" class="form-input num" min="0" max="${JMCWC_CUSTOM_MAX_PER_LEVEL}" step="1" inputmode="numeric" value="${count}" data-custom-key="${escapeHtml(key)}" aria-label="${escapeHtml(title)} level ${lvl.level} question count" />
-                <button type="button" class="btn btn-outline btn-sm" data-custom-step="1" data-custom-key="${escapeHtml(key)}" aria-label="More ${escapeHtml(title)} level ${lvl.level} questions">+</button>
-              </span>
-            </div>`;
-        })
-        .join('');
+      const key = cat.category_key;
+      const title = formatJmcwcCategoryTitle(key, jmcwcCategoriesList);
+      const heading = formatJmcwcSheetHeadingLine(key, title);
+      const count = clampSheetCount(jmcwcCustomCounts[key]);
+      const inputId = `jmcwc-custom-count-${catIdx}`;
+      const official = Number(cat.official_questions) || 0;
       return `
-        <section class="jmcwc-custom-cat" data-custom-cat="${escapeHtml(cat.category_key)}">
-          <div class="jmcwc-custom-cat-head">
-            <div>
-              <strong>${escapeHtml(title)}</strong>
-              <div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(heading)} · ${cat.levels.length} ${cat.levels.length === 1 ? 'level' : 'levels'}</div>
-            </div>
-            <span class="badge badge-neutral num" data-custom-cat-summary="${escapeHtml(cat.category_key)}"></span>
+        <section class="jmcwc-custom-cat jmcwc-custom-sheet" data-custom-cat="${escapeHtml(key)}">
+          <div>
+            <label for="${inputId}" style="font-weight: 700;">${escapeHtml(title)}</label>
+            <div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(heading)}${official ? ` · ${official} questions in the paper` : ''}</div>
           </div>
-          ${levels}
+          <span class="jmcwc-custom-stepper">
+            <button type="button" class="btn btn-outline btn-sm" data-custom-step="-1" data-custom-key="${escapeHtml(key)}" aria-label="Fewer ${escapeHtml(title)} questions">−</button>
+            <input id="${inputId}" type="number" class="form-input num" min="0" max="${maxPer}" step="1" inputmode="numeric" value="${count}" data-custom-key="${escapeHtml(key)}" aria-label="${escapeHtml(title)} question count" />
+            <button type="button" class="btn btn-outline btn-sm" data-custom-step="1" data-custom-key="${escapeHtml(key)}" aria-label="More ${escapeHtml(title)} questions">+</button>
+          </span>
         </section>`;
     })
     .join('');
 
   list.querySelectorAll('input[data-custom-key]').forEach((inp) => {
     inp.addEventListener('input', () => {
-      jmcwcCustomCounts[inp.getAttribute('data-custom-key')] = clampCustomCount(inp.value);
+      jmcwcCustomCounts[inp.getAttribute('data-custom-key')] = clampSheetCount(inp.value);
       updateJmcwcCustomSummary();
     });
     inp.addEventListener('change', () => {
-      inp.value = String(clampCustomCount(inp.value));
+      inp.value = String(clampSheetCount(inp.value));
     });
   });
   list.querySelectorAll('button[data-custom-step]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const key = btn.getAttribute('data-custom-key');
-      const next = clampCustomCount((Number(jmcwcCustomCounts[key]) || 0) + Number(btn.getAttribute('data-custom-step')));
+      const next = clampSheetCount((Number(jmcwcCustomCounts[key]) || 0) + Number(btn.getAttribute('data-custom-step')));
       jmcwcCustomCounts[key] = next;
       const inp = list.querySelector(`input[data-custom-key="${CSS.escape(key)}"]`);
       if (inp) inp.value = String(next);
@@ -3473,36 +3483,34 @@ function renderJmcwcCustomBuilderList() {
   updateJmcwcCustomSummary();
 }
 
+function getJmcwcCustomDifficultyLabel(key) {
+  return JMCWC_CUSTOM_DIFFICULTIES.find((d) => d.key === key)?.label || '';
+}
+
 function updateJmcwcCustomSummary() {
   const cats = jmcwcCustomOptions?.categories || [];
-  const summary = summarizeCustomCounts(cats, jmcwcCustomCounts);
+  const summary = summarizeSheetCounts(cats, jmcwcCustomCounts);
   const summaryEl = document.getElementById('jmcwc-custom-summary');
   const startBtn = document.getElementById('btn-jmcwc-custom-start');
   const maxQ = jmcwcCustomOptions?.max_questions || JMCWC_CUSTOM_MAX_QUESTIONS;
   if (summaryEl) {
     summaryEl.textContent = summary.over_limit
       ? `${summary.questions} questions: the limit is ${maxQ}. Lower some counts.`
-      : `${summary.questions} ${summary.questions === 1 ? 'question' : 'questions'} in ${summary.categories} ${summary.categories === 1 ? 'category' : 'categories'} · ${summary.points_label} points`;
+      : `${summary.questions} ${summary.questions === 1 ? 'question' : 'questions'} in ${summary.sheets} ${summary.sheets === 1 ? 'sheet' : 'sheets'} · ${getJmcwcCustomDifficultyLabel(jmcwcCustomDifficulty)}`;
   }
   if (startBtn) startBtn.disabled = summary.questions === 0 || summary.over_limit || jmcwcCustomSubmitting;
-  for (const cat of cats) {
-    const badge = document.querySelector(`[data-custom-cat-summary="${CSS.escape(cat.category_key)}"]`);
-    if (!badge) continue;
-    const catSummary = summarizeCustomCounts([cat], jmcwcCustomCounts);
-    badge.textContent = `${catSummary.questions} q · ${catSummary.points_label} pts`;
-  }
 }
 
-function applyJmcwcCustomPreset(perLevel) {
+function applyJmcwcCustomPreset(perSheet) {
   if (!jmcwcCustomOptions) return;
-  jmcwcCustomCounts = buildDefaultCustomCounts(jmcwcCustomOptions.categories, perLevel);
+  jmcwcCustomCounts = buildDefaultSheetCounts(jmcwcCustomOptions.categories, perSheet);
   renderJmcwcCustomBuilderList();
 }
 
 async function startJmcwcCustomSet() {
   if (!jmcwcCustomOptions || jmcwcCustomSubmitting) return;
-  const selections = buildCustomSelections(jmcwcCustomOptions.categories, jmcwcCustomCounts);
-  if (selections.length === 0) return;
+  const request = buildCustomSheetRequest(jmcwcCustomOptions.categories, jmcwcCustomCounts, jmcwcCustomDifficulty);
+  if (request.sheets.length === 0) return;
   const saved = loadSavedJmcwcCustomRun();
   if (saved && !window.confirm('Starting a new custom set replaces your unfinished one. Continue?')) return;
   const startBtn = document.getElementById('btn-jmcwc-custom-start');
@@ -3513,11 +3521,12 @@ async function startJmcwcCustomSet() {
   }
   showJmcwcCustomError('jmcwc-custom-builder-error', '');
   try {
-    const data = await callJmcwcApi({ action: 'custom_create', selections });
+    const data = await callJmcwcApi({ action: 'custom_create', ...request });
     const set = data.custom_set;
     jmcwcCustomRun = {
       token: set.token,
       group_key: set.group_key,
+      difficulty: set.difficulty || request.difficulty,
       issued_at: set.issued_at,
       max_marks: set.max_marks,
       questions: set.questions,
@@ -3584,7 +3593,7 @@ function openJmcwcCustomRunner() {
     progressId: 'jmcwc-custom-progress',
     selectId: 'select-jmcwc-custom-section',
     cellPrefix: 'custom-',
-    title: `Custom Set · ${formatJmcwcGroupLabel(jmcwcCustomRun.group_key)} · ${jmcwcCustomRun.max_marks} points`,
+    title: `Custom Set · ${formatJmcwcGroupLabel(jmcwcCustomRun.group_key)}${jmcwcCustomRun.difficulty ? ` · ${getJmcwcCustomDifficultyLabel(jmcwcCustomRun.difficulty)}` : ''} · ${jmcwcCustomRun.max_marks} points`,
     onAnswer: recordJmcwcCustomAnswer,
   });
   updateCellAnsweredState('', '', {

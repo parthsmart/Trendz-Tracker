@@ -339,6 +339,57 @@
         min-width: 34px;
         min-height: 34px;
       }
+      .jmcwc-custom-sheet {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: var(--space-3);
+        flex-wrap: wrap;
+      }
+      .jmcwc-custom-difficulty-fieldset {
+        border: 0;
+        padding: 0;
+        margin: 0 0 var(--space-4) 0;
+      }
+      .jmcwc-custom-difficulty-fieldset legend {
+        font-size: var(--text-xs);
+        font-weight: 700;
+        color: var(--text-muted);
+        margin-bottom: var(--space-2);
+      }
+      .jmcwc-custom-difficulty {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: var(--space-2);
+      }
+      .jmcwc-custom-difficulty-option {
+        display: flex;
+        gap: var(--space-2);
+        align-items: flex-start;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-md);
+        padding: var(--space-3);
+        cursor: pointer;
+        font-size: var(--text-sm);
+      }
+      .jmcwc-custom-difficulty-option:has(input:checked) {
+        border-color: var(--color-primary);
+        box-shadow: 0 0 0 1px var(--color-primary);
+      }
+      .jmcwc-custom-difficulty-option input {
+        margin-top: 3px;
+      }
+      .jmcwc-custom-difficulty-option small {
+        display: block;
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-top: 2px;
+      }
+      @media (max-width: 640px) {
+        .jmcwc-custom-difficulty {
+          grid-template-columns: 1fr;
+        }
+      }
       .jmcwc-custom-startbar {
         position: sticky;
         bottom: 0;
@@ -884,22 +935,27 @@
                   </div>
                   <h2 style="font-size: var(--text-lg); margin: 0;">Build a practice set</h2>
                   <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 4px 0 0 0;">
-                    Levels follow the official paper for your group, from easiest (fewest points) to hardest. Pick 0 to <span id="jmcwc-custom-max-per-level">10</span> questions per level.
+                    Choose how many questions you want on each sheet (0 to <span id="jmcwc-custom-max-per-sheet">20</span>) and a difficulty. Questions are picked at random and stay in the official paper order.
                   </p>
                 </div>
                 <button type="button" id="btn-jmcwc-custom-builder-back" class="btn btn-outline btn-sm">&larr; Back to Online Practice</button>
               </div>
 
+              <fieldset class="jmcwc-custom-difficulty-fieldset">
+                <legend>Difficulty</legend>
+                <div id="jmcwc-custom-difficulty" class="jmcwc-custom-difficulty" role="radiogroup" aria-label="Difficulty"></div>
+              </fieldset>
+
               <div style="display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; margin-bottom: var(--space-3);">
-                <span style="font-size: var(--text-xs); font-weight: 700; color: var(--text-muted);">Quick fill:</span>
-                <button type="button" class="btn btn-outline btn-sm" data-custom-preset="1">1 of each level</button>
-                <button type="button" class="btn btn-outline btn-sm" data-custom-preset="2">2 of each level</button>
+                <span style="font-size: var(--text-xs); font-weight: 700; color: var(--text-muted);">Every sheet:</span>
+                <button type="button" class="btn btn-outline btn-sm" data-custom-preset="5">5 questions</button>
+                <button type="button" class="btn btn-outline btn-sm" data-custom-preset="10">10 questions</button>
                 <button type="button" class="btn btn-ghost btn-sm" data-custom-preset="0">Clear all</button>
               </div>
 
               <div id="jmcwc-custom-builder-error" class="banner banner-warning" role="alert" style="display: none; margin-bottom: var(--space-3);"></div>
               <div id="jmcwc-custom-builder-list" class="jmcwc-custom-list" aria-live="polite">
-                <div style="font-size: var(--text-xs); color: var(--text-muted);">Loading levels…</div>
+                <div style="font-size: var(--text-xs); color: var(--text-muted);">Loading sheets…</div>
               </div>
 
               <div class="jmcwc-custom-startbar">
