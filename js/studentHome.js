@@ -91,6 +91,7 @@ const TILES = [
   { id: 'student-elements', label: 'Elements', icon: '🧩' },
   { id: 'student-memoriad', label: 'Memoriad', icon: '🧠' },
   { id: 'student-oral-rounds', label: 'Oral Rounds', icon: '🗣️' },
+  { id: 'student-simple', label: 'Simple', icon: '🔢' },
   { id: 'student-round-scores', label: 'Main Round', icon: '🎯' },
   { id: 'student-weekly-test', label: 'Weekly Test', icon: '📝' },
   { id: 'student-leaderboard', label: 'Leaderboard', icon: '🏆' },
