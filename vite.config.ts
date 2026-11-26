@@ -132,6 +132,7 @@ export default defineConfig(({ command }) => {
           teachers: path.resolve(__dirname, 'pages/teachers.html'),
           liveClasses: path.resolve(__dirname, 'pages/live-classes.html'),
           liveRoom: path.resolve(__dirname, 'pages/live-room.html'),
+          myLiveClasses: path.resolve(__dirname, 'pages/my-live-classes.html'),
         },
       },
     },
