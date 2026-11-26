@@ -232,6 +232,83 @@ export function isSameEmail(a, b) {
   return left.includes('@') && left === clean(b);
 }
 
+/** Classes that use a Webinar.gg room and so take one of the plan's meeting slots. */
+const ROOM_CLASS_TYPES = ['live', 'stream'];
+const MAX_CLASS_MINUTES = 240;
+
+/** Meetings the Webinar.gg plan can run at once (WEBINAR_GG_MAX_LIVE_CLASSES, default 1). */
+export function getMaxConcurrentClasses() {
+  const value = Number.parseInt(process.env.WEBINAR_GG_MAX_LIVE_CLASSES || '', 10);
+  return Number.isInteger(value) && value > 0 ? value : 1;
+}
+
+/** "4:00 PM" in IST. */
+function formatClockIST(ms) {
+  const d = new Date(ms + 330 * 60_000);
+  const h = d.getUTCHours();
+  return `${h % 12 || 12}:${String(d.getUTCMinutes()).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
+/**
+ * Room classes still to run whose time overlaps [startMs, endMs).
+ * Pure so it can be tested; `rows` come from live_classes.
+ */
+export function findOverlappingClasses(rows, startMs, endMs, excludeId = null) {
+  return (rows || []).filter((row) => {
+    if (!row || row.id === excludeId) return false;
+    if (!ROOM_CLASS_TYPES.includes(row.class_type || 'live')) return false;
+    if (['ended', 'cancelled'].includes(row.status) || ['ended', 'completed'].includes(row.provider_status)) return false;
+    const rowStart = new Date(row.scheduled_start_time).getTime();
+    if (!Number.isFinite(rowStart)) return false;
+    const rowEnd = rowStart + (Number(row.duration_minutes) || 60) * 60_000;
+    return rowStart < endMs && startMs < rowEnd;
+  });
+}
+
+/** Message shown when the plan's meeting slots are already booked for that time. */
+export function describeClassConflict(conflict, max = 1) {
+  const start = new Date(conflict.scheduled_start_time).getTime();
+  const end = start + (Number(conflict.duration_minutes) || 60) * 60_000;
+  const limit = max === 1 ? 'one live class at a time' : `${max} live classes at a time`;
+  return `"${conflict.title || 'Another live class'}" is already booked from ${formatClockIST(start)} to ${formatClockIST(end)} IST. ` +
+    `The Webinar.gg plan runs ${limit}, so pick a time that doesn't overlap.`;
+}
+
+/**
+ * Other room classes Webinar.gg confirms are running now. Rows still marked live after the
+ * provider ended them are closed here. A failed lookup does not block the start
+ * (Webinar.gg still refuses a meeting over the plan's limit).
+ */
+async function findRunningClasses(supabase, excludeId, fetchImpl) {
+  try {
+    const { data, error } = await supabase
+      .from('live_classes')
+      .select('id, title, webinar_id, class_type, status, provider_status')
+      .or('status.eq.live,provider_status.eq.ongoing');
+    if (error || !Array.isArray(data)) return [];
+    const running = [];
+    for (const row of data) {
+      if (row.id === excludeId || !ROOM_CLASS_TYPES.includes(row.class_type || 'live') ||
+          ['ended', 'cancelled'].includes(row.status)) continue;
+      const providerStatus = await fetchProviderWebinarStatus(row.webinar_id, fetchImpl);
+      if (providerStatus === 'ongoing') {
+        running.push(row);
+      } else if (providerStatus === 'completed' || providerStatus === 'ended') {
+        try {
+          await supabase.from('live_classes')
+            .update({ status: 'ended', provider_status: providerStatus, updated_at: new Date().toISOString() })
+            .eq('id', row.id);
+        } catch {
+          // Tidying a stale row is best effort; it is ignored for this start either way.
+        }
+      }
+    }
+    return running;
+  } catch {
+    return [];
+  }
+}
+
 function isTeacherStartable(liveClass) {
   return (liveClass.class_type || 'live') === 'live' &&
     !['ended', 'cancelled'].includes(liveClass.status) &&
@@ -721,6 +798,20 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           return res.status(403).json({ error: 'Unauthorized role for live class access.', code: 'UNAUTHORIZED_ROLE' });
         }
 
+        // Starting a room while the plan's meeting slots are in use fails inside Webinar.gg; say which class is running.
+        if (isHost && ROOM_CLASS_TYPES.includes(liveClass.class_type || 'live') && providerStatus !== 'ongoing') {
+          const running = await findRunningClasses(supabase, liveClass.id, fetchImpl);
+          if (running.length >= getMaxConcurrentClasses()) {
+            return res.status(409).json({
+              error: `"${running[0].title || 'Another live class'}" is still live. The Webinar.gg plan runs ` +
+                `${getMaxConcurrentClasses() === 1 ? 'one live class at a time' : `${getMaxConcurrentClasses()} live classes at a time`}, ` +
+                'so end that class in Webinar.gg first, then start this one.',
+              code: 'ANOTHER_CLASS_LIVE',
+              conflictClassId: running[0].id,
+            });
+          }
+        }
+
         // Mint short-lived join token server-to-server
         const tokenData = await mintWebinarJoinToken({
           webinarId: liveClass.webinar_id,
@@ -932,6 +1023,29 @@ export async function handleLiveClassRequest(req, res, options = {}) {
             if (eligible.length !== (hasLevel ? 1 : ids.length)) {
               return res.status(400).json({ error: 'Choose a level with active students or select active students from the roster.', code: 'INVALID_AUDIENCE' });
             }
+          }
+        }
+
+        // The Webinar.gg plan runs a limited number of meetings at once, and every room is on that account.
+        if (ROOM_CLASS_TYPES.includes(class_type)) {
+          const startMs = startsAt.getTime();
+          const endMs = startMs + duration * 60_000;
+          const { data: nearby, error: nearbyError } = await supabase
+            .from('live_classes')
+            .select('id, title, class_type, status, provider_status, scheduled_start_time, duration_minutes')
+            .gte('scheduled_start_time', new Date(startMs - MAX_CLASS_MINUTES * 60_000).toISOString())
+            .lt('scheduled_start_time', new Date(endMs).toISOString());
+          if (nearbyError) {
+            return res.status(500).json({ error: 'Could not check the class schedule. Try again.', code: 'SCHEDULE_CHECK_FAILED' });
+          }
+          const max = getMaxConcurrentClasses();
+          const overlapping = findOverlappingClasses(nearby, startMs, endMs);
+          if (overlapping.length >= max) {
+            return res.status(409).json({
+              error: describeClassConflict(overlapping[0], max),
+              code: 'CLASS_TIME_CONFLICT',
+              conflictClassId: overlapping[0].id,
+            });
           }
         }
 
