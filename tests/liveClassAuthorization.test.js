@@ -1813,6 +1813,39 @@ test('14. Live class scheduling validates staff and student audiences and create
   assert.equal(joinTokenRequests.length, tokenRequestsBefore + 1);
   assert.equal(joinTokenRequests.at(-1).email, teacherCohostEmail);
   assert.equal(joinTokenRequests.at(-1).passcode, 'room-pass');
+
+  // With the owner account configured, the teacher and the admin start the room as the owner (host):
+  // co-host video never reaches the attendee broadcast.
+  process.env.WEBINAR_GG_HOST_EMAIL = 'Owner@Premium.example';
+  process.env.WEBINAR_GG_HOST_NAME = '  Trendz   Academy Owner ';
+  try {
+    const invitesBeforeOwner = cohostInvites.length;
+    const ownerTeacherRoom = await runApi(`token-${teacherProfile.id}`, { action: 'get_class_details', classId: teacherAssigned.jsonResult.class.id });
+    assert.equal(ownerTeacherRoom.jsonResult.class.isHost, true);
+    assert.equal(ownerTeacherRoom.jsonResult.class.hostDashboardUrl, 'https://webinar.gg/webinar-page/wgg-tch-101');
+    assert.equal(ownerTeacherRoom.jsonResult.class.hostingDisabled, false);
+    assert.equal(cohostInvites.length, invitesBeforeOwner, 'owner mode skips co-host setup');
+    const ownerTeacherStart = await runApi(`token-${teacherProfile.id}`, { action: 'join', classId: teacherAssigned.jsonResult.class.id });
+    assert.equal(ownerTeacherStart.jsonResult.isHost, true);
+    assert.deepEqual(
+      (({ firstName, lastName, email, passcode }) => ({ firstName, lastName, email, passcode }))(joinTokenRequests.at(-1)),
+      { firstName: 'Trendz', lastName: 'Academy Owner', email: 'Owner@Premium.example', passcode: 'room-pass' },
+    );
+    const ownerAdminRoom = await runApi(`token-${adminProfile2.id}`, { action: 'get_class_details', classId: teacherAssigned.jsonResult.class.id });
+    assert.equal(ownerAdminRoom.jsonResult.class.isHost, true);
+    assert.equal(ownerAdminRoom.jsonResult.class.isHostIdentityMismatch, false);
+    const ownerAdminStart = await runApi(`token-${adminProfile2.id}`, { action: 'join', classId: teacherAssigned.jsonResult.class.id });
+    assert.equal(ownerAdminStart.statusCode, 200);
+    assert.equal(joinTokenRequests.at(-1).email, 'Owner@Premium.example');
+    const ownerStudentJoin = await runApi(`token-${studentProfile.id}`, { action: 'join', classId: teacherAssigned.jsonResult.class.id });
+    if (ownerStudentJoin.statusCode === 200) {
+      assert.equal(ownerStudentJoin.jsonResult.isHost, false);
+      assert.notEqual(joinTokenRequests.at(-1).email, 'Owner@Premium.example');
+    }
+  } finally {
+    delete process.env.WEBINAR_GG_HOST_EMAIL;
+    delete process.env.WEBINAR_GG_HOST_NAME;
+  }
   failCohostPolicy = true;
   const blockedTeacherRoom = await runApi(`token-${teacherProfile.id}`, { action: 'get_class_details', classId: teacherAssigned.jsonResult.class.id });
   assert.equal(blockedTeacherRoom.jsonResult.class.hostDashboardUrl, null);
