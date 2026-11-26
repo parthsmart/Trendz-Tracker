@@ -6,7 +6,9 @@ import {
   buildCustomSelections,
   buildDefaultCustomCounts,
   buildPaperResultModel,
+  buildPaperRowDisplay,
   buildPaperSheetModel,
+  getPaperSubheadingLines,
   clampCustomCount,
   customCountKey,
   formatCustomLevelPoints,
@@ -37,10 +39,63 @@ describe('JMCWC paper-style worksheet model', () => {
     assert.deepEqual(paper.sheets[0].questions.map((q) => q.number), [1, 2]);
     assert.equal(paper.sheets[0].total_value, 7);
     assert.equal(paper.sheets[0].answered_count, 1);
-    assert.equal(paper.sheets[1].heading.note, 'The answers are integer numbers');
+    assert.deepEqual(paper.sheets[1].heading.lines, ['Die Antworten sind ganzzahlig / The answers are integer numbers']);
     assert.equal(paper.total_value, 13);
     assert.equal(paper.question_count, 3);
     assert.equal(paper.answered_count, 1, 'blank answers are not answered');
+  });
+
+  it('shows only what the workbook row prints', () => {
+    const d = (k, p) => buildPaperRowDisplay(k, p);
+    assert.equal(d('prime_factors', 'Prime factorisation of 144:').text, '144');
+    assert.equal(d('sum_squares', 'Express 89 as the sum of 2 to 4 nonzero positive integer squares:').text, '89');
+    assert.equal(d('hcf_lcm', 'HCF(165, 60) =').text, '165,   60');
+    assert.equal(d('subtraction', '837 − 177 =').text, '837 – 177 =');
+    assert.deepEqual(d('multiplication', '66 × 41 =').rows, [
+      { op: '', value: '66' },
+      { op: '×', value: '41' },
+    ]);
+    assert.deepEqual(
+      d('mixed', '271 − 140 + 207 =').rows.map((r) => r.op),
+      ['', '–', '+']
+    );
+    assert.equal(d('approximation', 'Approximate 102.31 × 0.36983 to the nearest integer:').text, '102.31  ×  0.36983  =');
+    const ratio = d('ratio', 'Find x: 48 : 960 = 336 : x');
+    assert.equal(ratio.text, '48 ÷ 960 = 336 ÷ X');
+    assert.equal(ratio.suffix, 'X  =');
+    assert.equal(d('remainder', 'Remainder when 995 is divided by 3:').text, '995 ÷ 3 =');
+    assert.equal(d('cube_root', '∛1728 =').text, '³√1728 =');
+    assert.equal(d('inexact_square_root', '√44 (to 1 decimal place) =').text, '√44   mit / to  1  Nachkommastelle / d.p.');
+    assert.deepEqual(d('next_square', 'Next perfect square strictly greater than 423:').lines, [
+      'Welche ist die nächste Quadratzahl nach',
+      'What is the next exact square after 423 ?',
+    ]);
+    assert.equal(d('calendar', 'What day of the week is 18 February 2062?').text, '18 Februar(y) 2062');
+    assert.equal(d('calendar', 'Fill in an appropriate month: 5 [ ? ] 2080 = Wednesday').text, '5  ____  2080  =  Wednesday/Mittwoch');
+    assert.equal(
+      d('elapsed_time', 'Time elapsed from 16:09:03 on 16 July 2010 to 17:49:03 on 16 July 2010 (in seconds):').text,
+      'von/from  16:09:03  am/on  16 July/Juli 2010  bis/to  17:49:03  am/on  16 July/Juli 2010'
+    );
+    assert.equal(d('division', 'Find the missing digit (?): 7?3 ÷ 7 = 109').text, 'Find the missing digit (?): 7?3 ÷ 7 = 109');
+  });
+
+  it('adds workbook sub-headings with the question range of each block', () => {
+    const sections = buildJmcwcSectionedQuestions([
+      { id: 'h1', category_key: 'hcf_lcm', slot: 1, max_marks: 4, prompt: 'HCF(165, 60) =' },
+      { id: 'h2', category_key: 'hcf_lcm', slot: 2, max_marks: 4, prompt: 'HCF(540, 450) =' },
+      { id: 'h3', category_key: 'hcf_lcm', slot: 3, max_marks: 5, prompt: 'LCM(12, 18) =' },
+    ]);
+    const qs = buildPaperSheetModel(sections, {}).sheets[0].questions;
+    assert.deepEqual(qs[0].display.subheading, [
+      'Für Q 1-2, finde den größten gemeinsamen Teiler der beiden Zahlen',
+      'For Q 1-2, find the highest common factor for the two numbers',
+    ]);
+    assert.equal(qs[1].display.subheading, undefined);
+    assert.equal(qs[2].display.subheading[1], 'For Q 3 find the lowest common multiple of the two numbers');
+    assert.deepEqual(getPaperSubheadingLines('sf:4', 7, 10), [
+      'Für Q7-10 gib die Antwort auf vier signifikante Stellen an.',
+      'For Q7-10, give the answer to four significant figures.',
+    ]);
   });
 
   it('builds the Excel-style result with marks to be corrected per sheet', () => {

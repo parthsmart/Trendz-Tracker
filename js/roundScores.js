@@ -2759,8 +2759,12 @@ function renderWorksheetGridView(state, sectionQuestions, currentQ, opts = {}) {
         .map((q) => {
           const rawVal = state.answers?.[q.question_key] ?? '';
           const spec = describeQuestionInputSpec(q);
-          // Inline like the workbook row: "5230 + 2960 =" then the answer box.
-          const mathHtml = formatWorksheetMathPromptHtml(String(q.prompt || '').trim(), { stack: false });
+          // Only what the workbook row prints; explanations live in the sheet heading.
+          const mathHtml = renderPaperRowPromptHtml(q);
+          const subheadHtml =
+            q.display?.subheading?.length > 0
+              ? `<div class="jmcwc-paper-subhead">${q.display.subheading.map((line) => `<p>${escapeHtml(line)}</p>`).join('')}</div>`
+              : '';
           const qLabel = `Question ${q.number}`;
           let inputHtml = '';
           if (spec.kind === 'day_of_week') {
@@ -2803,7 +2807,7 @@ function renderWorksheetGridView(state, sectionQuestions, currentQ, opts = {}) {
                 autocomplete="off" spellcheck="false" aria-label="${escapeHtml(`${qLabel}: ${spec.ariaLabel}`)}" />
               ${tokensHtml}`;
           }
-          return `
+          return `${subheadHtml}
             <div class="jmcwc-worksheet-cell jmcwc-paper-row ${q.answered ? 'is-answered' : ''}" id="jmcwc-qcell-${cellPrefix}${q.question_key}">
               <span class="jmcwc-paper-no num">${q.number}.</span>
               <span class="jmcwc-paper-prompt num">${mathHtml}</span>
@@ -2812,7 +2816,7 @@ function renderWorksheetGridView(state, sectionQuestions, currentQ, opts = {}) {
             </div>`;
         })
         .join('');
-      const note = sheet.heading.note ? `<p class="jmcwc-paper-note">${escapeHtml(sheet.heading.note)}</p>` : '';
+      const note = (sheet.heading.lines || []).map((line) => `<p class="jmcwc-paper-note">${escapeHtml(line)}</p>`).join('');
       return `
         <section class="jmcwc-paper-sheet" data-sheet-order="${sheet.section_order}" aria-labelledby="jmcwc-sheet-h-${cellPrefix}${sheet.section_order}">
           <header class="jmcwc-paper-sheet-head">
@@ -2899,6 +2903,30 @@ function renderWorksheetGridView(state, sectionQuestions, currentQ, opts = {}) {
       }
     });
   });
+}
+
+/** One workbook row's prompt cell, from buildPaperRowDisplay (js/jmcwcPaper.js). */
+function renderPaperRowPromptHtml(q) {
+  const d = q.display;
+  if (!d) return formatWorksheetMathPromptHtml(String(q.prompt || '').trim(), { stack: false });
+  const aria = escapeHtml(String(q.prompt || ''));
+  if (d.kind === 'stack') {
+    const rows = d.rows
+      .map(
+        (r) =>
+          `<div class="jmcwc-stacked-row"><span class="jmcwc-stacked-op">${escapeHtml(r.op)}</span><span class="jmcwc-stacked-num">${escapeHtml(r.value)}</span></div>`
+      )
+      .join('');
+    return `<div class="jmcwc-stacked-math" role="math" aria-label="${aria}">${rows}<div class="jmcwc-stacked-line"></div><div class="jmcwc-stacked-row jmcwc-stacked-eq"><span class="jmcwc-stacked-op">=</span><span class="jmcwc-stacked-num"></span></div></div>`;
+  }
+  if (d.kind === 'lines') {
+    return `<span class="jmcwc-paper-lines" aria-label="${aria}">${d.lines
+      .map((line) => `<span>${escapeHtml(line)}</span>`)
+      .join('')}</span>`;
+  }
+  const body = d.math ? formatWorksheetMathPromptHtml(d.text, { stack: false }) : escapeHtml(d.text);
+  const suffix = d.suffix ? `<span class="jmcwc-paper-suffix">${escapeHtml(d.suffix)}</span>` : '';
+  return `<span class="jmcwc-paper-text" aria-label="${aria}">${body}</span>${suffix}`;
 }
 
 function updateCellAnsweredState(qKey, value, opts = {}) {
