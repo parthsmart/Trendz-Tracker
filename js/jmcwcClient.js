@@ -175,6 +175,41 @@ export function formatJmcwcCategoryTitle(catKey, categoriesList = []) {
   return cleanKey.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
 }
 
+/** Group flat public questions into category sections for the paper renderer. */
+export function buildJmcwcSectionedQuestions(rawQuestions) {
+  if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) return [];
+  if (Array.isArray(rawQuestions[0]?.questions)) return rawQuestions;
+
+  const byCat = new Map();
+  const sections = [];
+  for (let i = 0; i < rawQuestions.length; i += 1) {
+    const q = rawQuestions[i];
+    const catKey = q.category_key || 'category';
+    let sec = byCat.get(catKey);
+    if (!sec) {
+      const catReadable = formatJmcwcCategoryTitle(catKey);
+      sec = {
+        section_order: sections.length + 1,
+        category_slug: catKey,
+        display_name: q.category_label || catReadable,
+        category_name: q.category_label || catReadable,
+        questions: [],
+      };
+      byCat.set(catKey, sec);
+      sections.push(sec);
+    }
+    sec.questions.push({
+      ...q,
+      question_key: q.id,
+      question_index: q.slot ?? sec.questions.length + 1,
+      category_name: sec.category_name,
+      marks: q.max_marks,
+      prompt: formatJmcwcQuestionPrompt(q),
+    });
+  }
+  return sections;
+}
+
 /**
  * Formats milliseconds into `H:MM:SS` or `M:SS` for timers and cards.
  */
@@ -2005,37 +2040,7 @@ export function createJmcwcRunnerController({
   }
 
   function buildSectionedQuestions(rawQuestions) {
-    if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) return [];
-    if (Array.isArray(rawQuestions[0]?.questions)) return rawQuestions;
-
-    const byCat = new Map();
-    const sections = [];
-    for (let i = 0; i < rawQuestions.length; i += 1) {
-      const q = rawQuestions[i];
-      const catKey = q.category_key || 'category';
-      let sec = byCat.get(catKey);
-      if (!sec) {
-        const catReadable = formatJmcwcCategoryTitle(catKey);
-        sec = {
-          section_order: sections.length + 1,
-          category_slug: catKey,
-          display_name: q.category_label || catReadable,
-          category_name: q.category_label || catReadable,
-          questions: [],
-        };
-        byCat.set(catKey, sec);
-        sections.push(sec);
-      }
-      sec.questions.push({
-        ...q,
-        question_key: q.id,
-        question_index: q.slot ?? sec.questions.length + 1,
-        category_name: sec.category_name,
-        marks: q.max_marks,
-        prompt: formatJmcwcQuestionPrompt(q),
-      });
-    }
-    return sections;
+    return buildJmcwcSectionedQuestions(rawQuestions);
   }
 
   function getSnapshot() {

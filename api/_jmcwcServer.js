@@ -24,6 +24,15 @@
  */
 
 import { generateQuestionsFromBlueprint, toPublicQuestions } from './_jmcwcGenerate.js';
+import {
+  buildCustomOptions,
+  CUSTOM_MAX_PER_LEVEL,
+  CUSTOM_MAX_QUESTIONS,
+  generateCustomSet,
+  normalizeCustomSelections,
+  openCustomSet,
+  sealCustomSet,
+} from './_jmcwcCustom.js';
 import { grade } from './_jmcwcGrade.js';
 import { JMCWC_CATEGORY_KEYS, JMCWC_GROUPS as JMCWC_GROUP_KEYS } from './_jmcwcMath.js';
 import {
@@ -61,6 +70,9 @@ const STUDENT_ACTIONS = new Set([
   'heartbeat',
   'pause',
   'submit',
+  'custom_options',
+  'custom_create',
+  'custom_grade',
 ]);
 
 const ADMIN_ACTIONS = new Set([
@@ -531,6 +543,9 @@ export function createJmcwcServer({
   getSupabaseAdmin = () => getAdminClient(),
   rateLimiter = createJmcwcRateLimiter(),
   seedGenerator = null,
+  getCustomSetSecret = () =>
+    process.env.JMCWC_CUSTOM_SET_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+  nowFn = () => Date.now(),
 } = {}) {
   /**
    * Fetch private questions for an attempt from `jmcwc_payloads`.
@@ -2060,6 +2075,144 @@ export function createJmcwcServer({
   }
 
   // ==========================================================================
+  // Custom practice sets (revision-workbook style, practice only, no DB writes)
+  // ==========================================================================
+
+  async function loadCustomPracticeContext(supabase, studentId) {
+    const { data: assignedGroup, error: checkErr } = await supabase.rpc('jmcwc_check_student', {
+      p_student: studentId,
+    });
+    if (checkErr) {
+      throw mapDatabaseErrorToHttp(checkErr);
+    }
+    const { data: paperRows, error: paperErr } = await supabase
+      .from('jmcwc_papers')
+      .select('id, group_key, version, spec, published, created_at')
+      .eq('group_key', assignedGroup)
+      .eq('published', true)
+      .order('created_at', { ascending: false })
+      .limit(1);
+    const paper = Array.isArray(paperRows) ? paperRows[0] : null;
+    if (paperErr || !paper || !paper.published || paper.group_key !== assignedGroup || !Array.isArray(paper.spec?.sections)) {
+      throw createHttpError(409, 'No published paper for your assigned group.', 'NO_PUBLISHED_PAPER');
+    }
+    const accessRes = await fetchStudentEffectiveAccess(studentId, { supabase });
+    if (!accessRes || accessRes.ok === false) {
+      throw createHttpError(
+        503,
+        accessRes?.error || 'Failed to verify practice access. Please try again.',
+        'PRACTICE_ACCESS_LOOKUP_FAILED'
+      );
+    }
+    if (accessRes.main_round_eligible === false || accessRes.settings?.main_round?.eligible === false) {
+      throw createHttpError(
+        403,
+        'You are not currently eligible for Main Round competition practice.',
+        'PRACTICE_ACCESS_RESTRICTED'
+      );
+    }
+    const roundRule = accessRes.settings?.main_round;
+    return {
+      groupKey: assignedGroup,
+      paper,
+      allowedCategory: (key) => isMainRoundCategoryAllowed(key, roundRule, true),
+    };
+  }
+
+  async function handleStudentCustomOptions(supabase, studentId) {
+    const ctx = await loadCustomPracticeContext(supabase, studentId);
+    return {
+      group_key: ctx.groupKey,
+      paper_version: ctx.paper.version,
+      max_per_level: CUSTOM_MAX_PER_LEVEL,
+      max_questions: CUSTOM_MAX_QUESTIONS,
+      categories: buildCustomOptions(ctx.paper.spec, { allowedCategory: ctx.allowedCategory }),
+    };
+  }
+
+  async function handleStudentCustomCreate(supabase, studentId, body) {
+    const ctx = await loadCustomPracticeContext(supabase, studentId);
+    const normalized = normalizeCustomSelections(ctx.paper.spec, body?.selections, {
+      allowedCategory: ctx.allowedCategory,
+    });
+    const seed = typeof seedGenerator === 'function' ? seedGenerator({ studentId, requestId: 'custom' }) : null;
+    const generated = generateCustomSet(ctx.paper.spec, normalized, { seed });
+    const issuedAt = nowFn();
+    const token = sealCustomSet(
+      {
+        studentId,
+        groupKey: ctx.groupKey,
+        paperId: ctx.paper.id,
+        privateQuestions: generated.privateQuestions,
+        issuedAt,
+      },
+      getCustomSetSecret()
+    );
+    return {
+      custom_set: {
+        token,
+        group_key: ctx.groupKey,
+        paper_version: ctx.paper.version,
+        issued_at: new Date(issuedAt).toISOString(),
+        max_marks: generated.total_max_marks,
+        questions: generated.publicQuestions,
+      },
+    };
+  }
+
+  async function handleStudentCustomGrade(supabase, studentId, body) {
+    const opened = openCustomSet(body?.token, getCustomSetSecret(), { studentId, nowMs: nowFn() });
+    const rawAnswers =
+      body?.answers && typeof body.answers === 'object' && !Array.isArray(body.answers) ? body.answers : {};
+    const questionIds = new Set(opened.privateQuestions.map((q) => String(q.id)));
+    const answers = {};
+    for (const [qId, raw] of Object.entries(rawAnswers)) {
+      if (!questionIds.has(qId)) continue;
+      let clean;
+      try {
+        clean = sanitizeAnswerPatchObject({ [qId]: raw })[qId];
+      } catch {
+        throw createHttpError(400, 'Invalid question or answer.', 'INVALID_REQUEST');
+      }
+      if (clean !== null && clean !== undefined) answers[qId] = clean;
+    }
+    const graded = gradeFrozenAttemptForFinalize(opened.privateQuestions, answers);
+    const itemsById = new Map(graded.items.map((it) => [it.question_id, it]));
+    const activeMs = Math.max(0, Math.min(Number(body?.active_ms) || 0, 24 * 60 * 60 * 1000));
+    const review = opened.privateQuestions.map((q) => {
+      const pub = toPublicQuestions([q])[0];
+      const it = itemsById.get(pub.id) || {};
+      return {
+        ...pub,
+        student_answer: Object.prototype.hasOwnProperty.call(answers, pub.id) ? answers[pub.id] : null,
+        award: Number(it.award ?? 0),
+        verdict: it.verdict || 'skipped',
+        expected: String(it.expected ?? ''),
+        explanation: String(it.explanation ?? ''),
+      };
+    });
+    return {
+      custom_result: {
+        group_key: opened.groupKey,
+        mode: 'custom',
+        status: 'submitted',
+        active_ms: Math.round(activeMs),
+        finished_at: new Date(nowFn()).toISOString(),
+        max_marks: graded.max_marks,
+        score: {
+          marks: graded.marks,
+          max_marks: graded.max_marks,
+          correct: graded.correct,
+          partial: graded.partial,
+          wrong: graded.wrong,
+          skipped: graded.skipped,
+        },
+        review,
+      },
+    };
+  }
+
+  // ==========================================================================
   // Main HTTP Request Handler
   // ==========================================================================
 
@@ -2172,6 +2325,15 @@ export function createJmcwcServer({
           break;
         case 'submit':
           result = await handleStudentSubmit(supabase, studentId, body);
+          break;
+        case 'custom_options':
+          result = await handleStudentCustomOptions(supabase, studentId);
+          break;
+        case 'custom_create':
+          result = await handleStudentCustomCreate(supabase, studentId, body);
+          break;
+        case 'custom_grade':
+          result = await handleStudentCustomGrade(supabase, studentId, body);
           break;
         default:
           throw createHttpError(400, 'Unknown action.', 'INVALID_REQUEST');

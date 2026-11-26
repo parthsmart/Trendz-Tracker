@@ -46,7 +46,22 @@ import {
   buildSubmittedReviewViewModel,
   formatOnlineAttemptsForRoundHistory,
   createJmcwcRunnerController,
+  buildJmcwcSectionedQuestions,
 } from './jmcwcClient.js';
+import {
+  JMCWC_CUSTOM_MAX_PER_LEVEL,
+  JMCWC_CUSTOM_MAX_QUESTIONS,
+  buildCustomSelections,
+  buildDefaultCustomCounts,
+  buildPaperResultModel,
+  buildPaperSheetModel,
+  clampCustomCount,
+  customCountKey,
+  formatCustomLevelPoints,
+  formatJmcwcSheetHeadingLine,
+  formatSheetCorrections,
+  summarizeCustomCounts,
+} from './jmcwcPaper.js';
 
 let currentProfile = null;
 let todayIST = '';
@@ -1892,6 +1907,8 @@ function renderJmcwcLandingState() {
     updateCatTargetPreview();
   }
 
+  renderJmcwcCustomLandingCard(Boolean(vm.canStartCategory));
+
   if (btnStartCat) {
     btnStartCat.disabled = !vm.canStartCategory || vm.categories.length === 0;
     btnStartCat.title = vm.categoryDisabledReason || (vm.categories.length === 0 ? 'No categories available' : 'Start category practice');
@@ -2211,6 +2228,11 @@ function showJmcwcSubview(subviewName) {
   if (landing) landing.style.display = subviewName === 'landing' ? 'block' : 'none';
   if (runner) runner.style.display = subviewName === 'runner' ? 'block' : 'none';
   if (review) review.style.display = subviewName === 'review' ? 'block' : 'none';
+  const customBuilder = document.getElementById('jmcwc-subview-custom-builder');
+  const customRunner = document.getElementById('jmcwc-subview-custom-runner');
+  if (customBuilder) customBuilder.style.display = subviewName === 'custom-builder' ? 'block' : 'none';
+  if (customRunner) customRunner.style.display = subviewName === 'custom-runner' ? 'block' : 'none';
+  if (subviewName !== 'custom-runner') stopJmcwcCustomTimer();
 }
 
 function ensureJmcwcRunnerInstance() {
@@ -2246,16 +2268,15 @@ let jmcwcHeartbeatTimerId = null;
 let jmcwcDisplayTimerId = null;
 let jmcwcIsHeartbeatInFlight = false;
 let jmcwcIsExpiryInFlight = false;
-let jmcwcRunnerViewMode = 'worksheet'; // 'worksheet' | 'single'
 let jmcwcRenderedWorksheetKey = null;
 
-function formatWorksheetMathPromptHtml(promptStr) {
+function formatWorksheetMathPromptHtml(promptStr, { stack = true } = {}) {
   if (!promptStr) return '';
 
   // Check if prompt is a pure stacked arithmetic problem ending in =
   // (Addition, Subtraction, Mixed adds/subs, Multiplication)
   const trimmed = String(promptStr).trim();
-  if (/^(\d+)(\s*[\+\−\-\×\*]\s*\d+)+\s*=\s*$/.test(trimmed)) {
+  if (stack && /^(\d+)(\s*[\+\−\-\×\*]\s*\d+)+\s*=\s*$/.test(trimmed)) {
     const rawWithoutEqual = trimmed.replace(/\s*=\s*$/, '').trim();
     const tokenRegex = /([\+\−\-\×\*])?\s*(\d+)/g;
     const rows = [];
@@ -2628,11 +2649,15 @@ function renderActiveRunnerQuestionWorkspace(state) {
   if (jmcwcCurrentQuestionIndex < 0 || jmcwcCurrentQuestionIndex >= allQuestions.length) {
     jmcwcCurrentQuestionIndex = 0;
   }
-
   const currentQ = allQuestions[jmcwcCurrentQuestionIndex];
-  jmcwcCurrentSectionOrder = currentQ.section_order;
+  if (!sections.some((s) => s.section_order === jmcwcCurrentSectionOrder)) {
+    jmcwcCurrentSectionOrder = currentQ.section_order;
+  }
 
-  // 1. Category section dropdown (visible when > 1 section)
+  // The online paper follows the official simulator workbook: every category is
+  // a sheet on one long paper, with points beside each question.
+
+  // Sheet jump list (visible when the paper has more than one sheet)
   const navWrap = document.getElementById('jmcwc-runner-category-nav-wrap');
   const sectionSelect = document.getElementById('select-jmcwc-runner-section');
   if (navWrap && sectionSelect) {
@@ -2640,313 +2665,213 @@ function renderActiveRunnerQuestionWorkspace(state) {
       navWrap.style.display = 'none';
     } else {
       navWrap.style.display = 'block';
-      sectionSelect.innerHTML = sections
-        .map((sec) => {
-          const secQs = Array.isArray(sec.questions) ? sec.questions : [];
-          const secAnswered = secQs.filter((q) => {
-            const v = state.answers?.[q.question_key];
-            return v !== undefined && v !== null && String(v).trim() !== '';
-          }).length;
-          return `
-          <option value="${sec.section_order}" ${sec.section_order === jmcwcCurrentSectionOrder ? 'selected' : ''}>
-            Section ${sec.section_order}: ${escapeHtml(sec.display_name || sec.category_slug)} (${secAnswered}/${secQs.length} answered)
-          </option>
-        `;
-        })
-        .join('');
-
+      syncPaperSheetSelect(sectionSelect, sections, state.answers);
       sectionSelect.onchange = () => {
         const targetSecOrder = Number(sectionSelect.value);
-        const firstIdx = allQuestions.findIndex((q) => q.section_order === targetSecOrder);
-        if (firstIdx >= 0) {
-          jmcwcCurrentQuestionIndex = firstIdx;
-          jmcwcRenderedWorksheetKey = null;
-          renderActiveRunnerQuestionWorkspace(jmcwcRunner.getState());
-        }
+        jmcwcCurrentSectionOrder = targetSecOrder;
+        scrollToPaperSheet('jmcwc-worksheet-grid', targetSecOrder);
       };
     }
   }
 
-  // 2. Question pills for the current section
-  const pillsContainer = document.getElementById('jmcwc-runner-question-pills');
-  const sectionQuestions = allQuestions
-    .map((q, globalIdx) => ({ ...q, globalIdx }))
-    .filter((q) => q.section_order === jmcwcCurrentSectionOrder);
+  renderWorksheetGridView(state, allQuestions, currentQ);
+}
 
-  if (pillsContainer) {
-    pillsContainer.innerHTML = sectionQuestions
-      .map((q) => {
-        const rawAns = state.answers?.[q.question_key];
-        const isAnswered = rawAns !== undefined && rawAns !== null && String(rawAns).trim() !== '';
-        const isCurrent = q.globalIdx === jmcwcCurrentQuestionIndex;
-        return `
-        <button
-          type="button"
-          class="btn ${isCurrent ? 'btn-primary' : isAnswered ? 'btn-secondary' : 'btn-outline'} btn-sm num"
-          data-global-q-idx="${q.globalIdx}"
-          data-q-key="${q.question_key}"
-          aria-label="Question ${q.question_index} (${isAnswered ? 'Answered' : 'Unanswered'}), ${q.marks} ${q.marks === 1 ? 'mark' : 'marks'}"
-          aria-current="${isCurrent ? 'step' : 'false'}"
-          style="min-width: 40px; min-height: 36px; font-weight: 700;"
-        >
-          ${q.question_index}${isAnswered ? ' ✓' : ''}
-        </button>
-      `;
-      })
-      .join('');
-
-    pillsContainer.querySelectorAll('[data-global-q-idx]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        jmcwcCurrentQuestionIndex = Number(btn.getAttribute('data-global-q-idx')) || 0;
-        if (jmcwcRunnerViewMode === 'worksheet') {
-          const qKey = btn.getAttribute('data-q-key');
-          const targetInp = document.querySelector(`.jmcwc-sheet-input[data-q-key="${qKey}"]`);
-          if (targetInp) {
-            targetInp.focus();
-            targetInp.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          }
-        } else {
-          renderActiveRunnerQuestionWorkspace(jmcwcRunner.getState());
-        }
-      });
-    });
-  }
-
-  // 3. View Switcher buttons
-  const btnViewWorksheet = document.getElementById('btn-jmcwc-view-worksheet');
-  const btnViewSingle = document.getElementById('btn-jmcwc-view-single');
-  const worksheetView = document.getElementById('jmcwc-runner-worksheet-view');
-  const singleView = document.getElementById('jmcwc-runner-single-card-view');
-
-  if (btnViewWorksheet && btnViewSingle && worksheetView && singleView) {
-    btnViewWorksheet.onclick = () => {
-      jmcwcRunnerViewMode = 'worksheet';
-      btnViewWorksheet.className = 'btn btn-primary btn-sm';
-      btnViewSingle.className = 'btn btn-ghost btn-sm';
-      worksheetView.style.display = 'block';
-      singleView.style.display = 'none';
-      jmcwcRenderedWorksheetKey = null;
-      renderActiveRunnerQuestionWorkspace(jmcwcRunner.getState());
-    };
-    btnViewSingle.onclick = () => {
-      jmcwcRunnerViewMode = 'single';
-      btnViewSingle.className = 'btn btn-primary btn-sm';
-      btnViewWorksheet.className = 'btn btn-ghost btn-sm';
-      worksheetView.style.display = 'none';
-      singleView.style.display = 'block';
-      jmcwcRenderedWorksheetKey = null;
-      renderActiveRunnerQuestionWorkspace(jmcwcRunner.getState());
-    };
-
-    if (jmcwcRunnerViewMode === 'worksheet') {
-      btnViewWorksheet.className = 'btn btn-primary btn-sm';
-      btnViewSingle.className = 'btn btn-ghost btn-sm';
-      worksheetView.style.display = 'block';
-      singleView.style.display = 'none';
-    } else {
-      btnViewSingle.className = 'btn btn-primary btn-sm';
-      btnViewWorksheet.className = 'btn btn-ghost btn-sm';
-      worksheetView.style.display = 'none';
-      singleView.style.display = 'block';
-    }
-  }
-
-  // 4. Render or update Worksheet Grid View vs Single Card View
-  if (jmcwcRunnerViewMode === 'worksheet') {
-    renderWorksheetGridView(state, sectionQuestions, currentQ);
-  } else {
-    renderSingleCardView(state, allQuestions, currentQ);
+function syncPaperSheetSelect(selectEl, sections, answers) {
+  const html = sections
+    .map((sec) => {
+      const secQs = Array.isArray(sec.questions) ? sec.questions : [];
+      const secAnswered = secQs.filter((q) => {
+        const v = answers?.[q.question_key];
+        return v !== undefined && v !== null && String(v).trim() !== '';
+      }).length;
+      const heading = formatJmcwcSheetHeadingLine(sec.category_slug, sec.display_name);
+      return `<option value="${sec.section_order}" ${sec.section_order === jmcwcCurrentSectionOrder ? 'selected' : ''}>Sheet ${sec.section_order}: ${escapeHtml(heading)} (${secAnswered}/${secQs.length})</option>`;
+    })
+    .join('');
+  // Avoid resetting an open dropdown on every heartbeat.
+  if (selectEl.dataset.renderedHtml !== html) {
+    selectEl.innerHTML = html;
+    selectEl.dataset.renderedHtml = html;
   }
 }
 
-function renderWorksheetGridView(state, sectionQuestions, currentQ) {
-  const titleEl = document.getElementById('jmcwc-sheet-section-title');
-  const badgeEl = document.getElementById('jmcwc-sheet-answered-badge');
-  const gridEl = document.getElementById('jmcwc-worksheet-grid');
+function scrollToPaperSheet(gridId, sectionOrder) {
+  const gridEl = document.getElementById(gridId);
+  const sheet = gridEl?.querySelector(`[data-sheet-order="${sectionOrder}"]`);
+  if (!sheet) return;
+  sheet.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const firstInput = sheet.querySelector('.jmcwc-sheet-input');
+  if (firstInput) firstInput.focus({ preventScroll: true });
+}
+
+function renderWorksheetGridView(state, sectionQuestions, currentQ, opts = {}) {
+  const gridId = opts.gridId || 'jmcwc-worksheet-grid';
+  const titleEl = document.getElementById(opts.titleId || 'jmcwc-sheet-section-title');
+  const badgeEl = document.getElementById(opts.badgeId || 'jmcwc-sheet-answered-badge');
+  const gridEl = document.getElementById(gridId);
   if (!gridEl) return;
+  const cellPrefix = opts.cellPrefix || '';
+  const onAnswer = opts.onAnswer || ((qKey, value) => jmcwcRunner.recordAnswer(qKey, value));
 
-  const activeSec = state.questions.find((s) => s.section_order === jmcwcCurrentSectionOrder);
-  const secName = activeSec
-    ? activeSec.display_name || activeSec.category_slug
-    : currentQ.category_name;
+  const paper = buildPaperSheetModel(state.questions, state.answers);
   if (titleEl) {
-    titleEl.textContent = `Section ${jmcwcCurrentSectionOrder}: ${secName}`;
+    const onlySection = paper.sheets.length === 1 ? state.questions[0] : null;
+    const onlyName = onlySection ? onlySection.display_name || onlySection.category_slug || '' : '';
+    titleEl.textContent =
+      opts.title ||
+      (onlySection
+        ? onlyName && !paper.sheets[0].heading_line.includes(onlyName)
+          ? `${onlyName} · ${paper.sheets[0].heading_line}`
+          : paper.sheets[0].heading_line
+        : `${paper.sheets.length} sheets · ${paper.question_count} questions`);
   }
-
-  const answeredInSec = sectionQuestions.filter((q) => {
-    const v = state.answers?.[q.question_key];
-    return v !== undefined && v !== null && String(v).trim() !== '';
-  }).length;
   if (badgeEl) {
-    badgeEl.textContent = `${answeredInSec} / ${sectionQuestions.length} answered`;
+    badgeEl.textContent = `${paper.answered_count} / ${paper.question_count} answered`;
   }
 
-  // If section already rendered, do NOT rebuild innerHTML to avoid destroying input elements / focus!
-  // Section 1 occurs in every category attempt. Reuse DOM only for the same
-  // attempt and immutable question content, never merely the same section number.
+  // Reuse the DOM for the same attempt and immutable question content so typing
+  // never replaces a focused input. Rebuild for any other attempt or paper.
   const worksheetKey = JSON.stringify([
+    gridId,
     state.attempt?.id,
-    jmcwcCurrentSectionOrder,
-    activeSec?.category_slug,
-    sectionQuestions.map(q => [q.question_key, q.category_slug, q.prompt, q.input, q.marks]),
+    paper.sheets.map((sh) => [sh.key, sh.section_order, sh.questions.map((q) => [q.question_key, q.prompt, q.input, q.marks])]),
   ]);
-  if (jmcwcRenderedWorksheetKey === worksheetKey && gridEl.children.length > 0) {
-    for (const q of sectionQuestions) {
-      const rawAns = state.answers?.[q.question_key];
-      const isAns = rawAns !== undefined && rawAns !== null && String(rawAns).trim() !== '';
-      const cell = document.getElementById(`jmcwc-qcell-${q.question_key}`);
-      const chip = document.getElementById(`chip-q-${q.question_key}`);
-      if (cell) cell.classList.toggle('is-answered', isAns);
-      if (chip) {
-        chip.textContent = isAns ? 'Answered' : 'Unanswered';
-        chip.className = isAns ? 'status-chip chip-done' : 'status-chip chip-unverified';
+  const isMainGrid = gridId === 'jmcwc-worksheet-grid';
+  const renderedKey = isMainGrid ? jmcwcRenderedWorksheetKey : gridEl.dataset?.paperKey;
+  if (renderedKey === worksheetKey && gridEl.children.length > 0) {
+    for (const sheet of paper.sheets) {
+      for (const q of sheet.questions) {
+        const cell = document.getElementById(`jmcwc-qcell-${cellPrefix}${q.question_key}`);
+        if (cell) cell.classList.toggle('is-answered', q.answered);
       }
+      const sheetBadge = document.getElementById(`jmcwc-sheet-badge-${cellPrefix}${sheet.section_order}`);
+      if (sheetBadge) sheetBadge.textContent = `${sheet.answered_count} / ${sheet.questions.length} answered`;
     }
     return;
   }
+  if (isMainGrid) jmcwcRenderedWorksheetKey = worksheetKey;
+  else if (gridEl.dataset) gridEl.dataset.paperKey = worksheetKey;
 
-  jmcwcRenderedWorksheetKey = worksheetKey;
-
-  // Build grid HTML for all questions in this section
-  gridEl.innerHTML = sectionQuestions
-    .map((q, idx) => {
-      const rawVal = state.answers?.[q.question_key] ?? '';
-      const isAns = String(rawVal).trim() !== '';
-      const spec = describeQuestionInputSpec(q);
-      const mathHtml = formatWorksheetMathPromptHtml(q.prompt);
-
-      let inputHtml = '';
-      if (spec.kind === 'day_of_week') {
-        inputHtml = `
-          <select
-            class="form-select jmcwc-sheet-input num"
-            data-q-idx="${idx}"
-            data-q-key="${q.question_key}"
-            aria-label="${escapeHtml(spec.ariaLabel)}"
-            style="min-height: 40px; font-weight: 600;"
-          >
-            <option value="">-- Select day --</option>
-            ${spec.options
-              .map(
-                (day) => `
-              <option value="${escapeHtml(day)}" ${
-                String(rawVal).trim().toLowerCase() === day.toLowerCase() ? 'selected' : ''
-              }>
-                ${escapeHtml(day)}
-              </option>
-            `
-              )
-              .join('')}
-          </select>
-        `;
-      } else if (spec.kind === 'multi_value') {
-        const parts = splitMultiValueRaw(rawVal, spec.slotCount);
-        inputHtml = `
-          <div style="display: flex; gap: 4px;">
-            ${parts
-              .map(
-                (pVal, pIdx) => `
-              <input
-                type="text"
-                class="form-input num jmcwc-sheet-input jmcwc-sheet-multi-sub"
-                data-q-idx="${idx}"
-                data-q-key="${q.question_key}"
-                data-slot-idx="${pIdx}"
-                inputmode="${escapeHtml(spec.inputMode)}"
-                placeholder="Val ${pIdx + 1}"
-                value="${escapeHtml(pVal)}"
-                autocomplete="off"
-                spellcheck="false"
-                aria-label="Question ${q.question_index} value ${pIdx + 1}"
-                style="min-height: 40px; font-weight: 600;"
-              />
-            `
-              )
-              .join('')}
-          </div>
-        `;
-      } else {
-        const tokensHtml =
-          spec.quickInsertTokens && spec.quickInsertTokens.length > 0
-            ? `<div style="display: flex; gap: 4px; margin-top: 4px;">
-                ${spec.quickInsertTokens
+  const sheetsHtml = paper.sheets
+    .map((sheet) => {
+      const rowsHtml = sheet.questions
+        .map((q) => {
+          const rawVal = state.answers?.[q.question_key] ?? '';
+          const spec = describeQuestionInputSpec(q);
+          // Inline like the workbook row: "5230 + 2960 =" then the answer box.
+          const mathHtml = formatWorksheetMathPromptHtml(String(q.prompt || '').trim(), { stack: false });
+          const qLabel = `Question ${q.number}`;
+          let inputHtml = '';
+          if (spec.kind === 'day_of_week') {
+            inputHtml = `
+              <select class="form-select jmcwc-sheet-input num" data-q-key="${q.question_key}" aria-label="${escapeHtml(`${qLabel}: ${spec.ariaLabel}`)}">
+                <option value="">Select day</option>
+                ${spec.options
                   .map(
-                    (t) =>
-                      `<button type="button" class="jmcwc-token-btn" data-q-key="${q.question_key}" data-token="${escapeHtml(t)}">${escapeHtml(t)}</button>`
+                    (day) =>
+                      `<option value="${escapeHtml(day)}" ${String(rawVal).trim().toLowerCase() === day.toLowerCase() ? 'selected' : ''}>${escapeHtml(day)}</option>`
                   )
                   .join('')}
-              </div>`
-            : '';
-
-        inputHtml = `
-          <input
-            type="text"
-            class="form-input num jmcwc-sheet-input"
-            data-q-idx="${idx}"
-            data-q-key="${q.question_key}"
-            inputmode="${escapeHtml(spec.inputMode)}"
-            placeholder="${escapeHtml(spec.placeholder)}"
-            value="${escapeHtml(String(rawVal))}"
-            autocomplete="off"
-            spellcheck="false"
-            aria-label="${escapeHtml(spec.ariaLabel)}"
-            style="min-height: 40px; font-size: 15px; font-weight: 700;"
-          />
-          ${tokensHtml}
-        `;
-      }
-
+              </select>`;
+          } else if (spec.kind === 'multi_value') {
+            const parts = splitMultiValueRaw(rawVal, spec.slotCount);
+            inputHtml = `
+              <div class="jmcwc-paper-multi">
+                ${parts
+                  .map(
+                    (pVal, pIdx) => `
+                  <input type="text" class="form-input num jmcwc-sheet-input jmcwc-sheet-multi-sub" data-q-key="${q.question_key}" data-slot-idx="${pIdx}"
+                    inputmode="${escapeHtml(spec.inputMode)}" value="${escapeHtml(pVal)}" autocomplete="off" spellcheck="false"
+                    aria-label="${escapeHtml(`${qLabel} value ${pIdx + 1}`)}" />`
+                  )
+                  .join('<span class="jmcwc-paper-plus" aria-hidden="true">,</span>')}
+              </div>`;
+          } else {
+            const tokensHtml =
+              spec.quickInsertTokens && spec.quickInsertTokens.length > 0
+                ? `<div class="jmcwc-paper-tokens">${spec.quickInsertTokens
+                    .map(
+                      (t) =>
+                        `<button type="button" class="jmcwc-token-btn" data-q-key="${q.question_key}" data-token="${escapeHtml(t)}" aria-label="Insert ${escapeHtml(t)}">${escapeHtml(t)}</button>`
+                    )
+                    .join('')}</div>`
+                : '';
+            inputHtml = `
+              <input type="text" class="form-input num jmcwc-sheet-input" data-q-key="${q.question_key}"
+                inputmode="${escapeHtml(spec.inputMode)}" placeholder="${escapeHtml(spec.placeholder)}" value="${escapeHtml(String(rawVal))}"
+                autocomplete="off" spellcheck="false" aria-label="${escapeHtml(`${qLabel}: ${spec.ariaLabel}`)}" />
+              ${tokensHtml}`;
+          }
+          return `
+            <div class="jmcwc-worksheet-cell jmcwc-paper-row ${q.answered ? 'is-answered' : ''}" id="jmcwc-qcell-${cellPrefix}${q.question_key}">
+              <span class="jmcwc-paper-no num">${q.number}.</span>
+              <span class="jmcwc-paper-prompt num">${mathHtml}</span>
+              <span class="jmcwc-paper-answer">${inputHtml}</span>
+              <span class="jmcwc-paper-points num" title="Points">${escapeHtml(String(q.marks))}</span>
+            </div>`;
+        })
+        .join('');
+      const note = sheet.heading.note ? `<p class="jmcwc-paper-note">${escapeHtml(sheet.heading.note)}</p>` : '';
       return `
-        <div class="jmcwc-worksheet-cell ${isAns ? 'is-answered' : ''}" id="jmcwc-qcell-${q.question_key}">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-            <div style="display: flex; align-items: center; gap: 6px;">
-              <strong style="font-size: 13px;">#${q.question_index}</strong>
+        <section class="jmcwc-paper-sheet" data-sheet-order="${sheet.section_order}" aria-labelledby="jmcwc-sheet-h-${cellPrefix}${sheet.section_order}">
+          <header class="jmcwc-paper-sheet-head">
+            <div>
+              <h3 id="jmcwc-sheet-h-${cellPrefix}${sheet.section_order}" class="jmcwc-paper-heading">${escapeHtml(sheet.heading_line)}</h3>
+              ${note}
             </div>
-            <div style="display: flex; align-items: center; gap: 6px;">
-              <span class="status-chip ${isAns ? 'chip-done' : 'chip-unverified'}" id="chip-q-${q.question_key}">
-                ${isAns ? 'Answered' : 'Unanswered'}
-              </span>
-              <span class="badge badge-neutral num" style="font-size: 11px;">${q.marks}m</span>
-            </div>
+            <span class="badge badge-neutral num" id="jmcwc-sheet-badge-${cellPrefix}${sheet.section_order}">${sheet.answered_count} / ${sheet.questions.length} answered</span>
+          </header>
+          <div class="jmcwc-paper-colhead" aria-hidden="true">
+            <span></span><span></span><span></span><span>Punkte / Points</span>
           </div>
-
-          <div class="num" style="font-size: 16px; font-weight: 700; color: var(--text-main); margin-bottom: 8px; font-variant-numeric: tabular-nums;">
-            ${mathHtml}
+          ${rowsHtml}
+          <div class="jmcwc-paper-total">
+            <span>Total value</span>
+            <strong class="num">${escapeHtml(String(sheet.total_value))}</strong>
           </div>
-
-          <div>
-            ${inputHtml}
-          </div>
-        </div>
-      `;
+        </section>`;
     })
     .join('');
 
-  // Wire event handlers for the inputs in the worksheet
+  gridEl.innerHTML = `${sheetsHtml}
+    <footer class="jmcwc-paper-footer">
+      <span>Total value of this paper</span>
+      <strong class="num">${escapeHtml(String(paper.total_value))} points · ${paper.question_count} questions</strong>
+    </footer>`;
+
+  const refreshAnswered = (qKey, value) => updateCellAnsweredState(qKey, value, { gridId, cellPrefix });
   const allSheetInputs = Array.from(gridEl.querySelectorAll('.jmcwc-sheet-input'));
   allSheetInputs.forEach((inp) => {
     const qKey = inp.getAttribute('data-q-key');
-
     if (inp.tagName === 'SELECT') {
       inp.addEventListener('change', () => {
-        jmcwcRunner.recordAnswer(qKey, inp.value);
-        updateCellAnsweredState(qKey, inp.value);
+        onAnswer(qKey, inp.value);
+        refreshAnswered(qKey, inp.value);
       });
     } else if (inp.classList.contains('jmcwc-sheet-multi-sub')) {
       const parentCell = inp.closest('.jmcwc-worksheet-cell');
       const subInputs = Array.from(parentCell.querySelectorAll('.jmcwc-sheet-multi-sub'));
       inp.addEventListener('input', () => {
         const joined = joinMultiValueRaw(subInputs.map((s) => s.value));
-        jmcwcRunner.recordAnswer(qKey, joined);
-        updateCellAnsweredState(qKey, joined);
+        onAnswer(qKey, joined);
+        refreshAnswered(qKey, joined);
       });
     } else {
       inp.addEventListener('input', () => {
-        jmcwcRunner.recordAnswer(qKey, inp.value);
-        updateCellAnsweredState(qKey, inp.value);
+        onAnswer(qKey, inp.value);
+        refreshAnswered(qKey, inp.value);
       });
     }
-
+    inp.addEventListener('focus', () => {
+      const sheetEl = inp.closest('[data-sheet-order]');
+      const order = Number(sheetEl?.getAttribute('data-sheet-order'));
+      if (order && order !== jmcwcCurrentSectionOrder) {
+        jmcwcCurrentSectionOrder = order;
+        const sel = document.getElementById(opts.selectId || 'select-jmcwc-runner-section');
+        if (sel) sel.value = String(order);
+      }
+    });
     // Keyboard navigation: Enter or ArrowDown moves to next; ArrowUp moves to previous
     inp.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === 'ArrowDown') {
@@ -2961,7 +2886,6 @@ function renderWorksheetGridView(state, sectionQuestions, currentQ) {
     });
   });
 
-  // Wire quick token buttons
   gridEl.querySelectorAll('.jmcwc-token-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       const qKey = btn.getAttribute('data-q-key');
@@ -2976,235 +2900,27 @@ function renderWorksheetGridView(state, sectionQuestions, currentQ) {
   });
 }
 
-function updateCellAnsweredState(qKey, value) {
+function updateCellAnsweredState(qKey, value, opts = {}) {
+  const cellPrefix = opts.cellPrefix || '';
+  const gridEl = document.getElementById(opts.gridId || 'jmcwc-worksheet-grid');
   const isAns = value !== undefined && value !== null && String(value).trim() !== '';
-  const cell = document.getElementById(`jmcwc-qcell-${qKey}`);
-  const chip = document.getElementById(`chip-q-${qKey}`);
+  const cell = document.getElementById(`jmcwc-qcell-${cellPrefix}${qKey}`);
   if (cell) cell.classList.toggle('is-answered', isAns);
-  if (chip) {
-    chip.textContent = isAns ? 'Answered' : 'Unanswered';
-    chip.className = isAns ? 'status-chip chip-done' : 'status-chip chip-unverified';
+  const sheetEl = cell?.closest('[data-sheet-order]');
+  if (sheetEl) {
+    const order = sheetEl.getAttribute('data-sheet-order');
+    const sheetBadge = document.getElementById(`jmcwc-sheet-badge-${cellPrefix}${order}`);
+    const total = sheetEl.querySelectorAll('.jmcwc-worksheet-cell').length;
+    const answered = sheetEl.querySelectorAll('.jmcwc-worksheet-cell.is-answered').length;
+    if (sheetBadge) sheetBadge.textContent = `${answered} / ${total} answered`;
   }
-  const pillBtn = document.querySelector(`#jmcwc-runner-question-pills [data-q-key="${qKey}"]`);
-  if (pillBtn) {
-    const qNum = pillBtn.textContent.replace(/[^\d]/g, '');
-    pillBtn.textContent = `${qNum}${isAns ? ' ✓' : ''}`;
-  }
-  const progressText = document.getElementById('jmcwc-runner-progress-text');
-  if (progressText && jmcwcRunner) {
-    const counts = jmcwcRunner.getAnswerCounts();
-    progressText.textContent = `${counts.answeredCount} / ${counts.totalCount} answered`;
-  }
-  const badgeEl = document.getElementById('jmcwc-sheet-answered-badge');
-  if (badgeEl) {
-    const totalInSec = document.querySelectorAll('.jmcwc-worksheet-cell').length;
-    const ansInSec = document.querySelectorAll('.jmcwc-worksheet-cell.is-answered').length;
-    badgeEl.textContent = `${ansInSec} / ${totalInSec} answered`;
-  }
-}
-
-function renderSingleCardView(state, allQuestions, currentQ) {
-  const secLabel = document.getElementById('jmcwc-q-section-label');
-  const numLabel = document.getElementById('jmcwc-q-number-label');
-  const ansChip = document.getElementById('jmcwc-q-answered-chip');
-  const marksBadge = document.getElementById('jmcwc-q-marks-badge');
-  const promptEl = document.getElementById('jmcwc-q-prompt');
-  const inputContainer = document.getElementById('jmcwc-q-input-container');
-  const hintEl = document.getElementById('jmcwc-q-input-hint');
-
-  const rawValue = state.answers?.[currentQ.question_key] ?? '';
-  const isAnswered = String(rawValue).trim() !== '';
-
-  if (secLabel) secLabel.textContent = `Section ${currentQ.section_order} · ${currentQ.category_name}`;
-  if (numLabel) numLabel.textContent = `Question ${currentQ.question_index}`;
-  if (ansChip) {
-    ansChip.textContent = isAnswered ? 'Answered' : 'Unanswered';
-    ansChip.className = isAnswered ? 'status-chip chip-done' : 'status-chip chip-unverified';
-  }
-  if (marksBadge) {
-    marksBadge.textContent = `${currentQ.marks} ${currentQ.marks === 1 ? 'mark' : 'marks'}`;
-  }
-  if (promptEl) {
-    promptEl.innerHTML = formatWorksheetMathPromptHtml(currentQ.prompt || '');
-  }
-
-  const spec = describeQuestionInputSpec(currentQ);
-  if (hintEl) {
-    hintEl.textContent = spec.helperText || '';
-  }
-
-  if (inputContainer) {
-    if (spec.kind === 'day_of_week') {
-      inputContainer.innerHTML = `
-        <label for="jmcwc-active-answer-input" class="form-label">${escapeHtml(spec.ariaLabel)}</label>
-        <select
-          id="jmcwc-active-answer-input"
-          class="form-select"
-          aria-label="${escapeHtml(spec.ariaLabel)}"
-          style="max-width: 320px; min-height: 44px; font-weight: 600;"
-        >
-          <option value="">-- Select day of week (or leave blank to skip) --</option>
-          ${spec.options
-            .map(
-              (day) => `
-            <option value="${escapeHtml(day)}" ${
-              String(rawValue).trim().toLowerCase() === day.toLowerCase() ? 'selected' : ''
-            }>
-              ${escapeHtml(day)}
-            </option>
-          `
-            )
-            .join('')}
-        </select>
-      `;
-      const sel = document.getElementById('jmcwc-active-answer-input');
-      sel?.addEventListener('change', () => {
-        jmcwcRunner.recordAnswer(currentQ.question_key, sel.value);
-        updateQuestionChipInPlace(currentQ, sel.value);
-      });
-      sel?.focus();
-    } else if (spec.kind === 'multi_value') {
-      const parts = splitMultiValueRaw(rawValue, spec.slotCount);
-      inputContainer.innerHTML = `
-        <fieldset style="border: none; padding: 0; margin: 0;">
-          <legend class="form-label" style="margin-bottom: var(--space-2);">${escapeHtml(spec.ariaLabel)}</legend>
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--space-2);">
-            ${parts
-              .map(
-                (partVal, idx) => `
-              <div>
-                <label for="jmcwc-multi-slot-${idx}" style="font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 2px;">
-                  Value ${idx + 1}
-                </label>
-                <input
-                  type="text"
-                  id="jmcwc-multi-slot-${idx}"
-                  class="form-input num jmcwc-multi-input"
-                  data-slot-idx="${idx}"
-                  inputmode="${escapeHtml(spec.inputMode)}"
-                  placeholder="${escapeHtml(spec.placeholder)}"
-                  value="${escapeHtml(partVal)}"
-                  autocomplete="off"
-                  spellcheck="false"
-                  aria-label="Question ${currentQ.question_index} value ${idx + 1} of ${spec.slotCount}"
-                  style="min-height: 44px; font-size: var(--text-base); font-weight: 600;"
-                />
-              </div>
-            `
-              )
-              .join('')}
-          </div>
-        </fieldset>
-      `;
-      const multiInputs = Array.from(inputContainer.querySelectorAll('.jmcwc-multi-input'));
-      const syncMulti = () => {
-        const currentValues = multiInputs.map((inp) => inp.value);
-        const joined = joinMultiValueRaw(currentValues);
-        jmcwcRunner.recordAnswer(currentQ.question_key, joined);
-        updateQuestionChipInPlace(currentQ, joined);
-      };
-      multiInputs.forEach((inp, idx) => {
-        inp.addEventListener('input', syncMulti);
-        inp.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            if (idx + 1 < multiInputs.length) {
-              multiInputs[idx + 1].focus();
-            } else {
-              navigateRunnerQuestion(1);
-            }
-          }
-        });
-      });
-      multiInputs[0]?.focus();
-    } else {
-      const tokensHtml =
-        spec.quickInsertTokens && spec.quickInsertTokens.length > 0
-          ? `<div style="display: flex; gap: 6px; margin-top: 6px;">
-              ${spec.quickInsertTokens
-                .map(
-                  (t) =>
-                    `<button type="button" class="jmcwc-token-btn" data-token="${escapeHtml(t)}">${escapeHtml(t)}</button>`
-                )
-                .join('')}
-            </div>`
-          : '';
-
-      inputContainer.innerHTML = `
-        <label for="jmcwc-active-answer-input" class="form-label">${escapeHtml(spec.ariaLabel)}</label>
-        <input
-          type="text"
-          id="jmcwc-active-answer-input"
-          class="form-input num"
-          inputmode="${escapeHtml(spec.inputMode)}"
-          placeholder="${escapeHtml(spec.placeholder)}"
-          value="${escapeHtml(String(rawValue))}"
-          autocomplete="off"
-          spellcheck="false"
-          aria-label="${escapeHtml(spec.ariaLabel)}"
-          style="max-width: 380px; min-height: 46px; font-size: var(--text-md); font-weight: 700;"
-        />
-        ${tokensHtml}
-      `;
-      const inp = document.getElementById('jmcwc-active-answer-input');
-      inp?.addEventListener('input', () => {
-        jmcwcRunner.recordAnswer(currentQ.question_key, inp.value);
-        updateQuestionChipInPlace(currentQ, inp.value);
-      });
-      inp?.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          navigateRunnerQuestion(1);
-        }
-      });
-      inputContainer.querySelectorAll('.jmcwc-token-btn').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          if (inp) {
-            inp.value += btn.getAttribute('data-token');
-            inp.dispatchEvent(new Event('input'));
-            inp.focus();
-          }
-        });
-      });
-      inp?.focus();
-    }
-  }
-
-  // Previous / Next buttons state
-  const btnPrev = document.getElementById('btn-jmcwc-q-prev');
-  const btnNext = document.getElementById('btn-jmcwc-q-next');
-  if (btnPrev) btnPrev.disabled = jmcwcCurrentQuestionIndex <= 0;
-  if (btnNext) btnNext.disabled = jmcwcCurrentQuestionIndex >= allQuestions.length - 1;
-}
-
-function updateQuestionChipInPlace(currentQ, rawVal) {
-  const isAnswered = rawVal !== undefined && rawVal !== null && String(rawVal).trim() !== '';
-  const ansChip = document.getElementById('jmcwc-q-answered-chip');
-  if (ansChip) {
-    ansChip.textContent = isAnswered ? 'Answered' : 'Unanswered';
-    ansChip.className = isAnswered ? 'status-chip chip-done' : 'status-chip chip-unverified';
-  }
-  const progressText = document.getElementById('jmcwc-runner-progress-text');
-  if (progressText && jmcwcRunner) {
-    const counts = jmcwcRunner.getAnswerCounts();
-    progressText.textContent = `${counts.answeredCount} / ${counts.totalCount} answered`;
-  }
-  const pillBtn = document.querySelector(`#jmcwc-runner-question-pills [data-global-q-idx="${jmcwcCurrentQuestionIndex}"]`);
-  if (pillBtn) {
-    pillBtn.textContent = `${currentQ.question_index}${isAnswered ? ' ✓' : ''}`;
-  }
-}
-
-function navigateRunnerQuestion(delta) {
-  if (!jmcwcRunner) return;
-  const st = jmcwcRunner.getState();
-  if (st.status !== 'running' || st.questionsHidden) return;
-  const allQuestions = getRunnerQuestionsInOrder(st);
-  const nextIdx = jmcwcCurrentQuestionIndex + delta;
-  if (nextIdx >= 0 && nextIdx < allQuestions.length) {
-    jmcwcCurrentQuestionIndex = nextIdx;
-    renderActiveRunnerQuestionWorkspace(st);
-  }
+  if (!gridEl) return;
+  const totalAll = gridEl.querySelectorAll('.jmcwc-worksheet-cell').length;
+  const answeredAll = gridEl.querySelectorAll('.jmcwc-worksheet-cell.is-answered').length;
+  const progressText = document.getElementById(opts.progressId || 'jmcwc-runner-progress-text');
+  if (progressText) progressText.textContent = `${answeredAll} / ${totalAll} answered`;
+  const badgeEl = document.getElementById(opts.badgeId || 'jmcwc-sheet-answered-badge');
+  if (badgeEl) badgeEl.textContent = `${answeredAll} / ${totalAll} answered`;
 }
 
 function isTakeoverConflict(err) {
@@ -3391,13 +3107,21 @@ function renderCompletedReviewView({ attempt, score, review_questions, targetSec
   const targetCompEl = document.getElementById('jmcwc-review-target-comparison');
   const tbody = document.getElementById('jmcwc-review-tbody');
 
+  const isCustom = vm.mode === 'custom';
   if (modeLabel) {
-    modeLabel.textContent = `${vm.groupLabel} · ${vm.mode === 'flat' ? 'Flat Round' : 'Category-wise'}`;
+    const modeText = vm.mode === 'flat' ? 'Flat Round' : isCustom ? 'Custom Set' : 'Category-wise';
+    modeLabel.textContent = `${vm.groupLabel} · ${modeText}`;
   }
   if (titleEl) {
     const datePart = vm.submittedAt ? ` (${formatDisplayDateIST(vm.submittedAt.slice(0, 10))})` : '';
-    titleEl.textContent = `Completed Attempt Review${datePart}`;
+    titleEl.textContent = isCustom
+      ? 'Custom Set Result (practice only, not saved)'
+      : `Completed Attempt Review${datePart}`;
   }
+
+  const sheetTitleMap = new Map(vm.questions.map((q) => [q.category_key, q.category_name]));
+  const paperResult = buildPaperResultModel(vm.questions, (key) => sheetTitleMap.get(key) || key);
+  renderPaperResultSummary(paperResult, vm.activeTimeFormatted);
   if (marksEl) {
     marksEl.textContent = `${vm.earnedMarks} / ${vm.maxMarks}`;
   }
@@ -3415,7 +3139,10 @@ function renderCompletedReviewView({ attempt, score, review_questions, targetSec
   }
 
   if (tbody) {
+    const sheetNumbers = new Map();
     tbody.innerHTML = vm.questions.map(q => {
+      const sheetNo = (sheetNumbers.get(q.category_key) || 0) + 1;
+      sheetNumbers.set(q.category_key, sheetNo);
       const verdictBadgeClass =
         q.verdict === 'correct'
           ? 'badge-active'
@@ -3426,7 +3153,7 @@ function renderCompletedReviewView({ attempt, score, review_questions, targetSec
               : 'badge-danger';
       return `
         <tr>
-          <td class="num" style="font-weight: 700;">#${q.index}</td>
+          <td class="num" style="font-weight: 700;">Q${sheetNo}</td>
           <td style="font-size: var(--text-xs); color: var(--text-muted);">${escapeHtml(q.category_name)}</td>
           <td class="num" style="font-weight: 600;">${escapeHtml(q.prompt)}</td>
           <td class="num">${q.submitted_raw ? escapeHtml(q.submitted_raw) : '<span style="color: var(--text-dim);">Skipped</span>'}</td>
@@ -3447,6 +3174,40 @@ function renderCompletedReviewView({ attempt, score, review_questions, targetSec
       `;
     }).join('');
   }
+}
+
+/** Excel-style footer from the revision workbook: time, total score, marks to correct, per sheet. */
+function renderPaperResultSummary(paperResult, activeTimeFormatted) {
+  const wrap = document.getElementById('jmcwc-review-paper-summary');
+  if (!wrap) return;
+  const fmt = (n) => (Number.isInteger(n) ? String(n) : Number(n).toFixed(1));
+  const rows = paperResult.sheets
+    .map(
+      (sheet) => `
+        <tr>
+          <td>
+            <div style="font-weight: 700;">${escapeHtml(sheet.title)}</div>
+            <div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(sheet.heading_line)}</div>
+          </td>
+          <td class="num" style="text-align: right; font-weight: 700;">${escapeHtml(sheet.earned_label)}</td>
+          <td class="num" style="font-size: var(--text-xs);">${escapeHtml(formatSheetCorrections(sheet))}</td>
+        </tr>`
+    )
+    .join('');
+  wrap.innerHTML = `
+    <div class="jmcwc-paper-result-footer">
+      <div><span>Total Time Taken</span><strong class="num">${escapeHtml(activeTimeFormatted || '')}</strong></div>
+      <div><span>Total Score</span><strong class="num">${escapeHtml(paperResult.total_score_label)}</strong></div>
+      <div><span>Marks To be Corrected</span><strong class="num">${escapeHtml(fmt(paperResult.marks_to_be_corrected))}</strong></div>
+    </div>
+    <div class="table-wrapper">
+      <table class="table">
+        <thead>
+          <tr><th>Sheet</th><th style="text-align: right;">Score / Total value</th><th>Questions to correct</th></tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
 }
 
 function openInlineModal(modalId) {
@@ -3489,6 +3250,433 @@ function openSubmitConfirmationModal(isPausedSubmit = false) {
   openInlineModal('jmcwc-submit-confirm-modal');
 }
 
+// ============================================================================
+// Custom practice set (revision workbook style). Practice only: the server
+// generates and grades the set statelessly; nothing is saved to history.
+// ============================================================================
+
+const JMCWC_CUSTOM_STORAGE_PREFIX = 'trendz.jmcwc.customSet.v1:';
+const JMCWC_CUSTOM_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+let jmcwcCustomOptions = null;
+let jmcwcCustomCounts = {};
+let jmcwcCustomRun = null;
+let jmcwcCustomTimerId = null;
+let jmcwcCustomSaveTimerId = null;
+let jmcwcCustomSubmitting = false;
+
+function getJmcwcCustomStorageKey() {
+  return `${JMCWC_CUSTOM_STORAGE_PREFIX}${currentProfile?.id || 'anon'}`;
+}
+
+function loadSavedJmcwcCustomRun() {
+  try {
+    const raw = window.localStorage.getItem(getJmcwcCustomStorageKey());
+    if (!raw) return null;
+    const saved = JSON.parse(raw);
+    const issuedMs = Date.parse(saved?.issued_at || '');
+    if (!saved?.token || !Array.isArray(saved.questions) || !Number.isFinite(issuedMs)) return null;
+    if (Date.now() - issuedMs > JMCWC_CUSTOM_TOKEN_TTL_MS) {
+      window.localStorage.removeItem(getJmcwcCustomStorageKey());
+      return null;
+    }
+    return saved;
+  } catch {
+    return null;
+  }
+}
+
+function persistJmcwcCustomRun() {
+  if (!jmcwcCustomRun) return;
+  try {
+    window.localStorage.setItem(getJmcwcCustomStorageKey(), JSON.stringify(jmcwcCustomRun));
+  } catch {
+    // Storage full or blocked: the set still works for this page load.
+  }
+}
+
+function clearSavedJmcwcCustomRun() {
+  try {
+    window.localStorage.removeItem(getJmcwcCustomStorageKey());
+  } catch {
+    // ignore
+  }
+}
+
+function getJmcwcCustomElapsedMs(run = jmcwcCustomRun) {
+  if (!run) return 0;
+  const running = run.resumed_at ? Date.now() - run.resumed_at : 0;
+  return Math.max(0, (Number(run.elapsed_ms) || 0) + running);
+}
+
+function renderJmcwcCustomLandingCard(canStart) {
+  const btnOpen = document.getElementById('btn-jmcwc-open-custom');
+  const btnResume = document.getElementById('btn-jmcwc-custom-resume');
+  const note = document.getElementById('jmcwc-custom-resume-note');
+  if (btnOpen) btnOpen.disabled = !canStart;
+  const saved = loadSavedJmcwcCustomRun();
+  if (btnResume) btnResume.style.display = saved && canStart ? 'block' : 'none';
+  if (note) {
+    if (saved && canStart) {
+      const answered = Object.values(saved.answers || {}).filter((v) => String(v ?? '').trim() !== '').length;
+      note.textContent = `Unfinished custom set: ${answered} / ${saved.questions.length} answered, ${formatActiveDurationMs(getJmcwcCustomElapsedMs({ ...saved, resumed_at: null }), { alwaysHours: true })} so far.`;
+      note.style.display = 'block';
+    } else {
+      note.style.display = 'none';
+      note.textContent = '';
+    }
+  }
+}
+
+function showJmcwcCustomError(elId, message) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.textContent = message || '';
+  el.style.display = message ? 'block' : 'none';
+}
+
+async function openJmcwcCustomBuilder() {
+  showJmcwcSubview('custom-builder');
+  showJmcwcCustomError('jmcwc-custom-builder-error', '');
+  const list = document.getElementById('jmcwc-custom-builder-list');
+  // Always refresh: access rules or the published paper may have changed.
+  if (list && !jmcwcCustomOptions) {
+    list.innerHTML = '<div style="font-size: var(--text-xs); color: var(--text-muted);">Loading levels…</div>';
+  }
+  try {
+    const data = await callJmcwcApi({ action: 'custom_options' });
+    const defaults = buildDefaultCustomCounts(data.categories, 1);
+    const keepPrevious = jmcwcCustomOptions?.group_key === data.group_key && Object.keys(jmcwcCustomCounts).length > 0;
+    jmcwcCustomCounts = keepPrevious
+      ? Object.fromEntries(Object.keys(defaults).map((k) => [k, clampCustomCount(jmcwcCustomCounts[k] ?? 0)]))
+      : defaults;
+    jmcwcCustomOptions = data;
+  } catch (err) {
+    if (list) list.innerHTML = '';
+    jmcwcCustomOptions = null;
+    showJmcwcCustomError('jmcwc-custom-builder-error', err?.message || 'Could not load custom set levels.');
+    return;
+  }
+  const groupLabel = document.getElementById('jmcwc-custom-group-label');
+  if (groupLabel) groupLabel.textContent = formatJmcwcGroupLabel(jmcwcCustomOptions.group_key);
+  const maxPer = document.getElementById('jmcwc-custom-max-per-level');
+  if (maxPer) maxPer.textContent = String(jmcwcCustomOptions.max_per_level || JMCWC_CUSTOM_MAX_PER_LEVEL);
+  renderJmcwcCustomBuilderList();
+}
+
+function renderJmcwcCustomBuilderList() {
+  const list = document.getElementById('jmcwc-custom-builder-list');
+  if (!list || !jmcwcCustomOptions) return;
+  const cats = Array.isArray(jmcwcCustomOptions.categories) ? jmcwcCustomOptions.categories : [];
+  if (cats.length === 0) {
+    list.innerHTML = '<div style="font-size: var(--text-xs); color: var(--text-muted);">No categories are available for your practice access.</div>';
+    updateJmcwcCustomSummary();
+    return;
+  }
+  list.innerHTML = cats
+    .map((cat, catIdx) => {
+      const title = formatJmcwcCategoryTitle(cat.category_key, jmcwcCategoriesList);
+      const heading = formatJmcwcSheetHeadingLine(cat.category_key, title);
+      const levels = cat.levels
+        .map((lvl) => {
+          const key = customCountKey(cat.category_key, lvl.level);
+          const count = clampCustomCount(jmcwcCustomCounts[key]);
+          const inputId = `jmcwc-custom-count-${catIdx}-${lvl.level}`;
+          return `
+            <div class="jmcwc-custom-level">
+              <label for="${inputId}" style="font-weight: 700;">Level ${lvl.level}</label>
+              <span class="num">${escapeHtml(formatCustomLevelPoints(lvl))}</span>
+              <span class="jmcwc-custom-sample num" title="${escapeHtml(lvl.sample_prompt || '')}">${lvl.sample_prompt ? `e.g. ${escapeHtml(lvl.sample_prompt)}` : ''}</span>
+              <span class="jmcwc-custom-stepper">
+                <button type="button" class="btn btn-outline btn-sm" data-custom-step="-1" data-custom-key="${escapeHtml(key)}" aria-label="Fewer ${escapeHtml(title)} level ${lvl.level} questions">−</button>
+                <input id="${inputId}" type="number" class="form-input num" min="0" max="${JMCWC_CUSTOM_MAX_PER_LEVEL}" step="1" inputmode="numeric" value="${count}" data-custom-key="${escapeHtml(key)}" aria-label="${escapeHtml(title)} level ${lvl.level} question count" />
+                <button type="button" class="btn btn-outline btn-sm" data-custom-step="1" data-custom-key="${escapeHtml(key)}" aria-label="More ${escapeHtml(title)} level ${lvl.level} questions">+</button>
+              </span>
+            </div>`;
+        })
+        .join('');
+      return `
+        <section class="jmcwc-custom-cat" data-custom-cat="${escapeHtml(cat.category_key)}">
+          <div class="jmcwc-custom-cat-head">
+            <div>
+              <strong>${escapeHtml(title)}</strong>
+              <div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(heading)} · ${cat.levels.length} ${cat.levels.length === 1 ? 'level' : 'levels'}</div>
+            </div>
+            <span class="badge badge-neutral num" data-custom-cat-summary="${escapeHtml(cat.category_key)}"></span>
+          </div>
+          ${levels}
+        </section>`;
+    })
+    .join('');
+
+  list.querySelectorAll('input[data-custom-key]').forEach((inp) => {
+    inp.addEventListener('input', () => {
+      jmcwcCustomCounts[inp.getAttribute('data-custom-key')] = clampCustomCount(inp.value);
+      updateJmcwcCustomSummary();
+    });
+    inp.addEventListener('change', () => {
+      inp.value = String(clampCustomCount(inp.value));
+    });
+  });
+  list.querySelectorAll('button[data-custom-step]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const key = btn.getAttribute('data-custom-key');
+      const next = clampCustomCount((Number(jmcwcCustomCounts[key]) || 0) + Number(btn.getAttribute('data-custom-step')));
+      jmcwcCustomCounts[key] = next;
+      const inp = list.querySelector(`input[data-custom-key="${CSS.escape(key)}"]`);
+      if (inp) inp.value = String(next);
+      updateJmcwcCustomSummary();
+    });
+  });
+  updateJmcwcCustomSummary();
+}
+
+function updateJmcwcCustomSummary() {
+  const cats = jmcwcCustomOptions?.categories || [];
+  const summary = summarizeCustomCounts(cats, jmcwcCustomCounts);
+  const summaryEl = document.getElementById('jmcwc-custom-summary');
+  const startBtn = document.getElementById('btn-jmcwc-custom-start');
+  const maxQ = jmcwcCustomOptions?.max_questions || JMCWC_CUSTOM_MAX_QUESTIONS;
+  if (summaryEl) {
+    summaryEl.textContent = summary.over_limit
+      ? `${summary.questions} questions: the limit is ${maxQ}. Lower some counts.`
+      : `${summary.questions} ${summary.questions === 1 ? 'question' : 'questions'} in ${summary.categories} ${summary.categories === 1 ? 'category' : 'categories'} · ${summary.points_label} points`;
+  }
+  if (startBtn) startBtn.disabled = summary.questions === 0 || summary.over_limit || jmcwcCustomSubmitting;
+  for (const cat of cats) {
+    const badge = document.querySelector(`[data-custom-cat-summary="${CSS.escape(cat.category_key)}"]`);
+    if (!badge) continue;
+    const catSummary = summarizeCustomCounts([cat], jmcwcCustomCounts);
+    badge.textContent = `${catSummary.questions} q · ${catSummary.points_label} pts`;
+  }
+}
+
+function applyJmcwcCustomPreset(perLevel) {
+  if (!jmcwcCustomOptions) return;
+  jmcwcCustomCounts = buildDefaultCustomCounts(jmcwcCustomOptions.categories, perLevel);
+  renderJmcwcCustomBuilderList();
+}
+
+async function startJmcwcCustomSet() {
+  if (!jmcwcCustomOptions || jmcwcCustomSubmitting) return;
+  const selections = buildCustomSelections(jmcwcCustomOptions.categories, jmcwcCustomCounts);
+  if (selections.length === 0) return;
+  const saved = loadSavedJmcwcCustomRun();
+  if (saved && !window.confirm('Starting a new custom set replaces your unfinished one. Continue?')) return;
+  const startBtn = document.getElementById('btn-jmcwc-custom-start');
+  jmcwcCustomSubmitting = true;
+  if (startBtn) {
+    startBtn.disabled = true;
+    startBtn.textContent = 'Generating…';
+  }
+  showJmcwcCustomError('jmcwc-custom-builder-error', '');
+  try {
+    const data = await callJmcwcApi({ action: 'custom_create', selections });
+    const set = data.custom_set;
+    jmcwcCustomRun = {
+      token: set.token,
+      group_key: set.group_key,
+      issued_at: set.issued_at,
+      max_marks: set.max_marks,
+      questions: set.questions,
+      answers: {},
+      elapsed_ms: 0,
+      resumed_at: Date.now(),
+      run_id: `custom-${set.issued_at}`,
+    };
+    persistJmcwcCustomRun();
+    openJmcwcCustomRunner();
+  } catch (err) {
+    showJmcwcCustomError('jmcwc-custom-builder-error', err?.message || 'Could not create the custom set.');
+  } finally {
+    jmcwcCustomSubmitting = false;
+    if (startBtn) startBtn.textContent = 'Start Custom Set';
+    updateJmcwcCustomSummary();
+  }
+}
+
+function resumeJmcwcCustomSet() {
+  const saved = loadSavedJmcwcCustomRun();
+  if (!saved) {
+    renderJmcwcCustomLandingCard(true);
+    return;
+  }
+  jmcwcCustomRun = { ...saved, resumed_at: Date.now() };
+  persistJmcwcCustomRun();
+  openJmcwcCustomRunner();
+}
+
+function buildJmcwcCustomRunnerState() {
+  return {
+    attempt: { id: jmcwcCustomRun.run_id },
+    answers: jmcwcCustomRun.answers,
+    questions: buildJmcwcSectionedQuestions(jmcwcCustomRun.questions),
+  };
+}
+
+function openJmcwcCustomRunner() {
+  if (!jmcwcCustomRun) return;
+  showJmcwcSubview('custom-runner');
+  showJmcwcCustomError('jmcwc-custom-runner-error', '');
+  const state = buildJmcwcCustomRunnerState();
+  const grid = document.getElementById('jmcwc-custom-grid');
+  if (grid) {
+    grid.innerHTML = '';
+    if (grid.dataset) delete grid.dataset.paperKey;
+  }
+  const navWrap = document.getElementById('jmcwc-custom-nav-wrap');
+  const select = document.getElementById('select-jmcwc-custom-section');
+  if (navWrap) navWrap.style.display = state.questions.length > 1 ? 'block' : 'none';
+  if (select) {
+    jmcwcCurrentSectionOrder = state.questions[0]?.section_order || 1;
+    syncPaperSheetSelect(select, state.questions, state.answers);
+    select.onchange = () => {
+      jmcwcCurrentSectionOrder = Number(select.value);
+      scrollToPaperSheet('jmcwc-custom-grid', jmcwcCurrentSectionOrder);
+    };
+  }
+  renderWorksheetGridView(state, [], null, {
+    gridId: 'jmcwc-custom-grid',
+    titleId: 'jmcwc-custom-sheet-title',
+    badgeId: 'jmcwc-custom-answered-badge',
+    selectId: 'select-jmcwc-custom-section',
+    cellPrefix: 'custom-',
+    title: `Custom Set · ${formatJmcwcGroupLabel(jmcwcCustomRun.group_key)} · ${jmcwcCustomRun.max_marks} points`,
+    onAnswer: recordJmcwcCustomAnswer,
+  });
+  updateCellAnsweredState('', '', {
+    gridId: 'jmcwc-custom-grid',
+    cellPrefix: 'custom-',
+    progressId: 'jmcwc-custom-progress',
+    badgeId: 'jmcwc-custom-answered-badge',
+  });
+  startJmcwcCustomTimer();
+}
+
+function recordJmcwcCustomAnswer(qKey, value) {
+  if (!jmcwcCustomRun) return;
+  jmcwcCustomRun.answers[qKey] = value;
+  const select = document.getElementById('select-jmcwc-custom-section');
+  if (select) syncPaperSheetSelect(select, buildJmcwcSectionedQuestions(jmcwcCustomRun.questions), jmcwcCustomRun.answers);
+  const progress = document.getElementById('jmcwc-custom-progress');
+  if (progress) {
+    const total = jmcwcCustomRun.questions.length;
+    const answered = Object.values(jmcwcCustomRun.answers).filter((v) => String(v ?? '').trim() !== '').length;
+    progress.textContent = `${answered} / ${total} answered`;
+  }
+  if (jmcwcCustomSaveTimerId) clearTimeout(jmcwcCustomSaveTimerId);
+  jmcwcCustomSaveTimerId = setTimeout(() => {
+    jmcwcCustomSaveTimerId = null;
+    persistJmcwcCustomRun();
+  }, 300);
+}
+
+function startJmcwcCustomTimer() {
+  stopJmcwcCustomTimer();
+  const tick = () => {
+    const el = document.getElementById('jmcwc-custom-timer');
+    if (el) el.textContent = formatActiveDurationMs(getJmcwcCustomElapsedMs(), { alwaysHours: true });
+  };
+  tick();
+  jmcwcCustomTimerId = setInterval(tick, 1000);
+}
+
+function stopJmcwcCustomTimer() {
+  if (jmcwcCustomTimerId) clearInterval(jmcwcCustomTimerId);
+  jmcwcCustomTimerId = null;
+}
+
+/** Freeze the running clock into elapsed_ms (on exit, submit or page hide). */
+function pauseJmcwcCustomClock() {
+  if (!jmcwcCustomRun || !jmcwcCustomRun.resumed_at) return;
+  jmcwcCustomRun.elapsed_ms = getJmcwcCustomElapsedMs();
+  jmcwcCustomRun.resumed_at = null;
+  persistJmcwcCustomRun();
+}
+
+function exitJmcwcCustomRunner() {
+  stopJmcwcCustomTimer();
+  pauseJmcwcCustomClock();
+  jmcwcCustomRun = null;
+  showJmcwcSubview('landing');
+  renderJmcwcCustomLandingCard(true);
+}
+
+async function submitJmcwcCustomSet() {
+  if (!jmcwcCustomRun || jmcwcCustomSubmitting) return;
+  const total = jmcwcCustomRun.questions.length;
+  const answered = Object.values(jmcwcCustomRun.answers).filter((v) => String(v ?? '').trim() !== '').length;
+  if (answered < total && !window.confirm(`${total - answered} of ${total} questions are unanswered. Submit and score anyway?`)) {
+    return;
+  }
+  const submitBtn = document.getElementById('btn-jmcwc-custom-submit');
+  jmcwcCustomSubmitting = true;
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Scoring…';
+  }
+  stopJmcwcCustomTimer();
+  pauseJmcwcCustomClock();
+  showJmcwcCustomError('jmcwc-custom-runner-error', '');
+  try {
+    const data = await callJmcwcApi({
+      action: 'custom_grade',
+      token: jmcwcCustomRun.token,
+      answers: jmcwcCustomRun.answers,
+      active_ms: jmcwcCustomRun.elapsed_ms,
+    });
+    const result = data.custom_result;
+    clearSavedJmcwcCustomRun();
+    jmcwcCustomRun = null;
+    renderCompletedReviewView({
+      attempt: { ...result, id: `custom-${result.finished_at}` },
+      score: result.score,
+      review_questions: result.review,
+      targetSeconds: null,
+    });
+    showJmcwcSubview('review');
+    renderJmcwcCustomLandingCard(true);
+  } catch (err) {
+    showJmcwcCustomError(
+      'jmcwc-custom-runner-error',
+      `${err?.message || 'Could not score the custom set.'} Your answers are still saved on this device.`
+    );
+    if (jmcwcCustomRun) {
+      jmcwcCustomRun.resumed_at = Date.now();
+      startJmcwcCustomTimer();
+    }
+  } finally {
+    jmcwcCustomSubmitting = false;
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Submit & Score';
+    }
+  }
+}
+
+function setupJmcwcCustomSetUI() {
+  document.getElementById('btn-jmcwc-open-custom')?.addEventListener('click', openJmcwcCustomBuilder);
+  document.getElementById('btn-jmcwc-custom-resume')?.addEventListener('click', resumeJmcwcCustomSet);
+  document.getElementById('btn-jmcwc-custom-builder-back')?.addEventListener('click', () => {
+    showJmcwcSubview('landing');
+  });
+  document.querySelectorAll('[data-custom-preset]').forEach((btn) => {
+    btn.addEventListener('click', () => applyJmcwcCustomPreset(Number(btn.getAttribute('data-custom-preset'))));
+  });
+  document.getElementById('btn-jmcwc-custom-start')?.addEventListener('click', startJmcwcCustomSet);
+  document.getElementById('btn-jmcwc-custom-submit')?.addEventListener('click', submitJmcwcCustomSet);
+  document.getElementById('btn-jmcwc-custom-exit')?.addEventListener('click', exitJmcwcCustomRunner);
+  // Keep the clock honest across reloads: time only counts while the runner is open.
+  window.addEventListener('pagehide', pauseJmcwcCustomClock);
+  window.addEventListener('pageshow', () => {
+    const runnerView = document.getElementById('jmcwc-subview-custom-runner');
+    if (jmcwcCustomRun && !jmcwcCustomRun.resumed_at && runnerView?.style.display !== 'none') {
+      jmcwcCustomRun.resumed_at = Date.now();
+      persistJmcwcCustomRun();
+      startJmcwcCustomTimer();
+    }
+  });
+}
+
 function setupJmcwcOnlinePracticeUI() {
   // Mode tabs
   document.getElementById('btn-mode-manual')?.addEventListener('click', () => {
@@ -3500,6 +3688,8 @@ function setupJmcwcOnlinePracticeUI() {
   document.getElementById('btn-mode-preview')?.addEventListener('click', () => {
     switchRoundScoresMode('preview');
   });
+
+  setupJmcwcCustomSetUI();
 
   // Start Flat / Category buttons
   document.getElementById('btn-jmcwc-start-flat')?.addEventListener('click', handleStartOnlineFlatRound);
@@ -3563,14 +3753,6 @@ function setupJmcwcOnlinePracticeUI() {
   document.getElementById('btn-jmcwc-discard-local')?.addEventListener('click', async () => {
     if (!jmcwcRunner) return;
     await jmcwcRunner.resolveRecoveryConflict('discard');
-  });
-
-  // Previous / Next buttons & keyboard navigation
-  document.getElementById('btn-jmcwc-q-prev')?.addEventListener('click', () => {
-    navigateRunnerQuestion(-1);
-  });
-  document.getElementById('btn-jmcwc-q-next')?.addEventListener('click', () => {
-    navigateRunnerQuestion(1);
   });
 
   // Submit confirmation modal actions
