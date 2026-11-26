@@ -49,7 +49,7 @@ async function initHomeworkPage() {
 
   // Teacher permission gating: requires can_manage_tasks
   if (currentProfile.role === 'teacher') {
-    const perms = currentProfile.teacher_permissions || {};
+    const perms = currentProfile.permissions || {};
     if (perms.can_manage_tasks === false) {
       showToast('error', 'You do not have permission to manage homework tasks.');
       window.location.replace('/pages/teacher.html');
@@ -612,7 +612,7 @@ async function handleVerifyPendingSubmission(completionId, decision, btn, notes 
 
   const targetSubmission = cachedPendingSubmissions.find((c) => c.id === completionId);
   if (currentProfile?.role === 'teacher') {
-    const perms = currentProfile.teacher_permissions || {};
+    const perms = currentProfile.permissions || {};
     if (perms.can_manage_tasks === false) {
       showToast('error', 'You do not have permission to verify homework tasks.');
       return;

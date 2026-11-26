@@ -205,7 +205,7 @@
                 </label>
                 <label style="display: flex; align-items: center; gap: var(--space-2);">
                   <input type="checkbox" id="perm-manage-tasks" checked />
-                  <span>Assign daily tasks</span>
+                  <span>Assign daily tasks &amp; homework</span>
                 </label>
                 <label style="display: flex; align-items: center; gap: var(--space-2);">
                   <input type="checkbox" id="perm-manage-tests" checked />
@@ -226,6 +226,10 @@
                 <label style="display: flex; align-items: center; gap: var(--space-2);">
                   <input type="checkbox" id="perm-request-corrections" checked />
                   <span>Request score corrections</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: var(--space-2);">
+                  <input type="checkbox" id="perm-schedule-live-classes" />
+                  <span>Schedule live classes (Webinar.gg or Zoom)</span>
                 </label>
               </div>
             </fieldset>
@@ -317,7 +321,7 @@
               <input type="checkbox" id="edit-perm-generate-reports" />
             </label>
             <label style="display: flex; align-items: center; justify-content: space-between; padding: var(--space-2); border-bottom: 1px solid var(--border-color, #f1f5f9);">
-              <span>Assign &amp; manage daily tasks</span>
+              <span>Assign &amp; manage daily tasks and homework</span>
               <input type="checkbox" id="edit-perm-manage-tasks" />
             </label>
             <label style="display: flex; align-items: center; justify-content: space-between; padding: var(--space-2); border-bottom: 1px solid var(--border-color, #f1f5f9);">
@@ -336,9 +340,13 @@
               <span>Review, verify, and flag student scores</span>
               <input type="checkbox" id="edit-perm-review-scores" />
             </label>
-            <label style="display: flex; align-items: center; justify-content: space-between; padding: var(--space-2);">
+            <label style="display: flex; align-items: center; justify-content: space-between; padding: var(--space-2); border-bottom: 1px solid var(--border-color, #f1f5f9);">
               <span>Request score corrections (requires admin approval)</span>
               <input type="checkbox" id="edit-perm-request-corrections" />
+            </label>
+            <label style="display: flex; align-items: center; justify-content: space-between; padding: var(--space-2);">
+              <span>Schedule live classes for assigned students (Webinar.gg or Zoom)</span>
+              <input type="checkbox" id="edit-perm-schedule-live-classes" />
             </label>
           </div>
         </div>

@@ -209,18 +209,28 @@
             <input type="text" id="input-title" class="form-input" required placeholder="e.g. Abacus Live Class: Basics &amp; Speed Drill" style="width: 100%; box-sizing: border-box;" />
           </div>
 
-          <details>
+          <div>
+            <label for="select-class-type" style="display: block; font-size: var(--text-sm); font-weight: 600; margin-bottom: 4px;">Where does the class run? *</label>
+            <select id="select-class-type" class="form-input" style="width: 100%; box-sizing: border-box;">
+              <option value="live" selected>Webinar.gg (inside Trendz, one class at a time)</option>
+              <option value="zoom">Zoom meeting link</option>
+              <option value="prerecorded" data-admin-only>Scheduled Prerecorded Video</option>
+              <option value="stream" data-admin-only>Provider Live Stream</option>
+            </select>
+          </div>
+
+          <div id="row-zoom-url" hidden>
+            <label for="input-zoom-url" style="display: block; font-size: var(--text-sm); font-weight: 600; margin-bottom: 4px;">Zoom meeting link *</label>
+            <input type="url" id="input-zoom-url" class="form-input" placeholder="https://us02web.zoom.us/j/12345678901?pwd=..." autocomplete="off" style="width: 100%; box-sizing: border-box;" />
+            <small id="help-zoom-url" style="color: var(--text-muted); font-size: var(--text-xs); margin-top: 4px; display: block;">
+              Create the meeting in your Zoom account and paste its invite link. Students get the link only when they press Join, from 15 minutes before the start. You start the meeting from Zoom. Free Zoom ends group meetings at 40 minutes, so Zoom classes are capped at 40 minutes.
+            </small>
+          </div>
+
+          <details id="details-more-options">
             <summary>More class options</summary>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); margin-top: var(--space-3);">
-            <div>
-              <label for="select-class-type" style="display: block; font-size: var(--text-sm); font-weight: 600; margin-bottom: 4px;">Class Delivery Type *</label>
-              <select id="select-class-type" class="form-input" style="width: 100%; box-sizing: border-box;">
-                <option value="live" selected>Live Interactive Class (Webinar.gg)</option>
-                <option value="prerecorded">Scheduled Prerecorded Video</option>
-                <option value="stream">Provider Live Stream</option>
-              </select>
-            </div>
-            <div>
+          <div style="display: grid; grid-template-columns: 1fr; gap: var(--space-3); margin-top: var(--space-3);">
+            <div id="row-webinar-id">
               <label for="input-webinar-id" style="display: block; font-size: var(--text-sm); font-weight: 600; margin-bottom: 4px;">
                 Existing Webinar.gg ID
               </label>
@@ -248,7 +258,7 @@
             </small>
           </div>
 
-          <div style="margin-top: var(--space-3);">
+          <div id="row-host-email" style="margin-top: var(--space-3);">
             <label for="input-host-email" class="form-label">Host email for an existing room</label>
             <input type="email" id="input-host-email" class="form-input" style="width: 100%; box-sizing: border-box;" />
           </div>
@@ -283,7 +293,7 @@
           </div>
           <small id="class-audience-count" role="status"></small>
 
-          <details>
+          <details id="details-invite-teachers">
             <summary>Invite other teachers</summary>
             <label for="select-invited-teachers" style="display: block; font-size: var(--text-sm); font-weight: 600; margin-bottom: 4px;">
               Invite Teachers as Participants (Optional)

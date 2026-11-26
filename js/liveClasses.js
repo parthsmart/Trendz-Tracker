@@ -16,6 +16,19 @@ import { TrendzMediaPlayer, formatDuration } from './mediaPlayer.js';
 
 let currentUser = null;
 let currentProfile = null;
+/** True for admins, and for teachers the admin allowed to schedule classes. */
+let canScheduleClasses = false;
+/** Zoom Basic ends group meetings at 40 minutes; the server enforces the same cap. */
+const ZOOM_MAX_MINUTES = 40;
+
+function esc(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 let currentClasses = [];
 let currentRecordings = [];
 let activeRecordingPlayer = null;
@@ -144,6 +157,8 @@ export async function loadLiveClasses() {
         const recBadge = (cls.recording_confirmed || cls.recordingConfirmed) ? ' • REC' : '';
         const typeBadge = cls.class_type === 'prerecorded'
           ? '<span class="badge badge-info" style="font-size: var(--text-xs);">Prerecorded</span>'
+          : cls.class_type === 'zoom'
+            ? '<span class="badge badge-info" style="font-size: var(--text-xs);">Zoom</span>'
           : cls.class_type === 'stream'
             ? '<span class="badge badge-warning" style="font-size: var(--text-xs);">Stream</span>'
             : `<span class="badge badge-neutral" style="font-size: var(--text-xs);">Live${recBadge}</span>`;
@@ -151,17 +166,17 @@ export async function loadLiveClasses() {
         return `
           <tr style="border-bottom: 1px solid var(--border-hairline);">
             <td style="padding: var(--space-3) var(--space-4);">
-              <strong style="color: var(--text-main);">${cls.title}</strong>
-              <div style="font-size: var(--text-xs); color: var(--text-muted); font-family: monospace;">Webinar ID: ${cls.webinar_id}</div>
+              <strong style="color: var(--text-main);">${esc(cls.title)}</strong>
+              <div style="font-size: var(--text-xs); color: var(--text-muted); font-family: monospace;">${cls.class_type === 'zoom' ? 'Zoom meeting' : `Webinar ID: ${esc(cls.webinar_id)}`}</div>
             </td>
             <td style="padding: var(--space-3) var(--space-4);">
               ${typeBadge}
             </td>
             <td style="padding: var(--space-3) var(--space-4); color: var(--text-main);">
-              ${teacherName}
+              ${esc(teacherName)}
             </td>
             <td style="padding: var(--space-3) var(--space-4);">
-              <span class="badge badge-neutral" style="font-size: var(--text-xs);">${audience}</span>
+              <span class="badge badge-neutral" style="font-size: var(--text-xs);">${esc(audience)}</span>
             </td>
             <td style="padding: var(--space-3) var(--space-4); white-space: nowrap;">
               ${formatTimeIST(cls.scheduled_start_time)}
@@ -170,12 +185,15 @@ export async function loadLiveClasses() {
               ${renderStatusBadge(cls.status, cls.provider_status)}
             </td>
             <td style="padding: var(--space-3) var(--space-4); text-align: right; white-space: nowrap;">
-              <a href="${cls.startUrl || `/pages/live-room.html?classId=${encodeURIComponent(cls.id)}`}" class="btn btn-primary btn-sm" style="text-decoration: none; margin-right: 4px;">
-                ${cls.startUrl ? 'Start class' : 'View class'} &rarr;
+              <a href="${esc(cls.startUrl || `/pages/live-room.html?classId=${encodeURIComponent(cls.id)}`)}" class="btn btn-primary btn-sm" style="text-decoration: none; margin-right: 4px;">
+                ${cls.class_type === 'zoom' ? 'Open Zoom' : cls.startUrl ? 'Start class' : 'View class'} &rarr;
               </a>
-              <button type="button" class="btn btn-outline btn-sm btn-sync-status" data-id="${cls.id}" title="Sync status with Webinar.gg">
+              ${cls.class_type === 'zoom' ? '' : `<button type="button" class="btn btn-outline btn-sm btn-sync-status" data-id="${esc(cls.id)}" title="Sync status with Webinar.gg">
                 Sync
-              </button>
+              </button>`}
+              ${canCancelClass(cls) ? `<button type="button" class="btn btn-ghost btn-sm btn-cancel-class" data-id="${esc(cls.id)}" data-title="${esc(cls.title)}" title="Cancel this class">
+                Cancel
+              </button>` : ''}
             </td>
           </tr>
         `;
@@ -183,6 +201,14 @@ export async function loadLiveClasses() {
     }
 
     if (tableWrapper) tableWrapper.style.display = 'block';
+
+    document.querySelectorAll('.btn-cancel-class').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        const { id, title } = e.currentTarget.dataset;
+        if (!window.confirm(`Cancel "${title}"? Students will no longer see it.`)) return;
+        await cancelClass(id);
+      });
+    });
 
     // Wire up sync buttons
     document.querySelectorAll('.btn-sync-status').forEach((btn) => {
@@ -195,6 +221,30 @@ export async function loadLiveClasses() {
   } catch (err) {
     if (loadingEl) loadingEl.style.display = 'none';
     showToast(err.message || 'Error loading live classes', 'error');
+  }
+}
+
+/** Admins, and the teacher who teaches it, can cancel a class that has not started. */
+export function canCancelClass(cls, profile = currentProfile) {
+  if (!cls || !profile || !['scheduled', 'waiting'].includes(cls.status)) return false;
+  return profile.role === 'admin' || (profile.role === 'teacher' && cls.teacher_id === profile.id);
+}
+
+async function cancelClass(classId) {
+  try {
+    const supabase = await getSupabase();
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch('/api/live-class', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: 'update_status', classId, status: 'cancelled' }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || 'Could not cancel the class.');
+    showToast('Class cancelled.', 'success');
+    await loadLiveClasses();
+  } catch (err) {
+    showToast(err.message, 'error');
   }
 }
 
@@ -240,6 +290,16 @@ export async function loadTeachersSelect(supabaseClient = null) {
       .eq('role', 'teacher')
       .eq('active', true)
       .order('full_name');
+
+    if (currentProfile?.role === 'teacher') {
+      // Teachers schedule only their own classes.
+      if (select) {
+        select.innerHTML = `<option value="${esc(currentProfile.id)}" selected>Me — ${esc(currentProfile.full_name || 'Teacher')}</option>`;
+        select.value = currentProfile.id;
+        select.disabled = true;
+      }
+      return;
+    }
 
     const adminName = currentProfile?.full_name || 'Admin';
     const selfOptionHtml = (currentProfile && currentProfile.role === 'admin')
@@ -519,6 +579,15 @@ export async function initLiveClassesPage() {
     return;
   }
   currentProfile = profile;
+  canScheduleClasses = profile.role === 'admin';
+  if (profile.role === 'teacher') {
+    const { data: perms } = await supabase
+      .from('teacher_permissions')
+      .select('can_schedule_live_classes')
+      .eq('teacher_id', profile.id)
+      .maybeSingle();
+    canScheduleClasses = perms?.can_schedule_live_classes === true;
+  }
 
   setupHeaderNavigation(profile);
   setupModalListeners();
@@ -734,13 +803,31 @@ export async function initLiveClassesPage() {
 
   if (selectClassType) {
     selectClassType.addEventListener('change', () => {
-      const isPrerecorded = selectClassType.value === 'prerecorded';
+      const type = selectClassType.value;
+      const isPrerecorded = type === 'prerecorded';
+      const isZoom = type === 'zoom';
+      const isTeacher = currentProfile?.role === 'teacher';
       if (rowPrerecorded) rowPrerecorded.style.display = isPrerecorded ? 'block' : 'none';
-      helpWebinarId.textContent = {
-        live: 'Leave blank to create a room automatically.',
-        prerecorded: 'Optional for prerecorded videos.',
-        stream: 'Choose an existing Webinar.gg room for a provider stream.',
-      }[selectClassType.value];
+      const rowZoom = document.getElementById('row-zoom-url');
+      if (rowZoom) rowZoom.hidden = !isZoom;
+      const zoomInput = document.getElementById('input-zoom-url');
+      if (zoomInput) zoomInput.required = isZoom;
+      // Teachers never link existing rooms, so the extra room options stay hidden for them.
+      const moreOptions = document.getElementById('details-more-options');
+      if (moreOptions) moreOptions.hidden = isZoom || isTeacher;
+      const durationInput = document.getElementById('input-duration');
+      if (durationInput) {
+        durationInput.max = String(isZoom ? ZOOM_MAX_MINUTES : 240);
+        if (isZoom && Number(durationInput.value) > ZOOM_MAX_MINUTES) durationInput.value = String(ZOOM_MAX_MINUTES);
+      }
+      if (helpWebinarId) {
+        helpWebinarId.textContent = {
+          live: 'Leave blank to create a room automatically.',
+          prerecorded: 'Optional for prerecorded videos.',
+          stream: 'Choose an existing Webinar.gg room for a provider stream.',
+        }[type] || '';
+        helpWebinarId.hidden = isZoom || isTeacher;
+      }
     });
   }
 
@@ -799,6 +886,26 @@ export async function initLiveClassesPage() {
   const loadClassRoster = async () => {
     const roster = [];
     const pageSize = 500;
+    if (profile.role === 'teacher') {
+      // Teachers pick from the students assigned to them.
+      const { data: links, error: linkError } = await supabase.from('teacher_student_assignments')
+        .select('student_id').eq('teacher_id', profile.id);
+      if (linkError) throw linkError;
+      const ids = [...new Set((links || []).map((row) => row.student_id))];
+      for (let i = 0; i < ids.length; i += 200) {
+        const { data, error } = await supabase.from('profiles')
+          .select('id, full_name, student_code, level')
+          .in('id', ids.slice(i, i + 200)).eq('role', 'student').eq('active', true)
+          .order('full_name');
+        if (error) throw error;
+        roster.push(...data);
+      }
+      students = roster.sort((a, b) => String(a.full_name).localeCompare(String(b.full_name)));
+      if (!students.length) studentOptions.textContent = 'No students are assigned to you yet.';
+      else renderStudentOptions();
+      updateAudience();
+      return;
+    }
     for (let offset = 0; ; offset += pageSize) {
       const { data, error } = await supabase.from('profiles')
         .select('id, full_name, student_code, level')
@@ -854,6 +961,7 @@ export async function initLiveClassesPage() {
   const handleCloseCreateModal = () => {
     closeModal('modal-create-class');
     if (form) form.reset();
+    if (profile.role === 'teacher') audience.value = 'students';
     selectedStudents.clear();
     renderStudentOptions();
     updateAudience();
@@ -865,9 +973,23 @@ export async function initLiveClassesPage() {
     }
   };
 
+  if (profile.role === 'teacher') {
+    // Teachers schedule for their own students only, in Webinar.gg or Zoom.
+    for (const option of [...audience.options]) {
+      if (option.value && option.value !== 'students') option.remove();
+    }
+    audience.value = 'students';
+    for (const option of [...(selectClassType?.options || [])]) {
+      if (option.hasAttribute('data-admin-only')) option.remove();
+    }
+    const inviteTeachers = document.getElementById('details-invite-teachers');
+    if (inviteTeachers) inviteTeachers.hidden = true;
+    selectClassType?.dispatchEvent(new Event('change'));
+  }
+
   if (btnOpen) {
-    btnOpen.hidden = profile.role !== 'admin';
-    if (profile.role === 'admin') {
+    btnOpen.hidden = !canScheduleClasses;
+    if (canScheduleClasses) {
       btnOpen.addEventListener('click', handleOpenCreateModal);
       btnOpen.disabled = false;
     }
@@ -907,6 +1029,7 @@ export async function initLiveClassesPage() {
       const class_type = selectClassType?.value || 'live';
       const webinar_id = document.getElementById('input-webinar-id')?.value?.trim();
       const prerecorded_asset_url = document.getElementById('input-prerecorded-url')?.value?.trim() || null;
+      const meeting_url = class_type === 'zoom' ? (document.getElementById('input-zoom-url')?.value?.trim() || '') : null;
       const recording_enabled = document.getElementById('check-enable-recording')?.checked === true;
 
       const teacher_id = document.getElementById('select-teacher')?.value;
@@ -941,6 +1064,17 @@ export async function initLiveClassesPage() {
         return;
       }
 
+      if (class_type === 'zoom' && !meeting_url) {
+        modalError.textContent = 'Paste the Zoom meeting link.';
+        modalError.style.display = 'block';
+        return;
+      }
+      if (class_type === 'zoom' && duration_minutes > ZOOM_MAX_MINUTES) {
+        modalError.textContent = `Zoom classes can be up to ${ZOOM_MAX_MINUTES} minutes.`;
+        modalError.style.display = 'block';
+        return;
+      }
+
       if (class_type === 'prerecorded' && !prerecorded_asset_url) {
         if (modalError) {
           modalError.textContent = 'Please provide a valid video asset or embed URL for the scheduled prerecorded class.';
@@ -964,17 +1098,18 @@ export async function initLiveClassesPage() {
             action: 'create',
             title,
             class_type,
-            webinar_id,
+            webinar_id: profile.role === 'teacher' || class_type === 'zoom' ? '' : webinar_id,
             prerecorded_asset_url,
+            meeting_url,
             recording_enabled,
             teacher_id,
-            invited_teacher_ids,
+            invited_teacher_ids: profile.role === 'teacher' ? [] : invited_teacher_ids,
             target_level,
             target_student_ids,
             audience: audience.value,
             scheduled_start_time,
             duration_minutes,
-            host_email,
+            host_email: profile.role === 'teacher' ? null : host_email,
             notes,
           }),
         });
