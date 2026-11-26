@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Simple - Trendz Tracker</title>
+    <meta
+      name="description"
+      content="Simple practice on Trendz Tracker: no-formula abacus sums and tables dodging, online or logged from paper."
+    />
+    <meta property="og:title" content="Simple - Trendz Tracker" />
+    <meta
+      property="og:description"
+      content="Simple practice on Trendz Tracker: no-formula abacus sums and tables dodging, online or logged from paper."
+    />
+    <link rel="stylesheet" href="/css/style.css" />
+    <style>
+      .simple-tabs {
+        display: inline-flex;
+        gap: 4px;
+        padding: 4px;
+        border-radius: var(--radius-md);
+        background: var(--bg-subtle, rgba(0, 0, 0, 0.04));
+        margin-bottom: var(--space-4);
+      }
+
+      .simple-tabs button {
+        border: 0;
+        background: transparent;
+        padding: 8px 16px;
+        border-radius: var(--radius-sm, 6px);
+        font-weight: 600;
+        font-size: var(--text-sm);
+        color: var(--text-muted);
+        cursor: pointer;
+      }
+
+      .simple-tabs button[aria-selected='true'] {
+        background: var(--bg-surface);
+        color: var(--text-main);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+      }
+
+      .simple-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
+        gap: var(--space-5);
+        align-items: start;
+      }
+
+      @media (max-width: 860px) {
+        .simple-layout {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+
+      .simple-label {
+        display: block;
+        font-size: var(--text-xs);
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--text-muted);
+        margin-bottom: 6px;
+      }
+
+      .simple-group {
+        margin-bottom: var(--space-4);
+      }
+
+      .simple-group-hint {
+        font-size: 12px;
+        color: var(--text-muted);
+        margin: -2px 0 6px 0;
+      }
+
+      .simple-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .simple-chip {
+        position: relative;
+      }
+
+      .simple-chip input {
+        position: absolute;
+        opacity: 0;
+        inset: 0;
+        margin: 0;
+        cursor: pointer;
+      }
+
+      .simple-chip span {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 44px;
+        padding: 6px 12px;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-subtle);
+        background: var(--bg-surface);
+        font-weight: 600;
+        font-size: var(--text-sm);
+        color: var(--text-main);
+      }
+
+      .simple-chip input:checked + span {
+        background: var(--color-primary);
+        border-color: var(--color-primary);
+        color: #fff;
+      }
+
+      .simple-chip input:focus-visible + span {
+        outline: 2px solid var(--color-primary);
+        outline-offset: 2px;
+      }
+
+      .simple-stage {
+        padding: var(--space-5);
+        text-align: center;
+      }
+
+      .simple-topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: var(--space-3);
+        font-size: var(--text-sm);
+        color: var(--text-muted);
+        margin-bottom: var(--space-4);
+      }
+
+      .simple-question {
+        font-size: clamp(1.75rem, 5vw, 2.75rem);
+        font-weight: 800;
+        min-height: 1.3em;
+        margin: 0 auto var(--space-4);
+        line-height: 1.25;
+      }
+
+      .simple-question.is-sum {
+        display: inline-flex;
+        flex-direction: column;
+        align-items: flex-end;
+        padding: var(--space-3) var(--space-5);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-subtle);
+        min-width: 140px;
+      }
+
+      .simple-answer-row {
+        display: flex;
+        gap: var(--space-2);
+        justify-content: center;
+        max-width: 360px;
+        margin: 0 auto;
+      }
+
+      .simple-answer-row input {
+        text-align: center;
+        font-size: 1.25rem;
+        font-weight: 700;
+      }
+
+      .simple-feedback {
+        min-height: 1.5em;
+        margin-top: var(--space-3);
+        font-weight: 600;
+      }
+
+      .simple-feedback.is-right {
+        color: var(--color-success, #16a34a);
+      }
+
+      .simple-feedback.is-wrong {
+        color: var(--color-danger, #dc2626);
+      }
+
+      .simple-stats {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: var(--space-2);
+        margin: var(--space-4) 0;
+      }
+
+      .simple-stats > div {
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-md);
+        padding: var(--space-2);
+      }
+
+      .simple-stats span {
+        display: block;
+        font-size: 1.35rem;
+        font-weight: 800;
+      }
+
+      .simple-stats small {
+        color: var(--text-muted);
+        font-size: 12px;
+      }
+
+      .simple-review {
+        text-align: left;
+        max-height: 260px;
+        overflow: auto;
+        font-size: var(--text-sm);
+        margin: 0;
+        padding-left: 1.2em;
+      }
+
+      .simple-form-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--space-3);
+      }
+
+      .simple-history-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: var(--text-sm);
+      }
+
+      .simple-history-table th,
+      .simple-history-table td {
+        padding: 8px 6px;
+        border-bottom: 1px solid var(--border-hairline, var(--border-subtle));
+        text-align: left;
+      }
+
+      .simple-history-table th {
+        font-size: 12px;
+        color: var(--text-muted);
+        font-weight: 700;
+      }
+
+      .simple-best-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: var(--space-2);
+        margin-bottom: var(--space-4);
+      }
+
+      .simple-best-grid > div {
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-md);
+        padding: var(--space-2) var(--space-3);
+        font-size: var(--text-sm);
+      }
+
+      .simple-best-grid strong {
+        display: block;
+      }
+    </style>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#2563EB" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Trendz Tracker" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="container header-inner">
+          <a href="/pages/student.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+          <nav class="nav-zone" id="student-nav-zone" aria-label="Student Primary Navigation"></nav>
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Student</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-code" class="num" style="color: var(--text-muted);">STU</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">Sign Out</button>
+          </div>
+        </div>
+      </header>
+
+      <main class="main-content">
+        <div class="container">
+          <div id="config-banner-placeholder"></div>
+
+          <div style="margin-bottom: var(--space-4);">
+            <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: 4px;">
+              <span class="badge badge-role">Practice</span>
+              <span style="font-size: var(--text-xs); color: var(--text-muted);">No formula · Tables dodging</span>
+            </div>
+            <h1 style="margin-bottom: 4px;">Simple</h1>
+            <p style="font-size: var(--text-sm); color: var(--text-muted); margin: 0;">
+              Simple sums you can do on the abacus without any formula, and tables in random order. Practise online or log a score from paper.
+            </p>
+          </div>
+
+          <details class="how-it-works-disclosure" style="margin-bottom: var(--space-5);">
+            <summary>
+              <span class="how-it-works-icon" aria-hidden="true">💡</span>
+              <span>How Simple works</span>
+            </summary>
+            <div class="how-it-works-content">
+              <ul>
+                <li><strong>Simple sums (1D 4R, 2D 2R, 3D 2R):</strong> every row can be added or taken away on the abacus directly, with no small or big friends. Plus and minus rows are mixed.</li>
+                <li><strong>Tables dodging:</strong> one table (2 to 9) with the multipliers 1 to 10 in random order, for example 2 × 3, then 2 × 7.</li>
+                <li><strong>Advanced:</strong> 2–5 mix and 2–9 mix ask from several tables at random.</li>
+                <li><strong>Online:</strong> answer each question and press Enter. Your score is saved when you finish.</li>
+                <li><strong>Offline:</strong> did a sheet on paper? Log the score from the last 7 days.</li>
+              </ul>
+            </div>
+          </details>
+
+          <div id="simple-unavailable" class="card" style="padding: var(--space-5); display: none;" role="status">
+            <h2 class="card-title" style="margin-bottom: 4px;">Simple is not available</h2>
+            <p style="margin: 0; color: var(--text-muted);" id="simple-unavailable-text">
+              Your teacher has not turned on Simple practice for you yet.
+            </p>
+          </div>
+
+          <div id="simple-loading" class="loading-state" style="padding: var(--space-6);">Loading Simple...</div>
+
+          <div id="simple-main" style="display: none;">
+            <div class="simple-tabs" role="tablist" aria-label="Simple mode">
+              <button type="button" role="tab" id="tab-online" aria-selected="true" aria-controls="panel-online">Practice online</button>
+              <button type="button" role="tab" id="tab-offline" aria-selected="false" aria-controls="panel-offline">Log offline score</button>
+            </div>
+
+            <div class="simple-layout">
+              <!-- Activity picker (shared by both tabs) -->
+              <section class="card" style="padding: var(--space-4) var(--space-5);" aria-labelledby="simple-pick-title">
+                <h2 class="card-title" id="simple-pick-title" style="margin-bottom: var(--space-3);">Choose practice</h2>
+                <div id="simple-activity-groups"></div>
+
+                <div id="panel-online" role="tabpanel" aria-labelledby="tab-online">
+                  <div class="simple-group">
+                    <span class="simple-label" id="simple-count-label">Questions</span>
+                    <div class="simple-chips" id="simple-count-choices" role="radiogroup" aria-labelledby="simple-count-label"></div>
+                  </div>
+                  <button type="button" class="btn btn-primary" id="btn-simple-start" style="width: 100%;">Start</button>
+                </div>
+
+                <form id="panel-offline" role="tabpanel" aria-labelledby="tab-offline" hidden novalidate>
+                  <div class="simple-form-grid">
+                    <div class="form-group">
+                      <label class="form-label" for="offline-correct">Correct</label>
+                      <input id="offline-correct" class="form-input num" type="number" inputmode="numeric" min="0" step="1" required />
+                    </div>
+                    <div class="form-group">
+                      <label class="form-label" for="offline-total">Questions</label>
+                      <input id="offline-total" class="form-input num" type="number" inputmode="numeric" min="1" step="1" required />
+                    </div>
+                    <div class="form-group">
+                      <label class="form-label" for="offline-time">Time (mm:ss, optional)</label>
+                      <input id="offline-time" class="form-input num" type="text" inputmode="numeric" placeholder="2:30" autocomplete="off" />
+                    </div>
+                    <div class="form-group">
+                      <label class="form-label" for="offline-date">Date</label>
+                      <input id="offline-date" class="form-input" type="date" required />
+                    </div>
+                  </div>
+                  <div id="offline-error" class="banner banner-error" style="display: none; margin: var(--space-2) 0;" role="alert"></div>
+                  <button type="submit" class="btn btn-primary" id="btn-offline-save" style="width: 100%; margin-top: var(--space-2);">Save score</button>
+                </form>
+              </section>
+
+              <!-- Online stage -->
+              <section class="card simple-stage" id="simple-stage" aria-labelledby="simple-stage-title">
+                <div id="stage-idle">
+                  <h2 class="card-title" id="simple-stage-title" style="margin-bottom: var(--space-2);">Ready when you are</h2>
+                  <p style="color: var(--text-muted); margin: 0;" id="stage-idle-text">Choose a practice on the left and press Start.</p>
+                </div>
+
+                <div id="stage-play" hidden>
+                  <div class="simple-topbar">
+                    <span id="play-title">Simple</span>
+                    <span><span id="play-progress" class="num">1 / 20</span> · <span id="play-clock" class="num">0:00</span></span>
+                  </div>
+                  <div id="play-question" class="simple-question num" aria-live="polite"></div>
+                  <form class="simple-answer-row" id="play-form" novalidate>
+                    <label for="play-answer" class="sr-only">Your answer</label>
+                    <input id="play-answer" class="form-input num" type="text" inputmode="numeric" autocomplete="off" placeholder="Answer" />
+                    <button type="submit" class="btn btn-primary">Enter</button>
+                  </form>
+                  <div class="simple-feedback" id="play-feedback" aria-live="assertive"></div>
+                  <div style="display: flex; gap: var(--space-2); justify-content: center; margin-top: var(--space-3);">
+                    <button type="button" class="btn btn-outline btn-sm" id="btn-play-skip">Skip</button>
+                    <button type="button" class="btn btn-ghost btn-sm" id="btn-play-finish">Finish now</button>
+                  </div>
+                </div>
+
+                <div id="stage-result" hidden>
+                  <h2 class="card-title" id="result-title" style="margin-bottom: var(--space-2);">Well done</h2>
+                  <div class="simple-stats">
+                    <div><span class="num" id="result-correct">0</span><small>Correct</small></div>
+                    <div><span class="num" id="result-total">0</span><small>Answered</small></div>
+                    <div><span class="num" id="result-accuracy">0%</span><small>Accuracy</small></div>
+                    <div><span class="num" id="result-time">0:00</span><small>Time</small></div>
+                  </div>
+                  <p id="result-saved" style="font-size: var(--text-sm); color: var(--text-muted);"></p>
+                  <div id="result-review-wrap" hidden>
+                    <span class="simple-label" style="text-align: left;">Wrong answers</span>
+                    <ol class="simple-review" id="result-review"></ol>
+                  </div>
+                  <div style="display: flex; gap: var(--space-2); justify-content: center; margin-top: var(--space-4);">
+                    <button type="button" class="btn btn-primary" id="btn-result-again">Same again</button>
+                    <button type="button" class="btn btn-outline" id="btn-result-change">Change practice</button>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <section class="card" style="padding: var(--space-4) var(--space-5); margin-top: var(--space-5);" aria-labelledby="simple-history-title">
+              <h2 class="card-title" id="simple-history-title" style="margin-bottom: var(--space-3);">My Simple scores</h2>
+              <div id="simple-best" class="simple-best-grid"></div>
+              <div id="simple-history"></div>
+            </section>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+    <script type="module" src="/js/simplePracticePage.js"></script>
+  </body>
+</html>

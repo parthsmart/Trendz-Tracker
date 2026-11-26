@@ -21,6 +21,7 @@ import {
   formatFlashSettingsSummary,
   flashModeHasMinus,
   flashModeLabel,
+  allowedFlashModes,
   formatFlashCompactSummary,
   formatSpeedDisplay,
   friendlyFlashError,
@@ -1856,12 +1857,23 @@ async function initFlashTrainerPage() {
       const { fetchStudentEffectiveAccess } = await import('./studentAccess.js');
       const isDemo = isDemoMode();
       const accessRes = await fetchStudentEffectiveAccess(currentProfile.id, { supabase, isDemo, DemoDB });
-      if (accessRes?.ok && accessRes?.settings?.flash && accessRes.settings.flash.allowed === false) {
+      const flashRule = accessRes?.ok ? accessRes?.settings?.flash : null;
+      const modes = allowedFlashModes(flashRule);
+      if (flashRule && (flashRule.allowed === false || modes.length === 0)) {
         showErrorBanner('Flash Anzan practice is not permitted for your current access level. You can still view your past scores and history below.');
         const startBtn = document.getElementById('btn-flash-start');
         if (startBtn) {
           startBtn.disabled = true;
           startBtn.textContent = 'Practice Restricted';
+        }
+      } else if (flashRule) {
+        // Only show the modes the teacher turned on.
+        document.querySelectorAll('[data-mode]').forEach((btn) => {
+          btn.style.display = modes.includes(btn.getAttribute('data-mode')) ? '' : 'none';
+        });
+        if (!modes.includes(currentSettings.mode)) {
+          currentSettings.mode = modes[0];
+          syncSetupControlsUI();
         }
       }
     } catch {

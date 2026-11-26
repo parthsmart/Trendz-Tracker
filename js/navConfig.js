@@ -11,6 +11,7 @@
  */
 
 import { isOralRoundsAllowed } from './oralRounds.js';
+import { isSimplePracticeAllowed } from './simplePractice.js';
 
 export const NAV_MOBILE_BREAKPOINT_PX = 1024;
 
@@ -100,6 +101,14 @@ export const NAV_CONFIG = Object.freeze({
       id: 'student-oral-rounds',
       label: 'Oral Rounds',
       href: '/pages/oral-rounds.html',
+      group: 'Practice',
+      inline: false,
+      desktopPlacement: 'practice-dropdown',
+    }),
+    Object.freeze({
+      id: 'student-simple',
+      label: 'Simple',
+      href: '/pages/simple.html',
       group: 'Practice',
       inline: false,
       desktopPlacement: 'practice-dropdown',
@@ -408,6 +417,7 @@ export function getRoleNavItems(role, permissions = null, studentAccess = null) 
     const hidden = new Set();
     if (access?.flash && access.flash.allowed === false) hidden.add('student-flash');
     if (access?.oral_rounds && !isOralRoundsAllowed(access.oral_rounds)) hidden.add('student-oral-rounds');
+    if (access?.simple_practice && !isSimplePracticeAllowed(access.simple_practice)) hidden.add('student-simple');
     if (hidden.size > 0) {
       return items.filter((item) => !hidden.has(item.id));
     }

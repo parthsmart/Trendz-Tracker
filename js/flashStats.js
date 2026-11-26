@@ -53,6 +53,23 @@ export function flashModeLabel(mode, style = 'long') {
   return entry[style] || entry.long;
 }
 
+/**
+ * Flash Anzan modes a student may use under their practice access
+ * (settings.flash = { allowed, modes }). A missing `modes` list means every mode.
+ * @returns {string[]} modes in FLASH_LIMITS.MODES order; empty when Flash is hidden
+ */
+export function allowedFlashModes(flashRule) {
+  if (flashRule && flashRule.allowed === false) return [];
+  if (!flashRule || !Array.isArray(flashRule.modes)) return [...FLASH_LIMITS.MODES];
+  const wanted = flashRule.modes.map((m) => String(m).trim().toLowerCase());
+  return FLASH_LIMITS.MODES.filter((m) => wanted.includes(m));
+}
+
+/** True when the student may practise this Flash Anzan mode. */
+export function isFlashModeAllowed(mode, flashRule) {
+  return allowedFlashModes(flashRule).includes(normalizeFlashMode(mode, null));
+}
+
 export const DEFAULT_FLASH_SETTINGS = Object.freeze({
   digits: 1,
   count: 10,
