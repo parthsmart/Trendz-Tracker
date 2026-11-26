@@ -1,8 +1,9 @@
 /**
  * Trendz Tracker — JMCWC custom practice sets (api/_jmcwcCustom.js)
  *
- * Server-only helpers for revision-workbook-style practice sets. A student picks
- * how many questions of each official difficulty level (per category) appear.
+ * Server-only helpers for revision-workbook-style practice sets. The student page
+ * picks how many questions per sheet and one difficulty (Easy, Medium, Hard); the
+ * older per-level selection format is still accepted.
  * Sets are practice only: nothing is written to the jmcwc_* tables. The private
  * questions (with answer keys) travel to the browser sealed with AES-256-GCM and
  * come back on `custom_grade`, so answer keys never reach the client in clear.
@@ -67,6 +68,7 @@ export function buildCustomOptions(paperSpec, { allowedCategory = () => true, rn
     .filter((cat) => allowedCategory(cat.category_key))
     .map((cat) => ({
       category_key: cat.category_key,
+      official_questions: cat.levels.reduce((n, l) => n + l.slots.length, 0),
       levels: cat.levels.map((lvl) => {
         let sample = '';
         try {
@@ -166,6 +168,103 @@ export function generateCustomSet(paperSpec, normalizedSelections, { seed = null
       perCat.set(sel.category_key, n);
       privateQuestions.push({ ...q, id: `${sel.category_key}_c${n}`, slot: n });
     }
+  }
+  return {
+    privateQuestions,
+    publicQuestions: privateQuestions.map(toPublicQuestion),
+    total_max_marks: privateQuestions.reduce((s, q) => s + Number(q.max_marks), 0),
+  };
+}
+
+// ----------------------------------------------------------------------------
+// Sheet + difficulty sets: the student picks how many questions per sheet and
+// one difficulty. Easy draws only from the top (first third) of each official
+// sheet, Medium from the top two thirds, Hard from the whole sheet. Picked
+// questions keep the official paper order.
+// ----------------------------------------------------------------------------
+
+export const CUSTOM_DIFFICULTIES = Object.freeze(['easy', 'medium', 'hard']);
+export const CUSTOM_MAX_PER_SHEET = 20;
+
+function sectionSlotsInOrder(paperSpec, categoryKey) {
+  const sec = (paperSpec?.sections || []).find((x) => x.key === categoryKey);
+  if (!sec || !Array.isArray(sec.questions)) return [];
+  return sec.questions
+    .map((q) => Number(q.slot))
+    .filter((n) => Number.isFinite(n))
+    .sort((a, b) => a - b);
+}
+
+/** Official slots a difficulty may draw from, in paper order. */
+export function difficultySlotPool(slotsInOrder, difficulty) {
+  const n = slotsInOrder.length;
+  if (n === 0) return [];
+  let take = n;
+  if (difficulty === 'easy') take = Math.ceil(n / 3);
+  else if (difficulty === 'medium') take = Math.ceil((2 * n) / 3);
+  return slotsInOrder.slice(0, Math.max(1, take));
+}
+
+/** Validate `{ difficulty, sheets: [{ category_key, count }] }`. */
+export function normalizeCustomSheetRequest(paperSpec, body, { allowedCategory = () => true } = {}) {
+  const difficulty = typeof body?.difficulty === 'string' ? body.difficulty.toLowerCase() : '';
+  if (!CUSTOM_DIFFICULTIES.includes(difficulty)) throw badRequest('Choose Easy, Medium or Hard.');
+  const sheets = body?.sheets;
+  if (!Array.isArray(sheets) || sheets.length === 0) throw badRequest('Choose at least one question.');
+  const known = new Set(buildCustomLevels(paperSpec).map((c) => c.category_key));
+  const seen = new Set();
+  const out = [];
+  let total = 0;
+  for (const sheet of sheets) {
+    const cat = typeof sheet?.category_key === 'string' ? sheet.category_key : '';
+    const count = Number(sheet?.count);
+    if (!known.has(cat)) throw badRequest(`Unknown category: ${cat || '(blank)'}.`);
+    if (!allowedCategory(cat)) {
+      const err = new Error(`Category ${cat} is not permitted for your practice access.`);
+      err.statusCode = 403;
+      err.code = 'PRACTICE_ACCESS_RESTRICTED';
+      throw err;
+    }
+    if (!Number.isInteger(count) || count < 0 || count > CUSTOM_MAX_PER_SHEET) {
+      throw badRequest(`Each sheet allows 0 to ${CUSTOM_MAX_PER_SHEET} questions.`);
+    }
+    if (seen.has(cat)) throw badRequest(`Duplicate selection for ${cat}.`);
+    seen.add(cat);
+    if (count === 0) continue;
+    total += count;
+    out.push({ category_key: cat, count, slots: difficultySlotPool(sectionSlotsInOrder(paperSpec, cat), difficulty) });
+  }
+  if (total === 0) throw badRequest('Choose at least one question.');
+  if (total > CUSTOM_MAX_QUESTIONS) {
+    throw badRequest(`A custom set can have at most ${CUSTOM_MAX_QUESTIONS} questions.`);
+  }
+  return { difficulty, sheets: out };
+}
+
+/**
+ * Generate a sheet + difficulty set: sheets in paper category order, each
+ * sheet's random picks sorted back into official question order.
+ */
+export function generateCustomSheetSet(paperSpec, normalized, { seed = null } = {}) {
+  const rng = seed !== null && seed !== undefined ? createSeededRng(seed) : createCryptoRng();
+  const catOrder = paperSpec.sections.map((s) => s.key);
+  const sheets = [...normalized.sheets].sort(
+    (a, b) => catOrder.indexOf(a.category_key) - catOrder.indexOf(b.category_key)
+  );
+  const privateQuestions = [];
+  for (const sheet of sheets) {
+    const picked = [];
+    let pool = [];
+    for (let i = 0; i < sheet.count; i += 1) {
+      if (pool.length === 0) pool = shuffled(rng, sheet.slots);
+      picked.push(pool.pop());
+    }
+    picked.sort((a, b) => a - b);
+    picked.forEach((slotNumber, idx) => {
+      const spec = findSlotSpec(paperSpec, sheet.category_key, slotNumber);
+      const q = generateQuestionForSlot(sheet.category_key, spec, rng);
+      privateQuestions.push({ ...q, id: `${sheet.category_key}_c${idx + 1}`, slot: idx + 1 });
+    });
   }
   return {
     privateQuestions,

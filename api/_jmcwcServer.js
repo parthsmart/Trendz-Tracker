@@ -26,9 +26,13 @@
 import { generateQuestionsFromBlueprint, toPublicQuestions } from './_jmcwcGenerate.js';
 import {
   buildCustomOptions,
+  CUSTOM_DIFFICULTIES,
   CUSTOM_MAX_PER_LEVEL,
+  CUSTOM_MAX_PER_SHEET,
   CUSTOM_MAX_QUESTIONS,
   generateCustomSet,
+  generateCustomSheetSet,
+  normalizeCustomSheetRequest,
   normalizeCustomSelections,
   openCustomSet,
   sealCustomSet,
@@ -2125,18 +2129,28 @@ export function createJmcwcServer({
       group_key: ctx.groupKey,
       paper_version: ctx.paper.version,
       max_per_level: CUSTOM_MAX_PER_LEVEL,
+      max_per_sheet: CUSTOM_MAX_PER_SHEET,
       max_questions: CUSTOM_MAX_QUESTIONS,
+      difficulties: [...CUSTOM_DIFFICULTIES],
       categories: buildCustomOptions(ctx.paper.spec, { allowedCategory: ctx.allowedCategory }),
     };
   }
 
   async function handleStudentCustomCreate(supabase, studentId, body) {
     const ctx = await loadCustomPracticeContext(supabase, studentId);
-    const normalized = normalizeCustomSelections(ctx.paper.spec, body?.selections, {
-      allowedCategory: ctx.allowedCategory,
-    });
     const seed = typeof seedGenerator === 'function' ? seedGenerator({ studentId, requestId: 'custom' }) : null;
-    const generated = generateCustomSet(ctx.paper.spec, normalized, { seed });
+    let generated;
+    let difficulty = null;
+    if (body?.difficulty !== undefined || body?.sheets !== undefined) {
+      const normalized = normalizeCustomSheetRequest(ctx.paper.spec, body, { allowedCategory: ctx.allowedCategory });
+      difficulty = normalized.difficulty;
+      generated = generateCustomSheetSet(ctx.paper.spec, normalized, { seed });
+    } else {
+      const normalized = normalizeCustomSelections(ctx.paper.spec, body?.selections, {
+        allowedCategory: ctx.allowedCategory,
+      });
+      generated = generateCustomSet(ctx.paper.spec, normalized, { seed });
+    }
     const issuedAt = nowFn();
     const token = sealCustomSet(
       {
@@ -2153,6 +2167,7 @@ export function createJmcwcServer({
         token,
         group_key: ctx.groupKey,
         paper_version: ctx.paper.version,
+        difficulty,
         issued_at: new Date(issuedAt).toISOString(),
         max_marks: generated.total_max_marks,
         questions: generated.publicQuestions,
