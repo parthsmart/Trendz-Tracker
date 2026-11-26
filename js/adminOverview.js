@@ -317,10 +317,40 @@ function subtractDaysIST(dateStr, days) {
 }
 
 /**
- * Enriches admin_overview rows with recent activity_results (Elements, Flash Anzan, Memoriad)
- * and 7-day results so last_entry_date, entered_today, entries_7d, and accuracy_7d reflect all practice.
+ * Practice that is saved outside results/activity_results: Main Round score entries
+ * (student_rounds) and Weekly Test attempts. Each becomes { student_id, day, at } so it
+ * can mark a student as entered today and move their last entry date. These rows have
+ * no correct/total, so they never change 7-day entries or accuracy.
  */
-export function enrichOverviewRows(overviewRows, activityRows, resultRows, currentTodayIST) {
+export function buildOtherPracticeRows(studentRoundRows, weeklyAttemptRows) {
+  const out = [];
+  if (Array.isArray(studentRoundRows)) {
+    for (const r of studentRoundRows) {
+      if (!r || !r.student_id) continue;
+      const day = r.round_date ? String(r.round_date).slice(0, 10) : (r.created_at ? getISTDateString(r.created_at) : null);
+      if (!day) continue;
+      out.push({ student_id: r.student_id, day, at: r.created_at || null });
+    }
+  }
+  if (Array.isArray(weeklyAttemptRows)) {
+    for (const w of weeklyAttemptRows) {
+      if (!w || !w.student_id) continue;
+      const at = w.finished_at || w.started_at || null;
+      if (!at) continue;
+      const day = getISTDateString(at);
+      if (!day) continue;
+      out.push({ student_id: w.student_id, day, at });
+    }
+  }
+  return out;
+}
+
+/**
+ * Enriches admin_overview rows with recent activity_results (Elements, Flash Anzan, Memoriad),
+ * 7-day results, and other saved practice (Main Round entries, Weekly Tests) so last_entry_date,
+ * entered_today, entries_7d, and accuracy_7d reflect all practice.
+ */
+export function enrichOverviewRows(overviewRows, activityRows, resultRows, currentTodayIST, otherPracticeRows = null) {
   if (!Array.isArray(overviewRows)) return [];
   const sevenDaysAgoIST = subtractDaysIST(currentTodayIST, 6);
 
@@ -342,10 +372,27 @@ export function enrichOverviewRows(overviewRows, activityRows, resultRows, curre
     }
   }
 
+  const otherByStudent = new Map();
+  if (Array.isArray(otherPracticeRows)) {
+    for (const o of otherPracticeRows) {
+      if (!o || !o.student_id || !o.day) continue;
+      if (!otherByStudent.has(o.student_id)) otherByStudent.set(o.student_id, []);
+      otherByStudent.get(o.student_id).push(o);
+    }
+  }
+
   return overviewRows.map((student) => {
     const stuId = student.student_id;
     const stuActs = actByStudent.get(stuId) || [];
     const stuRes = resByStudent.get(stuId) || [];
+    const stuOther = otherByStudent.get(stuId) || [];
+
+    let latestOtherDate = null;
+    for (const o of stuOther) {
+      // Ignore future-dated entries so they cannot mark someone as entered today early.
+      if (o.day > currentTodayIST) continue;
+      if (!latestOtherDate || o.day > latestOtherDate) latestOtherDate = o.day;
+    }
 
     let latestActDate = null;
     const acts7d = [];
@@ -374,7 +421,7 @@ export function enrichOverviewRows(overviewRows, activityRows, resultRows, curre
     }
 
     const effectiveLastDate =
-      [latestResDate, latestActDate].filter(Boolean).sort().pop() || null;
+      [latestResDate, latestActDate, latestOtherDate].filter(Boolean).sort().pop() || null;
 
     const baseEntries7d = Array.isArray(resultRows)
       ? Math.max(Number(student.entries_7d) || 0, res7d.length)
@@ -424,6 +471,14 @@ export function enrichOverviewRows(overviewRows, activityRows, resultRows, curre
       for (const r of stuRes) {
         if (r && r.created_at) {
           const ms = new Date(r.created_at).getTime();
+          if (!isNaN(ms) && ms >= startOfTodayISTMs && ms <= endOfTodayISTMs) {
+            todayEntries.push(new Date(ms));
+          }
+        }
+      }
+      for (const o of stuOther) {
+        if (o && o.at && o.day === currentTodayIST) {
+          const ms = new Date(o.at).getTime();
           if (!isNaN(ms) && ms >= startOfTodayISTMs && ms <= endOfTodayISTMs) {
             todayEntries.push(new Date(ms));
           }
@@ -495,7 +550,7 @@ async function loadOverviewData() {
       const supabase = await getSupabase();
       if (supabase) {
         // Resolve authoritative Indian time, admin_overview RPC, and recent activity_results in parallel
-        const [istRes, overviewRes, actRes, resRes] = await Promise.all([
+        const [istRes, overviewRes, actRes, resRes, roundsRes, weeklyRes] = await Promise.all([
           (async () => {
             try {
               return await supabase.rpc('today_ist');
@@ -526,6 +581,29 @@ async function loadOverviewData() {
               return { data: null };
             }
           })(),
+          // Main Round score entries and Weekly Test attempts also count as practice today.
+          (async () => {
+            try {
+              return await supabase
+                .from('student_rounds')
+                .select('student_id, round_date, created_at')
+                .gte('round_date', getISTDateString(new Date(Date.now() - 14 * 86400000)))
+                .limit(2000);
+            } catch {
+              return { data: null };
+            }
+          })(),
+          (async () => {
+            try {
+              return await supabase
+                .from('weekly_test_attempts')
+                .select('student_id, started_at, finished_at')
+                .gte('started_at', new Date(Date.now() - 14 * 86400000).toISOString())
+                .limit(2000);
+            } catch {
+              return { data: null };
+            }
+          })(),
         ]);
 
         todayIST = istRes?.data
@@ -538,7 +616,8 @@ async function loadOverviewData() {
             data,
             actRes?.data || null,
             resRes?.data || null,
-            todayIST
+            todayIST,
+            buildOtherPracticeRows(roundsRes?.data || null, weeklyRes?.data || null)
           );
           updateDashboard();
           return;
