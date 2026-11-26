@@ -148,7 +148,7 @@
                     <input
                       type="text"
                       id="import-student-search"
-                      class="import-student-picker-input"
+                      class="form-input import-student-picker-input"
                       placeholder="Search and select student by name or ID (e.g. STU101)..."
                       autocomplete="off"
                       role="combobox"
@@ -187,10 +187,7 @@
                   class="form-input"
                   accept=".csv,text/csv"
                 />
-                <div
-                  style="font-size: var(--text-sm); color: var(--text-muted); margin-top: var(--space-1); display: flex; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap;"
-                >
-                  <span>The file is read in your browser and is not uploaded.</span>
+                <div class="form-hint">
                   <span id="import-file-meta" class="num" style="font-weight: 600;"></span>
                 </div>
               </div>
