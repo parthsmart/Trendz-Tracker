@@ -8,6 +8,16 @@
 
 ## Current Status Overview
 
+### Session: 2026-11-26 (JMCWC online practice matches the official simulator workbooks + custom practice sets)
+
+#### Summary
+- The online Main Round runner now shows the paper the way the official JMCWC 2026 simulator workbooks print it: every category is a sheet on one long page with its German / English heading and note, numbered questions, the answer after "=", a "Punkte / Points" value beside each question, a "Total value" per sheet and a paper total. The single-card form view was removed. Pure helpers live in `js/jmcwcPaper.js`.
+- The completed review adds the revision-workbook footer: Total Time Taken, Total Score / max, Marks To be Corrected, and score plus questions to correct per sheet.
+- New **Custom Practice Set** (revision sheet style): students pick 0-10 questions for each official level of each category (levels are the paper slots grouped by points, easiest first; the default is one per level; at most 150 questions). Server actions `custom_options`, `custom_create` and `custom_grade` in `api/_jmcwcServer.js` with helpers in `api/_jmcwcCustom.js`.
+- Custom sets are practice only and need no database migration: the private questions travel to the browser sealed with AES-256-GCM (24 h, bound to the student), and the server grades them on submit. Nothing is written to `jmcwc_*` tables, history or homework. Answers are kept in `localStorage` per user until submit.
+- Optional env `JMCWC_CUSTOM_SET_SECRET` (16+ chars) sets the sealing key; when unset the server falls back to `SUPABASE_SERVICE_ROLE_KEY`. Changing it invalidates unfinished custom sets only.
+- Tests: `tests/jmcwcPaper.test.js`, `tests/jmcwcCustom.test.js`; `tests/jmcwcWorksheetIdentity.test.js` harness now provides `buildPaperSheetModel`.
+
 ### Session: 2026-11-03 (Phase 17c — JMCWC Round Scores Interface, Online Simulator Runner, Admin JMCWC Panel, Private Backup & Student Deletion)
 
 #### 5-Line Session Summary
