@@ -2013,3 +2013,155 @@ test('15. Host email matching ignores letter case and spaces', async () => {
   assert.equal(isSameEmail('', ''), false);
   assert.equal(isSameEmail(null, 'owner@trendz.in'), false);
 });
+
+// Small in-memory Supabase stand-in: filters with eq/in, resolves lists, single rows and inserts.
+function memorySupabase(tables, tokens) {
+  const from = (table) => {
+    const filters = [];
+    let inserted = null;
+    const rows = () => (tables[table] || []).filter((row) => filters.every((f) => f(row)));
+    const builder = {
+      select: () => builder,
+      eq: (col, val) => { filters.push((row) => row[col] === val); return builder; },
+      in: (col, vals) => { filters.push((row) => vals.includes(row[col])); return builder; },
+      gte: () => builder, lt: () => builder, or: () => builder, order: () => builder, limit: () => builder,
+      insert: (record) => {
+        tables[table] = tables[table] || [];
+        inserted = { id: `class-${tables[table].length + 1}`, ...record };
+        tables[table].push(inserted);
+        return builder;
+      },
+      update: () => builder,
+      single: async () => {
+        const row = inserted || rows()[0];
+        return { data: row || null, error: row ? null : new Error('Not found') };
+      },
+      maybeSingle: async () => ({ data: rows()[0] || null, error: null }),
+      then: (resolve, reject) => Promise.resolve({ data: rows(), error: null }).then(resolve, reject),
+    };
+    return builder;
+  };
+  return {
+    auth: {
+      getUser: async (token) => (tokens[token]
+        ? { data: { user: { id: tokens[token], email: `${tokens[token]}@trendz.local` } }, error: null }
+        : { data: { user: null }, error: new Error('Invalid token') }),
+      admin: { getUserById: async (id) => ({ data: { user: { id } }, error: null }) },
+    },
+    from,
+  };
+}
+
+async function callLiveApi(supabase, token, body) {
+  let statusCode = 200;
+  let json = null;
+  const res = {
+    setHeader: () => {},
+    status: (code) => { statusCode = code; return res; },
+    json: (data) => { json = data; return res; },
+    end: () => res,
+  };
+  await handleLiveClassRequest(
+    { method: 'POST', headers: { authorization: `Bearer ${token}` }, body },
+    res,
+    { supabase, fetch: async () => { throw new Error('Zoom classes must not call Webinar.gg'); } },
+  );
+  return { statusCode, json };
+}
+
+test('16. Zoom links are validated and normalised', async () => {
+  const { normalizeZoomMeetingUrl } = await import('../api/_liveClass.js');
+  assert.equal(normalizeZoomMeetingUrl('https://us02web.zoom.us/j/8123456789?pwd=abc#x'), 'https://us02web.zoom.us/j/8123456789?pwd=abc');
+  assert.equal(normalizeZoomMeetingUrl('  https://zoom.us/j/123  '), 'https://zoom.us/j/123');
+  assert.equal(normalizeZoomMeetingUrl('http://zoom.us/j/123'), null);
+  assert.equal(normalizeZoomMeetingUrl('https://zoom.us.evil.com/j/123'), null);
+  assert.equal(normalizeZoomMeetingUrl('https://evilzoom.us/j/123'), null);
+  assert.equal(normalizeZoomMeetingUrl('https://user:pw@zoom.us/j/123'), null);
+  assert.equal(normalizeZoomMeetingUrl('https://zoom.us/'), null);
+  assert.equal(normalizeZoomMeetingUrl('javascript:alert(1)'), null);
+  assert.equal(normalizeZoomMeetingUrl(null), null);
+});
+
+test('17. Teachers schedule Zoom classes only with permission and only for their own students; students get the link at class time', async () => {
+  const teacher = { id: 'tch-1', full_name: 'Pooja', role: 'teacher', level: 'Teacher', active: true };
+  const otherTeacher = { id: 'tch-2', full_name: 'Ravi', role: 'teacher', level: 'Teacher', active: true };
+  const admin = { id: 'adm-1', full_name: 'Admin', role: 'admin', level: 'Admin', active: true };
+  const mine = { id: 'b1000000-0000-0000-0000-000000000001', full_name: 'Rohan', role: 'student', level: 'Basic 1', active: true };
+  const notMine = { id: 'b1000000-0000-0000-0000-000000000002', full_name: 'Meera', role: 'student', level: 'Basic 1', active: true };
+  const tables = {
+    profiles: [teacher, otherTeacher, admin, mine, notMine],
+    teacher_permissions: [{ teacher_id: 'tch-1', can_schedule_live_classes: false }],
+    teacher_student_assignments: [{ teacher_id: 'tch-1', student_id: 'b1000000-0000-0000-0000-000000000001' }],
+    live_classes: [],
+  };
+  const tokens = { 'tok-teacher': 'tch-1', 'tok-admin': 'adm-1', 'tok-mine': 'b1000000-0000-0000-0000-000000000001', 'tok-notmine': 'b1000000-0000-0000-0000-000000000002', 'tok-other-teacher': 'tch-2' };
+  const db = memorySupabase(tables, tokens);
+  const soon = new Date(Date.now() + 5 * 60_000).toISOString();
+  const zoomClass = (extra = {}) => ({
+    action: 'create', class_type: 'zoom', title: 'Speed drills', teacher_id: 'tch-1',
+    audience: 'students', target_student_ids: ['b1000000-0000-0000-0000-000000000001'], scheduled_start_time: soon, duration_minutes: 40,
+    meeting_url: 'https://us02web.zoom.us/j/8123456789?pwd=abc', ...extra,
+  });
+
+  // Permission off: refused.
+  let r = await callLiveApi(db, 'tok-teacher', zoomClass());
+  assert.equal(r.statusCode, 403);
+  assert.equal(r.json.code, 'FORBIDDEN');
+  assert.match(r.json.error, /Schedule live classes/);
+
+  tables.teacher_permissions[0].can_schedule_live_classes = true;
+
+  // Someone else's student, another teacher's class, admin-only fields and types, non-student audience.
+  r = await callLiveApi(db, 'tok-teacher', zoomClass({ target_student_ids: ['b1000000-0000-0000-0000-000000000001', 'b1000000-0000-0000-0000-000000000002'] }));
+  assert.equal(r.statusCode, 403);
+  assert.equal(r.json.code, 'INVALID_AUDIENCE');
+  r = await callLiveApi(db, 'tok-teacher', zoomClass({ teacher_id: 'tch-2' }));
+  assert.equal(r.statusCode, 403);
+  r = await callLiveApi(db, 'tok-teacher', zoomClass({ invited_teacher_ids: ['tch-2'] }));
+  assert.equal(r.statusCode, 403);
+  r = await callLiveApi(db, 'tok-teacher', zoomClass({ class_type: 'prerecorded' }));
+  assert.equal(r.statusCode, 403);
+  r = await callLiveApi(db, 'tok-teacher', zoomClass({ audience: 'level', target_student_ids: [], target_level: 'Basic 1' }));
+  assert.equal(r.statusCode, 400);
+
+  // Bad link and too long.
+  r = await callLiveApi(db, 'tok-teacher', zoomClass({ meeting_url: 'https://example.com/j/1' }));
+  assert.equal(r.json.code, 'INVALID_ZOOM_LINK');
+  r = await callLiveApi(db, 'tok-teacher', zoomClass({ duration_minutes: 60 }));
+  assert.equal(r.json.code, 'ZOOM_TOO_LONG');
+  assert.equal(tables.live_classes.length, 0);
+
+  // Valid: saved without touching Webinar.gg.
+  r = await callLiveApi(db, 'tok-teacher', zoomClass());
+  assert.equal(r.statusCode, 201, JSON.stringify(r.json));
+  assert.equal(tables.live_classes.length, 1);
+  const saved = tables.live_classes[0];
+  assert.equal(saved.class_type, 'zoom');
+  assert.equal(saved.meeting_url, 'https://us02web.zoom.us/j/8123456789?pwd=abc');
+  assert.match(saved.webinar_id, /^zoom-/);
+  assert.equal(saved.host_email, null);
+
+  // Join: the enrolled student gets the link, others do not.
+  r = await callLiveApi(db, 'tok-mine', { action: 'join', classId: saved.id });
+  assert.equal(r.statusCode, 200, JSON.stringify(r.json));
+  assert.equal(r.json.classType, 'zoom');
+  assert.equal(r.json.meetingUrl, saved.meeting_url);
+  assert.equal(r.json.isHost, false);
+  r = await callLiveApi(db, 'tok-notmine', { action: 'join', classId: saved.id });
+  assert.equal(r.json.code, 'NOT_ENROLLED');
+  assert.equal(r.json.meetingUrl, undefined);
+  r = await callLiveApi(db, 'tok-other-teacher', { action: 'join', classId: saved.id });
+  assert.equal(r.json.code, 'NOT_INVITED');
+  r = await callLiveApi(db, 'tok-teacher', { action: 'join', classId: saved.id });
+  assert.equal(r.json.isHost, true);
+
+  // Too early for students.
+  saved.scheduled_start_time = new Date(Date.now() + 60 * 60_000).toISOString();
+  r = await callLiveApi(db, 'tok-mine', { action: 'join', classId: saved.id });
+  assert.equal(r.json.code, 'CLASS_NOT_OPEN_YET');
+  assert.equal(r.json.meetingUrl, undefined);
+
+  // Admins can still schedule Zoom classes for any teacher.
+  r = await callLiveApi(db, 'tok-admin', zoomClass({ teacher_id: 'tch-2', target_student_ids: ['b1000000-0000-0000-0000-000000000002'] }));
+  assert.equal(r.statusCode, 201, JSON.stringify(r.json));
+});

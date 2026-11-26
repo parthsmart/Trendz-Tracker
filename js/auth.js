@@ -50,6 +50,7 @@ async function fetchProfileFromSupabase(supabase, userId) {
             can_manage_resources: true,
             can_review_scores: true,
             can_request_corrections: true,
+            can_schedule_live_classes: false,
           };
         } catch (permErr) {
           console.warn('Teacher permissions fetch error:', permErr);
@@ -64,6 +65,7 @@ async function fetchProfileFromSupabase(supabase, userId) {
             can_manage_resources: true,
             can_review_scores: true,
             can_request_corrections: true,
+            can_schedule_live_classes: false,
           };
         }
       }
@@ -201,6 +203,7 @@ export async function loginWithStudentId(studentId, password) {
           can_manage_resources: true,
           can_review_scores: true,
           can_request_corrections: true,
+          can_schedule_live_classes: false,
         }
       };
       DemoDB.setDemoAuth(teacherProfile);
