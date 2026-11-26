@@ -83,7 +83,7 @@ const ROLE_LAYOUTS = {
       { id: 'teacher-attendance', short: 'Attend.', icon: '✅', group: 'Class' },
       { id: 'teacher-todos', short: 'Tasks', icon: '☑️', group: 'Class' },
       { id: 'teacher-live-classes', href: '/pages/live-classes.html', label: 'Live Classes', short: 'Live', icon: '🎥', group: 'Class' },
-      { id: 'teacher-homework', href: '/pages/homework.html', label: 'Homework', short: 'Homework', icon: '📚', group: 'Class' },
+      { id: 'teacher-homework', href: '/pages/homework.html', label: 'Homework', short: 'Homework', icon: '📚', group: 'Class', perm: 'can_manage_tasks' },
       { id: 'teacher-review', short: 'Review', icon: '🔍', group: 'Results' },
       { id: 'teacher-weekly-tests', short: 'Tests', icon: '📝', group: 'Results' },
       { id: 'teacher-monthly-report', short: 'Reports', icon: '📊', group: 'Results' },

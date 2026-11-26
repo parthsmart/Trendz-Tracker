@@ -197,21 +197,22 @@ export const TEACHER_PERMISSIONS = [
   { key: 'can_correct_attendance', icon: '✏️', name: 'Correct attendance', text: 'Change attendance already marked' },
   { key: 'can_review_scores', icon: '🔍', name: 'Review scores', text: 'Verify scores students enter' },
   { key: 'can_request_corrections', icon: '↩️', name: 'Request corrections', text: 'Ask students to fix a score' },
-  { key: 'can_manage_tasks', icon: '☑️', name: 'Manage tasks', text: 'Set daily to-dos' },
+  { key: 'can_manage_tasks', icon: '☑️', name: 'Manage tasks', text: 'Set daily to-dos and homework' },
   { key: 'can_manage_tests', icon: '📝', name: 'Manage weekly tests', text: 'Create tests and enter results' },
   { key: 'can_generate_reports', icon: '📊', name: 'Monthly reports', text: 'Open and print student reports' },
   { key: 'can_publish_announcements', icon: '📣', name: 'Announcements', text: 'Post news to students' },
   { key: 'can_manage_resources', icon: '📁', name: 'Resources', text: 'Share files and links' },
+  { key: 'can_schedule_live_classes', icon: '🎥', name: 'Schedule live classes', text: 'Book classes for your students', defaultOff: true },
 ];
 
-/** One row per teacher permission. Missing keys count as allowed, as in the navigation. */
+/** One row per teacher permission. Missing keys count as allowed, as in the navigation, except defaultOff ones. */
 export function summarizeTeacherPermissions(permissions) {
   const p = permissions || {};
   return TEACHER_PERMISSIONS.map((perm) => ({
     icon: perm.icon,
     name: perm.name,
     text: perm.text,
-    state: p[perm.key] !== false ? 'full' : 'none',
+    state: (perm.defaultOff ? p[perm.key] === true : p[perm.key] !== false) ? 'full' : 'none',
   }));
 }
 

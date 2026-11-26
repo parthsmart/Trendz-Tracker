@@ -68,6 +68,7 @@ export async function loadTeachersData() {
           can_manage_resources: true,
           can_review_scores: true,
           can_request_corrections: true,
+          can_schedule_live_classes: false,
         },
       },
     ];
@@ -122,6 +123,7 @@ export async function loadTeachersData() {
         can_manage_resources: true,
         can_review_scores: true,
         can_request_corrections: true,
+        can_schedule_live_classes: false,
       },
       assigned_count: assignCounts.get(t.id) || 0,
     }));
@@ -375,6 +377,7 @@ function setupUIEventListeners() {
         can_manage_resources: document.getElementById('perm-manage-resources')?.checked ?? true,
         can_review_scores: document.getElementById('perm-review-scores')?.checked ?? true,
         can_request_corrections: document.getElementById('perm-request-corrections')?.checked ?? true,
+        can_schedule_live_classes: document.getElementById('perm-schedule-live-classes')?.checked ?? false,
       };
 
       if (submitBtn) submitBtn.disabled = true;
@@ -571,6 +574,7 @@ function openEditPermissionsModal(teacher) {
   setCheck('edit-perm-manage-resources', p.can_manage_resources);
   setCheck('edit-perm-review-scores', p.can_review_scores);
   setCheck('edit-perm-request-corrections', p.can_request_corrections);
+  setCheck('edit-perm-schedule-live-classes', p.can_schedule_live_classes === true);
 
   const saveBtn = document.getElementById('btn-save-permissions');
   if (saveBtn) {
@@ -587,6 +591,7 @@ function openEditPermissionsModal(teacher) {
         can_manage_resources: document.getElementById('edit-perm-manage-resources')?.checked ?? true,
         can_review_scores: document.getElementById('edit-perm-review-scores')?.checked ?? true,
         can_request_corrections: document.getElementById('edit-perm-request-corrections')?.checked ?? true,
+        can_schedule_live_classes: document.getElementById('edit-perm-schedule-live-classes')?.checked ?? false,
       };
 
       try {

@@ -211,6 +211,14 @@ function showError(message, code, meta = {}) {
       `;
       break;
 
+    case 'CLASS_NOT_OPEN_YET':
+      heading = 'Class Opens Soon';
+      buttonsHtml = `
+        <button type="button" class="btn btn-primary btn-sm" onclick="window.location.reload()">Try Again</button>
+        <a href="${backUrl}" class="btn btn-outline btn-sm" style="color: #f8fafc; border-color: #475569; text-decoration: none;">${backLabel}</a>
+      `;
+      break;
+
     case 'NOT_INVITED':
       heading = 'Participant Access Not Authorized';
       bodyText = 'You are signed in as a teacher, but you have not been invited as a participant to this live class.';
@@ -340,6 +348,8 @@ async function loadClassMetadata(classId) {
     confirmJoinBtn.hidden = isLiveHost;
     if (currentClassMeta.classType === 'prerecorded') {
       confirmJoinBtn.textContent = 'Watch Scheduled Class →';
+    } else if (currentClassMeta.classType === 'zoom') {
+      confirmJoinBtn.textContent = 'Open Zoom →';
     } else if (currentClassMeta.isInvitedParticipant) {
       confirmJoinBtn.textContent = 'Join Live Class as Participant →';
     } else {
@@ -448,6 +458,12 @@ async function joinRoom() {
     const data = await requestLiveClassWithRecovery('join', { classId: currentClassId });
     if (!data || !data.ok) {
       showError(data?.error || 'Failed to authorize live room access.', data?.code, data?.meta);
+      return;
+    }
+
+    if (data.classType === 'zoom') {
+      // Zoom runs in the Zoom app or zoom.us, not inside Trendz.
+      window.location.assign(data.meetingUrl);
       return;
     }
 

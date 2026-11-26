@@ -232,8 +232,41 @@ export function isSameEmail(a, b) {
   return left.includes('@') && left === clean(b);
 }
 
+/**
+ * A Zoom meeting link a teacher pasted: https on zoom.us / zoom.com (or a company subdomain),
+ * pointing at a meeting (/j/, /my/, /w/, /s/). Returns the cleaned link or null.
+ */
+export function normalizeZoomMeetingUrl(value) {
+  if (typeof value !== 'string' || value.length > 600) return null;
+  let url;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    return null;
+  }
+  const host = url.hostname.toLowerCase();
+  if (url.protocol !== 'https:' || url.username || url.password ||
+      !/(^|\.)zoom\.(us|com)$/.test(host) || !/^\/(j|my|w|s|wc\/join)\/[\w.-]+/.test(url.pathname)) {
+    return null;
+  }
+  url.hash = '';
+  return url.toString();
+}
+
+/** Longest Zoom class (ZOOM_MAX_CLASS_MINUTES, default 40: Zoom Basic ends group meetings at 40 minutes). */
+export function getZoomMaxMinutes() {
+  const value = Number.parseInt(process.env.ZOOM_MAX_CLASS_MINUTES || '', 10);
+  return Number.isInteger(value) && value >= 15 && value <= 240 ? value : 40;
+}
+
+/** Zoom links are handed out from this long before the start (same as the student page's Join button). */
+const ZOOM_JOIN_OPENS_BEFORE_MIN = 15;
+
 /** Classes that use a Webinar.gg room and so take one of the plan's meeting slots. */
 const ROOM_CLASS_TYPES = ['live', 'stream'];
+const CLASS_TYPES = ['live', 'stream', 'prerecorded', 'zoom'];
+/** What a teacher with the schedule permission may create (admins may create any type). */
+const TEACHER_CLASS_TYPES = ['live', 'zoom'];
 const MAX_CLASS_MINUTES = 240;
 
 /** Meetings the Webinar.gg plan can run at once (WEBINAR_GG_MAX_LIVE_CLASSES, default 1). */
@@ -473,7 +506,8 @@ export async function handleLiveClassRequest(req, res, options = {}) {
         let currentStatus = liveClass.status;
         let providerStatus = liveClass.provider_status;
         let providerInfo = null;
-        if (liveClass.webinar_id && currentStatus !== 'ended' && currentStatus !== 'cancelled') {
+        if (liveClass.webinar_id && liveClass.class_type !== 'zoom' &&
+            currentStatus !== 'ended' && currentStatus !== 'cancelled') {
           providerInfo = await fetchProviderWebinarInfo(liveClass.webinar_id, fetchImpl);
           const liveProviderStatus = providerInfo?.status;
           if (liveProviderStatus) {
@@ -556,7 +590,8 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           if (ready) hostDashboardUrl = `https://webinar.gg/webinar-page/${liveClass.webinar_id}`;
         }
         const isTeacherCohost = isAssignedTeacher && Boolean(hostDashboardUrl);
-        const hostingDisabled = caller.role === 'teacher' && !isInvitedParticipant && !isTeacherCohost;
+        // Zoom classes are hosted from the teacher's own Zoom account, so there is nothing to set up here.
+        const hostingDisabled = caller.role === 'teacher' && classType !== 'zoom' && !isInvitedParticipant && !isTeacherCohost;
 
         return res.status(200).json({
           ok: true,
@@ -617,6 +652,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
             recording_enabled,
             prerecorded_asset_url,
             stream_url,
+            meeting_url,
             teacher:profiles!teacher_id (id, full_name)
           `)
           .eq('id', classId)
@@ -671,6 +707,51 @@ export async function handleLiveClassRequest(req, res, options = {}) {
 
         if (liveClass.status === 'ended') {
           return res.status(400).json({ error: 'This live class has already ended.', code: 'CLASS_ENDED' });
+        }
+
+        // Zoom class: the teacher hosts from their own Zoom account; Trendz hands out the link
+        // only to the class's audience and only around the class time.
+        if (liveClass.class_type === 'zoom') {
+          if (caller.role === 'student' && !isStudentInAudience(caller, liveClass)) {
+            return res.status(403).json({ error: 'You are not enrolled in this live class.', code: 'NOT_ENROLLED' });
+          }
+          const isZoomTeacher = caller.role === 'teacher' && (caller.id === liveClass.teacher_id ||
+            (Array.isArray(liveClass.invited_teacher_ids) && liveClass.invited_teacher_ids.includes(caller.id)));
+          if (caller.role === 'teacher' && !isZoomTeacher) {
+            return res.status(403).json({ error: 'You are not invited to participate in this class.', code: 'NOT_INVITED' });
+          }
+          if (!['student', 'teacher', 'admin'].includes(caller.role)) {
+            return res.status(403).json({ error: 'Unauthorized role for live class access.', code: 'UNAUTHORIZED_ROLE' });
+          }
+          const meetingUrl = normalizeZoomMeetingUrl(liveClass.meeting_url);
+          if (!meetingUrl) {
+            return res.status(409).json({ error: 'This class has no Zoom link yet. Ask your teacher to add it.', code: 'ZOOM_LINK_MISSING' });
+          }
+          const startMs = new Date(liveClass.scheduled_start_time).getTime();
+          const endMs = startMs + (Number(liveClass.duration_minutes) || 40) * 60_000;
+          const now = Date.now();
+          if (caller.role === 'student' && Number.isFinite(startMs)) {
+            if (now < startMs - ZOOM_JOIN_OPENS_BEFORE_MIN * 60_000) {
+              return res.status(409).json({
+                error: `This class opens ${ZOOM_JOIN_OPENS_BEFORE_MIN} minutes before it starts. Come back then.`,
+                code: 'CLASS_NOT_OPEN_YET',
+              });
+            }
+            if (now > endMs) {
+              return res.status(400).json({ error: 'This live class has already ended.', code: 'CLASS_ENDED' });
+            }
+          }
+          return res.status(200).json({
+            ok: true,
+            classType: 'zoom',
+            classTitle: liveClass.title,
+            meetingUrl,
+            isHost: caller.role !== 'student' && (caller.role === 'admin' || caller.id === liveClass.teacher_id),
+            scheduledStartTime: liveClass.scheduled_start_time,
+            durationMinutes: liveClass.duration_minutes,
+            teacherName: liveClass.teacher?.full_name || 'Assigned Teacher',
+            status: liveClass.status,
+          });
         }
 
         // Scheduled Prerecorded Class workflow
@@ -943,8 +1024,28 @@ export async function handleLiveClassRequest(req, res, options = {}) {
 
       // 5. Create Live Class (Admin only)
       case 'create': {
-        if (caller.role !== 'admin') {
+        if (caller.role !== 'admin' && caller.role !== 'teacher') {
           return res.status(403).json({ error: 'Only administrators can create live classes.', code: 'FORBIDDEN' });
+        }
+        const isTeacherScheduler = caller.role === 'teacher';
+        if (isTeacherScheduler) {
+          let allowed = false;
+          try {
+            const { data: perms, error: permsError } = await supabase
+              .from('teacher_permissions')
+              .select('can_schedule_live_classes')
+              .eq('teacher_id', caller.id)
+              .maybeSingle();
+            allowed = !permsError && perms?.can_schedule_live_classes === true;
+          } catch {
+            allowed = false;
+          }
+          if (!allowed) {
+            return res.status(403).json({
+              error: 'Your account cannot schedule live classes. Ask the administrator to turn on “Schedule live classes” for you.',
+              code: 'FORBIDDEN',
+            });
+          }
         }
 
         const {
@@ -963,7 +1064,54 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           recording_enabled = false,
           prerecorded_asset_url = null,
           stream_url = null,
+          meeting_url = null,
         } = body;
+
+        if (!CLASS_TYPES.includes(class_type)) {
+          return res.status(400).json({ error: 'Choose a valid class type.', code: 'INVALID_REQUEST' });
+        }
+        const zoomMeetingUrl = class_type === 'zoom' ? normalizeZoomMeetingUrl(meeting_url) : null;
+        if (class_type === 'zoom' && !zoomMeetingUrl) {
+          return res.status(400).json({
+            error: 'Paste the Zoom meeting link (it starts with https://zoom.us/j/ or https://us02web.zoom.us/j/).',
+            code: 'INVALID_ZOOM_LINK',
+          });
+        }
+        if (class_type === 'zoom' && Number(duration_minutes) > getZoomMaxMinutes()) {
+          return res.status(400).json({
+            error: `Zoom classes can be up to ${getZoomMaxMinutes()} minutes. Free Zoom accounts end group meetings at 40 minutes.`,
+            code: 'ZOOM_TOO_LONG',
+          });
+        }
+
+        // Teachers schedule only their own classes, for students assigned to them.
+        if (isTeacherScheduler) {
+          if (!TEACHER_CLASS_TYPES.includes(class_type)) {
+            return res.status(403).json({ error: 'Teachers can schedule Webinar.gg or Zoom classes.', code: 'FORBIDDEN' });
+          }
+          if (teacher_id !== caller.id) {
+            return res.status(403).json({ error: 'You can only schedule classes that you teach.', code: 'FORBIDDEN' });
+          }
+          if ((Array.isArray(invited_teacher_ids) && invited_teacher_ids.length > 0) || inputWebinarId) {
+            return res.status(403).json({ error: 'Only administrators can invite other teachers or link an existing room.', code: 'FORBIDDEN' });
+          }
+          const ids = Array.isArray(target_student_ids) ? [...new Set(target_student_ids)] : [];
+          if (audience !== 'students' || ids.length === 0) {
+            return res.status(400).json({ error: 'Choose the students from your class who should attend.', code: 'INVALID_AUDIENCE' });
+          }
+          const { data: assigned, error: assignedError } = await supabase
+            .from('teacher_student_assignments')
+            .select('student_id')
+            .eq('teacher_id', caller.id)
+            .in('student_id', ids);
+          if (assignedError) {
+            return res.status(500).json({ error: 'Could not verify your student list.', code: 'ROSTER_ERROR' });
+          }
+          const assignedIds = new Set((assigned || []).map((row) => row.student_id));
+          if (ids.some((id) => !assignedIds.has(id))) {
+            return res.status(403).json({ error: 'You can only invite students assigned to you.', code: 'INVALID_AUDIENCE' });
+          }
+        }
 
         let effectiveWebinarId = typeof inputWebinarId === 'string' ? inputWebinarId.trim() : '';
         const startsAt = new Date(scheduled_start_time);
@@ -1070,6 +1218,10 @@ export async function handleLiveClassRequest(req, res, options = {}) {
         let createdProviderRoom = false;
         if (class_type === 'prerecorded' && !effectiveWebinarId) {
           effectiveWebinarId = `prerecorded-${Date.now()}`;
+        } else if (class_type === 'zoom') {
+          // No Webinar.gg room: the id only has to be unique.
+          effectiveWebinarId = `zoom-${Date.now()}-${randomBytes(4).toString('hex')}`;
+          effectiveHostEmail = null;
         } else if (class_type === 'live' && !effectiveWebinarId) {
           const providerToken = getWebinarGgToken();
           if (!providerToken) {
@@ -1162,6 +1314,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           recording_enabled: recording_enabled === true,
           prerecorded_asset_url: prerecorded_asset_url ? prerecorded_asset_url.trim() : null,
           stream_url: stream_url ? stream_url.trim() : null,
+          ...(zoomMeetingUrl ? { meeting_url: zoomMeetingUrl } : {}),
         };
 
         let { data: newClass, error } = await supabase
@@ -1183,7 +1336,8 @@ export async function handleLiveClassRequest(req, res, options = {}) {
           `)
           .single();
 
-        if (error && (error.code === '42703' || error.message?.includes('does not exist') || error.message?.includes('schema cache') || error.message?.includes('column'))) {
+        // Zoom classes need the meeting_url column, so they never fall back to the older schema.
+        if (error && class_type !== 'zoom' && (error.code === '42703' || error.message?.includes('does not exist') || error.message?.includes('schema cache') || error.message?.includes('column'))) {
           const { data: fallbackClass, error: fallbackError } = await supabase
             .from('live_classes')
             .insert(basePayload)
