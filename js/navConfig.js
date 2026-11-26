@@ -95,6 +95,16 @@ export const NAV_CONFIG = Object.freeze({
       desktopPlacement: 'practice-dropdown',
     }),
 
+    // Live class schedule (rail, mobile More sheet and the home card link to it)
+    Object.freeze({
+      id: 'student-live-classes',
+      label: 'Live Classes',
+      href: '/pages/my-live-classes.html',
+      group: 'Today',
+      inline: false,
+      desktopPlacement: 'menu-only',
+    }),
+
     // Weekly Test, Leaderboard, Monthly Report, Notifications
     Object.freeze({
       id: 'student-weekly-test',

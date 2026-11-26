@@ -318,6 +318,7 @@ export async function loadAndRenderStudentLiveClassCard(studentId) {
               <span style="font-size: var(--text-xs); font-weight: 700; color: var(--color-primary); text-transform: uppercase; letter-spacing: 0.05em;">Live Class</span>
               <span aria-hidden="true">&middot;</span>
               ${badgeHtml}
+              <a href="/pages/my-live-classes.html" style="font-size: var(--text-xs); font-weight: 600; color: var(--color-primary); text-decoration: none;">All classes &rarr;</a>
             </div>
             <h3 style="margin: 0; font-size: var(--text-base); font-weight: 700; color: var(--text-main);">
               ${escapeHtml(cls.title || 'Abacus Live Class')}

@@ -31,6 +31,7 @@ const ROLE_LAYOUTS = {
     home: '/pages/student.html',
     rail: [
       { id: 'student-today', short: 'Home', icon: '🏠', group: '', label: 'Home' },
+      { id: 'student-live-classes', short: 'Live', icon: '🎥', group: '', label: 'Live Classes' },
       { id: 'student-basics', short: 'Basics', icon: '➕', group: 'Practice' },
       { id: 'student-flash', short: 'Flash', icon: '⚡', group: 'Practice' },
       { id: 'student-elements', short: 'Elements', icon: '🧩', group: 'Practice' },
@@ -45,7 +46,7 @@ const ROLE_LAYOUTS = {
       { id: 'student-weekly-test', icon: '📝', label: 'Tests' },
       { id: 'student-leaderboard', icon: '🏆', label: 'Ranks' },
     ],
-    more: ['student-monthly-report', 'student-notifications', 'student-account'],
+    more: ['student-live-classes', 'student-monthly-report', 'student-notifications', 'student-account'],
   },
   admin: {
     label: 'Admin',
