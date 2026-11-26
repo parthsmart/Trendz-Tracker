@@ -12,6 +12,15 @@
 import { DRILL_CATALOG, DRILL_GROUPS } from './drillCatalog.js';
 import { MEMORIAD_MODULE_CATALOG } from './memoriadStats.js';
 import { JMCWC_CATEGORY_TITLES } from './jmcwcClient.js';
+import {
+  ORAL_OPERATIONS,
+  ORAL_OPERATION_KEYS,
+  ORAL_DIGIT_SIZES,
+  normalizeOralRoundsRule,
+  isOralRoundsAllowed,
+} from './oralRounds.js';
+
+export { isOralRoundsAllowed };
 
 export const PRESET_FULL_ACCESS = Object.freeze({
   basics: Object.freeze({ all: true, categories: [] }),
@@ -23,6 +32,18 @@ export const PRESET_FULL_ACCESS = Object.freeze({
     calendar_variants: [25, 50, 75, 100, 125],
   }),
   main_round: Object.freeze({ all: true, categories: [] }),
+  oral_rounds: Object.freeze({
+    allowed: true,
+    operations: ['add', 'sub', 'mul'],
+    digits: [1, 2, 3, 4, 5],
+  }),
+});
+
+/** Level 1 Starter for Oral Rounds: addition and subtraction with 1 and 2 digit numbers. */
+export const ORAL_ROUNDS_LEVEL_1 = Object.freeze({
+  allowed: true,
+  operations: Object.freeze(['add', 'sub']),
+  digits: Object.freeze([1, 2]),
 });
 
 export const PRESET_LEVEL_1 = Object.freeze({
@@ -38,6 +59,7 @@ export const PRESET_LEVEL_1 = Object.freeze({
     calendar_variants: [25],
   }),
   main_round: Object.freeze({ all: false, categories: [] }),
+  oral_rounds: ORAL_ROUNDS_LEVEL_1,
 });
 
 export const MEMORIAD_CALENDAR_VARIANTS = Object.freeze([25, 50, 75, 100, 125]);
@@ -441,6 +463,7 @@ export function renderAccessEditorHtml({
   const flash = current.flash || { allowed: true };
   const memoriad = current.memoriad || { all: true, modules: [], calendar_variants: [25, 50, 75, 100, 125] };
   const mainRound = current.main_round || { all: true, categories: [] };
+  const oral = normalizeOralRoundsRule(current.oral_rounds);
 
   // 1. Basics HTML
   const basicsCount = basics.all ? 'All allowed' : `${(basics.categories || []).length} allowed`;
@@ -528,6 +551,21 @@ export function renderAccessEditorHtml({
       </label>
     `;
   }).join('');
+
+  // 6. Oral Rounds HTML
+  const oralBadge = formatOralBadge(oral.allowed, oral.operations.length, oral.digits.length);
+  const oralOpsHtml = ORAL_OPERATIONS.map((op) => `
+      <label class="access-item-checkbox">
+        <input type="checkbox" name="access_oral_op" value="${escapeHtml(op.key)}" ${oral.operations.includes(op.key) ? 'checked' : ''} />
+        <span>${escapeHtml(op.label)} (${escapeHtml(op.symbol)})</span>
+      </label>
+    `).join('');
+  const oralDigitsHtml = ORAL_DIGIT_SIZES.map((d) => `
+      <label class="access-item-checkbox" style="font-size: 12px;">
+        <input type="checkbox" name="access_oral_digit" value="${d}" ${oral.digits.includes(d) ? 'checked' : ''} />
+        <span>${d} digit</span>
+      </label>
+    `).join('');
 
   return `
     <div class="student-access-editor" style="display: flex; flex-direction: column; gap: var(--space-4);">
@@ -669,6 +707,42 @@ export function renderAccessEditorHtml({
           </div>
         </div>
       </details>
+
+      <!-- Section 6: Oral Rounds (listening practice, never on the leaderboard) -->
+      <details class="card access-section-card" open style="padding: 0; overflow: hidden;" id="access-oral-rounds-section">
+        <summary class="card-header" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; user-select: none;">
+          <div>
+            <strong>Oral Rounds</strong>
+            <span class="badge badge-neutral" id="summary-oral-rounds-badge" style="margin-left: 8px;">${escapeHtml(oralBadge)}</span>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center;" onclick="event.stopPropagation();">
+            <button type="button" class="btn btn-ghost btn-xs" id="btn-oral-select-all">Select all</button>
+            <button type="button" class="btn btn-ghost btn-xs" id="btn-oral-clear-all">Clear</button>
+          </div>
+        </summary>
+        <div class="card-body" style="padding: var(--space-3) var(--space-4);">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px dashed var(--border-hairline);">
+            <span style="font-size: var(--text-xs); color: var(--text-muted);">The computer reads each question aloud. Scores stay on the student's screen and never reach the leaderboard or streaks.</span>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span id="oral-status-label" style="font-weight: 600; font-size: 13px; color: ${oral.allowed ? 'var(--color-primary)' : 'var(--text-muted)'};">
+                ${oral.allowed ? 'Allowed' : 'Hidden'}
+              </span>
+              <label class="switch" style="position: relative; display: inline-block; width: 44px; height: 24px; margin: 0;">
+                <input type="checkbox" id="switch-oral-allowed" aria-label="Allow Oral Rounds" ${oral.allowed ? 'checked' : ''} style="opacity: 0; width: 0; height: 0;" />
+                <span class="slider round" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: ${oral.allowed ? 'var(--color-primary)' : '#ccc'}; transition: .3s; border-radius: 24px;"></span>
+              </label>
+            </div>
+          </div>
+          <div style="font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px;">Operations</div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 6px; margin-bottom: var(--space-3);">
+            ${oralOpsHtml}
+          </div>
+          <div style="font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px;">Digit sizes for each number</div>
+          <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+            ${oralDigitsHtml}
+          </div>
+        </div>
+      </details>
     </div>
   `;
 }
@@ -732,13 +806,27 @@ export function extractAccessSettingsFromEditor(containerEl) {
     categories: roundChecked,
   };
 
+  // 6. Oral Rounds
+  const oralSwitch = containerEl.querySelector('#switch-oral-allowed');
+  const oral_rounds = {
+    allowed: oralSwitch ? oralSwitch.checked : true,
+    operations: Array.from(containerEl.querySelectorAll('input[name="access_oral_op"]:checked')).map((el) => el.value),
+    digits: Array.from(containerEl.querySelectorAll('input[name="access_oral_digit"]:checked')).map((el) => Number(el.value)),
+  };
+
   return {
     basics,
     elements,
     flash,
     memoriad,
     main_round,
+    oral_rounds,
   };
+}
+
+function formatOralBadge(allowed, opsCount, digitsCount) {
+  if (!allowed) return 'Hidden';
+  return `${opsCount} of ${ORAL_OPERATION_KEYS.length} operations · ${digitsCount} digit size${digitsCount === 1 ? '' : 's'}`;
 }
 
 /**
@@ -786,6 +874,15 @@ export function wireAccessEditorEvents(containerEl, onSettingsChange = null) {
     if (calCb) calCb.checked = true;
     containerEl.querySelectorAll('input[name="access_memoriad_cal_var"]').forEach((cb) => {
       cb.checked = cb.value === '25';
+    });
+    // Oral Rounds: allowed, addition and subtraction, 1 and 2 digit numbers
+    const oralCb = containerEl.querySelector('#switch-oral-allowed');
+    if (oralCb) oralCb.checked = ORAL_ROUNDS_LEVEL_1.allowed;
+    containerEl.querySelectorAll('input[name="access_oral_op"]').forEach((cb) => {
+      cb.checked = ORAL_ROUNDS_LEVEL_1.operations.includes(cb.value);
+    });
+    containerEl.querySelectorAll('input[name="access_oral_digit"]').forEach((cb) => {
+      cb.checked = ORAL_ROUNDS_LEVEL_1.digits.includes(Number(cb.value));
     });
     updateFlashVisuals();
     notify();
@@ -864,6 +961,47 @@ export function wireAccessEditorEvents(containerEl, onSettingsChange = null) {
     notify();
   });
 
+  // Oral Rounds switch, select all / clear
+  function updateOralVisuals() {
+    const oralCb = containerEl.querySelector('#switch-oral-allowed');
+    if (!oralCb) return;
+    const label = containerEl.querySelector('#oral-status-label');
+    const slider = containerEl.querySelector('#switch-oral-allowed + .slider');
+    const badge = containerEl.querySelector('#summary-oral-rounds-badge');
+    if (label) {
+      label.textContent = oralCb.checked ? 'Allowed' : 'Hidden';
+      label.style.color = oralCb.checked ? 'var(--color-primary)' : 'var(--text-muted)';
+    }
+    if (slider) slider.style.backgroundColor = oralCb.checked ? 'var(--color-primary)' : '#ccc';
+    if (badge) {
+      badge.textContent = formatOralBadge(
+        oralCb.checked,
+        containerEl.querySelectorAll('input[name="access_oral_op"]:checked').length,
+        containerEl.querySelectorAll('input[name="access_oral_digit"]:checked').length
+      );
+    }
+  }
+  containerEl.querySelector('#btn-oral-select-all')?.addEventListener('click', () => {
+    const oralCb = containerEl.querySelector('#switch-oral-allowed');
+    if (oralCb) oralCb.checked = true;
+    containerEl
+      .querySelectorAll('input[name="access_oral_op"], input[name="access_oral_digit"]')
+      .forEach((cb) => (cb.checked = true));
+    updateOralVisuals();
+    notify();
+  });
+  containerEl.querySelector('#btn-oral-clear-all')?.addEventListener('click', () => {
+    containerEl
+      .querySelectorAll('input[name="access_oral_op"], input[name="access_oral_digit"]')
+      .forEach((cb) => (cb.checked = false));
+    updateOralVisuals();
+    notify();
+  });
+  // Presets toggle every checkbox, so refresh the Oral Rounds visuals after them too.
+  ['#btn-preset-full-access', '#btn-preset-level-1', '#btn-preset-clear-all'].forEach((sel) => {
+    containerEl.querySelector(sel)?.addEventListener('click', updateOralVisuals);
+  });
+
   // Main Round select all / clear
   containerEl.querySelector('#btn-main-round-select-all')?.addEventListener('click', () => {
     containerEl.querySelectorAll('input[name="access_main_round_cat"]').forEach((cb) => {
@@ -881,6 +1019,9 @@ export function wireAccessEditorEvents(containerEl, onSettingsChange = null) {
   // Any change notifies
   containerEl.addEventListener('change', (e) => {
     if (e.target.matches('input[type="checkbox"]')) {
+      if (e.target.matches('#switch-oral-allowed, input[name="access_oral_op"], input[name="access_oral_digit"]')) {
+        updateOralVisuals();
+      }
       notify();
     }
   });

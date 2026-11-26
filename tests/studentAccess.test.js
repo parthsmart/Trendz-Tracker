@@ -2428,4 +2428,62 @@ describe('Student Access — PostgreSQL PGlite Database Integration', () => {
       await db.exec(incContent);
     });
   });
+
+  it('staging_student_access_oral_rounds.sql applies idempotently and returns the oral_rounds key', async () => {
+    const db = await setupTestDb();
+    const oralSql = fs.readFileSync(path.resolve(ROOT_DIR, 'supabase', 'staging_student_access_oral_rounds.sql'), 'utf8');
+    await db.exec(oralSql);
+    await assert.doesNotReject(async () => db.exec(oralSql));
+
+    const adminId = '10000000-0000-0000-0000-000000000001';
+    const defaultStu = '20000000-0000-0000-0000-000000000001';
+    const levelStu = '20000000-0000-0000-0000-000000000002';
+    const overrideStu = '20000000-0000-0000-0000-000000000003';
+    const outsiderStu = '20000000-0000-0000-0000-000000000004';
+    await db.exec(`
+      INSERT INTO public.profiles (id, role, full_name, level)
+      VALUES
+        ('${adminId}', 'admin', 'Admin User', NULL),
+        ('${defaultStu}', 'student', 'Default Student', 'Level 9'),
+        ('${levelStu}', 'student', 'Level Student', 'Level 1'),
+        ('${overrideStu}', 'student', 'Override Student', 'Level 1'),
+        ('${outsiderStu}', 'student', 'Other Student', 'Level 1');
+    `);
+
+    const read = (uid) =>
+      asUser(db, uid, 'authenticated', async () =>
+        (await db.query(`SELECT public.get_student_effective_access('${uid}') AS access;`)).rows[0].access
+      );
+
+    // Default access includes full Oral Rounds
+    const def = await read(defaultStu);
+    assert.strictEqual(def.scope, 'default');
+    assert.deepStrictEqual(def.settings.oral_rounds, { allowed: true, operations: ['add', 'sub', 'mul'], digits: [1, 2, 3, 4, 5] });
+
+    // A level rule saved before the key existed gets the full default merged in
+    await asUser(db, adminId, 'authenticated', async () => {
+      await db.query(`SELECT public.admin_save_level_access('Level 1', '{"flash": {"allowed": false}}'::jsonb);`);
+    });
+    const lvl = await read(levelStu);
+    assert.strictEqual(lvl.scope, 'level');
+    assert.strictEqual(lvl.settings.flash.allowed, false);
+    assert.strictEqual(lvl.settings.oral_rounds.allowed, true);
+
+    // A saved oral_rounds rule is returned as saved (hidden / restricted)
+    await asUser(db, adminId, 'authenticated', async () => {
+      await db.query(`SELECT public.save_student_access_override('${overrideStu}',
+        '{"oral_rounds": {"allowed": true, "operations": ["mul"], "digits": [2]}}'::jsonb);`);
+    });
+    const ovr = await read(overrideStu);
+    assert.strictEqual(ovr.scope, 'student');
+    assert.deepStrictEqual(ovr.settings.oral_rounds, { allowed: true, operations: ['mul'], digits: [2] });
+
+    // Authorization is unchanged: a student cannot read another student's access
+    await asUser(db, outsiderStu, 'authenticated', async () => {
+      await assert.rejects(
+        async () => db.query(`SELECT public.get_student_effective_access('${overrideStu}');`),
+        /not authorized/i
+      );
+    });
+  });
 });
