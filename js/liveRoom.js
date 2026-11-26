@@ -203,6 +203,14 @@ function showError(message, code, meta = {}) {
       `;
       break;
 
+    case 'ANOTHER_CLASS_LIVE':
+      heading = 'Another Class Is Live';
+      buttonsHtml = `
+        <button type="button" class="btn btn-primary btn-sm" onclick="window.location.reload()">Try Again</button>
+        <a href="${backUrl}" class="btn btn-outline btn-sm" style="color: #f8fafc; border-color: #475569; text-decoration: none;">${backLabel}</a>
+      `;
+      break;
+
     case 'NOT_INVITED':
       heading = 'Participant Access Not Authorized';
       bodyText = 'You are signed in as a teacher, but you have not been invited as a participant to this live class.';
