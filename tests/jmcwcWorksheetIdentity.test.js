@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import { pathToFileURL } from 'node:url';
 const root = process.env.JMCWC_TEST_ROOT || new URL('..', import.meta.url).pathname.replace(/^\/(\w:)/, '$1');
 const { describeQuestionInputSpec, JMCWC_CATEGORY_TITLES, createJmcwcRunnerController, formatJmcwcQuestionPrompt, buildSubmittedReviewViewModel } = await import(pathToFileURL(root + '/js/jmcwcClient.js'));
+const { buildPaperSheetModel } = await import(pathToFileURL(root + '/js/jmcwcPaper.js'));
 const source = fs.readFileSync(root + '/js/roundScores.js', 'utf8');
 
 function renderer() {
@@ -19,7 +20,7 @@ function renderer() {
   const context = vm.createContext({
     jmcwcCurrentSectionOrder: 1, jmcwcRenderedSectionOrder: null, jmcwcRenderedWorksheetKey: null,
     document: { getElementById(id) { return id === 'jmcwc-worksheet-grid' ? grid : id === 'jmcwc-sheet-section-title' ? title : null; } },
-    escapeHtml: s => String(s ?? ''), formatWorksheetMathPromptHtml: s => s, describeQuestionInputSpec,
+    escapeHtml: s => String(s ?? ''), formatWorksheetMathPromptHtml: s => s, describeQuestionInputSpec, buildPaperSheetModel,
   });
   vm.runInContext(source.slice(source.indexOf('function renderWorksheetGridView('), source.indexOf('\nfunction updateCellAnsweredState(')), context);
   function render(id, category, prompt, answer = '') {

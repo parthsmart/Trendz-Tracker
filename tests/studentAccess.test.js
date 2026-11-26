@@ -427,6 +427,18 @@ describe('Student Access — Client-side Navigation & View Models', () => {
     assert.strictEqual(vm2.canStartNewFlat, false); // full paper requires all categories!
     assert.ok(vm2.flatDisabledReason?.includes('all categories'));
 
+    // 4. Full access as saved by the default/level rules: all=true with an empty list
+    const allFlagAccess = {
+      ok: true,
+      main_round_eligible: true,
+      settings: { main_round: { all: true, categories: [] } },
+    };
+    const vm4 = buildLandingPageViewModel(mockOverview, [], allFlagAccess);
+    assert.strictEqual(vm4.canStartCategory, true);
+    assert.strictEqual(vm4.canStartNewFlat, true);
+    assert.strictEqual(vm4.categories.length, 3);
+    assert.strictEqual(vm4.categoryDisabledReason, null);
+
     // 3. Eligible student with full paper categories
     const fullAccess = {
       main_round_eligible: true,
