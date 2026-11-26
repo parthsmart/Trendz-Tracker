@@ -24,7 +24,14 @@ export const SECTION_KINDS = Object.freeze([
 
 export const BASICS_ALLOWED_SECONDS = Object.freeze([30, 60, 120, 300]);
 
-export const FLASH_MODES = Object.freeze(['add', 'add_sub']);
+export const FLASH_MODES = Object.freeze(['add', 'add_sub', 'simple']);
+
+function flashModeText(mode) {
+  const m = String(mode || 'add').trim().toLowerCase();
+  if (m === 'add_sub') return 'add & sub';
+  if (m === 'simple') return 'simple';
+  return 'add only';
+}
 
 export const MEMORIAD_MODULES = Object.freeze([
   { key: 'calendar', title: 'Mental Calendar Dates' },
@@ -189,9 +196,7 @@ export function sectionSummary(section, lookup = {}) {
     const count = Number(section.flash_count) || 10;
     const speedMs = resolveFlashSpeedMs(section) || 1000;
     const speedText = speedMsToSecondsText(speedMs) || '1';
-    const mode = String(section.flash_mode || 'add').toLowerCase() === 'add_sub'
-      ? 'add & sub'
-      : 'add only';
+    const mode = flashModeText(section.flash_mode);
     const tries = Number(section.question_count) || 1;
 
     const digitWord = digits === 1 ? 'digit' : 'digits';
@@ -244,9 +249,7 @@ export function sectionShortTitle(section, lookup = {}) {
     const count = Number(section.flash_count) || 10;
     const speedMs = resolveFlashSpeedMs(section) || 1000;
     const speedText = speedMsToSecondsText(speedMs) || '1';
-    const mode = String(section.flash_mode || 'add').toLowerCase() === 'add_sub'
-      ? 'add & sub'
-      : 'add only';
+    const mode = flashModeText(section.flash_mode);
     const tries = Number(section.question_count) || 1;
     return `${digits} ${digits === 1 ? 'digit' : 'digits'}, ${count} numbers, ${speedText} s, ${mode}, ${tries} ${tries === 1 ? 'try' : 'tries'}`;
   }
@@ -263,7 +266,7 @@ export function sectionShortTitle(section, lookup = {}) {
  * - Basics: category must belong to 'basics'; online basics must be supported by
  *   the question generator and have seconds in [30, 60, 120, 300]; offline basics
  *   seconds is optional (null or [30, 60, 120, 300]).
- * - Flash: digits 1-5, numbers 2-1000, speed 200-5000 ms (0.2-5.0 s), mode add|add_sub, tries 1-10.
+ * - Flash: digits 1-5, numbers 2-1000, speed 200-5000 ms (0.2-5.0 s), mode add|add_sub|simple, tries 1-10.
  * - Elements: activity_key must exist in DRILL_CATALOG with enabled === true.
  * - Memoriad: activity_key must be one of the 4 Memoriad modules.
  * - Round: category must belong to 'round' (offline only).

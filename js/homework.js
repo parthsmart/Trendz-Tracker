@@ -268,7 +268,9 @@ function setupFormHandler() {
         digits: Number(document.getElementById('hw-flash-digits')?.value) || 2,
         count: Number(document.getElementById('hw-flash-count')?.value) || 10,
         speed_ms: Number(document.getElementById('hw-flash-speed')?.value) || 1000,
-        mode: 'add',
+        mode: ['add', 'add_sub', 'simple'].includes(document.getElementById('hw-flash-mode')?.value)
+          ? document.getElementById('hw-flash-mode').value
+          : 'add',
       };
     } else if (activityType === 'element') {
       settings = {

@@ -213,7 +213,7 @@ export async function setupPracticeRecordsSection(
         section === 'basics'
           ? 'All-time best scores across standard timed online & verified drills.'
           : section === 'flash'
-            ? `Longest correctly completed sequence at ${speedSec}s (${currentMode === 'add_sub' ? 'Add & Subtract' : 'Addition'}).`
+            ? `Longest correctly completed sequence at ${speedSec}s (${currentMode === 'add_sub' ? 'Add & Subtract' : currentMode === 'simple' ? 'Simple' : 'Addition'}).`
             : section === 'element'
               ? 'All-time best scores across standard Elements worksheet drills.'
               : 'All-time best scores across Memoriad competition modules.';
@@ -298,6 +298,15 @@ export async function setupPracticeRecordsSection(
                 style="padding: 2px 8px; font-size: var(--text-xs); font-weight: 600; border-radius: 4px; border: none; cursor: pointer; background: ${currentMode === 'add_sub' ? 'var(--color-surface, #fff)' : 'transparent'}; color: ${currentMode === 'add_sub' ? 'var(--color-primary, #4338ca)' : 'var(--text-muted, #64748b)'}; box-shadow: ${currentMode === 'add_sub' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none'};"
               >
                 Add &amp; Sub
+              </button>
+              <button
+                type="button"
+                class="btn-mode-pill ${currentMode === 'simple' ? 'active' : ''}"
+                data-mode="simple"
+                aria-pressed="${currentMode === 'simple' ? 'true' : 'false'}"
+                style="padding: 2px 8px; font-size: var(--text-xs); font-weight: 600; border-radius: 4px; border: none; cursor: pointer; background: ${currentMode === 'simple' ? 'var(--color-surface, #fff)' : 'transparent'}; color: ${currentMode === 'simple' ? 'var(--color-primary, #4338ca)' : 'var(--text-muted, #64748b)'}; box-shadow: ${currentMode === 'simple' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none'};"
+              >
+                Simple
               </button>
             </div>
           </div>
