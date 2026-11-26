@@ -30,6 +30,7 @@ import {
   parseScoreSheetCsv,
   formatSecondsDisplay,
   SAMPLE_TWO_BLOCK_CSV,
+  cellRef,
 } from './importParser.js';
 import {
   toMatchingKey,
@@ -1912,12 +1913,15 @@ function renderBlocksSection(parsed, previewState, selectedStudent) {
     const leftWrap = document.createElement('div');
     const h2 = document.createElement('h2');
     h2.style.fontSize = 'var(--text-lg)';
-    h2.textContent = `Block ${blk.blockNumber} (CSV Rows ${formatNum(blk.startRowNumber)}–${formatNum(blk.endRowNumber)})`;
+    h2.textContent = `Block ${blk.blockNumber}`;
     const sub = document.createElement('p');
     sub.style.fontSize = 'var(--text-xs)';
     sub.style.color = 'var(--text-muted)';
     sub.className = 'num';
-    sub.textContent = `Header cell ${blk.anchorRef} · ${formatNum(blk.categories.length)} categories · ${formatNum(blk.rounds.length)} rounds (${formatNum(blk.ignoredRounds.length)} empty round column${
+    const headerCell = Number.isInteger(blk.headerRowIdx) && Number.isInteger(blk.categoryCol)
+      ? cellRef(blk.headerRowIdx, blk.categoryCol)
+      : null;
+    sub.textContent = `${headerCell ? `Header cell ${headerCell} · ` : ''}${formatNum(blk.categories.length)} categories · ${formatNum(blk.rounds.length)} rounds (${formatNum(blk.ignoredRounds.length)} empty round column${
       blk.ignoredRounds.length === 1 ? '' : 's'
     } ignored)`;
     leftWrap.append(h2, sub);
