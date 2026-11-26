@@ -2769,16 +2769,12 @@ function renderWorksheetGridView(state, sectionQuestions, currentQ, opts = {}) {
           const qLabel = `Question ${q.number}`;
           let inputHtml = '';
           if (spec.kind === 'day_of_week') {
+            // Typed like the workbook (faster than a dropdown); the grader accepts
+            // English or German names and 3-letter forms (Mon, Montag, Sat, Sam…).
             inputHtml = `
-              <select class="form-select jmcwc-sheet-input num" data-q-key="${q.question_key}" aria-label="${escapeHtml(`${qLabel}: ${spec.ariaLabel}`)}">
-                <option value="">Select day</option>
-                ${spec.options
-                  .map(
-                    (day) =>
-                      `<option value="${escapeHtml(day)}" ${String(rawVal).trim().toLowerCase() === day.toLowerCase() ? 'selected' : ''}>${escapeHtml(day)}</option>`
-                  )
-                  .join('')}
-              </select>`;
+              <input type="text" class="form-input jmcwc-sheet-input" data-q-key="${q.question_key}"
+                inputmode="text" placeholder="e.g. Monday or Mon" value="${escapeHtml(String(rawVal))}"
+                autocomplete="off" autocapitalize="words" spellcheck="false" aria-label="${escapeHtml(`${qLabel}: day of the week`)}" />`;
           } else if (spec.kind === 'multi_value') {
             const parts = splitMultiValueRaw(rawVal, spec.slotCount);
             inputHtml = `
