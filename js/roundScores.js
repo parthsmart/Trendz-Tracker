@@ -2755,6 +2755,7 @@ function renderWorksheetGridView(state, sectionQuestions, currentQ, opts = {}) {
 
   const sheetsHtml = paper.sheets
     .map((sheet) => {
+      const isColumns = sheet.columns > 1;
       const rowsHtml = sheet.questions
         .map((q) => {
           const rawVal = state.answers?.[q.question_key] ?? '';
@@ -2807,6 +2808,15 @@ function renderWorksheetGridView(state, sectionQuestions, currentQ, opts = {}) {
                 autocomplete="off" spellcheck="false" aria-label="${escapeHtml(`${qLabel}: ${spec.ariaLabel}`)}" />
               ${tokensHtml}`;
           }
+          if (isColumns) {
+            // Workbook block: the sum stacked, the answer on the "=" line, Points beside it.
+            return `
+            <div class="jmcwc-worksheet-cell jmcwc-paper-card ${q.answered ? 'is-answered' : ''}" id="jmcwc-qcell-${cellPrefix}${q.question_key}">
+              <span class="jmcwc-paper-no num">${q.number}.</span>
+              <span class="jmcwc-paper-prompt num">${renderPaperRowPromptHtml(q, inputHtml)}</span>
+              <span class="jmcwc-paper-points num" title="Punkte / Points">${escapeHtml(String(q.marks))}</span>
+            </div>`;
+          }
           return `${subheadHtml}
             <div class="jmcwc-worksheet-cell jmcwc-paper-row ${q.answered ? 'is-answered' : ''}" id="jmcwc-qcell-${cellPrefix}${q.question_key}">
               <span class="jmcwc-paper-no num">${q.number}.</span>
@@ -2826,10 +2836,17 @@ function renderWorksheetGridView(state, sectionQuestions, currentQ, opts = {}) {
             </div>
             <span class="badge badge-neutral num" id="jmcwc-sheet-badge-${cellPrefix}${sheet.section_order}">${sheet.answered_count} / ${sheet.questions.length} answered</span>
           </header>
-          <div class="jmcwc-paper-colhead" aria-hidden="true">
+          ${
+            isColumns
+              ? `<div class="jmcwc-paper-cols" style="--jmcwc-cols: ${sheet.columns}">
+            ${'<span class="jmcwc-paper-cols-head" aria-hidden="true">Punkte / Points</span>'.repeat(sheet.columns)}
+            ${rowsHtml}
+          </div>`
+              : `<div class="jmcwc-paper-colhead" aria-hidden="true">
             <span></span><span></span><span></span><span>Punkte / Points</span>
           </div>
-          ${rowsHtml}
+          ${rowsHtml}`
+          }
           <div class="jmcwc-paper-total">
             <span>Total value</span>
             <strong class="num">${escapeHtml(String(sheet.total_value))}</strong>
@@ -2906,9 +2923,10 @@ function renderWorksheetGridView(state, sectionQuestions, currentQ, opts = {}) {
 }
 
 /** One workbook row's prompt cell, from buildPaperRowDisplay (js/jmcwcPaper.js). */
-function renderPaperRowPromptHtml(q) {
+function renderPaperRowPromptHtml(q, eqHtml = '') {
   const d = q.display;
-  if (!d) return formatWorksheetMathPromptHtml(String(q.prompt || '').trim(), { stack: false });
+  const answerHtml = eqHtml ? `<span class="jmcwc-paper-answer">${eqHtml}</span>` : '';
+  if (!d) return formatWorksheetMathPromptHtml(String(q.prompt || '').trim(), { stack: false }) + answerHtml;
   const aria = escapeHtml(String(q.prompt || ''));
   if (d.kind === 'stack') {
     const rows = d.rows
@@ -2917,16 +2935,16 @@ function renderPaperRowPromptHtml(q) {
           `<div class="jmcwc-stacked-row"><span class="jmcwc-stacked-op">${escapeHtml(r.op)}</span><span class="jmcwc-stacked-num">${escapeHtml(r.value)}</span></div>`
       )
       .join('');
-    return `<div class="jmcwc-stacked-math" role="math" aria-label="${aria}">${rows}<div class="jmcwc-stacked-line"></div><div class="jmcwc-stacked-row jmcwc-stacked-eq"><span class="jmcwc-stacked-op">=</span><span class="jmcwc-stacked-num"></span></div></div>`;
+    return `<div class="jmcwc-stacked-math" role="math" aria-label="${aria}">${rows}<div class="jmcwc-stacked-line"></div><div class="jmcwc-stacked-row jmcwc-stacked-eq"><span class="jmcwc-stacked-op">=</span><span class="jmcwc-stacked-num">${answerHtml}</span></div></div>`;
   }
   if (d.kind === 'lines') {
     return `<span class="jmcwc-paper-lines" aria-label="${aria}">${d.lines
       .map((line) => `<span>${escapeHtml(line)}</span>`)
-      .join('')}</span>`;
+      .join('')}</span>${answerHtml}`;
   }
   const body = d.math ? formatWorksheetMathPromptHtml(d.text, { stack: false }) : escapeHtml(d.text);
   const suffix = d.suffix ? `<span class="jmcwc-paper-suffix">${escapeHtml(d.suffix)}</span>` : '';
-  return `<span class="jmcwc-paper-text" aria-label="${aria}">${body}</span>${suffix}`;
+  return `<span class="jmcwc-paper-text" aria-label="${aria}">${body}</span>${suffix}${answerHtml}`;
 }
 
 function updateCellAnsweredState(qKey, value, opts = {}) {

@@ -38,6 +38,8 @@ describe('JMCWC paper-style worksheet model', () => {
     assert.equal(paper.sheets.length, 2);
     assert.deepEqual(paper.sheets[0].questions.map((q) => q.number), [1, 2]);
     assert.equal(paper.sheets[0].total_value, 7);
+    assert.equal(paper.sheets[0].columns, 3, 'Int Adds prints 3 sums per row');
+    assert.equal(paper.sheets[1].columns, 1);
     assert.equal(paper.sheets[0].answered_count, 1);
     assert.deepEqual(paper.sheets[1].heading.lines, ['Die Antworten sind ganzzahlig / The answers are integer numbers']);
     assert.equal(paper.total_value, 13);

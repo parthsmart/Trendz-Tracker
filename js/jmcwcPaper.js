@@ -122,6 +122,12 @@ export const JMCWC_SHEET_HEADINGS = Object.freeze({
   },
 });
 
+/**
+ * Stacked sheets print several sums side by side: Int Adds and Mixed adds+subs
+ * have 3 per row, Int Mults 2 per row (all three simulator workbooks).
+ */
+export const JMCWC_SHEET_COLUMNS = Object.freeze({ addition: 3, mixed: 3, multiplication: 2 });
+
 export function getJmcwcSheetHeading(categoryKey, fallbackTitle = '') {
   const h = JMCWC_SHEET_HEADINGS[categoryKey];
   if (h) return { de: h.de, en: h.en, lines: [...(h.lines || [])] };
@@ -409,6 +415,7 @@ export function buildPaperSheetModel(sections = [], answers = {}) {
       section_order: sec.section_order ?? idx + 1,
       heading,
       heading_line: heading.de ? `${heading.de} / ${heading.en}` : heading.en,
+      columns: JMCWC_SHEET_COLUMNS[key] || 1,
       questions,
       total_value: questions.reduce((sum, q) => sum + q.marks, 0),
       answered_count: questions.filter((q) => q.answered).length,

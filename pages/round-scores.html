@@ -132,6 +132,65 @@
       }
       .jmcwc-stacked-eq {
         margin-top: -2px;
+        align-items: center;
+      }
+      .jmcwc-paper-cols {
+        display: grid;
+        grid-template-columns: repeat(var(--jmcwc-cols, 3), minmax(0, 1fr));
+        align-items: end;
+        column-gap: var(--space-3);
+      }
+      .jmcwc-paper-cols-head {
+        padding: 6px 4px 2px 4px;
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--text-muted);
+        text-align: right;
+        align-self: end;
+      }
+      .jmcwc-worksheet-cell.jmcwc-paper-card {
+        display: grid;
+        grid-template-columns: 2rem minmax(0, 1fr) 2.5rem;
+        align-items: end;
+        column-gap: var(--space-1);
+        padding: 6px 4px;
+        border-bottom: 1px solid var(--border-subtle);
+        border-left: 3px solid transparent;
+      }
+      .jmcwc-worksheet-cell.jmcwc-paper-card:focus-within {
+        background: var(--bg-surface-subtle);
+      }
+      .jmcwc-worksheet-cell.jmcwc-paper-card.is-answered {
+        border-left-color: var(--color-success, #16a34a);
+      }
+      .jmcwc-paper-card .jmcwc-paper-prompt {
+        display: flex;
+        justify-content: flex-end;
+      }
+      .jmcwc-paper-card .jmcwc-stacked-math {
+        width: 100%;
+        margin-bottom: 0;
+      }
+      .jmcwc-paper-card .jmcwc-stacked-eq .jmcwc-stacked-num {
+        flex: 1;
+      }
+      .jmcwc-paper-card .jmcwc-paper-answer .form-input {
+        width: 100%;
+        min-width: 0;
+        text-align: right;
+        font-family: inherit;
+        font-size: 1rem;
+      }
+      .jmcwc-paper-card .jmcwc-paper-points {
+        padding-bottom: 8px;
+      }
+      @media (max-width: 720px) {
+        .jmcwc-paper-cols {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .jmcwc-paper-cols-head:not(:first-child) {
+          display: none;
+        }
       }
       .jmcwc-paper-colhead,
       .jmcwc-paper-row {
