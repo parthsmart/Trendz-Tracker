@@ -6663,7 +6663,8 @@ export const DemoDB = {
         elements: { all: true, drills: [] },
         flash: { allowed: true },
         memoriad: { all: true, modules: ['calendar', 'additions', 'multiplications', 'square_roots'], calendar_variants: [25, 50, 75, 100, 125] },
-        main_round: { all: true, categories: [] }
+        main_round: { all: true, categories: [] },
+        oral_rounds: { allowed: true, operations: ['add', 'sub', 'mul'], digits: [1, 2, 3, 4, 5] }
       },
       main_round_eligible: true,
       updated_at: null
@@ -6692,7 +6693,8 @@ export const DemoDB = {
         elements: { all: true, drills: [] },
         flash: { allowed: true },
         memoriad: { all: true, modules: ['calendar', 'additions', 'multiplications', 'square_roots'], calendar_variants: [25, 50, 75, 100, 125] },
-        main_round: { all: true, categories: [] }
+        main_round: { all: true, categories: [] },
+        oral_rounds: { allowed: true, operations: ['add', 'sub', 'mul'], digits: [1, 2, 3, 4, 5] }
       },
       updated_at: null
     };

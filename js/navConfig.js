@@ -10,6 +10,8 @@
  *   menu (< 1024px) read from this module.
  */
 
+import { isOralRoundsAllowed } from './oralRounds.js';
+
 export const NAV_MOBILE_BREAKPOINT_PX = 1024;
 
 export const SETTINGS_SUBPAGE_PATHS = Object.freeze([
@@ -90,6 +92,14 @@ export const NAV_CONFIG = Object.freeze({
       id: 'student-memoriad',
       label: 'Memoriad',
       href: '/pages/memoriad.html',
+      group: 'Practice',
+      inline: false,
+      desktopPlacement: 'practice-dropdown',
+    }),
+    Object.freeze({
+      id: 'student-oral-rounds',
+      label: 'Oral Rounds',
+      href: '/pages/oral-rounds.html',
       group: 'Practice',
       inline: false,
       desktopPlacement: 'practice-dropdown',
@@ -395,8 +405,11 @@ export function getRoleNavItems(role, permissions = null, studentAccess = null) 
 
   if (role === 'student') {
     const access = studentAccess || permissions?.studentAccess || permissions?.practice_access || null;
-    if (access?.flash && access.flash.allowed === false) {
-      return items.filter((item) => item.id !== 'student-flash');
+    const hidden = new Set();
+    if (access?.flash && access.flash.allowed === false) hidden.add('student-flash');
+    if (access?.oral_rounds && !isOralRoundsAllowed(access.oral_rounds)) hidden.add('student-oral-rounds');
+    if (hidden.size > 0) {
+      return items.filter((item) => !hidden.has(item.id));
     }
   }
 
