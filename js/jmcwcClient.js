@@ -466,7 +466,8 @@ export function buildLandingPageViewModel(
   let categoryAccessRestricted = false;
   let flatPaperAccessRestricted = false;
 
-  if (isEligible && studentAccess?.settings?.main_round?.categories && Array.isArray(studentAccess.settings.main_round.categories)) {
+  // `all: true` means every category (same rule as isMainRoundCategoryAllowed); the list only applies otherwise.
+  if (isEligible && studentAccess?.settings?.main_round?.all !== true && Array.isArray(studentAccess?.settings?.main_round?.categories)) {
     const allowedCatKeys = studentAccess.settings.main_round.categories.map((k) => String(k).trim().toLowerCase());
     effectiveCategories = categories.filter((c) =>
       allowedCatKeys.includes(String(c.key).trim().toLowerCase()) ||

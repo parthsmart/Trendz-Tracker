@@ -2840,7 +2840,8 @@ function renderWorksheetGridView(state, sectionQuestions, currentQ, opts = {}) {
       <strong class="num">${escapeHtml(String(paper.total_value))} points · ${paper.question_count} questions</strong>
     </footer>`;
 
-  const refreshAnswered = (qKey, value) => updateCellAnsweredState(qKey, value, { gridId, cellPrefix });
+  const refreshAnswered = (qKey, value) =>
+    updateCellAnsweredState(qKey, value, { gridId, cellPrefix, badgeId: opts.badgeId, progressId: opts.progressId });
   const allSheetInputs = Array.from(gridEl.querySelectorAll('.jmcwc-sheet-input'));
   allSheetInputs.forEach((inp) => {
     const qKey = inp.getAttribute('data-q-key');
@@ -3538,6 +3539,7 @@ function openJmcwcCustomRunner() {
     gridId: 'jmcwc-custom-grid',
     titleId: 'jmcwc-custom-sheet-title',
     badgeId: 'jmcwc-custom-answered-badge',
+    progressId: 'jmcwc-custom-progress',
     selectId: 'select-jmcwc-custom-section',
     cellPrefix: 'custom-',
     title: `Custom Set · ${formatJmcwcGroupLabel(jmcwcCustomRun.group_key)} · ${jmcwcCustomRun.max_marks} points`,
