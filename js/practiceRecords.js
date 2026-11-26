@@ -396,7 +396,7 @@ export function computeFlashRecords({
   view = 'all',
 } = {}) {
   const targetSpeedMs = Number(speed_ms) || DEFAULT_FLASH_RECORD_SPEED_MS;
-  const targetMode = mode === 'add_sub' ? 'add_sub' : 'add';
+  const targetMode = mode === 'add_sub' || mode === 'simple' ? mode : 'add';
 
   const profileMap = new Map();
   for (const p of profiles) {
@@ -470,7 +470,7 @@ export function computeFlashRecords({
 
     // 4. Strict mode check: A missing mode must NOT default to Addition!
     const modeVal = typeof s.mode === 'string' ? s.mode.trim() : '';
-    if (modeVal !== 'add' && modeVal !== 'add_sub') continue;
+    if (modeVal !== 'add' && modeVal !== 'add_sub' && modeVal !== 'simple') continue;
     if (modeVal !== targetMode) continue;
 
     eligibleRows.push({
@@ -486,7 +486,7 @@ export function computeFlashRecords({
     const matchingRows = eligibleRows.filter((r) => r._flashDigits === digits);
     const title = `${digits} Digit${digits > 1 ? 's' : ''}`;
     const speedSec = (targetSpeedMs / 1000).toFixed(1);
-    const modeLabel = targetMode === 'add_sub' ? 'Add & Sub' : 'Add';
+    const modeLabel = targetMode === 'add_sub' ? 'Add & Sub' : targetMode === 'simple' ? 'Simple' : 'Add';
     const settingsSummary = `${digits}d · ${speedSec}s · ${modeLabel}`;
 
     if (matchingRows.length === 0) {
@@ -746,7 +746,7 @@ export function normalizeRecordForRenderer(r, section, currentStudentId = null, 
         title = `${digits} Digit${digits > 1 ? 's' : ''}`;
       }
       const speedSec = (speedMs / 1000).toFixed(1);
-      const modeLabel = mode === 'add_sub' ? 'Add & Sub' : 'Add';
+      const modeLabel = mode === 'add_sub' ? 'Add & Sub' : mode === 'simple' ? 'Simple' : 'Add';
       if (!settingsSummary) settingsSummary = `${digits}d · ${speedSec}s · ${modeLabel}`;
       rawSettings = { digits, count: count || 10, mode, speed_ms: speedMs };
       if (!attemptUrl || attemptUrl === '#') {
@@ -760,10 +760,10 @@ export function normalizeRecordForRenderer(r, section, currentStudentId = null, 
     } else {
       // Legacy benchmark format: preserved for existing callers
       if (!title || title === 'Record') {
-        title = `${digits} Digit${digits > 1 ? 's' : ''} · ${count || 10} Numbers · ${mode === 'add_sub' ? 'Add & Subtract' : 'Add'}`;
+        title = `${digits} Digit${digits > 1 ? 's' : ''} · ${count || 10} Numbers · ${mode === 'add_sub' ? 'Add & Subtract' : mode === 'simple' ? 'Simple' : 'Add'}`;
       }
       const speedSec = (speedMs / 1000).toFixed(2);
-      const modeLabel = mode === 'add_sub' ? 'Add & Sub' : 'Add';
+      const modeLabel = mode === 'add_sub' ? 'Add & Sub' : mode === 'simple' ? 'Simple' : 'Add';
       if (!settingsSummary) settingsSummary = `${digits}d · ${count || 10}n · ${modeLabel}`;
       rawSettings = { digits, count: count || 10, mode, speed_ms: speedMs };
       if (!attemptUrl || attemptUrl === '#') {

@@ -235,7 +235,7 @@ function populateFlashSettingsFields(todo = {}) {
   }
   if (modeEl) {
     modeEl.value =
-      todo.flash_mode === 'add' || todo.flash_mode === 'add_sub' ? todo.flash_mode : '';
+      todo.flash_mode === 'add' || todo.flash_mode === 'add_sub' || todo.flash_mode === 'simple' ? todo.flash_mode : '';
   }
 }
 
@@ -273,7 +273,7 @@ function readDraftFlashSettingsFromForm() {
 
   let flash_mode = null;
   const m = rawMode.trim().toLowerCase();
-  if (m === 'add' || m === 'add_sub') {
+  if (m === 'add' || m === 'add_sub' || m === 'simple') {
     flash_mode = m;
   }
 

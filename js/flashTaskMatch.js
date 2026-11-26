@@ -105,7 +105,7 @@ export function matchesTask(settings, task) {
  * - `digits`: whole number `1` to `5`
  * - `count`: whole number `2` to `1000`
  * - `speed`: whole number `200` to `5000` in steps of `100` (milliseconds)
- * - `mode`: `'add'` or `'add_sub'`
+ * - `mode`: `'add'`, `'add_sub'` or `'simple'`
  *
  * @param {string|URLSearchParams} search
  * @returns {{
@@ -160,7 +160,7 @@ export function parseFlashTaskQuery(search = '') {
   const rawMode = params.get('mode');
   if (rawMode !== null) {
     const m = rawMode.trim().toLowerCase();
-    if (m === 'add' || m === 'add_sub') {
+    if (m === 'add' || m === 'add_sub' || m === 'simple') {
       flash_mode = m;
     }
   }

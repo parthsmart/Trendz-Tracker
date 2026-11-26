@@ -9,6 +9,7 @@
  */
 
 import { isSupabaseConfigured, isDemoAllowedHost } from './config.js';
+import { generateSimpleQuestion } from './flashSimple.js';
 
 // Static keys for demo state persistence
 const DEMO_STORAGE_KEY_STUDENTS = 'trendz_demo_students_v2';
@@ -2543,7 +2544,7 @@ export const DemoDB = {
         digits: Number(sec.flash_digits) || 2,
         count: Number(sec.flash_count) || 5,
         speed_ms: Number(sec.flash_speed_ms) || 1000,
-        mode: sec.flash_mode === 'add_sub' ? 'add_sub' : 'add',
+        mode: sec.flash_mode === 'add_sub' || sec.flash_mode === 'simple' ? sec.flash_mode : 'add',
         question_count: qCount,
       };
       const flashStart = this.mockFlashStart(flashSettings, studentId);
@@ -4831,14 +4832,20 @@ export const DemoDB = {
       digits: Number(p_settings?.digits) || 2,
       count: Number(p_settings?.count) || 5,
       speed_ms: Number(p_settings?.speed_ms) || 1000,
-      mode: p_settings?.mode === 'add_sub' ? 'add_sub' : 'add',
+      mode: p_settings?.mode === 'add_sub' || p_settings?.mode === 'simple' ? p_settings.mode : 'add',
       ...(p_settings?.todo_task_id ? { todo_task_id: p_settings.todo_task_id } : {}),
     };
     this._lastFlashSettings = cleanSettings;
     const fixedSampleNumbers =
-      cleanSettings.mode === 'add_sub'
-        ? [24, 15, -12, 31, -8]
-        : [12, 25, 18, 14, 21];
+      cleanSettings.mode === 'simple'
+        ? generateSimpleQuestion(cleanSettings.digits, cleanSettings.count)
+        : cleanSettings.mode === 'add_sub'
+          ? [24, 15, -12, 31, -8]
+          : [12, 25, 18, 14, 21];
+
+    // Simple questions are random, so remember their real total for the demo result.
+    this._lastFlashExpected =
+      cleanSettings.mode === 'simple' ? fixedSampleNumbers.reduce((a, n) => a + n, 0) : null;
 
     return {
       session_id: 'demo-flash-session-fixed',
@@ -4860,12 +4867,20 @@ export const DemoDB = {
         : Number(p_answer);
 
     // Fixed fake result in Demo Mode
-    const fixedResult = {
-      correct: true,
-      expected: 90,
-      given: givenVal !== null && Number.isFinite(givenVal) ? givenVal : 90,
-      seconds: 6,
-    };
+    const simpleExpected = Number.isInteger(this._lastFlashExpected) ? this._lastFlashExpected : null;
+    const fixedResult = simpleExpected !== null
+      ? {
+          correct: givenVal === simpleExpected,
+          expected: simpleExpected,
+          given: givenVal !== null && Number.isFinite(givenVal) ? givenVal : null,
+          seconds: 6,
+        }
+      : {
+          correct: true,
+          expected: 90,
+          given: givenVal !== null && Number.isFinite(givenVal) ? givenVal : 90,
+          seconds: 6,
+        };
 
     const actKey = 'trendz_demo_activity_results_v1';
     const currentList = this.getActivityResults();
@@ -4875,7 +4890,7 @@ export const DemoDB = {
       student_id: studentId || 'usr-101',
       activity_type: 'flash_anzan',
       activity_name: 'Flash Anzan',
-      correct: 1,
+      correct: fixedResult.correct ? 1 : 0,
       total: 1,
       time_seconds: fixedResult.seconds,
       settings: {

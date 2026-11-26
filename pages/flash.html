@@ -181,7 +181,7 @@
                             <span class="info-tip-symbol" aria-hidden="true">i</span>
                           </button>
                           <span id="tip-flash-mode" class="info-tip-content" role="tooltip">
-                            Addition only, or mixed Addition and Subtraction (subtracted numbers show a minus sign).
+                            Addition only, mixed Addition and Subtraction, or Simple: plus and minus numbers you can do on the abacus without any formula (subtracted numbers show a minus sign).
                           </span>
                         </span>
                       </label>
@@ -204,9 +204,18 @@
                         >
                           Add and subtract
                         </button>
+                        <button
+                          type="button"
+                          class="flash-pill-btn"
+                          data-mode="simple"
+                          id="mode-btn-simple"
+                          aria-pressed="false"
+                        >
+                          Simple
+                        </button>
                       </div>
                       <input type="hidden" id="flash-mode" value="add" />
-                      <span class="form-hint">Subtracted numbers show a minus sign (&minus;45).</span>
+                      <span class="form-hint">Subtracted numbers show a minus sign (&minus;45). Simple needs no formula on any rod.</span>
                     </div>
 
                     <!-- Control C: Numbers in the Question (2 to 1000) -->
