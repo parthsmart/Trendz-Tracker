@@ -1629,6 +1629,15 @@ test('14. Live class scheduling validates staff and student audiences and create
               const listed = { data: [...createdClasses], error: null };
               return { ...listed, or: () => listed };
             },
+            // Schedule-conflict and running-class checks: these tests reuse start times on purpose.
+            gte: () => ({ lt: async () => ({ data: scheduledRows, error: null }) }),
+            or: async () => ({ data: runningRows, error: null }),
+          }),
+          update: (patch) => ({
+            eq: async (col, val) => {
+              endedRows.push({ id: val, ...patch });
+              return { data: null, error: null };
+            },
           }),
         };
       }
@@ -1636,9 +1645,18 @@ test('14. Live class scheduling validates staff and student audiences and create
     },
   };
 
+  // Other classes the one-class-at-a-time checks see (empty unless a step sets them).
+  let scheduledRows = [];
+  let runningRows = [];
+  const endedRows = [];
+  const providerStatusByRoom = new Map();
   const providerRequests = [];
   const joinTokenRequests = [];
   const mockFetch = async (url, options) => {
+    const roomInfo = url.match(/\/webinar\/([^/]+)$/);
+    if (options.method === 'GET' && roomInfo && providerStatusByRoom.has(roomInfo[1])) {
+      return { ok: true, json: async () => ({ success: true, data: { status: providerStatusByRoom.get(roomInfo[1]) } }) };
+    }
     const cohostPath = url.match(/\/webinar\/([^/]+)\/(cohosts|cohost-policy)$/);
     if (cohostPath) {
       const [, room, resource] = cohostPath;
@@ -1931,6 +1949,61 @@ test('14. Live class scheduling validates staff and student audiences and create
   assert.equal(level.jsonResult.class.target_level, 'Basic 1');
   assert.equal(level.jsonResult.class.target_student_ids, null);
   assert.equal(providerRequests[1].recordingEnabled, true);
+
+  // One Webinar.gg meeting at a time: overlapping live classes are refused, back-to-back ones are fine.
+  scheduledRows = [{
+    id: 'busy-1', title: 'Level 3 drills', class_type: 'live', status: 'scheduled', provider_status: 'scheduled',
+    scheduled_start_time: '2027-04-15T12:00:00.000Z', duration_minutes: 60,
+  }];
+  const roomsBefore = providerRequests.length;
+  const overlapping = await runApi(adminToken, { ...schedule, audience: 'level', target_level: 'Basic 1' });
+  assert.equal(overlapping.statusCode, 409);
+  assert.equal(overlapping.jsonResult.code, 'CLASS_TIME_CONFLICT');
+  assert.equal(overlapping.jsonResult.conflictClassId, 'busy-1');
+  assert.match(overlapping.jsonResult.error, /"Level 3 drills" is already booked from 5:30 PM to 6:30 PM IST/);
+  assert.equal(providerRequests.length, roomsBefore, 'no Webinar.gg room is made for a refused class');
+
+  const backToBack = await runApi(adminToken, {
+    ...schedule, audience: 'level', target_level: 'Basic 1', scheduled_start_time: '2027-04-15T13:00:00.000Z',
+  });
+  assert.equal(backToBack.statusCode, 201);
+
+  scheduledRows[0].status = 'cancelled';
+  const afterCancel = await runApi(adminToken, { ...schedule, audience: 'level', target_level: 'Basic 1' });
+  assert.equal(afterCancel.statusCode, 201);
+
+  process.env.WEBINAR_GG_MAX_LIVE_CLASSES = '2';
+  try {
+    scheduledRows[0].status = 'scheduled';
+    const twoAllowed = await runApi(adminToken, { ...schedule, audience: 'level', target_level: 'Basic 1' });
+    assert.equal(twoAllowed.statusCode, 201);
+  } finally {
+    delete process.env.WEBINAR_GG_MAX_LIVE_CLASSES;
+  }
+  scheduledRows = [];
+
+  // Start class is refused while Webinar.gg says another class is still running.
+  runningRows = [
+    { id: 'other-live', title: 'Level 1 evening', webinar_id: 'room-other', class_type: 'live', status: 'live', provider_status: 'ongoing' },
+    { id: 'stale-live', title: 'Testing class 12', webinar_id: 'room-stale', class_type: 'live', status: 'live', provider_status: 'ongoing' },
+  ];
+  providerStatusByRoom.set('room-other', 'ongoing');
+  providerStatusByRoom.set('room-stale', 'completed');
+  const blockedStart = await runApi(adminToken, { action: 'join', classId: level.jsonResult.class.id });
+  assert.equal(blockedStart.statusCode, 409);
+  assert.equal(blockedStart.jsonResult.code, 'ANOTHER_CLASS_LIVE');
+  assert.match(blockedStart.jsonResult.error, /"Level 1 evening" is still live/);
+  assert.deepEqual(endedRows.map((r) => [r.id, r.status]), [['stale-live', 'ended']], 'a class Webinar.gg already ended is closed, not blocking');
+
+  const studentStillJoins = await runApi(`token-${studentProfile.id}`, { action: 'join', classId: level.jsonResult.class.id });
+  assert.notEqual(studentStillJoins.jsonResult?.code, 'ANOTHER_CLASS_LIVE', 'students are never blocked by this check');
+
+  providerStatusByRoom.set('room-other', 'completed');
+  const freeStart = await runApi(adminToken, { action: 'join', classId: level.jsonResult.class.id });
+  assert.equal(freeStart.statusCode, 200);
+  assert.equal(freeStart.jsonResult.isHost, true);
+  runningRows = [];
+  providerStatusByRoom.clear();
 });
 
 test('15. Host email matching ignores letter case and spaces', async () => {
