@@ -2087,14 +2087,14 @@ export function renderSectionFieldsHtml(sec = {}, idx = 0, options = {}) {
       sec.flash_speed_seconds !== undefined && sec.flash_speed_seconds !== null
         ? sec.flash_speed_seconds
         : speedMsToSecondsText(sec.flash_speed_ms || 800);
-    const modeVal = sec.flash_mode === 'add_sub' ? 'add_sub' : 'add';
+    const modeVal = FLASH_MODES.includes(sec.flash_mode) ? sec.flash_mode : 'add';
     const triesVal = Number(sec.question_count) || 5;
 
     const modeOptsHtml = FLASH_MODES.map((m) => {
       const mKey = typeof m === 'string' ? m : m.key;
       const mLabel = typeof m === 'string'
-        ? (m === 'add_sub' ? 'Add & Subtract' : 'Add only')
-        : (m.label || (mKey === 'add_sub' ? 'Add & Subtract' : 'Add only'));
+        ? (m === 'add_sub' ? 'Add & Subtract' : m === 'simple' ? 'Simple (no formula)' : 'Add only')
+        : (m.label || (mKey === 'add_sub' ? 'Add & Subtract' : mKey === 'simple' ? 'Simple (no formula)' : 'Add only'));
       const selected = mKey === modeVal ? 'selected' : '';
       return `<option value="${escapeHtml(mKey)}" ${selected}>${escapeHtml(mLabel)}</option>`;
     }).join('');

@@ -566,7 +566,8 @@ export function setupHeaderNavigation(profile = null) {
         const s = accessRes?.ok ? accessRes.settings : null;
         const flashHidden = s?.flash && s.flash.allowed === false;
         const oralHidden = s?.oral_rounds && !(await import('./oralRounds.js')).isOralRoundsAllowed(s.oral_rounds);
-        if (flashHidden || oralHidden) {
+        const simpleHidden = s?.simple_practice && !(await import('./simplePractice.js')).isSimplePracticeAllowed(s.simple_practice);
+        if (flashHidden || oralHidden || simpleHidden) {
           profile.practice_access = accessRes.settings;
           setupHeaderNavigation(profile);
         }

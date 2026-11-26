@@ -640,7 +640,7 @@ export async function handleStartWeeklyTestSection({
     const digits = Math.max(1, Math.min(5, Number(check.flash_digits) || 1));
     const count = Math.max(2, Math.min(1000, Number(check.flash_count) || 10));
     const speedMs = Math.max(200, Math.min(5000, Number(check.flash_speed_ms) || 1000));
-    const mode = check.flash_mode === 'add_sub' ? 'add_sub' : 'add';
+    const mode = check.flash_mode === 'add_sub' || check.flash_mode === 'simple' ? check.flash_mode : 'add';
     const questionCount = Math.max(1, Math.min(10, Number(check.question_count) || 5));
 
     const nextTryNo = Number(reservation?.next_try_no) || 1;

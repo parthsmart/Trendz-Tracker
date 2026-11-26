@@ -19,11 +19,56 @@ export const FLASH_LIMITS = Object.freeze({
   SPEED_MS_MIN: 200,
   SPEED_MS_MAX: 5000,
   SPEED_MS_STEP: 100,
-  MODES: Object.freeze(['add', 'add_sub']),
+  MODES: Object.freeze(['add', 'add_sub', 'simple']),
   CONFIRM_DURATION_SECONDS: 300, // 5 minutes
   MAX_SHOW_NUMBERS_COUNT: 100,
   MAX_ANSWER_DIGITS: 10,
 });
+
+/**
+ * Flash Anzan modes. 'simple' mixes plus and minus numbers that can be worked on the
+ * abacus without any formula (see js/flashSimple.js).
+ */
+export const FLASH_MODE_LABELS = Object.freeze({
+  add: Object.freeze({ long: 'Addition', short: 'Add', option: 'Add only', lower: 'add' }),
+  add_sub: Object.freeze({ long: 'Addition & Subtraction', short: 'Add & Sub', option: 'Add and subtract', lower: 'add & subtract' }),
+  simple: Object.freeze({ long: 'Simple (no formula)', short: 'Simple', option: 'Simple (no formula)', lower: 'simple' }),
+});
+
+/** Returns 'add', 'add_sub' or 'simple', or `fallback` for anything else. */
+export function normalizeFlashMode(mode, fallback = 'add') {
+  const m = typeof mode === 'string' ? mode.trim().toLowerCase() : '';
+  return Object.prototype.hasOwnProperty.call(FLASH_MODE_LABELS, m) ? m : fallback;
+}
+
+/** True for modes that can show minus numbers. */
+export function flashModeHasMinus(mode) {
+  const m = normalizeFlashMode(mode, null);
+  return m === 'add_sub' || m === 'simple';
+}
+
+/** Label for a mode: style is 'long' | 'short' | 'option' | 'lower'. */
+export function flashModeLabel(mode, style = 'long') {
+  const entry = FLASH_MODE_LABELS[normalizeFlashMode(mode)];
+  return entry[style] || entry.long;
+}
+
+/**
+ * Flash Anzan modes a student may use under their practice access
+ * (settings.flash = { allowed, modes }). A missing `modes` list means every mode.
+ * @returns {string[]} modes in FLASH_LIMITS.MODES order; empty when Flash is hidden
+ */
+export function allowedFlashModes(flashRule) {
+  if (flashRule && flashRule.allowed === false) return [];
+  if (!flashRule || !Array.isArray(flashRule.modes)) return [...FLASH_LIMITS.MODES];
+  const wanted = flashRule.modes.map((m) => String(m).trim().toLowerCase());
+  return FLASH_LIMITS.MODES.filter((m) => wanted.includes(m));
+}
+
+/** True when the student may practise this Flash Anzan mode. */
+export function isFlashModeAllowed(mode, flashRule) {
+  return allowedFlashModes(flashRule).includes(normalizeFlashMode(mode, null));
+}
 
 export const DEFAULT_FLASH_SETTINGS = Object.freeze({
   digits: 1,
@@ -57,7 +102,7 @@ export function speedMsToSeconds(speedMs) {
  * - digits: 1..5
  * - count: 2..1000
  * - speed_ms: 200..5000 (step 100)
- * - mode: 'add' | 'add_sub'
+ * - mode: 'add' | 'add_sub' | 'simple'
  */
 export function clampFlashSettings(raw = {}) {
   const dRaw = Number(raw?.digits);
@@ -82,7 +127,7 @@ export function clampFlashSettings(raw = {}) {
     Math.min(FLASH_LIMITS.SPEED_MS_MAX, roundedSpeed)
   );
 
-  const mode = raw?.mode === 'add_sub' ? 'add_sub' : 'add';
+  const mode = normalizeFlashMode(raw?.mode);
 
   return {
     digits,
@@ -97,7 +142,7 @@ export function clampFlashSettings(raw = {}) {
  * - digits: 1 to 5
  * - count: 2 to 1000
  * - speed_ms: 200 to 5000
- * - mode: 'add' or 'add_sub'
+ * - mode: 'add', 'add_sub' or 'simple'
  * (Strictly omits `questions`.)
  */
 export function validateFlashSettings(raw) {
@@ -209,7 +254,7 @@ export function formatFlashSettingsSummary(settings = {}) {
   const digits = Number(settings.digits) || 1;
   const count = Number(settings.count) || 2;
   const speedMs = Number(settings.speed_ms) || 1000;
-  const modeLabel = settings.mode === 'add_sub' ? 'add & subtract' : 'add';
+  const modeLabel = flashModeLabel(settings.mode, 'lower');
   const speedSec = (speedMs / 1000).toFixed(1);
 
   return `${digits} ${digits === 1 ? 'digit' : 'digits'} - ${count} numbers - ${speedSec} s - ${modeLabel}`;
@@ -231,7 +276,7 @@ export function formatFlashCompactSummary(settings = {}) {
   const digitsText = `${digits} ${digits === 1 ? 'digit' : 'digits'}`;
   const countText = `${count} ${count === 1 ? 'number' : 'numbers'}`;
   const speedText = speedSec === 1 ? '1 second' : `${Number.isInteger(speedSec) ? speedSec : speedSec.toFixed(1)} seconds`;
-  const modeText = settings.mode === 'add_sub' ? 'Addition & Subtraction' : 'Addition';
+  const modeText = flashModeLabel(settings.mode, 'long');
 
   return `${digitsText} · ${countText} · ${speedText} · ${modeText}`;
 }
@@ -283,12 +328,7 @@ export function settingsKey(settings) {
   const digits = Number(settings.digits);
   const count = Number(settings.count);
   const speed_ms = Number(settings.speed_ms);
-  const mode =
-    settings.mode === 'add_sub'
-      ? 'add_sub'
-      : settings.mode === 'add'
-        ? 'add'
-        : null;
+  const mode = normalizeFlashMode(settings.mode, null);
 
   if (
     !Number.isInteger(digits) ||
@@ -351,7 +391,7 @@ export function statsByKey(rows = []) {
         digits: Number(row.settings.digits),
         count: Number(row.settings.count),
         speed_ms: Number(row.settings.speed_ms),
-        mode: row.settings.mode === 'add_sub' ? 'add_sub' : 'add',
+        mode: normalizeFlashMode(row.settings.mode),
       };
       entry = {
         key,

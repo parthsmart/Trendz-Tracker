@@ -257,7 +257,7 @@ export function normalizeTaskInput(input = {}, sectionOverride) {
       }
     }
 
-    // 4. flash_mode: empty or "any" -> null; otherwise 'add' or 'add_sub'
+    // 4. flash_mode: empty or "any" -> null; otherwise 'add', 'add_sub' or 'simple'
     const rawMode = safeInput.flash_mode;
     if (
       rawMode === undefined ||
@@ -268,8 +268,8 @@ export function normalizeTaskInput(input = {}, sectionOverride) {
       flash_mode = null;
     } else {
       const cleanMode = trimText(String(rawMode)).toLowerCase();
-      if (cleanMode !== 'add' && cleanMode !== 'add_sub') {
-        errors.flash_mode = 'Mode must be Add only, Add and subtract, or Any.';
+      if (cleanMode !== 'add' && cleanMode !== 'add_sub' && cleanMode !== 'simple') {
+        errors.flash_mode = 'Mode must be Add only, Add and subtract, Simple, or Any.';
       } else {
         flash_mode = cleanMode;
       }
@@ -401,6 +401,8 @@ export function flashSummary(task = {}) {
       parts.push('add only');
     } else if (m === 'add_sub') {
       parts.push('add and subtract');
+    } else if (m === 'simple') {
+      parts.push('simple (no formula)');
     }
   }
 
@@ -577,7 +579,7 @@ export function taskLink(task = {}) {
       safeTask.flash_mode !== undefined ? safeTask.flash_mode : safeTask.task_flash_mode;
     if (rawMode !== null && rawMode !== undefined && trimText(String(rawMode)) !== '') {
       const m = trimText(String(rawMode)).toLowerCase();
-      if (m === 'add' || m === 'add_sub') {
+      if (m === 'add' || m === 'add_sub' || m === 'simple') {
         queryParts.push(`mode=${encodeURIComponent(m)}`);
       }
     }

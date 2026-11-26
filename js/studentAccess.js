@@ -12,6 +12,15 @@
 import { DRILL_CATALOG, DRILL_GROUPS } from './drillCatalog.js';
 import { MEMORIAD_MODULE_CATALOG } from './memoriadStats.js';
 import { JMCWC_CATEGORY_TITLES } from './jmcwcClient.js';
+import { FLASH_LIMITS, allowedFlashModes, flashModeLabel } from './flashStats.js';
+import {
+  SIMPLE_ACTIVITIES,
+  SIMPLE_ACTIVITY_KEYS,
+  SIMPLE_GROUPS,
+  normalizeSimplePracticeRule,
+  isSimplePracticeAllowed,
+  isSimpleActivityAllowed,
+} from './simplePractice.js';
 import {
   ORAL_OPERATIONS,
   ORAL_OPERATION_KEYS,
@@ -20,12 +29,12 @@ import {
   isOralRoundsAllowed,
 } from './oralRounds.js';
 
-export { isOralRoundsAllowed };
+export { isOralRoundsAllowed, isSimplePracticeAllowed, isSimpleActivityAllowed, allowedFlashModes };
 
 export const PRESET_FULL_ACCESS = Object.freeze({
   basics: Object.freeze({ all: true, categories: [] }),
   elements: Object.freeze({ all: true, drills: [] }),
-  flash: Object.freeze({ allowed: true }),
+  flash: Object.freeze({ allowed: true, modes: [...FLASH_LIMITS.MODES] }),
   memoriad: Object.freeze({
     all: true,
     modules: ['calendar', 'additions', 'multiplications', 'square_roots'],
@@ -37,6 +46,7 @@ export const PRESET_FULL_ACCESS = Object.freeze({
     operations: ['add', 'sub', 'mul'],
     digits: [1, 2, 3, 4, 5],
   }),
+  simple_practice: Object.freeze({ allowed: true, activities: [...SIMPLE_ACTIVITY_KEYS] }),
 });
 
 /** Level 1 Starter for Oral Rounds: addition and subtraction with 1 and 2 digit numbers. */
@@ -52,7 +62,7 @@ export const PRESET_LEVEL_1 = Object.freeze({
     all: false,
     drills: ['squares_stage_1', 'day_codes', 'month_codes'],
   }),
-  flash: Object.freeze({ allowed: true }),
+  flash: Object.freeze({ allowed: true, modes: [...FLASH_LIMITS.MODES] }),
   memoriad: Object.freeze({
     all: false,
     modules: ['calendar'],
@@ -60,6 +70,7 @@ export const PRESET_LEVEL_1 = Object.freeze({
   }),
   main_round: Object.freeze({ all: false, categories: [] }),
   oral_rounds: ORAL_ROUNDS_LEVEL_1,
+  simple_practice: Object.freeze({ allowed: true, activities: [...SIMPLE_ACTIVITY_KEYS] }),
 });
 
 export const MEMORIAD_CALENDAR_VARIANTS = Object.freeze([25, 50, 75, 100, 125]);
@@ -464,6 +475,8 @@ export function renderAccessEditorHtml({
   const memoriad = current.memoriad || { all: true, modules: [], calendar_variants: [25, 50, 75, 100, 125] };
   const mainRound = current.main_round || { all: true, categories: [] };
   const oral = normalizeOralRoundsRule(current.oral_rounds);
+  const simple = normalizeSimplePracticeRule(current.simple_practice);
+  const flashModes = allowedFlashModes({ ...flash, allowed: true });
 
   // 1. Basics HTML
   const basicsCount = basics.all ? 'All allowed' : `${(basics.categories || []).length} allowed`;
@@ -508,8 +521,31 @@ export function renderAccessEditorHtml({
     `;
   }).join('');
 
-  // 3. Flash Anzan HTML (Single Allowed / Hidden Switch)
+  // 3. Flash Anzan HTML (Allowed / Hidden switch and the modes the student may use)
   const isFlashActive = isFlashAllowed(flash);
+  const flashModesHtml = FLASH_LIMITS.MODES.map((m) => `
+      <label class="access-item-checkbox">
+        <input type="checkbox" name="access_flash_mode" value="${escapeHtml(m)}" ${flashModes.includes(m) ? 'checked' : ''} />
+        <span>${escapeHtml(flashModeLabel(m, 'option'))}</span>
+      </label>
+    `).join('');
+
+  // 7. Simple HTML
+  const simpleBadge = formatSimpleBadge(simple.allowed, simple.activities.length);
+  const simpleGroupsHtml = SIMPLE_GROUPS.map((g) => {
+    const items = SIMPLE_ACTIVITIES.filter((a) => a.group === g.key).map((a) => `
+        <label class="access-item-checkbox" style="font-size: 12px;">
+          <input type="checkbox" name="access_simple_activity" value="${escapeHtml(a.key)}" ${simple.activities.includes(a.key) ? 'checked' : ''} />
+          <span>${escapeHtml(a.label)}</span>
+        </label>
+      `).join('');
+    return `
+      <div style="font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px;">${escapeHtml(g.label)}</div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-bottom: var(--space-3);">
+        ${items}
+      </div>
+    `;
+  }).join('');
 
   // 4. Memoriad HTML
   const memCount = memoriad.all ? 'All allowed' : 'Custom';
@@ -613,11 +649,11 @@ export function renderAccessEditorHtml({
         </div>
       </details>
 
-      <!-- Section 3: Flash Anzan (Single Switch) -->
-      <div class="card" style="padding: var(--space-3) var(--space-4); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2);">
+      <!-- Section 3: Flash Anzan (switch and modes) -->
+      <div class="card" id="access-flash-section" style="padding: var(--space-3) var(--space-4); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2);">
         <div>
           <strong style="display: block;">Flash Anzan</strong>
-          <span style="font-size: var(--text-xs); color: var(--text-muted);">When allowed, all supported digit levels, speeds, and modes are accessible.</span>
+          <span style="font-size: var(--text-xs); color: var(--text-muted);">When allowed, every digit level and speed is open. Choose the modes below.</span>
         </div>
         <div style="display: flex; align-items: center; gap: 10px;">
           <span id="flash-status-label" style="font-weight: 600; font-size: 13px; color: ${isFlashActive ? 'var(--color-primary)' : 'var(--text-muted)'};">
@@ -627,6 +663,10 @@ export function renderAccessEditorHtml({
             <input type="checkbox" id="switch-flash-allowed" ${isFlashActive ? 'checked' : ''} style="opacity: 0; width: 0; height: 0;" />
             <span class="slider round" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: ${isFlashActive ? 'var(--color-primary)' : '#ccc'}; transition: .3s; border-radius: 24px;"></span>
           </label>
+        </div>
+        <div style="flex-basis: 100%; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; padding-top: var(--space-2); border-top: 1px dashed var(--border-hairline);">
+          <span style="font-size: 12px; font-weight: 700; color: var(--text-muted);">Modes</span>
+          ${flashModesHtml}
         </div>
       </div>
 
@@ -743,6 +783,35 @@ export function renderAccessEditorHtml({
           </div>
         </div>
       </details>
+
+      <!-- Section 7: Simple (no-formula sums and tables dodging) -->
+      <details class="card access-section-card" open style="padding: 0; overflow: hidden;" id="access-simple-section">
+        <summary class="card-header" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; user-select: none;">
+          <div>
+            <strong>Simple</strong>
+            <span class="badge badge-neutral" id="summary-simple-badge" style="margin-left: 8px;">${escapeHtml(simpleBadge)}</span>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center;" onclick="event.stopPropagation();">
+            <button type="button" class="btn btn-ghost btn-xs" id="btn-simple-select-all">Select all</button>
+            <button type="button" class="btn btn-ghost btn-xs" id="btn-simple-clear-all">Clear</button>
+          </div>
+        </summary>
+        <div class="card-body" style="padding: var(--space-3) var(--space-4);">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px dashed var(--border-hairline);">
+            <span style="font-size: var(--text-xs); color: var(--text-muted);">No-formula sums and tables dodging, practised online or logged from paper.</span>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span id="simple-status-label" style="font-weight: 600; font-size: 13px; color: ${simple.allowed ? 'var(--color-primary)' : 'var(--text-muted)'};">
+                ${simple.allowed ? 'Allowed' : 'Hidden'}
+              </span>
+              <label class="switch" style="position: relative; display: inline-block; width: 44px; height: 24px; margin: 0;">
+                <input type="checkbox" id="switch-simple-allowed" aria-label="Allow Simple practice" ${simple.allowed ? 'checked' : ''} style="opacity: 0; width: 0; height: 0;" />
+                <span class="slider round" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: ${simple.allowed ? 'var(--color-primary)' : '#ccc'}; transition: .3s; border-radius: 24px;"></span>
+              </label>
+            </div>
+          </div>
+          ${simpleGroupsHtml}
+        </div>
+      </details>
     </div>
   `;
 }
@@ -773,8 +842,12 @@ export function extractAccessSettingsFromEditor(containerEl) {
 
   // 3. Flash Anzan
   const flashInput = containerEl.querySelector('#switch-flash-allowed');
+  const flashModeInputs = containerEl.querySelectorAll('input[name="access_flash_mode"]');
   const flash = {
     allowed: flashInput ? flashInput.checked : true,
+    modes: flashModeInputs.length
+      ? Array.from(flashModeInputs).filter((el) => el.checked).map((el) => el.value)
+      : [...FLASH_LIMITS.MODES],
   };
 
   // 4. Memoriad
@@ -814,6 +887,13 @@ export function extractAccessSettingsFromEditor(containerEl) {
     digits: Array.from(containerEl.querySelectorAll('input[name="access_oral_digit"]:checked')).map((el) => Number(el.value)),
   };
 
+  // 7. Simple
+  const simpleSwitch = containerEl.querySelector('#switch-simple-allowed');
+  const simple_practice = {
+    allowed: simpleSwitch ? simpleSwitch.checked : true,
+    activities: Array.from(containerEl.querySelectorAll('input[name="access_simple_activity"]:checked')).map((el) => el.value),
+  };
+
   return {
     basics,
     elements,
@@ -821,7 +901,13 @@ export function extractAccessSettingsFromEditor(containerEl) {
     memoriad,
     main_round,
     oral_rounds,
+    simple_practice,
   };
+}
+
+function formatSimpleBadge(allowed, count) {
+  if (!allowed) return 'Hidden';
+  return `${count} of ${SIMPLE_ACTIVITY_KEYS.length} allowed`;
 }
 
 function formatOralBadge(allowed, opsCount, digitsCount) {
@@ -866,9 +952,14 @@ export function wireAccessEditorEvents(containerEl, onSettingsChange = null) {
     containerEl.querySelectorAll('input[name="access_elements"]').forEach((cb) => {
       if (['squares_stage_1', 'day_codes', 'month_codes'].includes(cb.value)) cb.checked = true;
     });
-    // Flash allowed
+    // Flash allowed with every mode
     const flashCb = containerEl.querySelector('#switch-flash-allowed');
     if (flashCb) flashCb.checked = true;
+    containerEl.querySelectorAll('input[name="access_flash_mode"]').forEach((cb) => (cb.checked = true));
+    // Simple: allowed with every activity
+    const simpleCb = containerEl.querySelector('#switch-simple-allowed');
+    if (simpleCb) simpleCb.checked = true;
+    containerEl.querySelectorAll('input[name="access_simple_activity"]').forEach((cb) => (cb.checked = true));
     // Memoriad: Calendar 25 only
     const calCb = containerEl.querySelector('#check-memoriad-calendar');
     if (calCb) calCb.checked = true;
@@ -997,9 +1088,42 @@ export function wireAccessEditorEvents(containerEl, onSettingsChange = null) {
     updateOralVisuals();
     notify();
   });
-  // Presets toggle every checkbox, so refresh the Oral Rounds visuals after them too.
+  // Simple switch, select all / clear
+  function updateSimpleVisuals() {
+    const simpleCb = containerEl.querySelector('#switch-simple-allowed');
+    if (!simpleCb) return;
+    const label = containerEl.querySelector('#simple-status-label');
+    const slider = containerEl.querySelector('#switch-simple-allowed + .slider');
+    const badge = containerEl.querySelector('#summary-simple-badge');
+    if (label) {
+      label.textContent = simpleCb.checked ? 'Allowed' : 'Hidden';
+      label.style.color = simpleCb.checked ? 'var(--color-primary)' : 'var(--text-muted)';
+    }
+    if (slider) slider.style.backgroundColor = simpleCb.checked ? 'var(--color-primary)' : '#ccc';
+    if (badge) {
+      badge.textContent = formatSimpleBadge(
+        simpleCb.checked,
+        containerEl.querySelectorAll('input[name="access_simple_activity"]:checked').length
+      );
+    }
+  }
+  containerEl.querySelector('#btn-simple-select-all')?.addEventListener('click', () => {
+    const simpleCb = containerEl.querySelector('#switch-simple-allowed');
+    if (simpleCb) simpleCb.checked = true;
+    containerEl.querySelectorAll('input[name="access_simple_activity"]').forEach((cb) => (cb.checked = true));
+    updateSimpleVisuals();
+    notify();
+  });
+  containerEl.querySelector('#btn-simple-clear-all')?.addEventListener('click', () => {
+    containerEl.querySelectorAll('input[name="access_simple_activity"]').forEach((cb) => (cb.checked = false));
+    updateSimpleVisuals();
+    notify();
+  });
+
+  // Presets toggle every checkbox, so refresh the Oral Rounds and Simple visuals after them too.
   ['#btn-preset-full-access', '#btn-preset-level-1', '#btn-preset-clear-all'].forEach((sel) => {
     containerEl.querySelector(sel)?.addEventListener('click', updateOralVisuals);
+    containerEl.querySelector(sel)?.addEventListener('click', updateSimpleVisuals);
   });
 
   // Main Round select all / clear
@@ -1021,6 +1145,9 @@ export function wireAccessEditorEvents(containerEl, onSettingsChange = null) {
     if (e.target.matches('input[type="checkbox"]')) {
       if (e.target.matches('#switch-oral-allowed, input[name="access_oral_op"], input[name="access_oral_digit"]')) {
         updateOralVisuals();
+      }
+      if (e.target.matches('#switch-simple-allowed, input[name="access_simple_activity"]')) {
+        updateSimpleVisuals();
       }
       notify();
     }

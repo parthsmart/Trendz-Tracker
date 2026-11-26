@@ -4,7 +4,7 @@
  * Phase 7b — Simplified to ONE QUESTION PER TRY:
  * - Never calculate sums, correctness, streaks, or points in JavaScript.
  * - `flash_start(p_settings)` returns `{ session_id, numbers: [signed integers], settings }`
- *   with `digits` (1..5), `count` (2..1000), `speed_ms` (200..5000), `mode` ('add' | 'add_sub').
+ *   with `digits` (1..5), `count` (2..1000), `speed_ms` (200..5000), `mode` ('add' | 'add_sub' | 'simple').
  * - `flash_submit(p_session, p_answer)` sends a single integer or `null` ("I don't know")
  *   and returns `{ correct: boolean, expected, given, seconds }`.
  * - Uses `performance.now()` with an absolute schedule built by `buildTimeline(settings, count)`
@@ -19,6 +19,9 @@ import {
   FLASH_LIMITS,
   clampFlashSettings,
   formatFlashSettingsSummary,
+  flashModeHasMinus,
+  flashModeLabel,
+  allowedFlashModes,
   formatFlashCompactSummary,
   formatSpeedDisplay,
   friendlyFlashError,
@@ -617,7 +620,7 @@ async function runTrySequence() {
   // Widest flashed number (digits + minus sign) sizes the full-screen digit.
   document.body.style.setProperty(
     '--flash-chars',
-    String((Number(activeTry.settings.digits) || 1) + (activeTry.settings.mode === 'add_sub' ? 1 : 0))
+    String((Number(activeTry.settings.digits) || 1) + (flashModeHasMinus(activeTry.settings.mode) ? 1 : 0))
   );
   if (progressFill) progressFill.style.width = '0%';
   if (stopConfirmBar) stopConfirmBar.style.display = 'none';
@@ -1323,7 +1326,7 @@ function renderFlashHistoryView() {
       const speedMs = row.settings?.speed_ms ?? 1000;
       const speedSec = speedMsToSeconds(speedMs);
       const mode = row.settings?.mode || 'add';
-      const modeText = mode === 'add_sub' ? 'Addition & Subtraction' : 'Addition';
+      const modeText = flashModeLabel(mode, 'long');
       const outcomeText = isCorrect ? '✅ Correct' : '❌ Missed';
       const speedDisplay = formatSpeedDisplay(speedMs);
 
@@ -1442,11 +1445,11 @@ function setupEventListeners() {
     });
   });
 
-  // 2. Mode pills ('add' | 'add_sub')
+  // 2. Mode pills ('add' | 'add_sub' | 'simple')
   document.querySelectorAll('[data-mode]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const m = btn.getAttribute('data-mode');
-      if (m === 'add' || m === 'add_sub') {
+      if (FLASH_LIMITS.MODES.includes(m)) {
         currentSettings.mode = m;
         syncSetupControlsUI();
         savePreferences();
@@ -1854,12 +1857,23 @@ async function initFlashTrainerPage() {
       const { fetchStudentEffectiveAccess } = await import('./studentAccess.js');
       const isDemo = isDemoMode();
       const accessRes = await fetchStudentEffectiveAccess(currentProfile.id, { supabase, isDemo, DemoDB });
-      if (accessRes?.ok && accessRes?.settings?.flash && accessRes.settings.flash.allowed === false) {
+      const flashRule = accessRes?.ok ? accessRes?.settings?.flash : null;
+      const modes = allowedFlashModes(flashRule);
+      if (flashRule && (flashRule.allowed === false || modes.length === 0)) {
         showErrorBanner('Flash Anzan practice is not permitted for your current access level. You can still view your past scores and history below.');
         const startBtn = document.getElementById('btn-flash-start');
         if (startBtn) {
           startBtn.disabled = true;
           startBtn.textContent = 'Practice Restricted';
+        }
+      } else if (flashRule) {
+        // Only show the modes the teacher turned on.
+        document.querySelectorAll('[data-mode]').forEach((btn) => {
+          btn.style.display = modes.includes(btn.getAttribute('data-mode')) ? '' : 'none';
+        });
+        if (!modes.includes(currentSettings.mode)) {
+          currentSettings.mode = modes[0];
+          syncSetupControlsUI();
         }
       }
     } catch {
