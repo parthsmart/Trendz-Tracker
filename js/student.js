@@ -35,6 +35,7 @@ import { renderMemoriadCard } from './memoriadCard.js';
 import { fetchMyNotificationsCached } from './notificationBadge.js';
 import { formatTimeIST } from './liveClasses.js';
 import { renderXpProgressCard } from './xpRewards.js';
+import { renderDailyChallengeCard, renderStarsCard } from './homeGamify.js';
 import { fetchLeaderboard } from './leaderboardData.js';
 import {
   renderPracticeTiles,
@@ -169,6 +170,16 @@ async function initStudentDashboard() {
     studentId: currentStudentId,
     loadBoard: () => fetchLeaderboard({ board: 'xp', period: 'week', limit: 5, scope: 'level' }, loggedInProfile),
   }).catch((err) => console.warn('Could not load XP:', err));
+  renderDailyChallengeCard(document.getElementById('daily-challenge'))
+    .then(() => {
+      if (window.location.hash === '#daily-challenge') {
+        document.getElementById('daily-challenge')?.scrollIntoView({ block: 'start' });
+      }
+    })
+    .catch((err) => console.warn('Could not load the daily challenge:', err));
+  renderStarsCard(document.getElementById('stars-card')).catch((err) =>
+    console.warn('Could not load stars:', err)
+  );
   // Weekly tests, homework and reminders are each fetched once and shared by
   // My Day and the Coming up panel (which also shows today's open weekly test).
   const testsPromise = fetchMyWeeklyTests(currentStudentId);

@@ -280,6 +280,11 @@ function renderStudentDetails(profile) {
     reviewBtn.href = `/pages/review.html?studentId=${encodeURIComponent(profile.id)}`;
   }
 
+  const profileBtn = document.getElementById('btn-student-profile');
+  if (profileBtn) {
+    profileBtn.href = `/pages/profile.html?student=${encodeURIComponent(profile.id)}`;
+  }
+
   const reportBtn = document.getElementById('btn-monthly-report');
   if (reportBtn) {
     reportBtn.href = `/pages/monthly-report.html?studentId=${encodeURIComponent(profile.id)}`;
