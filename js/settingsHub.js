@@ -114,6 +114,15 @@ export const SETTINGS_ENTRIES = Object.freeze([
     description: 'Post student announcements and share upcoming weekly test reminders.',
   },
   {
+    id: 'arena',
+    group: 'competition',
+    groupLabel: 'Competition',
+    title: 'Arena & rewards',
+    breadcrumbTitle: 'Arena',
+    href: '/pages/arena.html',
+    description: 'See weekly leagues and class vs class, and run the XP reward shop (items, requests, hand-outs).',
+  },
+  {
     id: 'reports',
     group: 'communication',
     groupLabel: 'Communication',

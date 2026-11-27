@@ -24,7 +24,19 @@ export const BADGE_CATEGORY_LABELS = Object.freeze({
   challenge: 'Daily challenge',
   rank: 'Tiers',
   award: 'Awards',
+  league: 'Leagues',
+  duel: 'Duels',
 });
+
+/** Badge categories that come with a printable certificate. */
+export const CERTIFICATE_CATEGORIES = Object.freeze(['rank', 'award', 'league']);
+
+/** Link to the printable certificate for an earned badge (staff pass the student id). */
+export function certificateHref(badgeKey, studentId = null) {
+  const q = new URLSearchParams({ badge: String(badgeKey || '') });
+  if (studentId) q.set('student', String(studentId));
+  return `/pages/certificate.html?${q.toString()}`;
+}
 
 export const MOTTO_MAX = 60;
 
@@ -73,7 +85,7 @@ export function buildTitlesHtml(awards) {
 }
 
 /** Badge wall grouped by category; locked badges are shown greyed out. */
-export function buildBadgeWallHtml(badges) {
+export function buildBadgeWallHtml(badges, { studentId = null } = {}) {
   const list = Array.isArray(badges) ? badges : [];
   if (!list.length) return '<p class="pf-dim">Badges will appear here soon.</p>';
   const groups = new Map();
@@ -93,6 +105,9 @@ export function buildBadgeWallHtml(badges) {
         + `<b>${esc(b?.name)}</b>`
         + `<span class="pf-badge-d">${esc(b?.description)}</span>`
         + `<span class="pf-badge-w">${earned ? '✅ ' : '🔒 '}${esc(when)}</span>`
+        + (earned && CERTIFICATE_CATEGORIES.includes(b?.category)
+          ? `<a class="pf-cert" href="${esc(certificateHref(b.key, studentId))}">🎓 Certificate</a>`
+          : '')
         + '</li>';
     }
     html += '</ul></div>';

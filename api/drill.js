@@ -8,6 +8,12 @@
  *   expected answers on the server, stores them in drill_sessions using the
  *   service role, and returns ONLY { session_id, drill, title, questions, time_limit_seconds, hint }.
  *
+ * - { action: 'start', kind: 'basics', duel_id }
+ *   Plays the caller's side of a duel: the duel's category, time and seeded questions.
+ *
+ * - { action: 'duel_create', opponent_id, category_id } / { action: 'duel_cancel', duel_id }
+ *   Sends a duel to a classmate at the same level, or cancels/declines one nobody has played.
+ *
  * - { action: 'submit', session_id, answers }
  *   Verifies active student caller, loads the student's open session, checks
  *   expiry (started_at + time_limit_seconds + 30s) and minimum plausible completion
@@ -48,6 +54,7 @@ import {
   recordChallengeResult,
   resolveTodaysChallenge,
 } from './_dailyChallenge.js';
+import { claimDuelStart, handleDuelCancel, handleDuelCreate, recordDuelResult } from './_duels.js';
 
 export const RATE_LIMIT_SETS_PER_HOUR = 60;
 export const EXPIRY_GRACE_SECONDS = 30;
@@ -144,6 +151,14 @@ export default async function handler(req, res) {
     return handleTaskLeaderboard({ body, student, adminSupabase, res });
   }
 
+  if (action === 'duel_create') {
+    return handleDuelCreate({ body, student, adminSupabase, res });
+  }
+
+  if (action === 'duel_cancel') {
+    return handleDuelCancel({ body, student, adminSupabase, res });
+  }
+
   if (action === 'challenge_info') {
     return handleChallengeInfo({ student, adminSupabase, res, fallbackToday: fallbackTodayIst });
   }
@@ -153,6 +168,21 @@ export default async function handler(req, res) {
 
 async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
   // Daily challenge: the server picks today's category for the student's level.
+  // Duel: the duel row fixes the category, time and questions for both players.
+  const isDuel = !body.challenge && body.duel_id !== undefined && body.duel_id !== null && body.duel_id !== '';
+  let duelClaim = null;
+  if (isDuel) {
+    duelClaim = await claimDuelStart(adminSupabase, student, body.duel_id);
+    if (!duelClaim.ok) {
+      return res.status(duelClaim.statusCode || 400).json({ error: duelClaim.error, code: duelClaim.code });
+    }
+  }
+  // Undo the duel claim when the round could not be started.
+  const failStart = async (status, payload) => {
+    if (duelClaim?.ok) await duelClaim.release();
+    return res.status(status).json(payload);
+  };
+
   const isChallenge = body.challenge === true;
   let challenge = null;
   if (isChallenge) {
@@ -165,9 +195,13 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
       return res.status(404).json({ error: 'There is no daily challenge for your level today.' });
     }
   }
-  const categoryId = isChallenge ? challenge.category.id : String(body.category_id || '').trim();
+  const categoryId = isChallenge
+    ? challenge.category.id
+    : isDuel
+      ? String(duelClaim.duel.category_id)
+      : String(body.category_id || '').trim();
   if (!categoryId) {
-    return res.status(400).json({ error: 'Please select a basics category.' });
+    return failStart(400, { error: 'Please select a basics category.' });
   }
 
   // Validate category: section === 'basics', active === true, supported name
@@ -178,24 +212,25 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
     .single();
 
   if (catErr || !category) {
-    return res.status(404).json({ error: 'Basics category not found.' });
+    return failStart(404, { error: 'Basics category not found.' });
   }
 
   if (category.section !== 'basics' || category.active === false) {
-    return res.status(400).json({
+    return failStart(400, {
       error: 'This category is not available for online practice.',
     });
   }
 
   const spec = parseBasicsCategoryName(category.name);
   if (!spec) {
-    return res.status(400).json({
+    return failStart(400, {
       error: 'This category is not available online and uses typed entry only.',
     });
   }
 
   // Validate daily task assignment if provided (before timing/mode determination)
-  const todoTaskId = isChallenge ? null : body.todo_task_id;
+  const isSpecialRound = isChallenge || isDuel;
+  const todoTaskId = isSpecialRound ? null : body.todo_task_id;
   const taskRes = await resolveAndValidateDailyTask(
     adminSupabase,
     todoTaskId,
@@ -209,7 +244,7 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
   const validatedTask = taskRes.task;
 
   // Validate homework assignment if provided
-  const homeworkId = isChallenge ? null : body.homework_id;
+  const homeworkId = isSpecialRound ? null : body.homework_id;
   const hwRes = await resolveAndValidateHomework(
     adminSupabase,
     homeworkId,
@@ -223,7 +258,7 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
   const validatedHomework = hwRes.homework;
 
   // Validate student practice access for free practice (the daily challenge is open to all)
-  if (!validatedTask && !validatedHomework && !isChallenge) {
+  if (!validatedTask && !validatedHomework && !isSpecialRound) {
     const accessRes = await fetchStudentEffectiveAccess(student.id, { supabase: adminSupabase });
     if (!accessRes || accessRes.ok === false) {
       return res.status(503).json({
@@ -251,13 +286,13 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
     .gte('started_at', oneHourAgoIso);
 
   if (countErr) {
-    return res.status(500).json({
+    return failStart(500, {
       error: 'Could not check your recent practice sessions. Please try again.',
     });
   }
 
   if ((recentCount || 0) >= RATE_LIMIT_SETS_PER_HOUR) {
-    return res.status(429).json({
+    return failStart(429, {
       error: 'You have started 60 sets in the past hour. Please take a short break and try again soon.',
     });
   }
@@ -269,9 +304,9 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
   let poolSize;
   let finalExpiry;
 
-  if (isChallenge) {
+  if (isChallenge || isDuel) {
     finalMode = 'timed';
-    finalSeconds = CHALLENGE_SECONDS;
+    finalSeconds = isDuel ? Number(duelClaim.duel.seconds) || 60 : CHALLENGE_SECONDS;
     poolSize = computeBasicsPoolForDuration(finalSeconds);
     finalExpiry = 3 + finalSeconds + 15;
   } else if (
@@ -324,7 +359,9 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
         poolSize,
         createSeededRng(challengeSeed(challenge.day, challenge.level, category.id))
       )
-    : generateBasicsSet(category.name, poolSize);
+    : isDuel
+      ? generateBasicsSet(category.name, poolSize, createSeededRng(Number(duelClaim.duel.seed) >>> 0))
+      : generateBasicsSet(category.name, poolSize);
   const displayQuestions = stripBasicsExpected(generated);
   const expectedAnswers = generated.map((q) => q.expected);
 
@@ -348,6 +385,9 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
     homework_id: validatedHomework ? validatedHomework.id : null,
     is_challenge: isChallenge,
     challenge_day: isChallenge ? challenge.day : null,
+    is_duel: isDuel,
+    duel_id: isDuel ? duelClaim.duel.id : null,
+    duel_side: isDuel ? duelClaim.side : null,
   };
 
   // One attempt per day: claim the attempt row before creating the session.
@@ -399,9 +439,13 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
     if (challengeAttemptId) {
       await adminSupabase.from('daily_challenge_attempts').delete().eq('id', challengeAttemptId);
     }
-    return res.status(500).json({
+    return failStart(500, {
       error: 'Could not start the basics practice session. Please try again.',
     });
+  }
+
+  if (duelClaim?.ok) {
+    await duelClaim.bindSession(sessionRow.id);
   }
 
   if (challengeAttemptId) {
@@ -1224,8 +1268,17 @@ async function handleSubmitBasicsSession({
     });
   }
 
+  const duel = session.settings?.duel_id
+    ? await recordDuelResult(adminSupabase, session, student, {
+        correct: check.correct,
+        total: check.attempted,
+        time_seconds: check.used_seconds ?? check.time_seconds,
+      })
+    : null;
+
   return res.status(200).json({
     challenge: Boolean(session.settings?.challenge_day),
+    duel,
     correct: check.correct,
     attempted: check.attempted,
     accuracy: check.accuracy,
