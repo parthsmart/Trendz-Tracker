@@ -252,7 +252,11 @@ function renderStudentHero(profile) {
 
   if (nameEl) nameEl.textContent = profile.full_name || 'Student';
   if (codeEl) codeEl.textContent = profile.student_code || profile.id || '—';
-  if (levelEl) levelEl.textContent = profile.level || 'Unassigned';
+  if (levelEl) {
+    const lvl = String(profile.level || '').trim();
+    levelEl.textContent = !lvl ? 'Level not set' : /\blevel\b/i.test(lvl) ? lvl : `${lvl} level`;
+    levelEl.title = 'Your class level (set by your trainer)';
+  }
 }
 
 function renderHeaderUser(profile) {

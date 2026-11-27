@@ -27,6 +27,12 @@ export const PERIOD_LABELS = {
   all: 'All time'
 };
 
+/** The XP board's month is a season and all-time is the career total. */
+export const XP_PERIOD_LABELS = {
+  month: 'This season',
+  all: 'Career (all time)'
+};
+
 export const TASK_SPEED_EXPLANATION_TEXT =
   "Ranked by correct answers per minute in each student's best round on the website. Typed scores, rounds under 20 seconds and rounds under 10 questions do not count.";
 
@@ -154,7 +160,8 @@ export function boardTitle(
   const bLabel = cleanTaskTitle || baseLabel;
 
   const usesPeriod = boardUsesPeriod(board);
-  const pLabel = usesPeriod ? resolvePeriodTitleLabel(period, todayIST) : null;
+  const xpLabel = board === 'xp' ? XP_PERIOD_LABELS[String(period || '').toLowerCase()] : null;
+  const pLabel = usesPeriod ? (xpLabel || resolvePeriodTitleLabel(period, todayIST)) : null;
 
   let resolvedScope = '';
   if (scope === 'global') {

@@ -10,7 +10,7 @@
 
 import { getSupabase } from './supabaseClient.js';
 import { isSupabaseConfigured } from './config.js';
-import { callXpRpc, escapeXpHtml as esc, formatXp } from './xpRewards.js';
+import { callXpRpc, escapeXpHtml as esc, formatXp, levelName } from './xpRewards.js';
 import { avatarHtml, ensureAvatarStyles, signAvatarUrls } from './avatars.js';
 
 async function accessToken() {
@@ -104,17 +104,31 @@ function winnersHtml(winners, urls, unit = 'XP') {
     .join('');
 }
 
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "17–23 Nov" / "28 Oct – 3 Nov" from two YYYY-MM-DD dates ('' when unknown). */
+export function shortDateRange(from, to) {
+  const p = (s) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s || ''));
+    return m ? { d: Number(m[3]), m: SHORT_MONTHS[Number(m[2]) - 1] } : null;
+  };
+  const a = p(from);
+  const b = p(to);
+  if (!a || !b || !a.m || !b.m) return '';
+  return a.m === b.m ? `${a.d}–${b.d} ${b.m}` : `${a.d} ${a.m} – ${b.d} ${b.m}`;
+}
+
 export function buildStarsHtml(data, urls = new Map()) {
   if (!data) return '';
   const m = data.month || {};
   const w = data.week || {};
   const youWon = [...(m.winners || []), ...(w.winners || [])].some((x) => x?.is_me);
   return `
-    <h2>🌟 Stars of ${esc(data.level || 'your level')}</h2>
-    ${youWon ? '<p class="gm-sub">🎉 Congratulations, that’s you!</p>' : '<p class="gm-sub">Earn the most XP in your level to become the next star.</p>'}
+    <h2>🌟 Stars of ${esc(levelName(data.level))}</h2>
+    ${youWon ? '<p class="gm-sub">🎉 Congratulations, that’s you!</p>' : '<p class="gm-sub">Winners of the last finished week and month in your class level. Earn the most XP to be next.</p>'}
     <div class="gm-winners">
-      <div class="gm-winner-box"><h3>⭐ Star of the Month · ${esc(m.label || '')}</h3>${winnersHtml(m.winners, urls)}</div>
-      <div class="gm-winner-box"><h3>🏆 Champion of the Week</h3>${winnersHtml(w.winners, urls)}</div>
+      <div class="gm-winner-box"><h3>⭐ Star of last month${m.label ? ` · ${esc(m.label)}` : ''}</h3>${winnersHtml(m.winners, urls)}</div>
+      <div class="gm-winner-box"><h3>🏆 Champion of last week${shortDateRange(w.from, w.to) ? ` · ${esc(shortDateRange(w.from, w.to))}` : ''}</h3>${winnersHtml(w.winners, urls)}</div>
     </div>
   `;
 }
