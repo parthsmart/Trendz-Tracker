@@ -9,6 +9,7 @@
  */
 
 import { getSupabase } from './supabaseClient.js';
+import { normalizeProfileRole } from './roles.js';
 import { setupHeaderNavigation } from './headerNav.js';
 import { openModal, closeModal } from './modal.js';
 import { setupModalListeners } from './modal.js';
@@ -569,11 +570,12 @@ export async function initLiveClassesPage() {
   }
 
   currentUser = session.user;
-  const { data: profile } = await supabase
+  const { data: rawProfile } = await supabase
     .from('profiles')
     .select('id, full_name, role, level, active')
     .eq('id', currentUser.id)
     .single();
+  const profile = normalizeProfileRole(rawProfile);
 
   if (!profile || (profile.role !== 'admin' && profile.role !== 'teacher') || !profile.active) {
     window.location.href = '/index.html';

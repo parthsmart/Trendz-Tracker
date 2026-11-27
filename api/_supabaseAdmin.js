@@ -5,6 +5,7 @@
  */
 
 import crypto from 'node:crypto';
+import { normalizeProfileRole } from '../js/roles.js';
 import { createClient } from '@supabase/supabase-js';
 import {
   getSupabaseAdminConfig,
@@ -298,11 +299,12 @@ export async function verifyAdminCaller(req) {
   }
 
   // 2. Query public.profiles to verify role is admin and active
-  const { data: profile, error: profileError } = await supabase
+  const { data: rawProfile, error: profileError } = await supabase
     .from('profiles')
     .select('id, student_code, role, active')
     .eq('id', user.id)
     .single();
+  const profile = normalizeProfileRole(rawProfile);
 
   if (profileError || !profile) {
     const err = new Error('Forbidden: Caller profile not found.');
@@ -365,11 +367,12 @@ export async function verifyStudentCaller(req) {
   }
 
   // 2. Query public.profiles to verify account is active
-  const { data: profile, error: profileError } = await supabase
+  const { data: rawProfile, error: profileError } = await supabase
     .from('profiles')
     .select('id, student_code, full_name, role, level, active')
     .eq('id', user.id)
     .single();
+  const profile = normalizeProfileRole(rawProfile);
 
   if (profileError || !profile) {
     const err = new Error('Forbidden: Student profile not found.');

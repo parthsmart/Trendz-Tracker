@@ -2,11 +2,13 @@
  * Trendz Tracker - SessionStorage Profile Cache (js/profileCache.js)
  *
  * Phase 15a (Candidate A):
- * - Caches {id, role, level, name, full_name, student_code, active, must_change_password, leaderboard_visible}
+ * - Caches {id, role, network_role, centre_id, level, name, full_name, student_code, active, must_change_password, leaderboard_visible}
  *   in sessionStorage with a 2-minute TTL.
  * - Cleared on sign-out, on password change, and after any profile edit.
  * - Used ONLY to render quickly; always revalidated in the background and never used for security decisions.
  */
+
+import { normalizeProfileRole } from './roles.js';
 
 export const PROFILE_CACHE_KEY = 'tt_profile_cache_v1';
 export const PROFILE_CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
@@ -14,17 +16,20 @@ export const PROFILE_CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
 /**
  * Sanitizes a profile object down to the safe cached fields.
  *
- * @param {Record<string, any> | null | undefined} raw
+ * @param {Record<string, any> | null | undefined} input
  * @returns {Record<string, any> | null}
  */
-export function sanitizeCachedProfile(raw) {
-  if (!raw || typeof raw !== 'object' || !raw.id || !raw.role) {
+export function sanitizeCachedProfile(input) {
+  if (!input || typeof input !== 'object' || !input.id || !input.role) {
     return null;
   }
+  const raw = normalizeProfileRole(input);
   const resolvedName = String(raw.full_name || raw.name || '').trim();
   return {
     id: String(raw.id),
     role: String(raw.role),
+    network_role: String(raw.network_role),
+    centre_id: raw.centre_id ?? null,
     level: raw.level ?? null,
     name: resolvedName,
     full_name: resolvedName,

@@ -13,6 +13,7 @@
  */
 
 import { getSupabase } from './supabaseClient.js';
+import { effectiveRole } from './roles.js';
 import { TrendzMediaPlayer } from './mediaPlayer.js';
 
 let currentClassId = null;
@@ -306,7 +307,7 @@ async function loadClassMetadata(classId) {
       .eq('id', session.user.id)
       .maybeSingle();
     if (profile?.role) {
-      userRole = profile.role;
+      userRole = effectiveRole(profile.role);
     }
   }
 

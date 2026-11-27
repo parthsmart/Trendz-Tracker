@@ -271,3 +271,12 @@ Also: `npm run build`, and a browser check of every panel with demo accounts.
 - The "no editing someone at or above your rank" check in the guard applies to staff only (rank 30 and up). Students already edit only their own row through RLS, and definer functions acting for a student (duels, XP) must still be able to update other students.
 - `is_admin()` now means owner, director or legacy admin. It stays executable by anon because `TO public` policies call it, and it returns false for anon.
 - Rollback is only safe before step 2. Run step 2's rollback first.
+
+### Step 2 implementation notes (migration 31)
+
+- Baran Centre (BRN) is the default centre. Every student and teacher is in it; owners and directors have no centre. A trigger puts new students and teachers with no centre into the default centre, and the constraint `profiles_centre_matches_role` keeps "network roles have no centre, everyone else has one" true.
+- The 12 policies and 7 functions that tested `role = 'admin'` inline now accept owner, director or admin. The migration rewrites them from their live definitions and stops with an error if any `'admin'` check is left in a form it does not recognise.
+- The admin account becomes `owner`.
+- On the site and in the API, owners and directors get the *effective* role `admin` (`js/roles.js`, `normalizeProfileRole`), so the existing admin pages and checks keep working until the owner panel (step 3). The real role is kept in `network_role`. A stored `network_role` can only refine an effective `admin`; it never widens a role.
+- Release order: ship the site and API first (they work before and after the migration), then back up and apply migration 31.
+- Rollback: `supabase/rollbacks/31_multi_centre_data_rollback.sql`. It refuses while any director, head or second owner exists.
