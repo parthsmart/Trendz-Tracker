@@ -9,7 +9,7 @@
 
 import { getSupabase, DemoDB } from './supabaseClient.js';
 import { avatarHtml, ensureAvatarStyles, signAvatarUrls } from './avatars.js';
-import { celebrate, countUpWithin } from './motion.js';
+import { celebrate, celebrateOnce, countUpWithin } from './motion.js';
 
 const STYLE_ID = 'xp-rewards-style';
 const CARD_CLASS = 'xp-round-card';
@@ -44,6 +44,44 @@ export function tierIcon(name) {
   return TIER_ICONS[name] || '⭐';
 }
 
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August',
+  'September', 'October', 'November', 'December'];
+
+/**
+ * Season XP (this calendar month, IST) decides the tier. Older servers only sent
+ * total_xp, so fall back to it.
+ */
+export function seasonXp(summary) {
+  const s = summary || {};
+  return Math.max(0, Number(s.season_xp ?? s.total_xp) || 0);
+}
+
+/** Lifetime XP: never resets, shown as the career number. */
+export function careerXp(summary) {
+  const s = summary || {};
+  return Math.max(0, Number(s.lifetime_xp ?? s.total_xp) || 0);
+}
+
+/** '2026-11-01' -> 'November 2026' (or just 'November' with short). '' when unknown. */
+export function seasonName(isoDate, { short = false } = {}) {
+  const m = /^(\d{4})-(\d{2})/.exec(String(isoDate || ''));
+  if (!m) return '';
+  const name = MONTHS[Number(m[2]) - 1];
+  if (!name) return '';
+  return short ? name : `${name} ${m[1]}`;
+}
+
+/** '📅 November season · 4 days left' style text, or '' without season data. */
+export function seasonLine(summary) {
+  const season = summary?.season;
+  const name = seasonName(season?.from, { short: true });
+  if (!name) return '';
+  const left = Number(season?.days_left);
+  let when = '';
+  if (Number.isFinite(left) && left > 0) when = left === 1 ? ' · last day!' : ` · ${left} days left`;
+  return `📅 ${name} season${when}`;
+}
+
 /**
  * Progress through the current tier, from the RPC's tier object.
  * Returns { name, icon, pct, toNext, nextName } (pct 100 at the top tier).
@@ -60,12 +98,12 @@ export function tierProgress(totalXp, tier) {
   return { name: t.name || 'Bronze', icon: tierIcon(t.name), pct, toNext: Math.max(0, next - total), nextName: t.next_name || null };
 }
 
-/** "Rounds 6-10 of the same practice today earn half XP" style note, or ''. */
+/** Rounds 21-40 of the day earn half XP, after that a quarter. Returns the note or ''. */
 export function dailyFactorNote(factor) {
   const f = Number(factor);
   if (!Number.isFinite(f) || f >= 1) return '';
-  if (f >= 0.5) return 'Half XP: you have done this practice 5+ times today. Try something different for full XP.';
-  return 'Quarter XP: you have done this practice 10+ times today. Try something different for full XP.';
+  if (f >= 0.5) return 'Half XP: you have played 20+ rounds today. Great effort! Full XP comes back tomorrow.';
+  return 'Quarter XP: you have played 40+ rounds today. Rest up, full XP comes back tomorrow.';
 }
 
 /** Streak line for the card. */
@@ -97,7 +135,7 @@ export function buildRoundCardHtml(summary) {
   const r = summary.round;
   const xp = Number(r.xp) || 0;
   const bonus = Number(r.bonus_xp) || 0;
-  const tp = tierProgress(summary.total_xp, summary.tier);
+  const tp = tierProgress(seasonXp(summary), summary.tier);
 
   let bestHtml = '';
   if (r.personal_best) {
@@ -126,7 +164,7 @@ export function buildRoundCardHtml(summary) {
     <div class="xp-head">
       <div class="xp-gain">+${formatXp(xp)} XP</div>
       <div class="xp-head-side">
-        <div class="xp-tier">${tp.icon} ${escapeXpHtml(tp.name)} · ${formatXp(summary.total_xp)} XP</div>
+        <div class="xp-tier">${tp.icon} ${escapeXpHtml(tp.name)} · ${formatXp(seasonXp(summary))} season XP</div>
         <div class="xp-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${tp.pct}" aria-label="Progress to next tier"><span style="width:${tp.pct}%"></span></div>
         <div class="xp-dim">${nextText}</div>
       </div>
@@ -162,6 +200,10 @@ export function ensureXpStyles(doc = globalThis.document) {
     .xp-chip { display: inline-block; background: #fef3c7; color: #92400e; border-radius: 99px; padding: 1px 8px; font-size: 12px; font-weight: 700; }
     .xp-meta { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; font-size: 13px; }
     .xp-note { margin-top: 8px; font-size: 12px; color: var(--text-muted, #64748b); }
+    .xp-recap { border: 1px solid var(--border-color, #e2e8f0); border-radius: 14px; padding: 12px 14px; margin: 0 0 14px;
+      background: linear-gradient(135deg, rgba(250, 204, 21, .14), rgba(99, 102, 241, .10)); }
+    .xp-recap-head { display: flex; gap: 12px; align-items: center; }
+    .xp-recap-icon { font-size: 34px; line-height: 1; }
     .xp-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin: 10px 0; }
     .xp-stat { border: 1px solid var(--border-color, #e2e8f0); border-radius: 10px; padding: 8px 10px; }
     .xp-stat b { display: block; font-size: 20px; }
@@ -247,8 +289,10 @@ export async function showRoundRewards({ sourceId, anchor = null, container = nu
  */
 export function buildProgressCardHtml(summary, boardRows = [], avatarUrls = new Map()) {
   if (!summary) return '';
-  const tp = tierProgress(summary.total_xp, summary.tier);
+  const tp = tierProgress(seasonXp(summary), summary.tier);
   const streak = summary.streak || {};
+  const sRank = summary.season_rank || {};
+  const sLine = seasonLine(summary);
   const rank = summary.week_rank || {};
   const nextText = tp.nextName
     ? `${formatXp(tp.toNext)} XP to ${tierIcon(tp.nextName)} ${escapeXpHtml(tp.nextName)}`
@@ -269,23 +313,24 @@ export function buildProgressCardHtml(summary, boardRows = [], avatarUrls = new 
     <div class="xp-head">
       <div class="xp-gain" style="font-size:22px">${tp.icon} ${escapeXpHtml(tp.name)}</div>
       <div class="xp-head-side">
-        <div class="xp-tier">${formatXp(summary.total_xp)} XP total</div>
+        <div class="xp-tier">${formatXp(seasonXp(summary))} XP this season</div>
         <div class="xp-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${tp.pct}" aria-label="Progress to next tier"><span style="width:${tp.pct}%"></span></div>
         <div class="xp-dim">${nextText}</div>
       </div>
     </div>
     <div class="xp-stats">
-      <div class="xp-stat"><span class="xp-dim">This week</span><b>${formatXp(summary.week_xp)} XP</b></div>
-      <div class="xp-stat"><span class="xp-dim">Today</span><b>${formatXp(summary.today_xp)} XP</b></div>
+      <div class="xp-stat"><span class="xp-dim">This week</span><b>${formatXp(summary.week_xp)} XP</b><span class="xp-dim">Today ${formatXp(summary.today_xp)}</span></div>
+      <div class="xp-stat"><span class="xp-dim">Season rank</span><b>${sRank.rank ? `#${formatXp(sRank.rank)}` : '—'}</b><span class="xp-dim">${sRank.of ? `of ${formatXp(sRank.of)}` : ''}</span></div>
       <div class="xp-stat"><span class="xp-dim">Streak</span><b>🔥 ${formatXp(streak.current)}</b><span class="xp-dim">${Number(streak.shields) > 0 ? `🛡️ ${formatXp(streak.shields)} shield${Number(streak.shields) === 1 ? '' : 's'}` : `Best ${formatXp(streak.best)}`}</span></div>
       <div class="xp-stat"><span class="xp-dim">Week rank</span><b>${rank.rank ? `#${formatXp(rank.rank)}` : '—'}</b><span class="xp-dim">${rank.of ? `of ${formatXp(rank.of)}` : ''}</span></div>
     </div>
     ${rankText ? `<div class="xp-meta"><span>${escapeXpHtml(rankText)}</span></div>` : ''}
+    <div class="xp-meta">${sLine ? `<span>${escapeXpHtml(sLine)}</span>` : ''}<span class="xp-dim">Career ${formatXp(careerXp(summary))} XP</span></div>
     <div class="xp-section-title">This week's XP board</div>
     ${boardHtml}
     <div class="xp-section-title">Personal bests</div>
     ${bestsHtml}
-    <div class="xp-meta"><a href="/pages/leaderboard.html?board=xp">See the full XP leaderboard ›</a><a href="/pages/profile.html">My badges &amp; profile ›</a></div>
+    <div class="xp-meta"><a href="/pages/leaderboard.html?board=xp&amp;period=month">See the season leaderboard ›</a><a href="/pages/profile.html">My badges &amp; profile ›</a></div>
   `;
 }
 
@@ -310,6 +355,48 @@ export async function renderXpProgressCard(container, { studentId = null, loadBo
     return;
   }
   ensureXpStyles(container.ownerDocument);
-  container.innerHTML = `<h2 class="xp-card-title" style="margin:0 0 10px;font-size:18px">⚡ My XP</h2>${html}`;
+  const recap = buildSeasonRecapHtml(summary.season_recap);
+  container.innerHTML = `${recap}<h2 class="xp-card-title" style="margin:0 0 10px;font-size:18px">⚡ My XP</h2>${html}`;
   container.hidden = false;
+  const recapEl = container.querySelector('.xp-recap');
+  if (recapEl) {
+    celebrateOnce(`season_${summary.season_recap.season}`, 'pb', recapEl);
+    countUpWithin(recapEl);
+  }
+}
+
+/**
+ * "Your October season" recap, shown in the first days of a new month.
+ * `recap` comes from my_xp_summary.season_recap. Returns '' when there is nothing to recap.
+ */
+export function buildSeasonRecapHtml(recap) {
+  if (!recap || !(Number(recap.rounds) > 0)) return '';
+  const name = seasonName(recap.season, { short: true }) || 'Last';
+  const tier = recap.tier || {};
+  const icon = tierIcon(tier.name);
+  const rank = Number(recap.level_rank) > 0
+    ? `#${formatXp(recap.level_rank)} of ${formatXp(recap.level_size)} in ${escapeXpHtml(recap.level || 'your level')}`
+    : '';
+  const badges = Array.isArray(recap.badges) ? recap.badges : [];
+  const stat = (label, value) => `<div class="xp-stat"><span class="xp-dim">${label}</span><b>${value}</b></div>`;
+  return `
+    <div class="xp-recap" role="note" aria-label="${escapeXpHtml(name)} season recap">
+      <div class="xp-recap-head">
+        <span class="xp-recap-icon" aria-hidden="true">${icon}</span>
+        <div>
+          <div class="xp-section-title" style="margin:0">Your ${escapeXpHtml(name)} season</div>
+          <div class="xp-gain" style="font-size:20px">${escapeXpHtml(tier.name || 'Bronze')} · ${formatXp(recap.xp)} XP</div>
+          ${rank ? `<div class="xp-dim">🏆 Finished ${rank}</div>` : ''}
+        </div>
+      </div>
+      <div class="xp-stats">
+        ${stat('Rounds', formatXp(recap.rounds))}
+        ${stat('Practice days', formatXp(recap.practice_days))}
+        ${stat('Bests beaten', formatXp(recap.new_bests))}
+        ${stat('Badges', formatXp(badges.length))}
+      </div>
+      ${badges.length ? `<div class="xp-badges">${badges.slice(0, 6).map((b) => `<span class="xp-badge">${escapeXpHtml(b?.icon)} <b>${escapeXpHtml(b?.name)}</b></span>`).join('')}</div>` : ''}
+      <div class="xp-dim">A new season has started: everyone is back to Bronze. Your record stays on your profile.</div>
+    </div>
+  `;
 }
