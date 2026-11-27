@@ -6,12 +6,12 @@
     <title>Competition Practice Stage - Trendz Tracker</title>
     <meta
       name="description"
-      content="Desktop competition practice stage for Mental Calendar Dates and Mental Additions on Trendz Tracker."
+      content="Desktop Memoriad-style competition practice stage for calendar dates, additions, multiplications, division and square roots on Trendz Tracker."
     />
     <meta property="og:title" content="Competition Practice Stage - Trendz Tracker" />
     <meta
       property="og:description"
-      content="Desktop competition practice stage for Mental Calendar Dates and Mental Additions on Trendz Tracker."
+      content="Desktop Memoriad-style competition practice stage for calendar dates, additions, multiplications, division and square roots on Trendz Tracker."
     />
     <link rel="stylesheet" href="/css/style.css" />
     <style>
@@ -553,6 +553,619 @@
         padding: 0 4px;
         line-height: 1;
         user-select: none;
+      }
+
+      /* ======================================================================
+       * Memoriad-style competition board (light-blue panel, countdown timer,
+       * yellow active question, enlarged active problem). Fixed light palette
+       * so the board looks the same in light and dark themes.
+       * ==================================================================== */
+      .memoriad-settings-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: var(--space-4);
+      }
+
+      .comp-stage-shell.mb-board {
+        --mb-bg: #cfe3f7;
+        --mb-panel: #e9f3fc;
+        --mb-card: #ffffff;
+        --mb-line: #8fb3d9;
+        --mb-ink: #0f2742;
+        --mb-muted: #4a6582;
+        --mb-yellow: #fde96b;
+        --mb-yellow-soft: #fff6bf;
+        --mb-yellow-line: #d7b400;
+        --mb-blue: #1f5fa8;
+        --mb-cell: 40px;
+        background: var(--mb-bg);
+        color: var(--mb-ink);
+      }
+
+      .mb-board .comp-stage-topbar.mb-topbar {
+        height: 76px;
+        min-height: 76px;
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        background: var(--mb-panel);
+        border-bottom: 2px solid var(--mb-line);
+      }
+
+      .mb-topbar-left {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+      }
+
+      .mb-stage-label {
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--mb-blue);
+      }
+
+      .mb-stage-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        font-size: 1.05rem;
+        font-weight: 800;
+        color: var(--mb-ink);
+      }
+
+      .mb-level-chip {
+        font-size: 12px;
+        font-weight: 800;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: var(--mb-card);
+        border: 1px solid var(--mb-line);
+        color: var(--mb-blue);
+        white-space: nowrap;
+      }
+
+      .mb-topbar-center {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+      }
+
+      .mb-board .comp-timer-display.mb-timer {
+        font-size: 2.6rem;
+        line-height: 1;
+        padding: 6px 22px;
+        min-width: 170px;
+        background: var(--mb-card);
+        color: var(--mb-ink);
+        border: 2px solid var(--mb-line);
+        border-radius: 14px;
+        letter-spacing: 0.04em;
+      }
+
+      .mb-board .comp-timer-display.mb-timer.is-ending {
+        color: #b91c1c;
+        border-color: #b91c1c;
+        background: #fee2e2;
+      }
+
+      .mb-topbar-right {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: var(--space-2);
+      }
+
+      .mb-progress-pill {
+        font-size: 12px;
+        font-weight: 800;
+        padding: 5px 10px;
+        border-radius: 999px;
+        background: var(--mb-card);
+        border: 1px solid var(--mb-line);
+        color: var(--mb-ink);
+        white-space: nowrap;
+      }
+
+      .mb-board .btn-outline {
+        background: var(--mb-card);
+        color: var(--mb-ink);
+        border-color: var(--mb-line);
+      }
+
+      .mb-board .comp-stage-body {
+        padding: var(--space-3) var(--space-5);
+        gap: var(--space-3);
+      }
+
+      .mb-footer {
+        min-height: 60px;
+        padding: 0 var(--space-5);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-4);
+        background: var(--mb-panel);
+        border-top: 2px solid var(--mb-line);
+      }
+
+      .mb-keys-hint {
+        font-size: 11px;
+        color: var(--mb-muted);
+        line-height: 1.45;
+      }
+
+      .mb-keys-hint code,
+      .mb-workbench-hint code {
+        background: var(--mb-card);
+        border: 1px solid var(--mb-line);
+        border-radius: 4px;
+        padding: 0 4px;
+        color: var(--mb-ink);
+      }
+
+      .mb-footer-actions {
+        display: flex;
+        gap: var(--space-2);
+        flex-shrink: 0;
+      }
+
+      .mb-btn {
+        min-width: 112px;
+        padding: 10px 18px;
+        font-weight: 900;
+        letter-spacing: 0.06em;
+        border-radius: 10px;
+        border: 2px solid var(--mb-blue);
+        background: var(--mb-card);
+        color: var(--mb-blue);
+      }
+
+      .mb-btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      .mb-btn-finish {
+        background: var(--mb-blue);
+        color: #ffffff;
+      }
+
+      /* Question card grid (2 rows x 5 cards) */
+      .mb-card-grid {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 10px;
+        flex-shrink: 0;
+      }
+
+      .mb-card {
+        position: relative;
+        min-height: 104px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 6px;
+        padding: 8px 10px 8px 30px;
+        background: var(--mb-card);
+        border: 2px solid var(--mb-line);
+        border-radius: 10px;
+        cursor: pointer;
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+        color: var(--mb-ink);
+        overflow: hidden;
+      }
+
+      .mb-card:hover {
+        border-color: var(--mb-blue);
+      }
+
+      .mb-card.is-active {
+        background: var(--mb-yellow);
+        border-color: var(--mb-yellow-line);
+        box-shadow: 0 0 0 3px rgba(215, 180, 0, 0.35);
+      }
+
+      .mb-card-num {
+        position: absolute;
+        top: 6px;
+        left: 8px;
+        font-size: 11px;
+        font-weight: 900;
+        color: var(--mb-muted);
+      }
+
+      .mb-card-problem {
+        font-size: 15px;
+        font-weight: 800;
+        text-align: right;
+        line-height: 1.35;
+        word-break: break-all;
+      }
+
+      .mb-card-stack > div:last-child {
+        border-bottom: 2px solid var(--mb-ink);
+      }
+
+      .mb-card-sign {
+        margin-right: 6px;
+      }
+
+      .mb-card-inline {
+        text-align: center;
+      }
+
+      .mb-card-longdiv {
+        display: flex;
+        justify-content: flex-end;
+        align-items: flex-start;
+      }
+
+      .mb-card-divisor {
+        padding-right: 4px;
+      }
+
+      .mb-card-dividend {
+        border-left: 2px solid var(--mb-ink);
+        border-top: 2px solid var(--mb-ink);
+        border-top-left-radius: 8px;
+        padding: 0 2px 0 6px;
+      }
+
+      .mb-card-radical {
+        font-size: 1.15em;
+      }
+
+      .mb-card-radicand {
+        border-top: 2px solid var(--mb-ink);
+      }
+
+      .mb-card-answer {
+        min-height: 24px;
+        padding: 2px 6px;
+        border-radius: 6px;
+        background: var(--mb-panel);
+        border: 1px solid var(--mb-line);
+        text-align: right;
+        font-size: 14px;
+        font-weight: 900;
+        color: var(--mb-blue);
+        word-break: break-all;
+      }
+
+      .mb-card.is-active .mb-card-answer {
+        background: var(--mb-yellow-soft);
+        border-color: var(--mb-yellow-line);
+      }
+
+      /* Square roots: 2 columns x 5 rows, one line per question */
+      .mb-card-grid.mb-grid-roots {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px 14px;
+      }
+
+      .mb-grid-roots .mb-card {
+        min-height: 0;
+        flex-direction: row;
+        align-items: center;
+        padding: 6px 10px 6px 34px;
+      }
+
+      .mb-grid-roots .mb-card-num {
+        top: 50%;
+        transform: translateY(-50%);
+      }
+
+      .mb-grid-roots .mb-card-problem {
+        text-align: left;
+        font-size: 17px;
+      }
+
+      .mb-grid-roots .mb-card-answer {
+        min-width: 140px;
+        font-size: 15px;
+      }
+
+      /* Workbench: enlarged active problem with step boxes and answer digit boxes */
+      .mb-workbench {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-2);
+        padding: var(--space-3) var(--space-4);
+        background: var(--mb-panel);
+        border: 2px solid var(--mb-line);
+        border-radius: 14px;
+      }
+
+      .mb-workbench-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-3);
+      }
+
+      .mb-qnum {
+        font-size: 13px;
+        font-weight: 900;
+        padding: 4px 12px;
+        border-radius: 999px;
+        background: var(--mb-yellow);
+        border: 1px solid var(--mb-yellow-line);
+        color: var(--mb-ink);
+      }
+
+      .mb-workbench-hint {
+        font-size: 11px;
+        color: var(--mb-muted);
+      }
+
+      .mb-active-problem {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: var(--space-4);
+      }
+
+      .mb-problem-zone {
+        display: flex;
+        justify-content: center;
+        overflow-x: auto;
+        max-width: 100%;
+      }
+
+      .mb-problem-grid {
+        display: grid;
+        gap: 4px;
+        align-items: center;
+        justify-content: center;
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .mb-board .comp-step-box.mb-step-box {
+        width: var(--mb-cell);
+        height: 26px;
+        background: var(--mb-card);
+        border-color: var(--mb-line);
+        color: var(--mb-ink);
+      }
+
+      .mb-board .comp-step-box.mb-step-box.is-checked {
+        background: var(--mb-yellow);
+        border-color: var(--mb-yellow-line);
+        box-shadow: inset 0 -3px 0 var(--mb-yellow-line);
+      }
+
+      .mb-board .comp-step-box.mb-step-box.is-next-target {
+        border-style: dashed;
+        border-color: var(--mb-blue);
+      }
+
+      .mb-digit {
+        text-align: center;
+        font-size: 2rem;
+        line-height: 1.3;
+        font-weight: 800;
+        color: var(--mb-ink);
+        border-radius: 5px;
+      }
+
+      .mb-digit.is-col-highlighted {
+        background: var(--mb-yellow-soft);
+        outline: 2px solid var(--mb-yellow-line);
+      }
+
+      .mb-digit-underline {
+        border-bottom: 3px solid var(--mb-ink);
+        border-radius: 0;
+      }
+
+      .mb-digit-overline {
+        border-top: 3px solid var(--mb-ink);
+        border-radius: 0;
+      }
+
+      .mb-digit-bracket {
+        border-top: 3px solid var(--mb-ink);
+        border-radius: 0;
+      }
+
+      .mb-divisor-cell + .mb-digit-bracket {
+        border-left: 3px solid var(--mb-ink);
+        border-top-left-radius: 12px;
+      }
+
+      .mb-op-sign,
+      .mb-radical-sign {
+        text-align: center;
+        font-size: 2rem;
+        font-weight: 900;
+        color: var(--mb-blue);
+        line-height: 1;
+      }
+
+      .mb-divisor-cell,
+      .mb-divisor-inline {
+        font-family: var(--font-mono);
+        font-size: 2rem;
+        font-weight: 800;
+        padding-right: 8px;
+        text-align: right;
+        color: var(--mb-ink);
+      }
+
+      .mb-answer-zone {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        max-width: 100%;
+      }
+
+      .mb-answer-label {
+        font-size: 12px;
+        font-weight: 900;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--mb-muted);
+      }
+
+      .mb-slots-row {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        flex-wrap: nowrap;
+      }
+
+      .mb-board .additions-slot-box.mb-slot {
+        width: var(--mb-cell);
+        height: 48px;
+        font-size: 1.5rem;
+        background: var(--mb-yellow-soft);
+        border-color: var(--mb-yellow-line);
+        color: var(--mb-ink);
+      }
+
+      .mb-board .additions-slot-box.mb-slot.is-cursor {
+        background: var(--mb-yellow);
+        border-color: var(--mb-blue);
+        border-bottom-width: 5px;
+        box-shadow: 0 0 0 2px rgba(31, 95, 168, 0.25);
+      }
+
+      .mb-decimal-dot {
+        font-family: var(--font-mono);
+        font-size: 2rem;
+        font-weight: 900;
+        color: var(--mb-ink);
+        padding: 0 2px;
+      }
+
+      /* Calendar and additions on the board palette */
+      .mb-board .calendar-list-panel,
+      .mb-board .calendar-active-panel,
+      .mb-board .additions-workbench {
+        background: var(--mb-panel);
+        border: 2px solid var(--mb-line);
+        color: var(--mb-ink);
+      }
+
+      .mb-board .calendar-list-item {
+        background: var(--mb-card);
+        border-color: var(--mb-line);
+        color: var(--mb-ink);
+      }
+
+      .mb-board .calendar-list-item.is-answered {
+        background: #eef6ff;
+      }
+
+      .mb-board .calendar-list-item.is-active-highlight {
+        background: var(--mb-yellow);
+        border: 2px solid var(--mb-yellow-line);
+        border-left: 5px solid var(--mb-yellow-line);
+        box-shadow: none;
+      }
+
+      .mb-board .calendar-active-date {
+        background: var(--mb-yellow);
+        border-color: var(--mb-yellow-line);
+        color: var(--mb-ink);
+      }
+
+      .mb-board .calendar-day-btn {
+        background: var(--mb-card);
+        border-color: var(--mb-line);
+        color: var(--mb-ink);
+      }
+
+      .mb-board .calendar-day-btn:hover {
+        background: var(--mb-yellow-soft);
+        border-color: var(--mb-yellow-line);
+      }
+
+      .mb-board .calendar-day-btn.is-selected {
+        background: var(--mb-blue);
+        border-color: var(--mb-blue);
+        color: #ffffff;
+      }
+
+      .mb-board .additions-mini-card {
+        background: var(--mb-card);
+        border: 2px solid var(--mb-line);
+        color: var(--mb-ink);
+      }
+
+      .mb-board .additions-mini-card.is-active {
+        background: var(--mb-yellow);
+        border: 2px solid var(--mb-yellow-line);
+        box-shadow: 0 0 0 3px rgba(215, 180, 0, 0.35);
+      }
+
+      .mb-board .additions-mini-rows {
+        color: var(--mb-ink);
+      }
+
+      .mb-board .additions-mini-answer {
+        color: var(--mb-blue);
+        border-top-color: var(--mb-ink);
+      }
+
+      .mb-board .additions-matrix {
+        background: var(--mb-card);
+        border-color: var(--mb-line);
+      }
+
+      .mb-board .additions-digit-cell,
+      .mb-board .additions-row-idx {
+        color: var(--mb-ink);
+      }
+
+      .mb-board .additions-digit-cell.is-col-highlighted {
+        background: var(--mb-yellow-soft);
+        color: var(--mb-ink);
+        outline: 2px solid var(--mb-yellow-line);
+      }
+
+      .mb-board .additions-slot-box {
+        background: var(--mb-yellow-soft);
+        border-color: var(--mb-yellow-line);
+        color: var(--mb-ink);
+      }
+
+      .mb-board .additions-slot-box.is-cursor {
+        background: var(--mb-yellow);
+        border-color: var(--mb-blue);
+      }
+
+      .mb-board .badge-active {
+        background: var(--mb-yellow);
+        color: var(--mb-ink);
+        border: 1px solid var(--mb-yellow-line);
+      }
+
+      .mb-board code {
+        color: var(--mb-ink);
+      }
+
+      @media (max-height: 760px) {
+        .mb-card {
+          min-height: 88px;
+        }
+        .mb-digit,
+        .mb-op-sign,
+        .mb-radical-sign,
+        .mb-divisor-cell,
+        .mb-divisor-inline {
+          font-size: 1.6rem;
+        }
       }
     </style>
     <link rel="manifest" href="/manifest.webmanifest" />

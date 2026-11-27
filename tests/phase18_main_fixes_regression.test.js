@@ -454,8 +454,8 @@ describe('3. Actual Basics DOM Rendering Integration', () => {
 // 4. MEMORIAD MODULE CATALOG & LEGACY ALIAS RESOLUTION
 // ============================================================================
 describe('4. Memoriad Filter Options & Legacy Alias Matching', () => {
-  it('exposes all 4 competition modules in the module catalog', () => {
-    const expectedKeys = ['calendar', 'additions', 'multiplications', 'square_roots'];
+  it('exposes all 5 competition modules in the module catalog', () => {
+    const expectedKeys = ['calendar', 'additions', 'multiplications', 'division', 'square_roots'];
     const catalogKeys = MEMORIAD_MODULE_CATALOG.map((m) => m.key);
     assert.deepEqual(catalogKeys, expectedKeys);
 
@@ -464,6 +464,7 @@ describe('4. Memoriad Filter Options & Legacy Alias Matching', () => {
       'Mental Calendar Dates',
       'Mental Additions',
       'Mental Multiplications',
+      'Mental Division',
       'Mental Square Roots',
     ]);
   });

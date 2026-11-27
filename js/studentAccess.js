@@ -37,7 +37,7 @@ export const PRESET_FULL_ACCESS = Object.freeze({
   flash: Object.freeze({ allowed: true, modes: [...FLASH_LIMITS.MODES] }),
   memoriad: Object.freeze({
     all: true,
-    modules: ['calendar', 'additions', 'multiplications', 'square_roots'],
+    modules: ['calendar', 'additions', 'multiplications', 'division', 'square_roots'],
     calendar_variants: [25, 50, 75, 100, 125],
   }),
   main_round: Object.freeze({ all: true, categories: [] }),

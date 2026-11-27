@@ -478,6 +478,7 @@ describe('optionsForSection', () => {
       { value: 'calendar', label: 'Mental Calendar Dates' },
       { value: 'additions', label: 'Mental Additions' },
       { value: 'multiplications', label: 'Mental Multiplications' },
+      { value: 'division', label: 'Mental Division' },
       { value: 'square_roots', label: 'Mental Square Roots' },
     ]);
   });

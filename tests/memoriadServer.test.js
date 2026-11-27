@@ -47,11 +47,11 @@ describe('api/_memoriad.js & js/memoriadConfig.js — Time limit config parity, 
     assert.equal(CLIENT_EXPIRY_GRACE_SECONDS, MEMORIAD_EXPIRY_GRACE_SECONDS);
     assert.equal(MEMORIAD_TIME_LIMITS.calendar, 60);
     assert.equal(MEMORIAD_TIME_LIMITS.additions, 600);
-    assert.equal(MEMORIAD_TIME_LIMITS.multiplications, 900);
+    assert.equal(MEMORIAD_TIME_LIMITS.multiplications, 720);
     assert.equal(MEMORIAD_TIME_LIMITS.square_roots, 900);
     assert.equal(MEMORIAD_EXPIRY_GRACE_SECONDS, 30);
 
-    for (const key of ['calendar', 'additions', 'multiplications', 'square_roots']) {
+    for (const key of ['calendar', 'additions', 'multiplications', 'division', 'square_roots']) {
       assert.equal(getClientTimeLimit(key), getMemoriadTimeLimit(key));
     }
   });
@@ -296,7 +296,7 @@ describe('api/_memoriad.js — Mental Multiplications generator & evaluator (Pha
   });
 });
 
-describe('api/_memoriad.js — Mental Square Roots generator, exact half-up rounding & triangular prefix scoring (Phase 9b-2)', () => {
+describe('api/_memoriad.js — Mental Square Roots generator, exact half-up rounding & official tolerance scoring (Phase 9b-2)', () => {
   it('seeded generator never produces perfect squares and radicands stay 6-digit integers (100000..999999)', () => {
     // Also test a rigged RNG that first emits perfect squares (e.g. 100000000 is out of range, 102400 = 320^2, 250000 = 500^2)
     const squareCandidates = [102400, 250000, 360000, 490000, 640000, 810000];
@@ -333,7 +333,7 @@ describe('api/_memoriad.js — Mental Square Roots generator, exact half-up roun
     assert.equal(computeSquareRootHalfUp5(453077), '673.10995');
   });
 
-  it('computes k leading matching digits and triangular points k*(k+1)/2, stopping at first mistake or blank', () => {
+  it('counts digits with the official tolerance rule |A-B| <= 5*10^(M-N) and awards triangular points k*(k+1)/2', () => {
     // 1. Expected 673.10995 with answer 675 gives k = 2 and 3 points
     const e1 = evaluateSquareRootAnswer('673.10995', '675');
     assert.equal(e1.attempted, true);
@@ -341,10 +341,10 @@ describe('api/_memoriad.js — Mental Square Roots generator, exact half-up roun
     assert.equal(e1.correct_digits, 2);
     assert.equal(e1.points, 3);
 
-    // 2. First 6 digits right and last two wrong gives k = 6 and 21 points
+    // 2. 673.10900 is 0.00095 away: inside 0.005 (5th digit) but not 0.0005 (6th) -> k = 5, 15 points
     const e2 = evaluateSquareRootAnswer('673.10995', '67310900');
-    assert.equal(e2.correct_digits, 6);
-    assert.equal(e2.points, 21);
+    assert.equal(e2.correct_digits, 5);
+    assert.equal(e2.points, 15);
     assert.equal(e2.correct, false);
 
     // 3. All eight right gives k = 8 and 36 points (fully correct)
@@ -365,10 +365,11 @@ describe('api/_memoriad.js — Mental Square Roots generator, exact half-up roun
     assert.equal(e5.correct_digits, 0);
     assert.equal(e5.points, 0);
 
-    // 6. Leading and trailing zero handling in square roots
+    // 6. Leading and trailing zero handling in square roots (a blank trailing slot is the same
+    //    number as a trailing zero, so the official difference rule counts all 8 digits)
     const trailingZeroRoot = evaluateSquareRootAnswer('500.12340', '5001234_');
-    assert.equal(trailingZeroRoot.correct_digits, 7);
-    assert.equal(trailingZeroRoot.points, 28);
+    assert.equal(trailingZeroRoot.correct_digits, 8);
+    assert.equal(trailingZeroRoot.points, 36);
     const trailingZeroExact = evaluateSquareRootAnswer('500.12340', '50012340');
     assert.equal(trailingZeroExact.correct_digits, 8);
     assert.equal(trailingZeroExact.points, 36);
@@ -385,18 +386,18 @@ describe('api/_memoriad.js — Mental Square Roots generator, exact half-up roun
     };
     const answers = [
       '50845255', // k = 8 -> 36 pts (fully correct)
-      '922373__', // k = 6 -> 21 pts
-      '339_____', // k = 3 -> 6 pts
+      '922373__', // 922.37300 is 0.00003 away -> k = 7 -> 28 pts
+      '339_____', // 339 is 0.788 away (> 0.5) -> k = 2 -> 3 pts
       null, // not attempted -> 0 pts
       '675_____', // k = 2 -> 3 pts
     ];
     const evalRes = MODULES.square_roots.evaluate(session, answers);
     assert.equal(evalRes.attempted, 4);
     assert.equal(evalRes.correct, 1); // only Q1 has k === 8
-    assert.equal(evalRes.score, 36 + 21 + 6 + 3); // 66
-    assert.equal(evalRes.digits_total, 8 + 6 + 3 + 2); // 19
+    assert.equal(evalRes.score, 36 + 28 + 3 + 3); // 70
+    assert.equal(evalRes.digits_total, 8 + 7 + 2 + 2); // 19
     assert.equal(evalRes.detail[0].points, 36);
-    assert.equal(evalRes.detail[1].correct_digits, 6);
+    assert.equal(evalRes.detail[1].correct_digits, 7);
     assert.equal(evalRes.detail[4].given_display, '675');
   });
 });

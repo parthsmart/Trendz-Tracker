@@ -220,6 +220,7 @@ export async function renderMemoriadCard(studentIdOrOpts, opts = {}) {
       ${renderModuleBestRow('Calendar Dates', summary.modules.calendar, true)}
       ${renderModuleBestRow('Mental Additions', summary.modules.additions, false)}
       ${renderModuleBestRow('Mental Multiplications', summary.modules.multiplications, false)}
+      ${renderModuleBestRow('Mental Division', summary.modules.division, false)}
       ${renderModuleBestRow('Mental Square Roots', summary.modules.square_roots, false)}
     </div>
     ${linkHtml}

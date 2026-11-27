@@ -27,15 +27,22 @@ export const MEMORIAD_MODULE_CATALOG = [
   {
     key: 'multiplications',
     title: 'Mental Multiplications',
-    subtitle: '10 questions of two 8-digit numbers with cyclic step-box markers and 16 answer slots.',
-    badge: '10 × (8d × 8d)',
+    subtitle: '10 products from 3d × 3d up to 10d × 10d, stacked or side by side (8d × 8d in 12 min is official).',
+    badge: '3d × 3d – 10d × 10d',
+    available: true,
+  },
+  {
+    key: 'division',
+    title: 'Mental Division',
+    subtitle: '10 exact divisions from 4d ÷ 2d up to 10d ÷ 5d, vertical or horizontal (10d ÷ 5d in 6 min is official).',
+    badge: '4d ÷ 2d – 10d ÷ 5d',
     available: true,
   },
   {
     key: 'square_roots',
     title: 'Mental Square Roots',
-    subtitle: '10 six-digit non-square radicands rounded half-up to 5 decimals (up to 360 points).',
-    badge: '10 × 6d Roots',
+    subtitle: '10 non-square radicands of 4 to 10 digits, answered to 5 decimals with official digit scoring.',
+    badge: '√ 4 – 10 digits',
     available: true,
   },
 ];
@@ -99,6 +106,7 @@ export function resolveRowModule(row) {
   if (name.includes('calendar')) return 'calendar';
   if (name.includes('addition')) return 'additions';
   if (name.includes('multiplication')) return 'multiplications';
+  if (name.includes('division')) return 'division';
   if (name.includes('root')) return 'square_roots';
   return null;
 }
@@ -304,6 +312,7 @@ export function summarizeAllMemoriad(rows, todayIstInput = new Date()) {
       calendar: summarizeMemoriadModule(memoriadRows, 'calendar', todayIstInput),
       additions: summarizeMemoriadModule(memoriadRows, 'additions', todayIstInput),
       multiplications: summarizeMemoriadModule(memoriadRows, 'multiplications', todayIstInput),
+      division: summarizeMemoriadModule(memoriadRows, 'division', todayIstInput),
       square_roots: summarizeMemoriadModule(memoriadRows, 'square_roots', todayIstInput),
     },
   };
