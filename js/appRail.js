@@ -5,6 +5,9 @@
  * - Desktop (>= 1024px): a 76px icon rail. Every page opens with it closed; ☰ opens a
  *   232px sidebar with labels and groups over the page (the content never shifts), and
  *   clicking outside it, pressing Escape or following a link closes it again.
+ *   Students get one Practice button (like the phone tab bar) that opens the practice
+ *   pages beside the rail, or as a group under it when the sidebar is open. The avatar
+ *   opens a profile preview beside the rail (photo, level, XP, streak and links).
  * - Below 1024px: a slim top bar (brand, bell, account) and a bottom tab bar. Tabs that
  *   hold several pages open a sheet (students: Practice and More; staff: More).
  *
@@ -21,7 +24,9 @@ import { getRoleNavItems, isNavItemCurrent } from './navConfig.js';
  * Per-role layout.
  * rail: ordered rail entries. `id` refers to a NAV_CONFIG item; entries with `href`
  *       are staff shortcuts that are not in NAV_CONFIG. `perm` hides a teacher shortcut
- *       unless that permission is granted.
+ *       unless that permission is granted. `in` puts an entry inside a flyout button
+ *       (see `flyouts`), drawn where the first visible entry of that flyout sits.
+ * flyouts: { key: { icon, short, label } } buttons that open a list of rail entries.
  * tabs: bottom tab bar between Home and More (ids or { sheet } entries).
  * more: ids listed in the More sheet before Account and Sign out.
  */
@@ -32,23 +37,32 @@ const ROLE_LAYOUTS = {
     rail: [
       { id: 'student-today', short: 'Home', icon: '🏠', group: '', label: 'Home' },
       { id: 'student-live-classes', short: 'Live', icon: '🎥', group: '', label: 'Live Classes' },
-      { id: 'student-basics', short: 'Basics', icon: '➕', group: 'Practice' },
-      { id: 'student-flash', short: 'Flash', icon: '⚡', group: 'Practice' },
-      { id: 'student-elements', short: 'Elements', icon: '🧩', group: 'Practice' },
-      { id: 'student-memoriad', short: 'Memoriad', icon: '🧠', group: 'Practice' },
-      { id: 'student-oral-rounds', short: 'Oral', icon: '🗣️', group: 'Practice', label: 'Oral Rounds' },
-      { id: 'student-simple', short: 'Simple', icon: '🔢', group: 'Practice', label: 'Simple' },
-      { id: 'student-round-scores', short: 'Main', icon: '🎯', group: 'Results', sheetLabel: 'Main round' },
+      { id: 'student-basics', short: 'Basics', icon: '➕', group: '', in: 'practice' },
+      { id: 'student-flash', short: 'Flash', icon: '⚡', group: '', in: 'practice' },
+      { id: 'student-elements', short: 'Elements', icon: '🧩', group: '', in: 'practice' },
+      { id: 'student-memoriad', short: 'Memoriad', icon: '🧠', group: '', in: 'practice' },
+      { id: 'student-oral-rounds', short: 'Oral', icon: '🗣️', group: '', in: 'practice', label: 'Oral Rounds' },
+      { id: 'student-simple', short: 'Simple', icon: '🔢', group: '', in: 'practice', label: 'Simple' },
+      { id: 'student-round-scores', short: 'Main', icon: '🎯', group: '', in: 'practice', label: 'Main round', sheetLabel: 'Main round' },
+      { id: 'student-duels', short: 'Duels', icon: '⚔️', group: 'Play', label: 'Duels' },
+      { id: 'student-arena', short: 'Arena', icon: '🏟️', group: 'Play', label: 'Arena' },
+      { id: 'student-store', short: 'Store', icon: '🎁', group: 'Play', label: 'Store' },
       { id: 'student-weekly-test', short: 'Tests', icon: '📝', group: 'Results' },
       { id: 'student-leaderboard', short: 'Ranks', icon: '🏆', group: 'Results' },
       { id: 'student-monthly-report', short: 'Report', icon: '📊', group: 'Results' },
     ],
+    flyouts: {
+      practice: { icon: '✏️', short: 'Practice', label: 'Practice' },
+    },
     tabs: [
       { sheet: 'practice', icon: '✏️', label: 'Practice', ids: ['student-basics', 'student-flash', 'student-elements', 'student-memoriad', 'student-oral-rounds', 'student-simple', 'student-round-scores'] },
       { id: 'student-weekly-test', icon: '📝', label: 'Tests' },
       { id: 'student-leaderboard', icon: '🏆', label: 'Ranks' },
     ],
-    more: ['student-live-classes', 'student-monthly-report', 'student-notifications', 'student-account'],
+    more: [
+      'student-live-classes', 'student-duels', 'student-arena', 'student-store', 'student-monthly-report',
+      'student-notifications', 'student-profile', 'student-account',
+    ],
   },
   admin: {
     label: 'Admin',
@@ -110,6 +124,7 @@ const ROLE_LAYOUTS = {
 const EXTRA_META = new Map([
   ['student-notifications', { icon: '🔔' }],
   ['student-account', { icon: '👤' }],
+  ['student-profile', { icon: '🏅', sheetLabel: 'My profile & badges' }],
   ['admin-account', { icon: '👤' }],
   ['teacher-account', { icon: '👤' }],
 ]);
@@ -165,6 +180,223 @@ export function resolveRailItems(profile, pathname) {
   return { layout, byId };
 }
 
+const fmtNum = (v) => Math.round(Number(v) || 0).toLocaleString('en-IN');
+
+/**
+ * Rail links in layout order. Entries with `in` are drawn inside their flyout button,
+ * which takes the place of the first visible entry of that flyout. Exported for tests.
+ * @param {object} layout - ROLE_LAYOUTS entry
+ * @param {Map<string, object>} byId - from resolveRailItems
+ */
+export function buildRailLinksHtml(layout, byId) {
+  const flyouts = layout.flyouts || {};
+  const drawn = new Set();
+  let lastGroup = null;
+  const groupHtml = (group) => {
+    const html = group && group !== lastGroup ? `<span class="rail-group">${esc(group)}</span>` : '';
+    lastGroup = group || lastGroup;
+    return html;
+  };
+  const out = [];
+  for (const r of layout.rail) {
+    if (!byId.has(r.id)) continue;
+    if (r.in && flyouts[r.in]) {
+      if (drawn.has(r.in)) continue;
+      drawn.add(r.in);
+      const key = r.in;
+      const f = flyouts[key];
+      const kids = layout.rail.filter((k) => k.in === key && byId.has(k.id));
+      const cur = kids.some((k) => byId.get(k.id).current);
+      const kidsHtml = kids
+        .map((k) => {
+          const item = byId.get(k.id);
+          const label = k.label || item.label;
+          return `<a href="${item.href}" class="rail-fly-link${item.current ? ' is-current' : ''}"${item.current ? ' aria-current="page"' : ''}><span class="ic" aria-hidden="true">${k.icon}</span><span class="lbl">${esc(label)}</span></a>`;
+        })
+        .join('');
+      out.push(`${groupHtml(r.group)}<button type="button" class="rail-link rail-fly${cur ? ' is-current' : ''}" id="btn-rail-fly-${key}" data-rail-pop="${key}" aria-expanded="false" aria-controls="rail-fly-${key}" title="${esc(f.label)}">
+          <span class="ic" aria-hidden="true">${f.icon}</span><span class="short">${esc(f.short)}</span><span class="full">${esc(f.label)}</span><span class="chev full" aria-hidden="true">›</span></button>
+        <div class="rail-pop rail-flyout" id="rail-fly-${key}" role="group" aria-label="${esc(f.label)}" data-inline="1" hidden>
+          <p class="rail-pop-h">${esc(f.label)}</p>
+          <div class="rail-fly-grid">${kidsHtml}</div>
+        </div>`);
+      continue;
+    }
+    const item = byId.get(r.id);
+    const label = r.label || item.label;
+    out.push(`${groupHtml(r.group)}<a href="${item.href}" class="rail-link${item.current ? ' is-current' : ''}" title="${esc(label)}"${item.current ? ' aria-current="page"' : ''}>
+          <span class="ic" aria-hidden="true">${r.icon}</span><span class="short">${esc(r.short)}</span><span class="full">${esc(label)}</span></a>`);
+  }
+  return out.join('');
+}
+
+/**
+ * The profile preview that opens beside the rail from the avatar. Students also get a
+ * progress block that is filled from `my_profile` the first time the preview opens.
+ * Exported for tests.
+ */
+export function buildProfilePreviewHtml(profile, layout, { name, initial, who }) {
+  const isStudent = profile?.role === 'student';
+  const meta = [who, isStudent ? profile.level : ''].filter(Boolean).join(' · ') || layout.label;
+  return `<div class="rail-pop rail-profile" id="rail-account-menu" role="dialog" aria-label="Profile preview" data-anchor="bottom" hidden>
+        <div class="rp-head"><span class="rp-av" aria-hidden="true">${esc(initial)}</span><div class="rp-id"><b>${esc(name)}</b><span>${esc(meta)}</span></div></div>
+        ${isStudent ? '<div class="rp-xp" data-rp-xp aria-live="polite"><p class="rp-dim">Loading your progress…</p></div>' : ''}
+        <div class="rp-actions">
+          ${isStudent ? '<a href="/pages/profile.html" class="rp-link"><span class="ic" aria-hidden="true">🏅</span>My profile &amp; badges</a>' : ''}
+          <button type="button" class="rp-link" data-rail-action="account"><span class="ic" aria-hidden="true">⚙️</span>Account settings</button>
+          <button type="button" class="rp-link danger" data-rail-action="signout"><span class="ic" aria-hidden="true">↩</span>Sign out</button>
+        </div>
+      </div>`;
+}
+
+/**
+ * Progress block of the profile preview, from `my_profile` and its tier progress
+ * (`tierProgress` in xpRewards.js). Exported for tests.
+ */
+export function buildProfileXpHtml(data, tp) {
+  if (!data || !tp) return '<p class="rp-dim">Finish a practice round to start earning XP.</p>';
+  const streak = data.streak || {};
+  const rank = data.week_rank || {};
+  const next = tp.nextName ? `${fmtNum(tp.toNext)} XP to ${esc(tp.nextName)}` : 'Top tier reached';
+  const pct = Math.max(0, Math.min(100, Number(tp.pct) || 0));
+  return `<div class="rp-tier"><b>${tp.icon} ${esc(tp.name)}</b><span class="rp-dim">${next}</span></div>
+        <div class="rp-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="Progress to the next tier"><span style="width:${pct}%"></span></div>
+        <div class="rp-stats">
+          <div><b>${fmtNum(data.season_xp ?? data.total_xp)}</b><span>${data.season_xp == null ? 'Total XP' : 'Season XP'}</span></div>
+          <div><b>${fmtNum(data.week_xp)}</b><span>This week</span></div>
+          <div><b>🔥 ${fmtNum(streak.current)}</b><span>Day streak</span></div>
+          <div><b>${rank.rank ? `#${fmtNum(rank.rank)}` : '—'}</b><span>Week rank</span></div>
+        </div>`;
+}
+
+/** Fills the student's progress (and photo) the first time the preview opens. */
+async function loadProfilePreview(panel) {
+  const box = panel.querySelector('[data-rp-xp]');
+  if (!box || panel.dataset.loaded) return;
+  panel.dataset.loaded = '1';
+  try {
+    const xp = await import('./xpRewards.js');
+    const data = await xp.callXpRpc('my_profile', { p_student: null });
+    box.innerHTML = buildProfileXpHtml(data, data ? xp.tierProgress(xp.seasonXp(data), data.tier) : null);
+    const path = data?.profile?.avatar_path;
+    if (path) {
+      const { signAvatarUrls } = await import('./avatars.js');
+      const url = (await signAvatarUrls([path])).get(path);
+      if (url) {
+        document.querySelectorAll('#app-rail .rp-av, #app-rail .rail-avatar .av').forEach((el) => {
+          el.innerHTML = `<img src="${esc(url)}" alt="" />`;
+          el.classList.add('has-photo');
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('Profile preview could not load progress:', err);
+    box.innerHTML = '<p class="rp-dim">Could not load your progress right now.</p>';
+  }
+}
+
+function railPopButtons() {
+  return [...document.querySelectorAll('#app-rail [data-rail-pop]')];
+}
+
+function popPanel(btn) {
+  return btn ? document.getElementById(btn.getAttribute('aria-controls')) : null;
+}
+
+/** Closes every rail flyout and the profile preview. Returns the button that was open. */
+function closeRailPopovers() {
+  if (typeof document === 'undefined') return null;
+  let wasOpen = null;
+  for (const b of railPopButtons()) {
+    const panel = popPanel(b);
+    if (panel && !panel.hidden) {
+      panel.hidden = true;
+      wasOpen = b;
+    }
+    b.setAttribute('aria-expanded', 'false');
+    b.classList.remove('is-open');
+  }
+  return wasOpen;
+}
+
+/** Places a fixed popover just right of the rail, beside the button that opened it. */
+function placeRailPopover(btn, panel) {
+  const rail = document.getElementById('app-rail');
+  if (!rail) return;
+  if (panel.dataset.inline === '1' && document.body.classList.contains('rail-expanded')) return; // drawn as a group
+  const rr = rail.getBoundingClientRect();
+  const br = btn.getBoundingClientRect();
+  const vh = window.innerHeight || document.documentElement.clientHeight;
+  panel.style.setProperty('--pop-left', `${Math.round(rr.right + 10)}px`);
+  if (panel.dataset.anchor === 'bottom') {
+    panel.style.setProperty('--pop-bottom', `${Math.max(8, Math.round(vh - br.bottom))}px`);
+  } else {
+    const h = panel.offsetHeight || 0;
+    const top = Math.max(8, Math.min(br.top - 8, vh - h - 8));
+    panel.style.setProperty('--pop-top', `${Math.round(top)}px`);
+  }
+}
+
+/** Wires the flyouts and the profile preview (open/close, Escape, outside clicks). */
+function wireRailPopovers(rail, { onAccount }) {
+  for (const btn of rail.querySelectorAll('[data-rail-pop]')) {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const panel = popPanel(btn);
+      if (!panel) return;
+      const opening = panel.hidden;
+      closeRailPopovers();
+      if (!opening) return;
+      panel.hidden = false;
+      btn.setAttribute('aria-expanded', 'true');
+      btn.classList.add('is-open');
+      placeRailPopover(btn, panel);
+      if (btn.dataset.railPop === 'profile') loadProfilePreview(panel);
+      // Keyboard activation (a click with detail 0) moves focus into the panel
+      if (e.detail === 0) panel.querySelector('a, button')?.focus({ preventScroll: true });
+    });
+  }
+
+  rail.querySelector('#rail-account-menu')?.addEventListener('click', async (e) => {
+    const action = e.target.closest('[data-rail-action]')?.getAttribute('data-rail-action');
+    if (!action) return;
+    closeRailPopovers();
+    if (action === 'account') {
+      if (typeof onAccount === 'function') onAccount();
+      else window.location.href = '/pages/account.html';
+    } else if (action === 'signout') {
+      await signOut();
+    }
+  });
+  // A fixed flyout would drift from its button if the collapsed rail scrolls
+  rail.addEventListener('scroll', () => {
+    if (!document.body.classList.contains('rail-expanded')) closeRailPopovers();
+  }, { passive: true });
+
+  if (rail.dataset.popListeners) return;
+  rail.dataset.popListeners = '1';
+  document.addEventListener('click', (e) => {
+    for (const b of railPopButtons()) {
+      const panel = popPanel(b);
+      if (panel && !panel.hidden && !panel.contains(e.target) && !b.contains(e.target)) {
+        panel.hidden = true;
+        b.setAttribute('aria-expanded', 'false');
+        b.classList.remove('is-open');
+      }
+    }
+  });
+  // Capture phase: Escape closes an open flyout first; the next Escape closes the sidebar
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const btn = closeRailPopovers();
+    if (btn) {
+      e.stopImmediatePropagation();
+      btn.focus();
+    }
+  }, true);
+  window.addEventListener('resize', () => closeRailPopovers());
+}
+
 /**
  * Mounts (or re-renders) the side rail and the phone bars. Safe to call more than once.
  * @param {object} profile - verified profile (or cached student profile)
@@ -187,18 +419,7 @@ export function mountAppRail(profile, { onAccount } = {}) {
   rail.setAttribute('aria-label', `${layout.label} navigation`);
   rail.dataset.role = role;
 
-  let lastGroup = null;
-  const linksHtml = layout.rail
-    .filter((r) => byId.has(r.id))
-    .map((r) => {
-      const item = byId.get(r.id);
-      const label = r.label || item.label;
-      const groupHtml = r.group && r.group !== lastGroup ? `<span class="rail-group">${esc(r.group)}</span>` : '';
-      lastGroup = r.group || lastGroup;
-      return `${groupHtml}<a href="${item.href}" class="rail-link${item.current ? ' is-current' : ''}" title="${esc(label)}"${item.current ? ' aria-current="page"' : ''}>
-          <span class="ic" aria-hidden="true">${r.icon}</span><span class="short">${esc(r.short)}</span><span class="full">${esc(label)}</span></a>`;
-    })
-    .join('');
+  const linksHtml = buildRailLinksHtml(layout, byId);
 
   const name = profile.full_name || layout.label;
   const initial = name.trim().charAt(0).toUpperCase() || layout.label.charAt(0);
@@ -215,15 +436,12 @@ export function mountAppRail(profile, { onAccount } = {}) {
     <div class="rail-links">${linksHtml}</div>
     <div class="rail-bottom">
       ${bellItem ? `<a href="${bellItem.href}" class="rail-bell${bellItem.current ? ' is-current' : ''}" aria-label="Notifications" title="Notifications"><span aria-hidden="true">🔔</span><span class="full">Notifications</span><span class="nav-notifications-badge num" style="display: none;" aria-hidden="true"></span></a>` : ''}
-      <button type="button" class="rail-avatar" id="btn-rail-account" aria-haspopup="true" aria-expanded="false" aria-controls="rail-account-menu" title="${esc(name)}"><span class="av">${esc(initial)}</span><span class="full">${esc(name)}</span></button>
-      <div class="rail-menu" id="rail-account-menu" role="menu" hidden>
-        <div class="who"><b>${esc(name)}</b>${esc(who)}</div>
-        <button type="button" role="menuitem" data-rail-action="account">Account</button>
-        <button type="button" role="menuitem" class="danger" data-rail-action="signout">Sign out</button>
-      </div>
+      <button type="button" class="rail-avatar" id="btn-rail-account" data-rail-pop="profile" aria-haspopup="dialog" aria-expanded="false" aria-controls="rail-account-menu" title="Profile: ${esc(name)}"><span class="av">${esc(initial)}</span><span class="full">${esc(name)}</span></button>
+      ${buildProfilePreviewHtml(profile, layout, { name, initial, who })}
     </div>`;
 
   const applyExpanded = (expanded) => {
+    if (document.body.classList.contains('rail-expanded') !== expanded) closeRailPopovers();
     document.body.classList.toggle('rail-expanded', expanded);
     const t = rail.querySelector('#btn-rail-toggle');
     t.setAttribute('aria-expanded', expanded ? 'true' : 'false');
@@ -252,45 +470,7 @@ export function mountAppRail(profile, { onAccount } = {}) {
     });
   }
 
-  const btn = rail.querySelector('#btn-rail-account');
-  const menu = rail.querySelector('#rail-account-menu');
-  const setOpen = (open) => {
-    menu.hidden = !open;
-    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-  };
-  btn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    setOpen(menu.hidden);
-  });
-  if (!rail.dataset.globalListeners) {
-    rail.dataset.globalListeners = '1';
-    document.addEventListener('click', (e) => {
-      const m = document.getElementById('rail-account-menu');
-      const b = document.getElementById('btn-rail-account');
-      if (m && !m.hidden && !m.contains(e.target)) {
-        m.hidden = true;
-        b?.setAttribute('aria-expanded', 'false');
-      }
-    });
-    document.addEventListener('keydown', (e) => {
-      const m = document.getElementById('rail-account-menu');
-      if (e.key === 'Escape' && m && !m.hidden) {
-        m.hidden = true;
-        document.getElementById('btn-rail-account')?.focus();
-      }
-    });
-  }
-  menu.addEventListener('click', async (e) => {
-    const action = e.target.closest('[data-rail-action]')?.getAttribute('data-rail-action');
-    if (!action) return;
-    setOpen(false);
-    if (action === 'account') {
-      if (typeof onAccount === 'function') onAccount();
-      else window.location.href = '/pages/account.html';
-    } else if (action === 'signout') {
-      await signOut();
-    }
-  });
+  wireRailPopovers(rail, { onAccount });
 
   mountMobileBars(profile, layout, byId, { name, initial, who });
   if (role !== 'student') {
