@@ -271,8 +271,8 @@ function renderLastFiveTable(mod, modSummary) {
           <td style="font-size: var(--text-xs);">${escapeHtml(item.date_display)}${datesBadge}</td>
           <td class="num" style="font-weight: 700; color: ${feedback.colorVar};">${item.score}</td>
           <td class="num" style="font-size: var(--text-xs);">
-            ${item.correct}/${item.attempted}
-            <span class="score-tag ${feedback.badgeClass}" style="font-size: 10px; margin-left: 4px;">${escapeHtml(feedback.wrongText)}</span>
+            ${item.correct}/${item.attempted}<br />
+            <span class="score-tag ${feedback.badgeClass}">${escapeHtml(feedback.wrongText)}</span>
           </td>
           <td class="num" style="font-size: var(--text-xs); text-align: right;">${Number(item.used_seconds).toFixed(2)}s</td>
         </tr>
@@ -285,8 +285,8 @@ function renderLastFiveTable(mod, modSummary) {
       <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin-bottom: var(--space-2);">
         Last ${lastFive.length} ${lastFive.length === 1 ? 'Try' : 'Tries'} (India Time)
       </div>
-      <div class="table-responsive" style="border: 1px solid var(--border-hairline); border-radius: var(--radius-md);">
-        <table class="data-table" style="margin: 0;">
+      <div class="memoriad-tries-wrap">
+        <table class="data-table memoriad-tries-table">
           <thead>
             <tr>
               <th>Date (IST)</th>
@@ -339,13 +339,11 @@ function renderModuleCard(mod, modSummary) {
   return `
     <section class="memoriad-module-card ${mod.available ? '' : 'is-coming-soon'}" aria-labelledby="mod-title-${escapeHtml(mod.key)}">
       <div>
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-2); margin-bottom: var(--space-2);">
-          <h2 id="mod-title-${escapeHtml(mod.key)}" style="font-size: 1.15rem; font-weight: 800; margin: 0; color: var(--text-main);">
-            ${escapeHtml(mod.title)}
-          </h2>
+        <div class="memoriad-module-head">
+          <h2 id="mod-title-${escapeHtml(mod.key)}">${escapeHtml(mod.title)}</h2>
           <span class="${badgeClass}">${escapeHtml(mod.badge)}</span>
         </div>
-        <p style="font-size: var(--text-xs); color: var(--text-muted); margin: 0;">
+        <p class="memoriad-module-desc">
           ${escapeHtml(mod.subtitle)}
         </p>
 
