@@ -195,6 +195,16 @@
 .ldh-invite { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 9px 12px; border-radius: 12px; background: rgba(250, 204, 21, .16); color: #FEF9C3; font-size: 13.5px; text-decoration: none; box-shadow: inset 0 0 0 1px rgba(250, 204, 21, .35); }
 .ldh-invite b { color: #fff; }
 .ldh-invite span { margin-left: auto; font-weight: 800; color: #FACC15; }
+.ldh-pick { border-radius: 12px; background: rgba(255, 255, 255, .08); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12); }
+.ldh-pick > summary { cursor: pointer; list-style: none; display: flex; align-items: center; padding: 9px 12px; font-size: 13.5px; font-weight: 700; color: #fff; }
+.ldh-pick > summary::-webkit-details-marker { display: none; }
+.ldh-pick > summary::after { content: "▾"; margin-left: auto; color: rgba(255, 255, 255, .7); transition: transform .15s; }
+.ldh-pick[open] > summary::after { transform: rotate(180deg); }
+.ldh-pick ul { list-style: none; margin: 0; padding: 0 12px 10px; display: grid; gap: 6px; max-height: 220px; overflow: auto; }
+.ldh-pick li { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: rgba(255, 255, 255, .9); }
+.ldh-pick li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ldh-pick li button { border: 0; border-radius: 8px; padding: 5px 10px; font: inherit; font-size: 12.5px; font-weight: 800; background: #FACC15; color: #1E1B4B; cursor: pointer; }
+.ldh-pick li button:disabled { opacity: .6; cursor: default; }
 @media (max-width: 640px) {
   .ldh { padding: 16px; }
   .ldh-main { flex-wrap: wrap; gap: 12px; }

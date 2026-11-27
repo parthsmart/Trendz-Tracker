@@ -117,15 +117,22 @@ export function buildInvitesHtml(invites = [], sent = []) {
   return parts.join('');
 }
 
-export function buildClassmatesHtml(opponents = [], online = new Set()) {
-  if (!opponents.length) return '<p class="ar-dim">No classmates at your level yet.</p>';
-  const sorted = [...opponents].sort((x, y) => Number(online.has(y.id)) - Number(online.has(x.id)));
-  return `<ul class="ar-board ld-mates">${sorted
+/**
+ * Students online right now at my level, from every centre (offline students are
+ * not listed). `players` come from live_duel_online_players: classmates first.
+ */
+export function buildOnlinePlayersHtml(players = [], { loading = false } = {}) {
+  if (!players.length) {
+    return loading
+      ? '<p class="ar-dim">Checking who is online…</p>'
+      : '<p class="ar-dim">Nobody at your level is online right now. Try Find an opponent to race a ghost.</p>';
+  }
+  return `<ul class="ar-board ld-mates">${players
     .map((o) => {
-      const on = online.has(o.id);
-      return `<li><span class="ld-dot ${on ? 'is-on' : ''}" title="${on ? 'Online now' : 'Offline'}"></span>
-        <span class="ar-name">${esc(o.display_name)}</span>
-        <button type="button" class="btn btn-outline btn-sm" data-challenge="${esc(o.id)}" ${on ? '' : 'disabled'}>${on ? 'Challenge' : 'Offline'}</button></li>`;
+      const where = o.classmate ? 'Your centre' : (o.centre_name || 'Another centre');
+      return `<li><span class="ld-dot is-on" title="Online now"></span>
+        <span class="ar-name">${esc(o.display_name)} <small class="ar-dim">· ${esc(where)} · ${Number(o.rating) || 1000}</small></span>
+        <button type="button" class="btn btn-outline btn-sm" data-challenge="${esc(o.id)}">Challenge</button></li>`;
     })
     .join('')}</ul>`;
 }
