@@ -17,6 +17,7 @@ import { showToast } from './toast.js';
 import { getSupabase } from './supabaseClient.js';
 import { isSupabaseConfigured } from './config.js';
 import { celebrate } from './motion.js';
+import { getDuelHub } from './duelPresence.js';
 import {
   GHOST_WAIT_SECONDS,
   LIVE_DUEL_GRACE_SECONDS,
@@ -27,10 +28,10 @@ import {
 } from '../shared/liveDuel.js';
 import {
   buildBoardHtml,
-  buildClassmatesHtml,
   buildEmoteBarHtml,
   buildInvitesHtml,
   buildLanesHtml,
+  buildOnlinePlayersHtml,
   buildQuestionHtml,
   buildRatingHtml,
   buildRecentHtml,
@@ -45,8 +46,9 @@ const VIEWS = ['ld-lobby', 'ld-search', 'ld-waiting', 'ld-race', 'ld-results', '
 const st = {
   viewer: null,
   supabase: null,
-  userChannel: null,
-  lobbyChannel: null,
+  hub: null,
+  players: new Map(), // id -> live_duel_online_players row
+  presenceSeen: false,
   duelChannel: null,
   duelChannelOk: false,
   online: new Set(),
@@ -135,17 +137,26 @@ async function loadLobby() {
   $('ld-invites').innerHTML = buildInvitesHtml(home.data.invites, home.data.sent);
   $('ld-recent').innerHTML = buildRecentHtml(home.data.recent);
   $('ld-board').innerHTML = board.error ? '' : buildBoardHtml(board.data);
-  st.opponents = Array.isArray(home.data.mates) ? home.data.mates : [];
   renderMates();
   show('ld-lobby');
 }
 
 function renderMates() {
-  if ($('ld-mates')) $('ld-mates').innerHTML = buildClassmatesHtml(st.opponents, st.online);
+  if (!$('ld-mates')) return;
+  const list = [...st.online].map((id) => st.players.get(id)).filter(Boolean)
+    .sort((x, y) => Number(y.classmate) - Number(x.classmate) || String(x.display_name).localeCompare(String(y.display_name)));
+  $('ld-mates').innerHTML = buildOnlinePlayersHtml(list, { loading: !st.presenceSeen });
 }
 
-function onPresence(state) {
-  st.online = new Set(Object.keys(state || {}).filter((k) => k !== st.viewer.id));
+async function onPresence(ids) {
+  st.online = new Set(ids);
+  st.presenceSeen = true;
+  const missing = ids.filter((id) => !st.players.has(id));
+  if (missing.length) {
+    const { data } = await rpc('live_duel_online_players', { p_ids: missing.slice(0, 300) });
+    for (const id of missing) if (!st.players.has(id)) st.players.set(id, null); // not at my level / not listed
+    for (const p of Array.isArray(data) ? data : []) st.players.set(p.id, p);
+  }
   renderMates();
 }
 
@@ -207,9 +218,10 @@ function setupLobbyActions() {
       if (challenge) {
         challenge.textContent = 'Sending…';
         await drillApi({ action: 'live_invite', opponent_id: challenge.dataset.challenge });
-        showToast('success', 'Challenge sent! It starts as soon as they accept.');
+        showToast('success', 'Challenge sent! They get a pop-up to accept or reject.');
       } else if (accept || decline) {
         const id = (accept || decline).dataset.accept || (accept || decline).dataset.decline;
+        st.hub?.closePopup(id);
         const { data, error } = await rpc('live_duel_respond', { p_duel: id, p_accept: Boolean(accept) });
         if (error || !data?.ok) throw new Error(error || data?.error || 'That challenge has ended.');
         if (accept) return enterDuel(id);
@@ -587,31 +599,42 @@ async function initLiveDuelPage() {
   setupRaceActions();
   setupResultActions();
 
-  st.userChannel = await privateChannel(`duel-user:${viewer.id}`, {
-    broadcast: {
-      matched: (p) => {
-        if (!p.duel_id || st.duel?.id === p.duel_id) return;
-        if (st.duel && st.duel.status === 'live') return;
-        st.searching = false;
-        clearTimeout(st.searchTimer);
-        enterDuel(p.duel_id);
-      },
-      invite: (p) => {
-        showToast('info', `⚡ ${p.from_name || 'A classmate'} challenges you to a live duel!`);
-        if (!st.duel && !st.searching) loadLobby();
-      },
-      declined: () => {
-        showToast('info', 'Your classmate said not now.');
-        if (st.duel?.status === 'invited') leaveDuelView();
-        else if (!st.duel) loadLobby();
-      },
-      cancelled: () => {
-        if (!st.duel && !st.searching) loadLobby();
-        else if (st.duel?.status === 'invited') leaveDuelView();
-      },
-    },
-  });
-  st.lobbyChannel = await privateChannel('duel-lobby', { presence: onPresence }, viewer.id);
+  // Presence and the personal channel are shared with the rest of the site (js/duelPresence.js):
+  // invites arrive as a pop-up with Accept / Reject, here and on every other page.
+  st.hub = await getDuelHub(viewer);
+  if (st.hub) {
+    st.hub.blockPopups(() => Boolean(st.duel && st.duel.status === 'live'));
+    st.hub.on('matched', (p) => {
+      if (!p.duel_id || st.duel?.id === p.duel_id) return;
+      if (st.duel && st.duel.status === 'live') return;
+      st.searching = false;
+      clearTimeout(st.searchTimer);
+      enterDuel(p.duel_id);
+    });
+    st.hub.on('invite', () => {
+      if (!st.duel && !st.searching) loadLobby();
+    });
+    st.hub.on('declined', () => {
+      showToast('info', 'They said not now.');
+      if (st.duel?.status === 'invited') leaveDuelView();
+      else if (!st.duel) loadLobby();
+    });
+    st.hub.on('cancelled', () => {
+      if (!st.duel && !st.searching) loadLobby();
+      else if (st.duel?.status === 'invited') leaveDuelView();
+    });
+    st.hub.on('responded', (p) => {
+      if (!p.accept && !st.duel) loadLobby();
+    });
+    st.hub.onPresence(onPresence);
+  }
+  // If presence never syncs (socket blocked), stop saying "checking".
+  setTimeout(() => {
+    if (!st.presenceSeen) {
+      st.presenceSeen = true;
+      renderMates();
+    }
+  }, 8000);
 
   $('ld-waiting-cancel').addEventListener('click', async () => {
     if (st.duel) await rpc('live_duel_cancel', { p_duel: st.duel.id });
