@@ -44,6 +44,7 @@ export const NAV_STAGE_AND_PUBLIC_ALLOWLIST = Object.freeze([
   '/pages/teacher.html',
   '/pages/teachers.html',
   '/pages/network.html',
+  '/pages/centre.html',
   ...SETTINGS_SUBPAGE_PATHS,
 ]);
 

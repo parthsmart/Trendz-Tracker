@@ -193,6 +193,7 @@ function renderDashboard() {
       <span class="stat-value num">${s.students}</span>
       <span class="stat-sub">students · ${s.teachers} teachers</span>
       <span class="stat-sub">Head: ${s.head ? esc(s.head.full_name) : '<i>none yet</i>'}${s.vices.length ? ` · ${s.vices.length} vice` : ''}</span>
+      ${s.centre.status === 'active' ? `<a class="btn btn-outline btn-sm" style="margin-top: var(--space-2); align-self: flex-start;" href="/pages/centre.html?centre=${encodeURIComponent(s.centre.id)}">Open centre panel</a>` : ''}
     </div>`).join('');
 }
 
@@ -206,13 +207,14 @@ function renderCentres() {
   const rows = state.centres.map((c) => {
     const s = stats.get(c.id) || {};
     const buttons = centreActions(c, s).map((a) => `<button type="button" class="btn btn-${a === 'archive' || a === 'suspend' ? 'ghost' : 'outline'} btn-sm" data-centre-action="${a}" data-centre-id="${esc(c.id)}">${label[a]}</button>`).join(' ');
+    const open = c.status === 'active' ? `<a class="btn btn-ghost btn-sm" href="/pages/centre.html?centre=${encodeURIComponent(c.id)}">Open</a> ` : '';
     return `<tr>
       <td><b>${esc(c.name)}</b>${c.is_default ? ' <span class="badge badge-neutral">default</span>' : ''}<div class="form-hint">${esc(c.kind)}${c.city ? ` · ${esc(c.city)}` : ''}</div></td>
       <td class="num">${esc(c.code)}</td>
       <td>${statusBadge(c.status)}</td>
       <td class="num">${s.students || 0}</td>
       <td>${s.head ? esc(s.head.full_name) : '—'}</td>
-      <td style="text-align: right; white-space: nowrap;">${buttons}</td>
+      <td style="text-align: right; white-space: nowrap;">${open}${buttons}</td>
     </tr>`;
   }).join('');
   $('network-centres-table').innerHTML = `<div class="table-container"><table class="data-table">

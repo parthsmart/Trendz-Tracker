@@ -78,6 +78,8 @@ export async function requireAuth(allowedRoles = ['student', 'teacher', 'admin']
           window.location.replace('/pages/teacher.html');
         } else if (freshProfile.role === 'student') {
           window.location.replace('/pages/student.html');
+        } else if (freshProfile.role === 'centre_head' || freshProfile.role === 'vice_centre_head') {
+          window.location.replace('/pages/centre.html');
         } else {
           window.location.replace('/index.html');
         }
@@ -108,6 +110,11 @@ export async function requireAuth(allowedRoles = ['student', 'teacher', 'admin']
     // If student attempts to view teacher/admin page:
     if (profile.role === 'student') {
       window.location.replace('/pages/student.html');
+      return null;
+    }
+    // Centre heads and vice heads have their own panel.
+    if (profile.role === 'centre_head' || profile.role === 'vice_centre_head') {
+      window.location.replace('/pages/centre.html');
       return null;
     }
     window.location.replace('/index.html');
