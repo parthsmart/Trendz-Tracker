@@ -340,7 +340,8 @@ export function mapLeaderboardRows(
       is_me: isMe,
       is_outside_top_10: isOutsideTop10,
       level: cleanLevel,
-      show_level_chip: showLevelChip
+      show_level_chip: showLevelChip,
+      avatar_path: typeof row?.avatar_path === 'string' && row.avatar_path ? row.avatar_path : null
     };
   });
 }

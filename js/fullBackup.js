@@ -20,7 +20,7 @@ import { buildXlsx, readXlsx, XLSX_MAX_ROWS, XLSX_MAX_SHEET_NAME } from './xlsx.
 export const FULL_BACKUP_FORMAT_VERSION = 1;
 
 /** Latest migration file in supabase/migrations (kept in sync by tests/fullBackup.test.js). */
-export const FULL_BACKUP_SCHEMA_VERSION = '23_phase23_xp_and_personal_bests';
+export const FULL_BACKUP_SCHEMA_VERSION = '24_phase24_profiles_badges_challenge';
 
 export const FULL_BACKUP_PAGE_SIZE = 1000;
 
@@ -53,11 +53,13 @@ export const FULL_BACKUP_KNOWN_TABLES = Object.freeze([
   'attendance_sessions',
   'backup_runs',
   'backup_state',
+  'badge_catalogue',
   'basics_thresholds',
   'categories',
   'category_aliases',
   'category_series',
   'competition_settings',
+  'daily_challenge_attempts',
   'daily_task_recipients',
   'daily_tasks',
   'daily_todo_log',
@@ -94,6 +96,7 @@ export const FULL_BACKUP_KNOWN_TABLES = Object.freeze([
   'simple_practice_results',
   'student_messages',
   'student_practice_access',
+  'student_badges',
   'student_rounds',
   'student_xp_events',
   'teacher_audit_log',
@@ -105,6 +108,8 @@ export const FULL_BACKUP_KNOWN_TABLES = Object.freeze([
   'weekly_test_scores',
   'weekly_test_sections',
   'weekly_tests',
+  'xp_award_periods',
+  'xp_awards',
 ]);
 
 /** Tables whose rows are sensitive beyond normal student data (flagged in README). */

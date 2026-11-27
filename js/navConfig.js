@@ -161,6 +161,14 @@ export const NAV_CONFIG = Object.freeze({
 
     // Account & Sign out (in right-side actions on desktop, and in the mobile menu)
     Object.freeze({
+      id: 'student-profile',
+      label: 'My Profile',
+      href: '/pages/profile.html',
+      group: 'Account',
+      inline: false,
+      desktopPlacement: 'menu-only',
+    }),
+    Object.freeze({
       id: 'student-account',
       label: 'Account',
       href: '/pages/account.html',

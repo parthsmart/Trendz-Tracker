@@ -14,6 +14,7 @@
  */
 
 import { isSupabaseConfigured } from './config.js';
+import { avatarHtml, ensureAvatarStyles, signAvatarUrls } from './avatars.js';
 import { requireAuth } from './guard.js';
 import {
   fetchLeaderboard,
@@ -597,8 +598,14 @@ function buildRankCellHtml(rankNum) {
  * @param {Object} row
  * @returns {string}
  */
+// Signed photo URLs for the board being shown (avatar_path -> url).
+let avatarUrls = new Map();
+
 function buildStudentCellHtml(row) {
   const isMe = row.is_me;
+  const avatar = row.avatar_path !== undefined
+    ? `${avatarHtml(avatarUrls.get(row.avatar_path) || null, row.display_name, 28)}<span style="width:8px"></span>`
+    : '';
   let nameCellHtml = `<span style="font-weight: ${isMe ? '700' : '600'}; color: var(--text-main);">${escapeHtml(row.display_name)}</span>`;
   if (isAdmin && row.student_id) {
     nameCellHtml = `
@@ -622,7 +629,7 @@ function buildStudentCellHtml(row) {
 
   return `
     <div style="display: inline-flex; align-items: center; flex-wrap: wrap;">
-      ${nameCellHtml}
+      ${avatar}${nameCellHtml}
       ${levelChipHtml}
       ${youBadgeHtml}
     </div>
@@ -828,6 +835,8 @@ async function loadActiveBoard() {
       scope: effectiveScope,
       isAdmin
     });
+    ensureAvatarStyles(document);
+    avatarUrls = await signAvatarUrls(mappedRows.map((r) => r.avatar_path));
 
     if (mappedRows.length === 0) {
       if (tbody) tbody.innerHTML = '';

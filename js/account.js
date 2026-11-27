@@ -18,6 +18,7 @@ import { fetchStudentEffectiveAccess } from './studentAccess.js';
 import { registerInstallTrigger, isStandalone } from './pwaInstall.js';
 import { logoutUser } from './auth.js';
 import { showToast } from './toast.js';
+import { signAvatarUrl } from './avatars.js';
 
 // Same key js/flash.js reads, so the switch here changes the Flash Anzan setting.
 const FLASH_SOUND_KEY = 'trendz_flash_sound_v1';
@@ -53,6 +54,7 @@ function renderDetails(p) {
   const joined = formatJoined(p.created_at);
 
   setText('account-avatar', name.trim().charAt(0).toUpperCase() || 'S');
+  if (p.avatar_path) showAccountPhoto(p.avatar_path);
   setText('account-name', name);
   setText('account-code', code);
   setText('account-level', level);
@@ -72,6 +74,20 @@ function renderDetails(p) {
   setText('account-detail-status', active ? 'Active' : 'Paused, talk to your trainer');
   setText('account-detail-leaderboard', p.leaderboard_visible === false ? 'Hidden by your trainer' : 'Shown');
   setText('account-detail-joined', joined || '—');
+}
+
+/** Replaces the initial with the student's photo when they have one. */
+async function showAccountPhoto(path) {
+  const url = await signAvatarUrl(path);
+  const el = document.getElementById('account-avatar');
+  if (!url || !el) return;
+  el.textContent = '';
+  const img = document.createElement('img');
+  img.src = url;
+  img.alt = '';
+  img.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:50%;display:block';
+  el.style.overflow = 'hidden';
+  el.appendChild(img);
 }
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
