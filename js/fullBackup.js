@@ -20,7 +20,7 @@ import { buildXlsx, readXlsx, XLSX_MAX_ROWS, XLSX_MAX_SHEET_NAME } from './xlsx.
 export const FULL_BACKUP_FORMAT_VERSION = 1;
 
 /** Latest migration file in supabase/migrations (kept in sync by tests/fullBackup.test.js). */
-export const FULL_BACKUP_SCHEMA_VERSION = '22_soft_delete_students_teachers';
+export const FULL_BACKUP_SCHEMA_VERSION = '23_phase23_xp_and_personal_bests';
 
 export const FULL_BACKUP_PAGE_SIZE = 1000;
 
