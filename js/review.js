@@ -136,7 +136,7 @@ export async function checkPendingCorrectionRequests(supabaseOverride = null) {
     const supabase = activeSupabaseOverride || await getSupabase();
     const { data: requests, error } = await supabase
       .from('score_correction_requests')
-      .select('id, student_id, teacher_id, proposed_correct, proposed_total, reason, created_at, profiles!score_correction_requests_student_id_fkey(full_name, student_code)')
+      .select('id, student_id, teacher_id, proposed_correct, proposed_total, reason, created_at, profiles!score_correction_requests_student_id_fkey!inner(full_name, student_code)')
       .eq('status', 'pending');
 
     if (error) {
@@ -541,7 +541,7 @@ export function buildReviewSelectColumns({ section, includeTargetFields = true }
     flag_note,
     ${targetCols}
     ${categoryEmbed},
-    student:profiles!results_student_id_fkey(id, full_name, student_code, level)
+    student:profiles!results_student_id_fkey!inner(id, full_name, student_code, level)
   `;
 }
 
