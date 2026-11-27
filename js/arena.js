@@ -14,6 +14,7 @@ import { getSupabase } from './supabaseClient.js';
 import { isSupabaseConfigured } from './config.js';
 import { ensureXpStyles, escapeXpHtml as esc } from './xpRewards.js';
 import { ensureAvatarStyles, signAvatarUrls } from './avatars.js';
+import { celebrate, celebrateOnce } from './motion.js';
 import {
   buildClassVsClassHtml,
   buildDuelFormHtml,
@@ -91,6 +92,10 @@ async function loadLeague() {
   }
   const urls = await signAvatarUrls((data?.rows || []).map((r) => r.avatar_path));
   $('ar-league').innerHTML = buildLeagueHtml(data, urls);
+  const last = data?.last;
+  if (state.isStudent && last && Number(last.tier_after) > Number(last.tier_before)) {
+    celebrateOnce(`league_${data?.week?.from || ''}`, 'big', $('ar-league').querySelector('.ar-last'));
+  }
   if (!state.isStudent && Array.isArray(data?.tiers)) {
     const wrap = $('ar-staff-tiers');
     wrap.hidden = false;
@@ -141,6 +146,7 @@ function setupDuelActions() {
     try {
       const res = await drillApi({ action: 'duel_create', opponent_id: opponent, category_id: category });
       showToast('success', 'Duel sent! Play your round whenever you are ready.');
+      celebrate('small', submit);
       if (res?.duel_id) {
         await loadDuels();
       }
@@ -218,6 +224,7 @@ function setupRewardActions() {
         return;
       }
       showToast('success', `Requested "${name}". Collect it from your trainer.`);
+      celebrate('small', get);
       await loadRewards();
     } else if (cancel) {
       cancel.disabled = true;
