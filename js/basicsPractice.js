@@ -41,6 +41,7 @@ import { DemoDB, getSupabase } from './supabaseClient.js';
 import { formatSecondsToMMSS } from './timeUtils.js';
 import { showToast } from './toast.js';
 import { submitHomeworkCompletion } from './homeworkData.js';
+import { showRoundRewards } from './xpRewards.js';
 import {
   RUNNER_EXIT_CONFIRM_TEXT,
   parseTestRunnerQuery,
@@ -1123,6 +1124,9 @@ async function renderResultsScreen(resultData) {
 
   if (pbBannerEl) {
     pbBannerEl.style.display = isNewPersonalBest ? 'block' : 'none';
+  }
+  if (!isTestMode && resultData?.result_id) {
+    showRoundRewards({ sourceId: resultData.result_id, anchor: pbBannerEl });
   }
 
   const savedConfirmEl = document.getElementById('results-saved-confirmation');

@@ -34,6 +34,8 @@ import { renderElementsCard } from './elementsCard.js';
 import { renderMemoriadCard } from './memoriadCard.js';
 import { fetchMyNotificationsCached } from './notificationBadge.js';
 import { formatTimeIST } from './liveClasses.js';
+import { renderXpProgressCard } from './xpRewards.js';
+import { fetchLeaderboard } from './leaderboardData.js';
 import {
   renderPracticeTiles,
   renderHeroIdentity,
@@ -163,6 +165,10 @@ async function initStudentDashboard() {
   setupProgressWeekTabs();
 
   loadAndRenderStudentLiveClassCard(currentStudentId);
+  renderXpProgressCard(document.getElementById('xp-progress-card'), {
+    studentId: currentStudentId,
+    loadBoard: () => fetchLeaderboard({ board: 'xp', period: 'week', limit: 5, scope: 'level' }, loggedInProfile),
+  }).catch((err) => console.warn('Could not load XP:', err));
   // Weekly tests, homework and reminders are each fetched once and shared by
   // My Day and the Coming up panel (which also shows today's open weekly test).
   const testsPromise = fetchMyWeeklyTests(currentStudentId);

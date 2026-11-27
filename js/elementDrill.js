@@ -42,6 +42,7 @@ import {
 } from './weeklyTestRunner.js';
 import { submitHomeworkCompletion } from './homeworkData.js';
 import { showToast } from './toast.js';
+import { showRoundRewards } from './xpRewards.js';
 
 const TIMER_INTERVAL_MS = 250;
 const EXPIRY_GRACE_SECONDS = 30;
@@ -1081,6 +1082,9 @@ async function submitWorksheet(isAutoOrRetry = false) {
     }
 
     renderResultScreen(resultData);
+    if (!isTestMode) {
+      showRoundRewards({ sourceId: resultData?.result_id, anchor: document.getElementById('result-test-saved-banner') });
+    }
   } catch (err) {
     isSubmitting = false;
 
