@@ -384,6 +384,7 @@ export function renderCompactHistoryRowHtml({
  * - 'calendar' -> 'calendar'
  * - 'additions' / 'addition' -> 'additions'
  * - 'multiplications' / 'multiplication' -> 'multiplications'
+ * - 'division' / 'divisions' -> 'division'
  * - 'square_roots' / 'square_root' -> 'square_roots'
  *
  * @param {string|null|undefined} val
@@ -395,6 +396,7 @@ export function normalizeMemoriadModuleKey(val) {
   if (s === 'calendar' || s.includes('calendar')) return 'calendar';
   if (s === 'addition' || s === 'additions' || s.includes('addition')) return 'additions';
   if (s === 'multiplication' || s === 'multiplications' || s.includes('multiplication')) return 'multiplications';
+  if (s === 'division' || s === 'divisions' || s.includes('division')) return 'division';
   if (s === 'square_root' || s === 'square_roots' || s.includes('root')) return 'square_roots';
   return s;
 }

@@ -28,6 +28,7 @@ import {
   buildExportReadme,
 } from './backupExport.js';
 import { isSupabaseConfigured, isDemoAllowedHost } from './config.js';
+import { buildFullBackupWorkbook, FULL_BACKUP_SCHEMA_VERSION } from './fullBackup.js';
 import { isDemoMode } from './demoDb.js';
 import { requireAuth } from './guard.js';
 import { setupAdminNav, openModal, closeModal, setupModalListeners } from './modal.js';
@@ -40,6 +41,7 @@ const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
 let isRunningSheetBackup = false;
 let cancelSheetBackupRequested = false;
 let isRunningZipExport = false;
+let isRunningFullExport = false;
 
 /**
  * Formats an ISO timestamp in Indian Standard Time (`Asia/Kolkata`) with 3-letter month name.
@@ -136,7 +138,7 @@ function updateProgressPanel({ visible, title = '', detail = '', percent = 0 }) 
 /**
  * Calls `/api/backup` with the admin's Bearer token.
  */
-async function callBackupApi(action) {
+async function callBackupApi(action, extra = {}) {
   if (!isSupabaseConfigured()) {
     if (!isDemoAllowedHost()) {
       throw new Error('Configuration error - contact the administrator.');
@@ -164,7 +166,7 @@ async function callBackupApi(action) {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${session.access_token}`,
     },
-    body: JSON.stringify({ action }),
+    body: JSON.stringify({ ...extra, action }),
   });
 
   const payload = await response.json().catch(() => ({}));
@@ -290,7 +292,7 @@ function renderBackupStatus(statusData) {
   }
   const actionsDescEl = document.getElementById('backup-actions-desc');
   if (actionsDescEl) {
-    actionsDescEl.textContent = `Run an on-demand Google Sheet backup pass (8-second passes with automatic continuation) or download all ${EXPORT_TABLES.length} tables as a local ZIP of CSV files.`;
+    actionsDescEl.textContent = `Download full backup (Excel) saves every table, every column and every row, plus login accounts (without passwords), in one .xlsx file that scripts/restoreFromBackup.js can restore. You can also run a Google Sheet backup pass or download the ${EXPORT_TABLES.length} core tables as CSV files.`;
   }
 
   const tablesTbody = document.getElementById('backup-tables-tbody');
@@ -775,7 +777,7 @@ async function fetchAllRowsForTableExport(supabase, tableMeta) {
  * and records the export via `admin_log_export`.
  */
 async function handleDownloadAllDataZip() {
-  if (isRunningZipExport || isRunningSheetBackup) return;
+  if (isRunningZipExport || isRunningSheetBackup || isRunningFullExport) return;
 
   const btnZip = document.getElementById('btn-download-zip');
   const btnRun = document.getElementById('btn-run-google-backup');
@@ -900,6 +902,178 @@ async function handleDownloadAllDataZip() {
   }
 }
 
+/**
+ * Infers column definitions for Demo Mode, where there is no server schema.
+ */
+function inferDemoColumns(rows, fallback = []) {
+  const names = [];
+  for (const r of rows) for (const k of Object.keys(r || {})) if (!names.includes(k)) names.push(k);
+  for (const k of fallback) if (!names.includes(k)) names.push(k);
+  return names.map((name, i) => {
+    const sample = rows.find((r) => r && r[name] !== null && r[name] !== undefined)?.[name];
+    const format = sample !== null && typeof sample === 'object' ? 'jsonb' : typeof sample === 'number' ? 'numeric' : typeof sample === 'boolean' ? 'boolean' : 'text';
+    return { name, position: i + 1, format, type: typeof sample, primaryKey: false, references: null };
+  });
+}
+
+function getExportTimestampLabelIST() {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+    }).formatToParts(new Date());
+    const get = (t) => parts.find((p) => p.type === t)?.value || '00';
+    return `${get('year')}-${get('month')}-${get('day')}-${get('hour')}${get('minute')}`;
+  } catch {
+    return new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
+  }
+}
+
+function triggerDownload(bytes, fileName, mime) {
+  const blob = new Blob([bytes], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+/**
+ * Downloads a complete Excel backup: every table, every column, every row, plus login accounts.
+ * Reads through the admin-only `/api/backup` full_backup_* actions in pages, then builds the
+ * workbook in chunks so the page stays responsive.
+ */
+async function handleDownloadFullExcel() {
+  if (isRunningFullExport || isRunningZipExport || isRunningSheetBackup) return;
+
+  const buttons = ['btn-download-xlsx', 'btn-download-zip', 'btn-run-google-backup']
+    .map((id) => document.getElementById(id))
+    .filter(Boolean);
+
+  isRunningFullExport = true;
+  hideActionAlert();
+  buttons.forEach((b) => (b.disabled = true));
+
+  try {
+    const useDemo = !isSupabaseConfigured();
+    if (useDemo && !isDemoAllowedHost()) {
+      throw new Error('Configuration error - contact the administrator.');
+    }
+
+    updateProgressPanel({ visible: true, title: 'Reading database structure...', detail: 'Finding every table and column', percent: 2 });
+
+    let schema;
+    const tables = [];
+    if (useDemo) {
+      schema = {
+        exported_at: new Date().toISOString(),
+        source_project: 'demo',
+        schema_version: FULL_BACKUP_SCHEMA_VERSION,
+        skipped: [],
+        missing_known: [],
+        auth_users: null,
+      };
+      for (const t of EXPORT_TABLES) {
+        const rows = DemoDB.getBackupTableRows(t.name) || [];
+        tables.push({ name: t.name, columns: inferDemoColumns(rows, t.defaultColumns), primaryKey: [], dependsOn: [], rows });
+      }
+    } else {
+      schema = await callBackupApi('full_backup_schema');
+      if (!schema || schema.ok === false || !Array.isArray(schema.tables)) {
+        throw new Error(schema?.error || 'Could not read the database structure.');
+      }
+      let rowsSoFar = 0;
+      for (let i = 0; i < schema.tables.length; i++) {
+        const meta = schema.tables[i];
+        const rows = [];
+        let offset = 0;
+        while (offset !== null) {
+          updateProgressPanel({
+            visible: true,
+            title: `Reading table ${i + 1} of ${schema.tables.length}: ${meta.name}`,
+            detail: `${formatNum(rowsSoFar + rows.length)} rows read so far`,
+            percent: 4 + Math.round((i / schema.tables.length) * 76),
+          });
+          const page = await callBackupApi('full_backup_page', { table: meta.name, offset });
+          if (!page || page.ok === false || !Array.isArray(page.rows)) {
+            throw new Error(page?.error || `Could not read ${meta.name}.`);
+          }
+          rows.push(...page.rows);
+          offset = page.next_offset ?? null;
+        }
+        rowsSoFar += rows.length;
+        tables.push({ ...meta, rows });
+      }
+    }
+
+    const totalRows = tables.reduce((n, t) => n + t.rows.length, 0);
+    const { bytes, summary } = await buildFullBackupWorkbook({
+      exportedAt: schema.exported_at,
+      sourceProject: schema.source_project,
+      schemaVersion: schema.schema_version,
+      tables,
+      authUsers: schema.auth_users,
+      skipped: schema.skipped,
+      missingKnown: schema.missing_known,
+      onProgress: ({ phase, done, total, sheet }) => {
+        updateProgressPanel({
+          visible: true,
+          title: phase === 'sheet' ? `Writing Excel sheet ${done} of ${total}: ${sheet}` : 'Writing Excel workbook...',
+          detail: phase === 'writing' ? `${formatNum(done)} of ${formatNum(total)} rows written` : `${formatNum(totalRows)} rows in ${tables.length} tables`,
+          percent: phase === 'sheet' ? 80 + Math.round((done / total) * 18) : 85,
+        });
+      },
+    });
+
+    const fileName = `trendz-full-backup-${getExportTimestampLabelIST()}.xlsx`;
+    triggerDownload(bytes, fileName, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+
+    if (useDemo) {
+      DemoDB.logBackupExport(summary.rows, summary.rowCounts);
+    } else {
+      const supabase = await getSupabase();
+      const { error: logErr } = await supabase.rpc('admin_log_export', {
+        p_rows: summary.rows,
+        p_tables: summary.rowCounts,
+      });
+      if (logErr) console.warn('admin_log_export RPC warning:', logErr.message);
+    }
+
+    updateProgressPanel({
+      visible: true,
+      title: `Downloaded ${fileName}`,
+      detail: `${formatNum(summary.rows)} rows across ${summary.tables} tables, ${formatNum(summary.authUsers)} login accounts`,
+      percent: 100,
+    });
+
+    const warn = Array.isArray(schema.missing_known) && schema.missing_known.length
+      ? ` Note: expected tables not found in this database: ${schema.missing_known.join(', ')}.`
+      : '';
+    showActionAlert(
+      warn ? 'warning' : 'success',
+      `Downloaded ${fileName}: ${formatNum(summary.rows)} rows from all ${summary.tables} tables` +
+        (schema.auth_users ? ` and ${formatNum(summary.authUsers)} login accounts (no passwords).` : '.') +
+        ' Keep this file private: it contains every student record and Main Round answer keys.' + warn
+    );
+    showToast('success', `Downloaded ${fileName}`);
+    await loadBackupStatus();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Full backup failed.';
+    showActionAlert('error', `Full backup stopped (no incomplete file was downloaded): ${msg}`);
+    showToast('error', msg);
+  } finally {
+    isRunningFullExport = false;
+    buttons.forEach((b) => (b.disabled = false));
+    setTimeout(() => {
+      if (!isRunningSheetBackup && !isRunningZipExport && !isRunningFullExport) {
+        updateProgressPanel({ visible: false });
+      }
+    }, 2500);
+  }
+}
+
 async function initBackupPage() {
   const profile = await requireAuth(['admin']);
   if (!profile) return;
@@ -984,6 +1158,13 @@ async function initBackupPage() {
   if (btnZip) {
     btnZip.addEventListener('click', () => {
       handleDownloadAllDataZip();
+    });
+  }
+
+  const btnXlsx = document.getElementById('btn-download-xlsx');
+  if (btnXlsx) {
+    btnXlsx.addEventListener('click', () => {
+      handleDownloadFullExcel();
     });
   }
 

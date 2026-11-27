@@ -10,6 +10,22 @@
 
 import { isSupabaseConfigured, isDemoAllowedHost } from './config.js';
 import { generateSimpleQuestion } from './flashSimple.js';
+import {
+  mathRandomRng,
+  normalizeMultiplicationDigits,
+  normalizeSquareRootDigits,
+  normalizeDivisionLevel,
+  normalizeLayout,
+  getMemoriadLevelTimeLimit,
+  generateMultiplicationSet,
+  generateDivisionSet,
+  generateSquareRootSet,
+  evaluateSquareRootAnswerOfficial,
+  computeOfficialPoints,
+} from './memoriadGenerators.js';
+
+/** Demo-only answer keys for generated Memoriad sessions (kept in memory, never sent to a server). */
+const demoMemoriadSessions = new Map();
 
 // Static keys for demo state persistence
 const DEMO_STORAGE_KEY_STUDENTS = 'trendz_demo_students_v2';
@@ -5403,7 +5419,7 @@ export const DemoDB = {
         }
       }
     }
-    const allowedMods = ['calendar', 'additions', 'multiplications', 'square_roots'];
+    const allowedMods = ['calendar', 'additions', 'multiplications', 'division', 'square_roots'];
     const mod = allowedMods.includes(moduleKey) ? moduleKey : 'calendar';
     const conc = Number.isInteger(Number(settings?.concentration_seconds))
       ? Number(settings.concentration_seconds)
@@ -5434,48 +5450,56 @@ export const DemoDB = {
       };
     }
 
-    if (mod === 'multiplications') {
-      const fixedMultiplications10 = [
-        ['39951857', '81044514'],
-        ['48291034', '62718392'],
-        ['71502948', '53829104'],
-        ['29481756', '91827364'],
-        ['64738291', '38475629'],
-        ['85940312', '47281935'],
-        ['51928374', '73645281'],
-        ['92837465', '26374859'],
-        ['37485961', '84930217'],
-        ['76543219', '59483726'],
-      ];
-      return {
-        session_id: 'demo-memoriad-mul-session',
-        module: 'multiplications',
-        title: 'Mental Multiplications',
-        questions: fixedMultiplications10,
-        time_limit_seconds: Number(settings?.time_limit_seconds || settings?.duration_seconds) > 0 ? Number(settings.time_limit_seconds || settings.duration_seconds) : 900,
-        duration_seconds: Number(settings?.time_limit_seconds || settings?.duration_seconds) > 0 ? Number(settings.time_limit_seconds || settings.duration_seconds) : 900,
-        prep_seconds: conc,
-        settings: {
-          concentration_seconds: conc,
-        },
+    if (mod === 'multiplications' || mod === 'division' || mod === 'square_roots') {
+      let levelSettings;
+      let generated;
+      if (mod === 'multiplications') {
+        levelSettings = {
+          digits: normalizeMultiplicationDigits(settings?.digits),
+          layout: normalizeLayout(settings?.layout),
+        };
+        generated = generateMultiplicationSet(mathRandomRng, levelSettings.digits);
+      } else if (mod === 'division') {
+        levelSettings = {
+          ...normalizeDivisionLevel(settings?.dividend_digits, settings?.divisor_digits),
+          layout: normalizeLayout(settings?.layout),
+        };
+        generated = generateDivisionSet(
+          mathRandomRng,
+          levelSettings.dividend_digits,
+          levelSettings.divisor_digits
+        );
+      } else {
+        levelSettings = { digits: normalizeSquareRootDigits(settings?.digits) };
+        generated = generateSquareRootSet(mathRandomRng, levelSettings.digits);
+      }
+      const overrideLimit = Number(settings?.time_limit_seconds || settings?.duration_seconds);
+      const limit = overrideLimit > 0 ? overrideLimit : getMemoriadLevelTimeLimit(mod, levelSettings);
+      const sessionId = `demo-memoriad-${mod}-${Date.now()}`;
+      demoMemoriadSessions.set(sessionId, {
+        module: mod,
+        questions: generated.questions,
+        expected: generated.expected,
+        settings: { ...levelSettings, time_limit_seconds: limit },
+      });
+      const titles = {
+        multiplications: 'Mental Multiplications',
+        division: 'Mental Division',
+        square_roots: 'Mental Square Roots',
       };
-    }
-
-    if (mod === 'square_roots') {
-      const fixedSquareRoots10 = [
-        258524, 850772, 115456, 457832, 453077,
-        198432, 624518, 731905, 884210, 319482,
-      ];
       return {
-        session_id: 'demo-memoriad-sqrt-session',
-        module: 'square_roots',
-        title: 'Mental Square Roots',
-        questions: fixedSquareRoots10,
-        time_limit_seconds: Number(settings?.time_limit_seconds || settings?.duration_seconds) > 0 ? Number(settings.time_limit_seconds || settings.duration_seconds) : 900,
-        duration_seconds: Number(settings?.time_limit_seconds || settings?.duration_seconds) > 0 ? Number(settings.time_limit_seconds || settings.duration_seconds) : 900,
+        session_id: sessionId,
+        module: mod,
+        title: titles[mod],
+        questions: generated.questions,
+        time_limit_seconds: limit,
+        duration_seconds: limit,
         prep_seconds: conc,
         settings: {
+          ...levelSettings,
           concentration_seconds: conc,
+          time_limit_seconds: limit,
+          duration_seconds: limit,
         },
       };
     }
@@ -5518,7 +5542,7 @@ export const DemoDB = {
     if (!isDemoMode()) {
       throw new Error('Action blocked: Demo mode cannot mutate live database.');
     }
-    const allowedMods = ['calendar', 'additions', 'multiplications', 'square_roots'];
+    const allowedMods = ['calendar', 'additions', 'multiplications', 'division', 'square_roots'];
     const mod = allowedMods.includes(moduleKey) ? moduleKey : 'calendar';
     const rawAnswers = Array.isArray(answers) ? answers : [];
     const nonNullCount = rawAnswers.filter(
@@ -5530,9 +5554,11 @@ export const DemoDB = {
       calendar: 'Mental Calendar Dates',
       additions: 'Mental Additions',
       multiplications: 'Mental Multiplications',
+      division: 'Mental Division',
       square_roots: 'Mental Square Roots',
     };
     const title = titleMap[mod] || 'Mental Calendar Dates';
+    const generatedSession = demoMemoriadSessions.get(sessionId);
 
     if (nonNullCount === 0) {
       const isAssignedExpiry = normFinishedBy === 'time_up' && Boolean(settings?.todo_task_id);
@@ -5572,6 +5598,18 @@ export const DemoDB = {
         message: 'No questions were attempted, so no score was saved.',
         detail: [],
       };
+    }
+
+    if (generatedSession && generatedSession.module === mod) {
+      return this._gradeGeneratedMemoriadSession(
+        sessionId,
+        generatedSession,
+        rawAnswers,
+        studentId,
+        settings,
+        normFinishedBy,
+        title
+      );
     }
 
     const fixedAttempted = mod === 'calendar' ? 25 : 10;
@@ -5686,6 +5724,119 @@ export const DemoDB = {
       ...(mod === 'square_roots' ? { digits_total: fixedDigitsTotal } : {}),
       used_seconds: fixedUsedSeconds,
       finished_by: normFinishedBy,
+      saved: true,
+      result_id: newId,
+      activity_row: newActivityRow,
+      message: 'Saved to your scores.',
+      detail,
+    };
+  },
+
+  /**
+   * Demo grading for generated multiplication / division / square-root sessions using the
+   * shared official rules (exact answers; square-root tolerance digits with triangular points).
+   */
+  _gradeGeneratedMemoriadSession(sessionId, session, rawAnswers, studentId, settings, finishedBy, title) {
+    const mod = session.module;
+    const limit = Number(session.settings?.time_limit_seconds) || 600;
+    const clientSeconds = Number(settings?.duration_seconds ?? settings?.client_duration_seconds);
+    const usedSeconds =
+      Number.isFinite(clientSeconds) && clientSeconds > 0 ? Math.min(limit, clientSeconds) : limit;
+    let attempted = 0;
+    let correct = 0;
+    let score = 0;
+    let digitsTotal = 0;
+    const detail = session.questions.map((q, idx) => {
+      const expected = String(session.expected[idx]);
+      const raw = rawAnswers[idx];
+      if (mod === 'square_roots') {
+        const item = evaluateSquareRootAnswerOfficial(expected, raw);
+        if (item.attempted) attempted += 1;
+        if (item.correct) correct += 1;
+        score += item.points;
+        digitsTotal += item.correct_digits;
+        return {
+          index: idx + 1,
+          question_summary: `√${q}`,
+          expected,
+          expected_display: expected,
+          given: item.given_display,
+          given_display: item.given_display,
+          attempted: item.attempted,
+          correct: item.correct,
+          correct_digits: item.correct_digits,
+          points: item.points,
+        };
+      }
+      const given = raw === null || raw === undefined ? '' : String(raw).trim();
+      const isAttempted = given !== '';
+      const clean = given.replace(/^0+(?=\d)/, '');
+      const isCorrect = isAttempted && /^\d+$/.test(given) && clean === expected;
+      if (isAttempted) attempted += 1;
+      if (isCorrect) correct += 1;
+      const op = mod === 'division' ? '÷' : '×';
+      return {
+        index: idx + 1,
+        question_summary: `${q[0]} ${op} ${q[1]}`,
+        expected,
+        expected_display: expected,
+        given: isAttempted ? given : null,
+        given_display: isAttempted ? given : null,
+        attempted: isAttempted,
+        correct: isCorrect,
+      };
+    });
+    if (mod !== 'square_roots') score = correct;
+    const total = session.questions.length;
+    const allDone = mod === 'square_roots' ? attempted === total : correct === total;
+    const officialPoints = computeOfficialPoints(score, limit, usedSeconds, allDone);
+
+    const nowIso = new Date().toISOString();
+    const newId = `act-demo-mem-${Date.now()}`;
+    const rowSettings = {
+      module: mod,
+      questions: total,
+      attempted,
+      correct,
+      wrong: attempted - correct,
+      score,
+      used_seconds: usedSeconds,
+      concentration_seconds: Number(settings?.concentration_seconds) || 0,
+      finished_by: finishedBy,
+      official_points: officialPoints,
+      ...session.settings,
+      ...(mod === 'square_roots' ? { digits_total: digitsTotal } : {}),
+    };
+    const newActivityRow = {
+      id: newId,
+      student_id: studentId || 'usr-101',
+      activity_type: 'memoriad',
+      activity_name: title,
+      correct,
+      total: attempted,
+      time_seconds: Math.round(usedSeconds),
+      settings: rowSettings,
+      created_at: nowIso,
+      updated_at: nowIso,
+    };
+    const list = this.getActivityResults();
+    list.unshift(newActivityRow);
+    localStorage.setItem('trendz_demo_activity_results_v1', JSON.stringify(list));
+    demoMemoriadSessions.delete(sessionId);
+
+    return {
+      module: mod,
+      title,
+      questions_total: total,
+      attempted,
+      correct,
+      wrong: attempted - correct,
+      score,
+      official_points: officialPoints,
+      time_limit_seconds: limit,
+      ...(mod === 'square_roots' ? { digits_total: digitsTotal } : {}),
+      used_seconds: usedSeconds,
+      finished_by: finishedBy,
       saved: true,
       result_id: newId,
       activity_row: newActivityRow,
@@ -6296,6 +6447,7 @@ export const DemoDB = {
         { key: 'calendar', title: 'Mental Calendar Dates', badge: '125 Dates', score: 48, time: 275, holder: 'Aarav S.' },
         { key: 'additions', title: 'Mental Additions', badge: '10 × (10 × 10d)', score: 9, time: 210, holder: 'Diya P.' },
         { key: 'multiplications', title: 'Mental Multiplications', badge: '10 × (8d × 8d)', score: 8, time: 240, holder: 'Kabir V.' },
+        { key: 'division', title: 'Mental Division', badge: '10 × (10d ÷ 5d)', score: 9, time: 300, holder: 'Diya P.' },
         { key: 'square_roots', title: 'Mental Square Roots', badge: '10 × 6d Roots', score: 8, time: 260, holder: 'Aarav S.' },
       ];
 
@@ -6677,7 +6829,7 @@ export const DemoDB = {
         basics: { all: true, categories: [] },
         elements: { all: true, drills: [] },
         flash: { allowed: true },
-        memoriad: { all: true, modules: ['calendar', 'additions', 'multiplications', 'square_roots'], calendar_variants: [25, 50, 75, 100, 125] },
+        memoriad: { all: true, modules: ['calendar', 'additions', 'multiplications', 'division', 'square_roots'], calendar_variants: [25, 50, 75, 100, 125] },
         main_round: { all: true, categories: [] },
         oral_rounds: { allowed: true, operations: ['add', 'sub', 'mul'], digits: [1, 2, 3, 4, 5] },
         simple_practice: { allowed: true, activities: null }
@@ -6708,7 +6860,7 @@ export const DemoDB = {
         basics: { all: true, categories: [] },
         elements: { all: true, drills: [] },
         flash: { allowed: true },
-        memoriad: { all: true, modules: ['calendar', 'additions', 'multiplications', 'square_roots'], calendar_variants: [25, 50, 75, 100, 125] },
+        memoriad: { all: true, modules: ['calendar', 'additions', 'multiplications', 'division', 'square_roots'], calendar_variants: [25, 50, 75, 100, 125] },
         main_round: { all: true, categories: [] },
         oral_rounds: { allowed: true, operations: ['add', 'sub', 'mul'], digits: [1, 2, 3, 4, 5] },
         simple_practice: { allowed: true, activities: null }

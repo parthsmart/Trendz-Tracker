@@ -794,11 +794,12 @@ export function normalizeRecordForRenderer(r, section, currentStudentId = null, 
     const mod = r.module_key || r.id;
     const modObj = MEMORIAD_MODULE_CATALOG.find((m) => m.id === mod || m.key === mod);
     const datesTier = r.dates_tier || (mod === 'calendar' ? 125 : null);
-    if (!title || title === 'Record') {
+    // Legacy SQL rows may carry the raw module key (e.g. 'division') as the title.
+    if (!title || title === 'Record' || title === mod) {
       title = mod === 'calendar' ? `Calendar (${datesTier || 125} Dates)` : (modObj?.title || mod);
     }
     if (!settingsSummary) {
-      settingsSummary = mod === 'calendar' ? `${datesTier || 125} dates` : (modObj?.description || 'Competition Module');
+      settingsSummary = mod === 'calendar' ? `${datesTier || 125} dates` : (modObj?.badge || 'Competition Module');
     }
     if (!attemptUrl || attemptUrl === '#') {
       attemptUrl = `/pages/memoriad-play.html?module=${encodeURIComponent(mod)}${datesTier ? `&dates=${datesTier}` : ''}`;

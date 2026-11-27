@@ -34,12 +34,13 @@ export const TASK_TITLE_MAX_LENGTH = 80;
 export const TASK_LEVEL_MAX_LENGTH = 30;
 
 /**
- * The four Memoriad modules derived from `js/memoriadConfig.js` keys with their official titles.
+ * The Memoriad modules derived from `js/memoriadConfig.js` keys with their official titles.
  */
 export const MEMORIAD_MODULES = Object.freeze([
   { key: 'calendar', title: 'Mental Calendar Dates' },
   { key: 'additions', title: 'Mental Additions' },
   { key: 'multiplications', title: 'Mental Multiplications' },
+  { key: 'division', title: 'Mental Division' },
   { key: 'square_roots', title: 'Mental Square Roots' },
 ].filter((m) => Object.prototype.hasOwnProperty.call(MEMORIAD_TIME_LIMITS, m.key)));
 
@@ -417,7 +418,7 @@ export function flashSummary(task = {}) {
  *
  * - `'basics'` / `'round'`: active categories of that section only (never mixed).
  * - `'elements'`: enabled drills from `js/drillCatalog.js` (`value = drill.key`, `label = drill.title`).
- * - `'memoriad'`: the four modules (`calendar`, `additions`, `multiplications`, `square_roots`).
+ * - `'memoriad'`: the modules (`calendar`, `additions`, `multiplications`, `division`, `square_roots`).
  * - `'flash'`: `[]` (no options).
  *
  * @param {string} section

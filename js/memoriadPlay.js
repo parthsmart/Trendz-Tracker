@@ -5,8 +5,10 @@
  * 1. Settings (persisted per module in `localStorage` inside `try/catch`)
  * 2. Concentration (fetches session via `POST /api/memoriad` `{ action: 'start' }`,
  *    keeps questions in JS memory only, displays large countdown from `concentration_seconds` to `0`)
- * 3. Stage (1280x800 no-scroll competition layout for `calendar` or `additions`,
- *    hide site navigation, Fullscreen button, Exit confirmation, upward-counting timer,
+ * 3. Stage (1280x800 no-scroll Memoriad-style board for calendar, additions, multiplications,
+ *    division and square roots: big countdown timer, 2x5 question cards with the active card
+ *    highlighted, enlarged active problem with step boxes and answer digit boxes,
+ *    hide site navigation, Fullscreen button, Exit confirmation,
  *    keyboard shortcuts via `js/competitionKeys.js`, `js/calendarKeys.js`, `js/answerSlots.js`,
  *    and `js/columnHighlight.js`)
  * 4. Results (submits answers to `POST /api/memoriad` `{ action: 'submit' }`,
@@ -49,6 +51,27 @@ import {
   clickRootStepBox,
 } from './stepBoxes.js';
 import { getMemoriadTimeLimit } from './memoriadConfig.js';
+import {
+  MULTIPLICATION_DIGITS_MIN,
+  MULTIPLICATION_DIGITS_MAX,
+  SQUARE_ROOT_DIGITS_MIN,
+  SQUARE_ROOT_DIGITS_MAX,
+  SQUARE_ROOT_DECIMALS,
+  DIVISION_DIVIDEND_MIN,
+  DIVISION_DIVIDEND_MAX,
+  DIVISION_DIVISOR_MIN,
+  DIVISION_DIVISOR_MAX,
+  OFFICIAL_MULTIPLICATION_DIGITS,
+  OFFICIAL_SQUARE_ROOT_DIGITS,
+  OFFICIAL_DIVISION_LEVELS,
+  normalizeMultiplicationDigits,
+  normalizeSquareRootDigits,
+  normalizeDivisionLevel,
+  isValidDivisionLevel,
+  normalizeLayout,
+  squareRootIntegerDigits,
+  getMemoriadLevelTimeLimit,
+} from './memoriadGenerators.js';
 import { getScoreFeedback } from './scoreColors.js';
 import {
   parseTestRunnerQuery,
@@ -78,11 +101,21 @@ const DEFAULT_SETTINGS = {
   },
   multiplications: {
     typing_direction: 'rtl', // 'rtl' | 'ltr'
-    question_format: 'stacked', // 'stacked' ('side_by_side' disabled "coming later")
+    digits: 8, // 3..10 digits per factor (official: 5 and 8)
+    layout: 'vertical', // 'vertical' (stacked) | 'horizontal' (side by side)
+    timer_shown: true,
+    concentration_seconds: 5, // 0..120
+  },
+  division: {
+    typing_direction: 'ltr', // quotients are usually written left to right
+    dividend_digits: 10, // 4..10
+    divisor_digits: 5, // 2..5, at most dividend - 2
+    layout: 'vertical', // 'vertical' (long division) | 'horizontal' (a ÷ b)
     timer_shown: true,
     concentration_seconds: 5, // 0..120
   },
   square_roots: {
+    digits: 6, // 4..10 digit radicands (official: 6, 8 and 10)
     timer_shown: true,
     concentration_seconds: 5, // 0..120
   },
@@ -102,12 +135,17 @@ const MODULE_META = {
   multiplications: {
     key: 'multiplications',
     title: 'Mental Multiplications',
-    subtitle: 'Multiply two 8-digit numbers across 10 competition questions.',
+    subtitle: 'Multiply two numbers of the same length (3 to 10 digits) across 10 questions.',
+  },
+  division: {
+    key: 'division',
+    title: 'Mental Division',
+    subtitle: 'Divide 4- to 10-digit numbers by 2- to 5-digit numbers; every answer is exact.',
   },
   square_roots: {
     key: 'square_roots',
     title: 'Mental Square Roots',
-    subtitle: 'Extract the square root of 10 six-digit numbers to 5 decimal places (up to 360 points).',
+    subtitle: 'Find the square root of 10 numbers (4 to 10 digits) to 5 decimal places.',
   },
 };
 
@@ -173,10 +211,8 @@ let activeQuestionIndex = 0;
 let calendarAnswers = []; // Array<number|null> (0..6 or null)
 let additionsSlots = []; // Array<SlotState>
 let additionsManualStepOffsets = []; // Array<number>
-let multiplicationsSlots = []; // Array<SlotState> (16 slots each)
-let multiplicationsStepStates = []; // Array<number> (0..15 per question)
-let squareRootsSlots = []; // Array<SlotState> (8 slots each)
-let squareRootsStepStates = []; // Array<number> (0..6 per question)
+let numberBoardSlots = []; // Array<SlotState> for multiplications / division / square roots
+let numberBoardSteps = []; // Array<number> step-box state per question
 let stageStartPerfMs = 0;
 let timerIntervalId = null;
 let concentrationRafId = null;
@@ -382,29 +418,7 @@ async function startAssignedMemoriadPractice() {
     lastFinishedBy = 'finish';
     stageInputsLocked = false;
 
-    if (activeModuleKey === 'calendar') {
-      calendarAnswers = new Array(started.questions.length).fill(null);
-    } else if (activeModuleKey === 'additions') {
-      additionsSlots = started.questions.map(() =>
-        createAnswerSlots(
-          11,
-          currentSettings.typing_direction,
-          '',
-          currentSettings.highlight_columns
-        )
-      );
-      additionsManualStepOffsets = new Array(started.questions.length).fill(0);
-    } else if (activeModuleKey === 'multiplications') {
-      multiplicationsSlots = started.questions.map(() =>
-        createAnswerSlots(16, currentSettings.typing_direction, '', 1)
-      );
-      multiplicationsStepStates = new Array(started.questions.length).fill(0);
-    } else if (activeModuleKey === 'square_roots') {
-      squareRootsSlots = started.questions.map(() =>
-        createAnswerSlots(8, 'ltr', '', 1)
-      );
-      squareRootsStepStates = new Array(started.questions.length).fill(0);
-    }
+    initStageAnswerState(started.questions);
 
     if (concentrationSec > 0) {
       enterConcentrationPhase(concentrationSec);
@@ -432,6 +446,121 @@ async function startAssignedMemoriadPractice() {
       });
     }
   }
+}
+
+function rangeList(min, max) {
+  const out = [];
+  for (let n = min; n <= max; n++) out.push(n);
+  return out;
+}
+
+function buildDivisorOptions(dividendDigits, selectedDivisor) {
+  const valid = rangeList(DIVISION_DIVISOR_MIN, DIVISION_DIVISOR_MAX).filter((d) =>
+    isValidDivisionLevel(dividendDigits, d)
+  );
+  const selected = valid.includes(Number(selectedDivisor)) ? Number(selectedDivisor) : valid[valid.length - 1];
+  return valid
+    .map((d) => {
+      const official = OFFICIAL_DIVISION_LEVELS.includes(`${dividendDigits}/${d}`) ? ' · official' : '';
+      return `<option value="${d}" ${selected === d ? 'selected' : ''}>${d}-digit divisor (${dividendDigits}d ÷ ${d}d)${official}</option>`;
+    })
+    .join('');
+}
+
+function readDivisionLevelFromForm() {
+  return {
+    dividend_digits: Number(document.getElementById('setting-dividend-digits')?.value),
+    divisor_digits: Number(document.getElementById('setting-divisor-digits')?.value),
+  };
+}
+
+/** Level fields sent to `POST /api/memoriad` `{ action: 'start' }`. */
+function pickLevelSettings(moduleKey, settings = {}) {
+  if (moduleKey === 'multiplications') {
+    return {
+      digits: normalizeMultiplicationDigits(settings.digits),
+      layout: normalizeLayout(settings.layout),
+    };
+  }
+  if (moduleKey === 'division') {
+    return {
+      ...normalizeDivisionLevel(settings.dividend_digits, settings.divisor_digits),
+      layout: normalizeLayout(settings.layout),
+    };
+  }
+  if (moduleKey === 'square_roots') {
+    return { digits: normalizeSquareRootDigits(settings.digits) };
+  }
+  return {};
+}
+
+function formatMinutesText(totalSeconds) {
+  const sec = Math.max(0, Math.round(Number(totalSeconds) || 0));
+  const m = Math.floor(sec / 60);
+  const r = sec % 60;
+  if (m === 0) return `${r} seconds`;
+  const minText = `${m} minute${m === 1 ? '' : 's'}`;
+  return r ? `${minText} ${r} seconds` : minText;
+}
+
+function describeTimeLimitText(moduleKey, settings = {}) {
+  const limit = getMemoriadLevelTimeLimit(moduleKey, settings) ?? getMemoriadTimeLimit(moduleKey);
+  return `Time limit: ${formatMinutesText(limit)}`;
+}
+
+function isOfficialLevel(moduleKey, settings = {}) {
+  if (moduleKey === 'multiplications') {
+    return OFFICIAL_MULTIPLICATION_DIGITS.includes(normalizeMultiplicationDigits(settings.digits));
+  }
+  if (moduleKey === 'square_roots') {
+    return OFFICIAL_SQUARE_ROOT_DIGITS.includes(normalizeSquareRootDigits(settings.digits));
+  }
+  if (moduleKey === 'division') {
+    const lv = normalizeDivisionLevel(settings.dividend_digits, settings.divisor_digits);
+    return OFFICIAL_DIVISION_LEVELS.includes(`${lv.dividend_digits}/${lv.divisor_digits}`);
+  }
+  return true;
+}
+
+function describeTimeLimitHint(moduleKey, settings = {}) {
+  if (moduleKey === 'calendar' || moduleKey === 'additions') {
+    return 'Fixed official competition round duration.';
+  }
+  return isOfficialLevel(moduleKey, settings)
+    ? 'Official Memoriad time for this level.'
+    : 'Practice level: time scaled from the official levels.';
+}
+
+/** Keeps the divisor list and the time-limit text in step with the chosen level. */
+function bindLevelSettingsListeners() {
+  const readLevel = () => {
+    if (activeModuleKey === 'multiplications') {
+      return { digits: document.getElementById('setting-mult-digits')?.value };
+    }
+    if (activeModuleKey === 'division') return readDivisionLevelFromForm();
+    if (activeModuleKey === 'square_roots') {
+      return { digits: document.getElementById('setting-root-digits')?.value };
+    }
+    return {};
+  };
+  const refresh = () => {
+    const level = readLevel();
+    const textEl = document.getElementById('setting-time-limit-text');
+    const hintEl = document.getElementById('setting-time-limit-hint');
+    if (textEl) textEl.textContent = describeTimeLimitText(activeModuleKey, level);
+    if (hintEl) hintEl.textContent = describeTimeLimitHint(activeModuleKey, level);
+  };
+  ['setting-mult-digits', 'setting-root-digits', 'setting-divisor-digits'].forEach((id) => {
+    document.getElementById(id)?.addEventListener('change', refresh);
+  });
+  const dividendSelect = document.getElementById('setting-dividend-digits');
+  dividendSelect?.addEventListener('change', () => {
+    const divisorSelect = document.getElementById('setting-divisor-digits');
+    if (divisorSelect) {
+      divisorSelect.innerHTML = buildDivisorOptions(Number(dividendSelect.value), Number(divisorSelect.value));
+    }
+    refresh();
+  });
 }
 
 function renderSettingsView() {
@@ -491,7 +620,7 @@ function renderSettingsView() {
       s.dates = allowedDates[0];
     }
     moduleSpecificFieldsHtml = `
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--space-4);">
+      <div class="memoriad-settings-grid">
         <div class="form-group">
           <label for="setting-dates" class="form-label">Number of dates</label>
           <select id="setting-dates" class="form-control">
@@ -557,7 +686,7 @@ function renderSettingsView() {
   } else if (activeModuleKey === 'additions') {
     const s = currentSettings;
     moduleSpecificFieldsHtml = `
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--space-4);">
+      <div class="memoriad-settings-grid">
         <div class="form-group">
           <label for="setting-typing-direction" class="form-label">Typing direction</label>
           <select id="setting-typing-direction" class="form-control">
@@ -581,8 +710,31 @@ function renderSettingsView() {
     `;
   } else if (activeModuleKey === 'multiplications') {
     const s = currentSettings;
+    const multDigits = normalizeMultiplicationDigits(s.digits);
+    const multDigitOptions = rangeList(MULTIPLICATION_DIGITS_MIN, MULTIPLICATION_DIGITS_MAX)
+      .map((n) => {
+        const official = OFFICIAL_MULTIPLICATION_DIGITS.includes(n) ? ' · official' : '';
+        return `<option value="${n}" ${multDigits === n ? 'selected' : ''}>${n}d × ${n}d${official}</option>`;
+      })
+      .join('');
     moduleSpecificFieldsHtml = `
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--space-4);">
+      <div class="memoriad-settings-grid">
+        <div class="form-group">
+          <label for="setting-mult-digits" class="form-label">Level (digits per number)</label>
+          <select id="setting-mult-digits" class="form-control">
+            ${multDigitOptions}
+          </select>
+          <span class="form-hint">Official Memoriad levels are 5d × 5d and 8d × 8d.</span>
+        </div>
+
+        <div class="form-group">
+          <label for="setting-layout" class="form-label">Question layout</label>
+          <select id="setting-layout" class="form-control">
+            <option value="vertical" ${normalizeLayout(s.layout) === 'vertical' ? 'selected' : ''}>Vertical (numbers stacked)</option>
+            <option value="horizontal" ${normalizeLayout(s.layout) === 'horizontal' ? 'selected' : ''}>Horizontal (side by side)</option>
+          </select>
+        </div>
+
         <div class="form-group">
           <label for="setting-typing-direction" class="form-label">Typing direction</label>
           <select id="setting-typing-direction" class="form-control">
@@ -590,27 +742,76 @@ function renderSettingsView() {
             <option value="ltr" ${s.typing_direction === 'ltr' ? 'selected' : ''}>Left to right (leftmost column first)</option>
           </select>
         </div>
+      </div>
+    `;
+  } else if (activeModuleKey === 'division') {
+    const s = currentSettings;
+    const level = normalizeDivisionLevel(s.dividend_digits, s.divisor_digits);
+    s.dividend_digits = level.dividend_digits;
+    s.divisor_digits = level.divisor_digits;
+    const dividendOptions = rangeList(DIVISION_DIVIDEND_MIN, DIVISION_DIVIDEND_MAX)
+      .map(
+        (n) =>
+          `<option value="${n}" ${level.dividend_digits === n ? 'selected' : ''}>${n}-digit dividend</option>`
+      )
+      .join('');
+    moduleSpecificFieldsHtml = `
+      <div class="memoriad-settings-grid">
+        <div class="form-group">
+          <label for="setting-dividend-digits" class="form-label">Dividend (number being divided)</label>
+          <select id="setting-dividend-digits" class="form-control">
+            ${dividendOptions}
+          </select>
+        </div>
 
         <div class="form-group">
-          <label for="setting-question-format" class="form-label">Question format</label>
-          <select id="setting-question-format" class="form-control">
-            <option value="stacked" selected>Stacked (two 8-digit numbers with step boxes)</option>
-            <option value="side_by_side" disabled>Side by side (coming later)</option>
+          <label for="setting-divisor-digits" class="form-label">Divisor</label>
+          <select id="setting-divisor-digits" class="form-control">
+            ${buildDivisorOptions(level.dividend_digits, level.divisor_digits)}
+          </select>
+          <span class="form-hint">Official Memoriad level is 10d ÷ 5d. Every answer is a whole number.</span>
+        </div>
+
+        <div class="form-group">
+          <label for="setting-layout" class="form-label">Question layout</label>
+          <select id="setting-layout" class="form-control">
+            <option value="vertical" ${normalizeLayout(s.layout) === 'vertical' ? 'selected' : ''}>Vertical (long division)</option>
+            <option value="horizontal" ${normalizeLayout(s.layout) === 'horizontal' ? 'selected' : ''}>Horizontal (a ÷ b)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="setting-typing-direction" class="form-label">Typing direction</label>
+          <select id="setting-typing-direction" class="form-control">
+            <option value="ltr" ${s.typing_direction !== 'rtl' ? 'selected' : ''}>Left to right (default for division)</option>
+            <option value="rtl" ${s.typing_direction === 'rtl' ? 'selected' : ''}>Right to left</option>
           </select>
         </div>
       </div>
     `;
   } else {
-    // square_roots: only Show timer and Concentration time (rendered in the shared row below)
-    moduleSpecificFieldsHtml = '';
+    const s = currentSettings;
+    const digits = normalizeSquareRootDigits(s.digits);
+    const rootOptions = rangeList(SQUARE_ROOT_DIGITS_MIN, SQUARE_ROOT_DIGITS_MAX)
+      .map((n) => {
+        const official = OFFICIAL_SQUARE_ROOT_DIGITS.includes(n) ? ' · official' : '';
+        return `<option value="${n}" ${digits === n ? 'selected' : ''}>${n}-digit numbers${official}</option>`;
+      })
+      .join('');
+    moduleSpecificFieldsHtml = `
+      <div class="memoriad-settings-grid">
+        <div class="form-group">
+          <label for="setting-root-digits" class="form-label">Level (digits under the root)</label>
+          <select id="setting-root-digits" class="form-control">
+            ${rootOptions}
+          </select>
+          <span class="form-hint">Answer to 5 decimal places. Official Memoriad levels are 6, 8 and 10 digits.</span>
+        </div>
+      </div>
+    `;
   }
 
-  const fixedTimeLimitText =
-    activeModuleKey === 'calendar'
-      ? 'Time limit: 1 minute'
-      : activeModuleKey === 'additions'
-        ? 'Time limit: 10 minutes'
-        : 'Time limit: 15 minutes';
+  const fixedTimeLimitText = describeTimeLimitText(activeModuleKey, currentSettings);
 
   viewRoot.innerHTML = `
     <div style="max-width: 780px; margin: 0 auto;">
@@ -653,12 +854,13 @@ function renderSettingsView() {
             <div class="form-group">
               <span class="form-label">Round time limit</span>
               <div
+                id="setting-time-limit-text"
                 class="num"
                 style="padding: 9px 12px; background: var(--bg-surface-subtle); border: 1px solid var(--border-strong); border-radius: var(--radius-md); font-weight: 800; color: var(--text-main);"
               >
                 ${escapeHtml(fixedTimeLimitText)}
               </div>
-              <span class="form-hint">Fixed official competition round duration.</span>
+              <span id="setting-time-limit-hint" class="form-hint">${escapeHtml(describeTimeLimitHint(activeModuleKey, currentSettings))}</span>
             </div>
 
             <div class="form-group">
@@ -699,6 +901,8 @@ function renderSettingsView() {
       </section>
     </div>
   `;
+
+  bindLevelSettingsListeners();
 
   if (activeModuleKey === 'calendar') {
     const keyZeroSelect = document.getElementById('setting-key-zero-day');
@@ -759,12 +963,32 @@ async function handleStartFromSettings() {
     currentSettings = {
       typing_direction:
         document.getElementById('setting-typing-direction')?.value === 'ltr' ? 'ltr' : 'rtl',
-      question_format: 'stacked',
+      digits: normalizeMultiplicationDigits(document.getElementById('setting-mult-digits')?.value),
+      layout: normalizeLayout(document.getElementById('setting-layout')?.value),
+      timer_shown: timerShown,
+      concentration_seconds: concVal,
+    };
+  } else if (activeModuleKey === 'division') {
+    const level = readDivisionLevelFromForm();
+    if (!isValidDivisionLevel(level.dividend_digits, level.divisor_digits)) {
+      if (errBox) {
+        errBox.textContent = 'Choose a divisor that is at least 2 digits shorter than the dividend.';
+        errBox.style.display = 'block';
+      }
+      return;
+    }
+    currentSettings = {
+      typing_direction:
+        document.getElementById('setting-typing-direction')?.value === 'rtl' ? 'rtl' : 'ltr',
+      dividend_digits: level.dividend_digits,
+      divisor_digits: level.divisor_digits,
+      layout: normalizeLayout(document.getElementById('setting-layout')?.value),
       timer_shown: timerShown,
       concentration_seconds: concVal,
     };
   } else {
     currentSettings = {
+      digits: normalizeSquareRootDigits(document.getElementById('setting-root-digits')?.value),
       timer_shown: timerShown,
       concentration_seconds: concVal,
     };
@@ -783,6 +1007,7 @@ async function handleStartFromSettings() {
     const apiSettings = {
       concentration_seconds: currentSettings.concentration_seconds,
       ...(activeModuleKey === 'calendar' ? { dates: currentSettings.dates } : {}),
+      ...pickLevelSettings(activeModuleKey, currentSettings),
       ...(hwIdFromUrl ? { homework_id: hwIdFromUrl } : {}),
     };
 
@@ -802,29 +1027,7 @@ async function handleStartFromSettings() {
     lastFinishedBy = 'finish';
     stageInputsLocked = false;
 
-    if (activeModuleKey === 'calendar') {
-      calendarAnswers = new Array(started.questions.length).fill(null);
-    } else if (activeModuleKey === 'additions') {
-      additionsSlots = started.questions.map(() =>
-        createAnswerSlots(
-          11,
-          currentSettings.typing_direction,
-          '',
-          currentSettings.highlight_columns
-        )
-      );
-      additionsManualStepOffsets = new Array(started.questions.length).fill(0);
-    } else if (activeModuleKey === 'multiplications') {
-      multiplicationsSlots = started.questions.map(() =>
-        createAnswerSlots(16, currentSettings.typing_direction, '', 1)
-      );
-      multiplicationsStepStates = new Array(started.questions.length).fill(0);
-    } else if (activeModuleKey === 'square_roots') {
-      squareRootsSlots = started.questions.map(() =>
-        createAnswerSlots(8, 'ltr', '', 1)
-      );
-      squareRootsStepStates = new Array(started.questions.length).fill(0);
-    }
+    initStageAnswerState(started.questions);
 
     if (currentSettings.concentration_seconds > 0) {
       enterConcentrationPhase(currentSettings.concentration_seconds);
@@ -883,24 +1086,7 @@ async function startTestMemoriadSection() {
     lastFinishedBy = 'finish';
     stageInputsLocked = false;
 
-    if (activeModuleKey === 'calendar') {
-      calendarAnswers = new Array(started.questions.length).fill(null);
-    } else if (activeModuleKey === 'additions') {
-      additionsSlots = started.questions.map(() =>
-        createAnswerSlots(11, 'rtl', '', 1)
-      );
-      additionsManualStepOffsets = new Array(started.questions.length).fill(0);
-    } else if (activeModuleKey === 'multiplications') {
-      multiplicationsSlots = started.questions.map(() =>
-        createAnswerSlots(16, 'rtl', '', 1)
-      );
-      multiplicationsStepStates = new Array(started.questions.length).fill(0);
-    } else if (activeModuleKey === 'square_roots') {
-      squareRootsSlots = started.questions.map(() =>
-        createAnswerSlots(8, 'ltr', '', 1)
-      );
-      squareRootsStepStates = new Array(started.questions.length).fill(0);
-    }
+    initStageAnswerState(started.questions, { typing_direction: 'rtl', highlight_columns: 1 });
 
     enterConcentrationPhase(5);
   } catch (err) {
@@ -1003,7 +1189,7 @@ function getActiveStageLimitSeconds() {
   if (Number.isFinite(fromSession) && fromSession > 0) {
     return fromSession;
   }
-  return getMemoriadTimeLimit(activeModuleKey);
+  return getMemoriadTimeLimit(activeModuleKey, { ...(currentSettings || {}), ...(sessionData?.settings || {}) });
 }
 
 function enterStagePhase() {
@@ -1027,17 +1213,14 @@ function enterStagePhase() {
   } else if (activeModuleKey === 'additions') {
     renderAdditionsStageShell(stageRoot, limitSeconds);
     updateAdditionsStageDOM();
-  } else if (activeModuleKey === 'multiplications') {
-    renderMultiplicationsStageShell(stageRoot, limitSeconds);
-    updateMultiplicationsStageDOM();
   } else {
-    renderSquareRootsStageShell(stageRoot, limitSeconds);
-    updateSquareRootsStageDOM();
+    renderNumberBoardStageShell(stageRoot, limitSeconds);
+    updateNumberBoardStageDOM();
   }
 
   bindStageChromeButtons();
 
-  // Upward-counting timer & time-limit enforcement (checked every 100ms via performance.now())
+  // Countdown timer & time-limit enforcement (checked every 100ms via performance.now())
   timerIntervalId = window.setInterval(() => {
     if (phase !== 'stage' || stageInputsLocked) return;
     const elapsedSec = (performance.now() - stageStartPerfMs) / 1000;
@@ -1049,7 +1232,7 @@ function enterStagePhase() {
       stopAllTimers();
       const timerEl = document.getElementById('comp-stage-timer');
       if (timerEl && currentSettings.timer_shown !== false) {
-        timerEl.textContent = formatTimerMMSS(limitSeconds);
+        timerEl.textContent = formatTimerMMSS(0);
       }
       const existingModal = document.getElementById('comp-stage-inline-modal');
       if (existingModal) existingModal.remove();
@@ -1059,7 +1242,8 @@ function enterStagePhase() {
 
     const timerEl = document.getElementById('comp-stage-timer');
     if (timerEl && currentSettings.timer_shown !== false) {
-      timerEl.textContent = formatTimerMMSS(elapsedSec);
+      timerEl.textContent = formatTimerMMSS(Math.ceil(remainingSec));
+      timerEl.classList.toggle('is-ending', remainingSec <= 10);
     }
 
     // In the last 10 seconds show a clear countdown notice (text + visual cue, even when timer is hidden)
@@ -1080,42 +1264,16 @@ function enterStagePhase() {
 }
 
 function renderCalendarStageShell(stageRoot, limitSeconds) {
-  const timerStyle = currentSettings.timer_shown === false ? 'display: none;' : '';
-  const limitFormatted = formatTimerMMSS(limitSeconds);
+  const total = sessionData.questions.length;
   stageRoot.innerHTML = `
-    <div class="comp-stage-shell">
-      <div class="comp-stage-topbar">
-        <div style="display: flex; align-items: center; gap: var(--space-3);">
-          <div id="comp-stage-timer" class="comp-timer-display" style="${timerStyle}">00:00</div>
-          <div id="comp-stage-limit" class="comp-limit-badge">Limit ${escapeHtml(limitFormatted)}</div>
-          ${activeTodoTaskId ? `<span class="badge badge-info" style="font-weight: 700;">Daily Task (${limitSeconds}s locked)</span>` : ''}
-          <div id="comp-stage-last10" class="comp-last10-notice" role="status" aria-live="assertive">
-            <span aria-hidden="true">&#9888;</span>
-            <span>TIME ENDING: <strong id="comp-stage-last10-sec">10s left</strong></span>
-          </div>
-          <div>
-            <div style="font-size: var(--text-sm); font-weight: 800; color: var(--text-main);">
-              Mental Calendar Dates
-            </div>
-            <div style="font-size: 11px; color: var(--text-muted);">
-              Keys <code>0–7</code> select day &amp; jump to next unanswered &middot; <code>Enter</code> skip &middot; <code>+</code> / <code>-</code> or arrows move
-            </div>
-          </div>
-        </div>
-
-        <div style="display: flex; align-items: center; gap: var(--space-2);">
-          <span id="calendar-progress-pill" class="badge badge-role num">0 / ${sessionData.questions.length} answered</span>
-          <button type="button" id="btn-stage-fullscreen" class="btn btn-outline btn-sm">
-            Full Screen
-          </button>
-          <button type="button" id="btn-stage-exit" class="btn btn-outline btn-sm">
-            Exit
-          </button>
-          <button type="button" id="btn-stage-finish" class="btn btn-primary btn-sm">
-            FINISH
-          </button>
-        </div>
-      </div>
+    <div class="comp-stage-shell mb-board mb-board-calendar">
+      ${renderStageTopbar({
+        title: 'Mental Calendar Dates',
+        levelLabel: `${total} dates`,
+        limitSeconds,
+        progressId: 'calendar-progress-pill',
+        total,
+      })}
 
       <div class="comp-stage-body">
         <div class="calendar-stage-layout">
@@ -1157,6 +1315,9 @@ function renderCalendarStageShell(stageRoot, limitSeconds) {
           </div>
         </div>
       </div>
+      ${renderStageFooter({
+        hint: 'Keys <code>0–7</code> choose the day and jump to the next unanswered date &middot; <code>Enter</code> skip &middot; <code>+</code> / <code>-</code> or arrows move',
+      })}
     </div>
   `;
 
@@ -1320,42 +1481,16 @@ function moveCalendarQuestion(delta) {
  * ========================================================================== */
 
 function renderAdditionsStageShell(stageRoot, limitSeconds) {
-  const timerStyle = currentSettings.timer_shown === false ? 'display: none;' : '';
-  const limitFormatted = formatTimerMMSS(limitSeconds);
+  const total = sessionData.questions.length;
   stageRoot.innerHTML = `
-    <div class="comp-stage-shell">
-      <div class="comp-stage-topbar">
-        <div style="display: flex; align-items: center; gap: var(--space-3);">
-          <div id="comp-stage-timer" class="comp-timer-display" style="${timerStyle}">00:00</div>
-          <div id="comp-stage-limit" class="comp-limit-badge">Limit ${escapeHtml(limitFormatted)}</div>
-          ${activeTodoTaskId ? `<span class="badge badge-info" style="font-weight: 700;">Daily Task (${limitSeconds}s locked)</span>` : ''}
-          <div id="comp-stage-last10" class="comp-last10-notice" role="status" aria-live="assertive">
-            <span aria-hidden="true">&#9888;</span>
-            <span>TIME ENDING: <strong id="comp-stage-last10-sec">10s left</strong></span>
-          </div>
-          <div>
-            <div style="font-size: var(--text-sm); font-weight: 800; color: var(--text-main);">
-              Mental Additions (10 &times; 10-Digit Numbers)
-            </div>
-            <div style="font-size: 11px; color: var(--text-muted);">
-              Digits <code>0–9</code> type &middot; <code>*</code> step col &middot; <code>/</code> unstep col &middot; <code>+</code> next &middot; <code>-</code> prev &middot; <code>Enter</code> compact &amp; next
-            </div>
-          </div>
-        </div>
-
-        <div style="display: flex; align-items: center; gap: var(--space-2);">
-          <span id="additions-progress-pill" class="badge badge-role num">0 / 10 answered</span>
-          <button type="button" id="btn-stage-fullscreen" class="btn btn-outline btn-sm">
-            Full Screen
-          </button>
-          <button type="button" id="btn-stage-exit" class="btn btn-outline btn-sm">
-            Exit
-          </button>
-          <button type="button" id="btn-stage-finish" class="btn btn-primary btn-sm">
-            FINISH
-          </button>
-        </div>
-      </div>
+    <div class="comp-stage-shell mb-board mb-board-additions">
+      ${renderStageTopbar({
+        title: 'Mental Additions',
+        levelLabel: '10 × 10 digits',
+        limitSeconds,
+        progressId: 'additions-progress-pill',
+        total,
+      })}
 
       <div class="comp-stage-body">
         <div class="additions-stage-layout">
@@ -1369,17 +1504,11 @@ function renderAdditionsStageShell(stageRoot, limitSeconds) {
                 Question 1 of 10
               </span>
               <div style="display: flex; align-items: center; gap: 6px;">
-                <button type="button" id="btn-add-prev" class="btn btn-outline btn-sm" title="Previous question (-)">
-                  &larr; Prev (<code>-</code>)
-                </button>
                 <button type="button" id="btn-add-unstep" class="btn btn-outline btn-sm" title="Move column highlight back (/)">
                   Col Back (<code>/</code>)
                 </button>
                 <button type="button" id="btn-add-step" class="btn btn-outline btn-sm" title="Advance column highlight (*)">
                   Col Step (<code>*</code>)
-                </button>
-                <button type="button" id="btn-add-next" class="btn btn-secondary btn-sm" title="Next question (+)">
-                  Next (<code>+</code>) &rarr;
                 </button>
               </div>
             </div>
@@ -1396,6 +1525,11 @@ function renderAdditionsStageShell(stageRoot, limitSeconds) {
           </div>
         </div>
       </div>
+      ${renderStageFooter({
+        backId: 'btn-add-prev',
+        nextId: 'btn-add-next',
+        hint: 'Digits <code>0–9</code> type &middot; <code>*</code> / <code>/</code> move the column highlight &middot; <code>+</code> next &middot; <code>-</code> previous &middot; <code>Enter</code> next',
+      })}
     </div>
   `;
 
@@ -1435,11 +1569,12 @@ function updateAdditionsStageDOM() {
     gridEl.innerHTML = questions
       .map((tenNumbers, idx) => {
         const isActive = idx === activeQuestionIndex;
+        const isAnswered = toAnswerString(additionsSlots[idx]).length > 0;
         const ansStr = toAnswerString(additionsSlots[idx]);
         const rowsHtml = tenNumbers.map((numStr) => `<div>${escapeHtml(numStr)}</div>`).join('');
         return `
           <div
-            class="additions-mini-card ${isActive ? 'is-active' : ''}"
+            class="additions-mini-card ${isActive ? 'is-active' : ''} ${isAnswered ? 'is-answered' : ''}"
             data-add-idx="${idx}"
             role="button"
             tabindex="-1"
@@ -1471,6 +1606,10 @@ function updateAdditionsStageDOM() {
   // Render active question matrix with highlighted column(s)
   const qNumEl = document.getElementById('additions-active-qnum');
   if (qNumEl) qNumEl.textContent = `Question ${activeQuestionIndex + 1} of ${total}`;
+  const addBackBtn = document.getElementById('btn-add-prev');
+  const addNextBtn = document.getElementById('btn-add-next');
+  if (addBackBtn) addBackBtn.disabled = activeQuestionIndex <= 0;
+  if (addNextBtn) addNextBtn.disabled = activeQuestionIndex >= total - 1;
 
   const slotState = additionsSlots[activeQuestionIndex];
   const activeCols = new Set(
@@ -1548,564 +1687,555 @@ function moveAdditionsQuestion(delta) {
 }
 
 /* ============================================================================
- * MULTIPLICATIONS STAGE RENDERING & INTERACTION
+ * SHARED STAGE CHROME (Memoriad-style header, countdown timer and footer)
  * ========================================================================== */
 
-function renderMultiplicationsStageShell(stageRoot, limitSeconds) {
+/**
+ * Header used by every competition stage: "COMPETITION STAGE" label and module title on the
+ * left, the big countdown timer in the centre, progress + Full Screen / Exit on the right.
+ */
+function renderStageTopbar({ title, levelLabel = '', limitSeconds, progressId, total }) {
   const timerStyle = currentSettings.timer_shown === false ? 'display: none;' : '';
-  const limitFormatted = formatTimerMMSS(limitSeconds);
-  stageRoot.innerHTML = `
-    <div class="comp-stage-shell">
-      <div class="comp-stage-topbar">
-        <div style="display: flex; align-items: center; gap: var(--space-3);">
-          <div id="comp-stage-timer" class="comp-timer-display" style="${timerStyle}">00:00</div>
-          <div id="comp-stage-limit" class="comp-limit-badge">Limit ${escapeHtml(limitFormatted)}</div>
+  return `
+      <div class="comp-stage-topbar mb-topbar">
+        <div class="mb-topbar-left">
+          <span class="mb-stage-label">Competition Stage</span>
+          <div class="mb-stage-title">
+            ${escapeHtml(title)}
+            ${levelLabel ? `<span class="mb-level-chip num">${escapeHtml(levelLabel)}</span>` : ''}
+          </div>
           ${activeTodoTaskId ? `<span class="badge badge-info" style="font-weight: 700;">Daily Task (${limitSeconds}s locked)</span>` : ''}
+        </div>
+        <div class="mb-topbar-center">
+          <div
+            id="comp-stage-timer"
+            class="comp-timer-display mb-timer"
+            style="${timerStyle}"
+            role="timer"
+            aria-label="Time remaining"
+            title="Time limit ${escapeHtml(formatTimerMMSS(limitSeconds))}"
+          >${escapeHtml(formatTimerMMSS(limitSeconds))}</div>
           <div id="comp-stage-last10" class="comp-last10-notice" role="status" aria-live="assertive">
             <span aria-hidden="true">&#9888;</span>
             <span>TIME ENDING: <strong id="comp-stage-last10-sec">10s left</strong></span>
           </div>
-          <div>
-            <div style="font-size: var(--text-sm); font-weight: 800; color: var(--text-main);">
-              Mental Multiplications (10 &times; 8-Digit &times; 8-Digit)
-            </div>
-            <div style="font-size: 11px; color: var(--text-muted);">
-              Digits <code>0–9</code> type &middot; <code>*</code> cycle step box &middot; <code>+</code> next &middot; <code>-</code> prev &middot; <code>Enter</code> compact &amp; next
-            </div>
-          </div>
         </div>
-
-        <div style="display: flex; align-items: center; gap: var(--space-2);">
-          <span id="multiplications-progress-pill" class="badge badge-role num">0 / 10 answered</span>
-          <button type="button" id="btn-stage-fullscreen" class="btn btn-outline btn-sm">
-            Full Screen
-          </button>
-          <button type="button" id="btn-stage-exit" class="btn btn-outline btn-sm">
-            Exit
-          </button>
-          <button type="button" id="btn-stage-finish" class="btn btn-primary btn-sm">
-            FINISH
-          </button>
+        <div class="mb-topbar-right">
+          <span id="${progressId}" class="mb-progress-pill num">0 / ${total} answered</span>
+          <button type="button" id="btn-stage-fullscreen" class="btn btn-outline btn-sm">Full Screen</button>
+          <button type="button" id="btn-stage-exit" class="btn btn-outline btn-sm">Exit</button>
         </div>
       </div>
-
-      <div class="comp-stage-body">
-        <div class="additions-stage-layout">
-          <!-- Left: 5x2 grid of all 10 multiplication questions -->
-          <div id="multiplications-overview-grid" class="additions-overview-grid" aria-label="All 10 multiplication questions"></div>
-
-          <!-- Right: Active question workbench -->
-          <div class="additions-workbench">
-            <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2);">
-              <span id="multiplications-active-qnum" class="badge badge-active num" style="font-size: var(--text-sm);">
-                Question 1 of 10
-              </span>
-              <div style="display: flex; align-items: center; gap: 6px;">
-                <button type="button" id="btn-mult-prev" class="btn btn-outline btn-sm" title="Previous question (-)">
-                  &larr; Prev (<code>-</code>)
-                </button>
-                <button type="button" id="btn-mult-step" class="btn btn-outline btn-sm" title="Advance cyclic step box (*)">
-                  Step Box (<code>*</code>)
-                </button>
-                <button type="button" id="btn-mult-next" class="btn btn-secondary btn-sm" title="Next question (+)">
-                  Next (<code>+</code>) &rarr;
-                </button>
-              </div>
-            </div>
-
-            <div id="multiplications-active-matrix" class="additions-matrix" style="padding: var(--space-5) var(--space-4);"></div>
-
-            <div>
-              <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">
-                <span>16 Answer Slots (${currentSettings.typing_direction === 'ltr' ? 'Left to Right' : 'Right to Left'})</span>
-                <span>Click any slot or use <code>&larr;</code> <code>&rarr;</code> / <code>Backspace</code></span>
-              </div>
-              <div id="multiplications-slots-row" class="mult-slots-row"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
   `;
-
-  document.getElementById('btn-mult-prev')?.addEventListener('click', () => {
-    moveMultiplicationsQuestion(-1);
-  });
-  document.getElementById('btn-mult-next')?.addEventListener('click', () => {
-    moveMultiplicationsQuestion(1);
-  });
-  document.getElementById('btn-mult-step')?.addEventListener('click', () => {
-    multiplicationsStepStates[activeQuestionIndex] = pressMultStepKey(
-      multiplicationsStepStates[activeQuestionIndex] || 0,
-      '*',
-      8
-    );
-    updateMultiplicationsStageDOM();
-  });
 }
 
-function updateMultiplicationsStageDOM() {
-  if (phase !== 'stage' || activeModuleKey !== 'multiplications' || !sessionData) return;
-
-  const questions = sessionData.questions;
-  const total = questions.length;
-  const answeredCount = multiplicationsSlots.filter((st) => toAnswerString(st).length > 0).length;
-
-  const progressPill = document.getElementById('multiplications-progress-pill');
-  if (progressPill) {
-    progressPill.textContent = `${answeredCount} / ${total} answered`;
-  }
-
-  // Render 5x2 overview grid
-  const gridEl = document.getElementById('multiplications-overview-grid');
-  if (gridEl) {
-    gridEl.innerHTML = questions
-      .map((pair, idx) => {
-        const isActive = idx === activeQuestionIndex;
-        const ansStr = toAnswerString(multiplicationsSlots[idx]);
-        const [factorA = '', factorB = ''] = Array.isArray(pair) ? pair : [];
-        return `
-          <div
-            class="additions-mini-card ${isActive ? 'is-active' : ''}"
-            data-mult-idx="${idx}"
-            role="button"
-            tabindex="-1"
-          >
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-              <strong style="font-size: 11px; color: ${isActive ? 'var(--color-primary)' : 'var(--text-muted)'};">
-                Q${idx + 1}${isActive ? ' ●' : ''}
-              </strong>
-              <span style="font-size: 10px; color: var(--text-dim);">${ansStr ? '✓' : ''}</span>
-            </div>
-            <div class="additions-mini-rows" style="font-size: 13px; line-height: 1.45; margin: auto 0;">
-              <div>${escapeHtml(factorA)}</div>
-              <div>&times; ${escapeHtml(factorB)}</div>
-            </div>
-            <div class="additions-mini-answer" style="font-size: 11px;">${ansStr ? escapeHtml(ansStr) : '&nbsp;'}</div>
-          </div>
-        `;
-      })
-      .join('');
-
-    gridEl.querySelectorAll('[data-mult-idx]').forEach((card) => {
-      card.addEventListener('click', () => {
-        const idx = Number(card.getAttribute('data-mult-idx'));
-        if (Number.isInteger(idx) && idx >= 0 && idx < total) {
-          activeQuestionIndex = idx;
-          updateMultiplicationsStageDOM();
-        }
-      });
-    });
-  }
-
-  // Render active question workbench: 8 step boxes + two 8-digit numbers
-  const qNumEl = document.getElementById('multiplications-active-qnum');
-  if (qNumEl) qNumEl.textContent = `Question ${activeQuestionIndex + 1} of ${total}`;
-
-  const stepState = multiplicationsStepStates[activeQuestionIndex] || 0;
-  const checkedBoxes = getMultCheckedBoxes(stepState, 8);
-  const nextClickBoxIdx = getMultNextClickBoxIndex(stepState, 8);
-
-  const matrixEl = document.getElementById('multiplications-active-matrix');
-  if (matrixEl) {
-    const [factorA = '00000000', factorB = '00000000'] =
-      questions[activeQuestionIndex] || ['00000000', '00000000'];
-
-    const stepBoxesHtml = checkedBoxes
-      .map((isChecked, colIdx) => {
-        const isNextTarget = colIdx === nextClickBoxIdx;
-        return `
-          <div
-            class="comp-step-box ${isChecked ? 'is-checked' : ''} ${isNextTarget ? 'is-next-target' : ''}"
-            data-mult-step-box="${colIdx}"
-            role="button"
-            tabindex="-1"
-            title="${isNextTarget ? 'Click or press * to advance step' : 'Step box ' + (colIdx + 1)}"
-            aria-label="Column ${colIdx + 1} step box (${isChecked ? 'checked' : 'unchecked'})"
-          >
-            ${isChecked ? '&#10003;' : ''}
-          </div>
-        `;
-      })
-      .join('');
-
-    const renderFactorRow = (numStr, signHtml) => {
-      const cells = String(numStr)
-        .padStart(8, '0')
-        .split('')
-        .map((ch, colIdx) => {
-          const hlClass = checkedBoxes[colIdx] ? 'is-col-highlighted' : '';
-          return `<span class="mult-digit-cell ${hlClass}">${escapeHtml(ch)}</span>`;
-        })
-        .join('');
-      return `
-        <span class="additions-row-idx" style="font-size: 1.25rem; font-weight: 800; color: var(--text-muted);">${signHtml}</span>
-        ${cells}
-      `;
-    };
-
-    matrixEl.innerHTML = `
-      <div style="font-size: 11px; color: var(--text-muted); margin-bottom: var(--space-2);">
-        Step Boxes (press <code>*</code> or click the dashed box in sequence; step ${stepState} / 16)
+/** Footer with key hints on the left and BACK / NEXT / FINISH on the right. */
+function renderStageFooter({ backId = '', nextId = '', hint = '' }) {
+  return `
+      <div class="mb-footer">
+        <div class="mb-keys-hint">${hint}</div>
+        <div class="mb-footer-actions">
+          ${backId ? `<button type="button" id="${backId}" class="btn mb-btn mb-btn-back" title="Previous question (-)">&larr; BACK</button>` : ''}
+          ${nextId ? `<button type="button" id="${nextId}" class="btn mb-btn mb-btn-next" title="Next question (+)">NEXT &rarr;</button>` : ''}
+          <button type="button" id="btn-stage-finish" class="btn mb-btn mb-btn-finish">FINISH</button>
+        </div>
       </div>
-      <div class="mult-matrix-grid">
-        <span></span>
-        ${stepBoxesHtml}
-        ${renderFactorRow(factorA, '')}
-        ${renderFactorRow(factorB, '&times;')}
-      </div>
-    `;
-
-    matrixEl.querySelectorAll('[data-mult-step-box]').forEach((boxEl) => {
-      boxEl.addEventListener('click', () => {
-        const colIdx = Number(boxEl.getAttribute('data-mult-step-box'));
-        const nextState = clickMultStepBox(
-          multiplicationsStepStates[activeQuestionIndex] || 0,
-          colIdx,
-          8
-        );
-        if (nextState !== multiplicationsStepStates[activeQuestionIndex]) {
-          multiplicationsStepStates[activeQuestionIndex] = nextState;
-          updateMultiplicationsStageDOM();
-        }
-      });
-    });
-  }
-
-  // Render 16 answer slots
-  const slotState = multiplicationsSlots[activeQuestionIndex];
-  const slotsRowEl = document.getElementById('multiplications-slots-row');
-  if (slotsRowEl && slotState) {
-    slotsRowEl.innerHTML = slotState.slots
-      .map((ch, slotIdx) => {
-        const isCursor = slotIdx === slotState.cursor;
-        return `
-          <div
-            class="additions-slot-box ${isCursor ? 'is-cursor' : ''}"
-            data-slot-idx="${slotIdx}"
-            role="button"
-            tabindex="-1"
-          >
-            ${ch ? escapeHtml(ch) : ''}
-          </div>
-        `;
-      })
-      .join('');
-
-    slotsRowEl.querySelectorAll('[data-slot-idx]').forEach((box) => {
-      box.addEventListener('click', () => {
-        const sIdx = Number(box.getAttribute('data-slot-idx'));
-        multiplicationsSlots[activeQuestionIndex] = setCursor(
-          multiplicationsSlots[activeQuestionIndex],
-          sIdx
-        );
-        updateMultiplicationsStageDOM();
-      });
-    });
-  }
-}
-
-function moveMultiplicationsQuestion(delta) {
-  if (!sessionData || stageInputsLocked) return;
-  const total = sessionData.questions.length;
-  const next = Math.max(0, Math.min(total - 1, activeQuestionIndex + delta));
-  if (next !== activeQuestionIndex) {
-    activeQuestionIndex = next;
-    updateMultiplicationsStageDOM();
-  }
+  `;
 }
 
 /* ============================================================================
- * SQUARE ROOTS STAGE RENDERING & INTERACTION
+ * NUMBER BOARD STAGE (Multiplications, Division, Square Roots)
  * ========================================================================== */
 
-function formatRootSlotsPreview(slotState) {
-  if (!slotState || !Array.isArray(slotState.slots)) return '';
-  if (!slotState.slots.some((ch) => ch !== '')) return '';
+const NUMBER_BOARD_MODULES = ['multiplications', 'division', 'square_roots'];
+
+function isNumberBoardModule(moduleKey = activeModuleKey) {
+  return NUMBER_BOARD_MODULES.includes(moduleKey);
+}
+
+/**
+ * Level of the running session. Question shapes win over settings so that older sessions
+ * (for example weekly tests generated before levels existed) still render correctly.
+ */
+function getStageLevel() {
+  const s = { ...(currentSettings || {}), ...(sessionData?.settings || {}) };
+  const questions = Array.isArray(sessionData?.questions) ? sessionData.questions : [];
+  const first = questions[0];
+  if (activeModuleKey === 'multiplications') {
+    const fromQuestion = Array.isArray(first) ? String(first[0] ?? '').length : 0;
+    const digits = fromQuestion || normalizeMultiplicationDigits(s.digits);
+    return {
+      digits,
+      layout: normalizeLayout(s.layout || s.question_format),
+      slotCount: digits * 2,
+      stepCount: digits,
+    };
+  }
+  if (activeModuleKey === 'division') {
+    const fromDividend = Array.isArray(first) ? String(first[0] ?? '').length : 0;
+    const fromDivisor = Array.isArray(first) ? String(first[1] ?? '').length : 0;
+    const level =
+      fromDividend && fromDivisor
+        ? { dividend_digits: fromDividend, divisor_digits: fromDivisor }
+        : normalizeDivisionLevel(s.dividend_digits, s.divisor_digits);
+    return {
+      ...level,
+      layout: normalizeLayout(s.layout),
+      slotCount: level.dividend_digits - level.divisor_digits + 1,
+      stepCount: level.dividend_digits,
+    };
+  }
+  if (activeModuleKey === 'square_roots') {
+    const fromQuestion = first !== undefined && first !== null ? String(first).length : 0;
+    const digits = fromQuestion || normalizeSquareRootDigits(s.digits);
+    const intDigits = squareRootIntegerDigits(digits);
+    return {
+      digits,
+      intDigits,
+      slotCount: intDigits + SQUARE_ROOT_DECIMALS,
+      stepCount: digits,
+    };
+  }
+  return { slotCount: 11, stepCount: 0 };
+}
+
+function describeStageLevel(level) {
+  if (activeModuleKey === 'multiplications') {
+    return `${level.digits}d × ${level.digits}d${level.layout === 'horizontal' ? ' · side by side' : ''}`;
+  }
+  if (activeModuleKey === 'division') {
+    return `${level.dividend_digits}d ÷ ${level.divisor_digits}d${level.layout === 'horizontal' ? ' · horizontal' : ''}`;
+  }
+  if (activeModuleKey === 'square_roots') {
+    return `√ ${level.digits} digits · 5 decimals`;
+  }
+  return '';
+}
+
+/** Creates fresh answer state for the active module (slot counts follow the level). */
+function initStageAnswerState(questions, opts = {}) {
+  const count = Array.isArray(questions) ? questions.length : 0;
+  activeQuestionIndex = 0;
+  if (activeModuleKey === 'calendar') {
+    calendarAnswers = new Array(count).fill(null);
+    return;
+  }
+  if (activeModuleKey === 'additions') {
+    additionsSlots = questions.map(() =>
+      createAnswerSlots(
+        11,
+        opts.typing_direction ?? currentSettings.typing_direction,
+        '',
+        opts.highlight_columns ?? currentSettings.highlight_columns
+      )
+    );
+    additionsManualStepOffsets = new Array(count).fill(0);
+    return;
+  }
+  const level = getStageLevel();
+  const requested =
+    opts.typing_direction ??
+    currentSettings.typing_direction ??
+    (activeModuleKey === 'division' ? 'ltr' : 'rtl');
+  const direction = activeModuleKey === 'square_roots' ? 'ltr' : requested === 'ltr' ? 'ltr' : 'rtl';
+  numberBoardSlots = questions.map(() => createAnswerSlots(level.slotCount, direction, '', 1));
+  numberBoardSteps = new Array(count).fill(0);
+}
+
+function hasSlotInput(slotState) {
+  return Boolean(
+    slotState && Array.isArray(slotState.slots) && slotState.slots.some((ch) => ch !== '')
+  );
+}
+
+function formatRootSlotsPreview(slotState, intDigits = 3) {
+  if (!hasSlotInput(slotState)) return '';
   const intPart = slotState.slots
-    .slice(0, 3)
+    .slice(0, intDigits)
     .map((ch) => ch || '_')
     .join('');
-  const hasDec = slotState.slots.slice(3, 8).some((ch) => ch !== '');
-  if (!hasDec) {
+  const decSlots = slotState.slots.slice(intDigits);
+  if (!decSlots.some((ch) => ch !== '')) {
     return intPart.replace(/_+$/, '');
   }
-  const decPart = slotState.slots
-    .slice(3, 8)
+  const decPart = decSlots
     .map((ch) => ch || '_')
     .join('')
     .replace(/_+$/, '');
   return `${intPart}.${decPart}`;
 }
 
-function renderSquareRootsStageShell(stageRoot, limitSeconds) {
-  const timerStyle = currentSettings.timer_shown === false ? 'display: none;' : '';
-  const limitFormatted = formatTimerMMSS(limitSeconds);
+function numberBoardAnswerPreview(idx, level) {
+  const st = numberBoardSlots[idx];
+  if (activeModuleKey === 'square_roots') return formatRootSlotsPreview(st, level.intDigits);
+  return toAnswerString(st);
+}
+
+function numberBoardCheckedBoxes(level, state) {
+  return activeModuleKey === 'multiplications'
+    ? getMultCheckedBoxes(state, level.stepCount)
+    : getRootCheckedBoxes(state, level.stepCount);
+}
+
+function numberBoardNextTargets(level, state) {
+  if (activeModuleKey === 'multiplications') {
+    return new Set([getMultNextClickBoxIndex(state, level.stepCount)]);
+  }
+  return new Set([state, state - 1]);
+}
+
+function pressNumberBoardStep(key) {
+  if (!sessionData || stageInputsLocked) return;
+  const level = getStageLevel();
+  const current = numberBoardSteps[activeQuestionIndex] || 0;
+  if (activeModuleKey === 'multiplications') {
+    // '/' does nothing in multiplication (cyclic step boxes advance with '*')
+    if (key !== '*') return;
+    numberBoardSteps[activeQuestionIndex] = pressMultStepKey(current, '*', level.stepCount);
+  } else {
+    numberBoardSteps[activeQuestionIndex] = pressRootStepKey(current, key, level.stepCount);
+  }
+  updateNumberBoardStageDOM();
+}
+
+function clickNumberBoardStepBox(boxIdx) {
+  if (!sessionData || stageInputsLocked) return;
+  const level = getStageLevel();
+  const current = numberBoardSteps[activeQuestionIndex] || 0;
+  const next =
+    activeModuleKey === 'multiplications'
+      ? clickMultStepBox(current, boxIdx, level.stepCount)
+      : clickRootStepBox(current, boxIdx, level.stepCount);
+  if (next !== current) {
+    numberBoardSteps[activeQuestionIndex] = next;
+    updateNumberBoardStageDOM();
+  }
+}
+
+function renderNumberBoardStageShell(stageRoot, limitSeconds) {
+  const level = getStageLevel();
+  const total = sessionData.questions.length;
+  const meta = MODULE_META[activeModuleKey] || { title: 'Competition Stage' };
+  const isRoots = activeModuleKey === 'square_roots';
+  const isMult = activeModuleKey === 'multiplications';
+  const stepHint = isMult
+    ? 'Step boxes: <code>*</code> marks the next column pair'
+    : 'Step boxes: <code>*</code> check &middot; <code>/</code> uncheck';
+  const keysHint = `Digits <code>0–9</code> type &middot; <code>&larr;</code> <code>&rarr;</code> move between digits &middot; <code>Backspace</code> delete &middot; <code>+</code> next &middot; <code>-</code> previous &middot; <code>Enter</code> next / finish`;
+
   stageRoot.innerHTML = `
-    <div class="comp-stage-shell">
-      <div class="comp-stage-topbar">
-        <div style="display: flex; align-items: center; gap: var(--space-3);">
-          <div id="comp-stage-timer" class="comp-timer-display" style="${timerStyle}">00:00</div>
-          <div id="comp-stage-limit" class="comp-limit-badge">Limit ${escapeHtml(limitFormatted)}</div>
-          ${activeTodoTaskId ? `<span class="badge badge-info" style="font-weight: 700;">Daily Task (${limitSeconds}s locked)</span>` : ''}
-          <div id="comp-stage-last10" class="comp-last10-notice" role="status" aria-live="assertive">
-            <span aria-hidden="true">&#9888;</span>
-            <span>TIME ENDING: <strong id="comp-stage-last10-sec">10s left</strong></span>
+    <div class="comp-stage-shell mb-board mb-board-${escapeHtml(activeModuleKey)}">
+      ${renderStageTopbar({
+        title: meta.title,
+        levelLabel: describeStageLevel(level),
+        limitSeconds,
+        progressId: 'nb-progress-pill',
+        total,
+      })}
+      <div class="comp-stage-body mb-body">
+        <div
+          id="nb-overview-grid"
+          class="mb-card-grid ${isRoots ? 'mb-grid-roots' : ''}"
+          aria-label="All ${total} questions"
+        ></div>
+        <div class="mb-workbench">
+          <div class="mb-workbench-head">
+            <span id="nb-active-qnum" class="mb-qnum num">Question 1 of ${total}</span>
+            <span class="mb-workbench-hint">${stepHint}</span>
           </div>
-          <div>
-            <div style="font-size: var(--text-sm); font-weight: 800; color: var(--text-main);">
-              Mental Square Roots (10 &times; 6-Digit Radicands to 5 Decimals)
-            </div>
-            <div style="font-size: 11px; color: var(--text-muted);">
-              Digits <code>0–9</code> type &middot; <code>*</code> check box &middot; <code>/</code> uncheck box &middot; <code>+</code> next &middot; <code>-</code> prev &middot; <code>Enter</code> next
-            </div>
-          </div>
-        </div>
-
-        <div style="display: flex; align-items: center; gap: var(--space-2);">
-          <span id="roots-progress-pill" class="badge badge-role num">0 / 10 answered</span>
-          <button type="button" id="btn-stage-fullscreen" class="btn btn-outline btn-sm">
-            Full Screen
-          </button>
-          <button type="button" id="btn-stage-exit" class="btn btn-outline btn-sm">
-            Exit
-          </button>
-          <button type="button" id="btn-stage-finish" class="btn btn-primary btn-sm">
-            FINISH
-          </button>
+          <div id="nb-active-problem" class="mb-active-problem"></div>
         </div>
       </div>
-
-      <div class="comp-stage-body">
-        <div class="additions-stage-layout">
-          <!-- Left: 5x2 grid of all 10 square root questions -->
-          <div id="roots-overview-grid" class="additions-overview-grid" aria-label="All 10 square root questions"></div>
-
-          <!-- Right: Active question workbench -->
-          <div class="additions-workbench">
-            <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2);">
-              <span id="roots-active-qnum" class="badge badge-active num" style="font-size: var(--text-sm);">
-                Question 1 of 10
-              </span>
-              <div style="display: flex; align-items: center; gap: 6px;">
-                <button type="button" id="btn-root-prev" class="btn btn-outline btn-sm" title="Previous question (-)">
-                  &larr; Prev (<code>-</code>)
-                </button>
-                <button type="button" id="btn-root-unstep" class="btn btn-outline btn-sm" title="Uncheck rightmost step box (/)">
-                  Unstep (<code>/</code>)
-                </button>
-                <button type="button" id="btn-root-step" class="btn btn-outline btn-sm" title="Check next step box (*)">
-                  Step (<code>*</code>)
-                </button>
-                <button type="button" id="btn-root-next" class="btn btn-secondary btn-sm" title="Next question (+)">
-                  Next (<code>+</code>) &rarr;
-                </button>
-              </div>
-            </div>
-
-            <div id="roots-active-matrix" class="additions-matrix" style="padding: var(--space-5) var(--space-4);"></div>
-
-            <div>
-              <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">
-                <span>8 Answer Slots (<code>___ . _____</code> — Fixed Decimal Point After 3rd Digit)</span>
-                <span>Click any slot or use <code>&larr;</code> <code>&rarr;</code> / <code>Backspace</code></span>
-              </div>
-              <div id="roots-slots-row" class="roots-slots-row"></div>
-            </div>
-          </div>
-        </div>
-      </div>
+      ${renderStageFooter({ backId: 'btn-nb-prev', nextId: 'btn-nb-next', hint: keysHint })}
     </div>
   `;
 
-  document.getElementById('btn-root-prev')?.addEventListener('click', () => {
-    moveSquareRootsQuestion(-1);
+  document.getElementById('btn-nb-prev')?.addEventListener('click', () => {
+    moveNumberBoardQuestion(-1);
   });
-  document.getElementById('btn-root-next')?.addEventListener('click', () => {
-    moveSquareRootsQuestion(1);
-  });
-  document.getElementById('btn-root-step')?.addEventListener('click', () => {
-    squareRootsStepStates[activeQuestionIndex] = pressRootStepKey(
-      squareRootsStepStates[activeQuestionIndex] || 0,
-      '*',
-      6
-    );
-    updateSquareRootsStageDOM();
-  });
-  document.getElementById('btn-root-unstep')?.addEventListener('click', () => {
-    squareRootsStepStates[activeQuestionIndex] = pressRootStepKey(
-      squareRootsStepStates[activeQuestionIndex] || 0,
-      '/',
-      6
-    );
-    updateSquareRootsStageDOM();
+  document.getElementById('btn-nb-next')?.addEventListener('click', () => {
+    moveNumberBoardQuestion(1);
   });
 }
 
-function updateSquareRootsStageDOM() {
-  if (phase !== 'stage' || activeModuleKey !== 'square_roots' || !sessionData) return;
+function renderNumberBoardCardProblem(question, level) {
+  if (activeModuleKey === 'square_roots') {
+    return `<span class="mb-card-radical" aria-hidden="true">&radic;</span><span class="mb-card-radicand">${escapeHtml(String(question))}</span>`;
+  }
+  const [a = '', b = ''] = Array.isArray(question) ? question : [];
+  if (activeModuleKey === 'multiplications') {
+    return level.layout === 'horizontal'
+      ? `<div class="mb-card-inline">${escapeHtml(a)} &times; ${escapeHtml(b)}</div>`
+      : `<div class="mb-card-stack"><div>${escapeHtml(a)}</div><div><span class="mb-card-sign">&times;</span>${escapeHtml(b)}</div></div>`;
+  }
+  return level.layout === 'horizontal'
+    ? `<div class="mb-card-inline">${escapeHtml(a)} &divide; ${escapeHtml(b)}</div>`
+    : `<div class="mb-card-longdiv"><span class="mb-card-divisor">${escapeHtml(b)}</span><span class="mb-card-dividend">${escapeHtml(a)}</span></div>`;
+}
 
-  const questions = sessionData.questions;
-  const total = questions.length;
-  const answeredCount = squareRootsSlots.filter(
-    (st) => st && Array.isArray(st.slots) && st.slots.some((ch) => ch !== '')
-  ).length;
+function renderStepBoxCells(level, checked, targets) {
+  return checked
+    .map((isChecked, colIdx) => {
+      const isTarget = targets.has(colIdx);
+      return `
+        <div
+          class="comp-step-box mb-step-box ${isChecked ? 'is-checked' : ''} ${isTarget ? 'is-next-target' : ''}"
+          data-nb-step-box="${colIdx}"
+          role="button"
+          tabindex="-1"
+          aria-label="Column ${colIdx + 1} step box (${isChecked ? 'checked' : 'unchecked'})"
+        >${isChecked ? '&#10003;' : ''}</div>
+      `;
+    })
+    .join('');
+}
 
-  const progressPill = document.getElementById('roots-progress-pill');
-  if (progressPill) {
-    progressPill.textContent = `${answeredCount} / ${total} answered`;
+function renderDigitCells(str, checked, extraClass = '') {
+  return String(str)
+    .split('')
+    .map(
+      (ch, colIdx) =>
+        `<span class="mb-digit ${extraClass} ${checked && checked[colIdx] ? 'is-col-highlighted' : ''}">${escapeHtml(ch)}</span>`
+    )
+    .join('');
+}
+
+/** Enlarged active problem: step boxes in a row above the digits they mark. */
+function renderNumberBoardActiveProblem(question, level, checked, targets) {
+  const boxes = renderStepBoxCells(level, checked, targets);
+  if (activeModuleKey === 'square_roots') {
+    const radicand = String(question ?? '');
+    return `
+      <div class="mb-problem-grid" style="grid-template-columns: 48px repeat(${radicand.length}, var(--mb-cell));">
+        <span></span>${boxes}
+        <span class="mb-radical-sign" aria-hidden="true">&radic;</span>${renderDigitCells(radicand, checked, 'mb-digit-overline')}
+      </div>
+    `;
   }
 
-  // Render 5x2 overview grid
-  const gridEl = document.getElementById('roots-overview-grid');
+  const [a = '', b = ''] = Array.isArray(question) ? question : [];
+  if (activeModuleKey === 'multiplications') {
+    const n = level.stepCount;
+    const padA = String(a).padStart(n, '0');
+    const padB = String(b).padStart(n, '0');
+    if (level.layout === 'horizontal') {
+      return `
+        <div class="mb-problem-grid" style="grid-template-columns: repeat(${n}, var(--mb-cell)) 40px repeat(${n}, var(--mb-cell));">
+          ${boxes}<span></span>${'<span></span>'.repeat(n)}
+          ${renderDigitCells(padA, checked)}<span class="mb-op-sign">&times;</span>${renderDigitCells(padB, checked)}
+        </div>
+      `;
+    }
+    return `
+      <div class="mb-problem-grid" style="grid-template-columns: 40px repeat(${n}, var(--mb-cell));">
+        <span></span>${boxes}
+        <span></span>${renderDigitCells(padA, checked)}
+        <span class="mb-op-sign">&times;</span>${renderDigitCells(padB, checked, 'mb-digit-underline')}
+      </div>
+    `;
+  }
+
+  // Division
+  const dividend = String(a);
+  const divisor = String(b);
+  if (level.layout === 'horizontal') {
+    return `
+      <div class="mb-problem-grid" style="grid-template-columns: repeat(${dividend.length}, var(--mb-cell)) 40px auto;">
+        ${boxes}<span></span><span></span>
+        ${renderDigitCells(dividend, checked)}<span class="mb-op-sign">&divide;</span><span class="mb-divisor-inline num">${escapeHtml(divisor)}</span>
+      </div>
+    `;
+  }
+  return `
+    <div class="mb-problem-grid" style="grid-template-columns: auto repeat(${dividend.length}, var(--mb-cell));">
+      <span></span>${boxes}
+      <span class="mb-divisor-cell num">${escapeHtml(divisor)}</span>${renderDigitCells(dividend, checked, 'mb-digit-bracket')}
+    </div>
+  `;
+}
+
+function renderNumberBoardSlots(slotState, level) {
+  if (!slotState) return '';
+  const parts = [];
+  slotState.slots.forEach((ch, slotIdx) => {
+    if (activeModuleKey === 'square_roots' && slotIdx === level.intDigits) {
+      parts.push('<span class="mb-decimal-dot" aria-hidden="true">.</span>');
+    }
+    const isCursor = slotIdx === slotState.cursor;
+    parts.push(`
+      <div
+        class="additions-slot-box mb-slot ${isCursor ? 'is-cursor' : ''}"
+        data-slot-idx="${slotIdx}"
+        role="button"
+        tabindex="-1"
+        aria-label="Answer digit ${slotIdx + 1}"
+      >${ch ? escapeHtml(ch) : ''}</div>
+    `);
+  });
+  return parts.join('');
+}
+
+function updateNumberBoardStageDOM() {
+  if (phase !== 'stage' || !isNumberBoardModule() || !sessionData) return;
+
+  const level = getStageLevel();
+  const questions = sessionData.questions;
+  const total = questions.length;
+  const answeredCount = numberBoardSlots.filter(hasSlotInput).length;
+
+  const progressPill = document.getElementById('nb-progress-pill');
+  if (progressPill) progressPill.textContent = `${answeredCount} / ${total} answered`;
+
+  const gridEl = document.getElementById('nb-overview-grid');
   if (gridEl) {
     gridEl.innerHTML = questions
-      .map((radicand, idx) => {
+      .map((question, idx) => {
         const isActive = idx === activeQuestionIndex;
-        const ansPreview = formatRootSlotsPreview(squareRootsSlots[idx]);
+        const preview = numberBoardAnswerPreview(idx, level);
         return `
           <div
-            class="additions-mini-card ${isActive ? 'is-active' : ''}"
-            data-root-idx="${idx}"
+            class="mb-card ${isActive ? 'is-active' : ''} ${preview ? 'is-answered' : ''}"
+            data-nb-idx="${idx}"
             role="button"
             tabindex="-1"
+            aria-label="Question ${idx + 1}${preview ? ', answered' : ''}"
           >
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-              <strong style="font-size: 11px; color: ${isActive ? 'var(--color-primary)' : 'var(--text-muted)'};">
-                Q${idx + 1}${isActive ? ' ●' : ''}
-              </strong>
-              <span style="font-size: 10px; color: var(--text-dim);">${ansPreview ? '✓' : ''}</span>
-            </div>
-            <div class="additions-mini-rows" style="font-size: 15px; font-weight: 800; color: var(--text-main); text-align: center; margin: auto 0;">
-              &radic;<span style="border-top: 2px solid var(--text-main); padding-top: 1px;">${escapeHtml(String(radicand))}</span>
-            </div>
-            <div class="additions-mini-answer" style="text-align: center;">${ansPreview ? escapeHtml(ansPreview) : '&nbsp;'}</div>
+            <span class="mb-card-num num">${idx + 1}</span>
+            <div class="mb-card-problem num">${renderNumberBoardCardProblem(question, level)}</div>
+            <div class="mb-card-answer num">${preview ? escapeHtml(preview) : '&nbsp;'}</div>
           </div>
         `;
       })
       .join('');
 
-    gridEl.querySelectorAll('[data-root-idx]').forEach((card) => {
+    gridEl.querySelectorAll('[data-nb-idx]').forEach((card) => {
       card.addEventListener('click', () => {
-        const idx = Number(card.getAttribute('data-root-idx'));
-        if (Number.isInteger(idx) && idx >= 0 && idx < total) {
+        const idx = Number(card.getAttribute('data-nb-idx'));
+        if (!stageInputsLocked && Number.isInteger(idx) && idx >= 0 && idx < total) {
           activeQuestionIndex = idx;
-          updateSquareRootsStageDOM();
+          updateNumberBoardStageDOM();
         }
       });
     });
   }
 
-  // Render active question workbench: 6 step boxes + √NNNNNN
-  const qNumEl = document.getElementById('roots-active-qnum');
+  const qNumEl = document.getElementById('nb-active-qnum');
   if (qNumEl) qNumEl.textContent = `Question ${activeQuestionIndex + 1} of ${total}`;
 
-  const checkedCount = squareRootsStepStates[activeQuestionIndex] || 0;
-  const checkedBoxes = getRootCheckedBoxes(checkedCount, 6);
+  const backBtn = document.getElementById('btn-nb-prev');
+  const nextBtn = document.getElementById('btn-nb-next');
+  if (backBtn) backBtn.disabled = activeQuestionIndex <= 0;
+  if (nextBtn) nextBtn.disabled = activeQuestionIndex >= total - 1;
 
-  const matrixEl = document.getElementById('roots-active-matrix');
-  if (matrixEl) {
-    const radicandStr = String(questions[activeQuestionIndex] ?? '100000').padStart(6, '0');
-
-    const stepBoxesHtml = checkedBoxes
-      .map((isChecked, colIdx) => {
-        const isClickable = colIdx === checkedCount || colIdx === checkedCount - 1;
-        return `
-          <div
-            class="comp-step-box ${isChecked ? 'is-checked' : ''} ${isClickable ? 'is-next-target' : ''}"
-            style="width: 34px;"
-            data-root-step-box="${colIdx}"
-            role="button"
-            tabindex="-1"
-            title="${colIdx === checkedCount ? 'Click or press * to check' : colIdx === checkedCount - 1 ? 'Click or press / to uncheck' : 'Step box ' + (colIdx + 1)}"
-            aria-label="Digit ${colIdx + 1} step box (${isChecked ? 'checked' : 'unchecked'})"
-          >
-            ${isChecked ? '&#10003;' : ''}
-          </div>
-        `;
-      })
-      .join('');
-
-    const radicandCellsHtml = radicandStr
-      .split('')
-      .map((ch, colIdx) => {
-        const hlClass = checkedBoxes[colIdx] ? 'is-col-highlighted' : '';
-        return `<span class="roots-radicand-cell ${hlClass}">${escapeHtml(ch)}</span>`;
-      })
-      .join('');
-
-    matrixEl.innerHTML = `
-      <div style="font-size: 11px; color: var(--text-muted); margin-bottom: var(--space-2);">
-        Step Boxes (press <code>*</code> to check left-to-right, <code>/</code> to uncheck right-to-left; ${checkedCount} / 6 checked)
+  const problemEl = document.getElementById('nb-active-problem');
+  if (problemEl) {
+    const stepState = numberBoardSteps[activeQuestionIndex] || 0;
+    const checked = numberBoardCheckedBoxes(level, stepState);
+    const targets = numberBoardNextTargets(level, stepState);
+    const answerLabel =
+      activeModuleKey === 'division' ? 'Quotient' : activeModuleKey === 'square_roots' ? 'Root' : 'Product';
+    const cellSize = level.slotCount + level.stepCount > 30 ? 34 : 40;
+    problemEl.style.setProperty('--mb-cell', `${cellSize}px`);
+    problemEl.innerHTML = `
+      <div class="mb-problem-zone">
+        ${renderNumberBoardActiveProblem(questions[activeQuestionIndex], level, checked, targets)}
       </div>
-      <div class="roots-matrix-grid">
-        <span></span>
-        ${stepBoxesHtml}
-        <span class="roots-radical-sign" aria-hidden="true">&radic;</span>
-        ${radicandCellsHtml}
+      <div class="mb-answer-zone">
+        <span class="mb-answer-label">${answerLabel}</span>
+        <div id="nb-slots-row" class="mb-slots-row">${renderNumberBoardSlots(numberBoardSlots[activeQuestionIndex], level)}</div>
       </div>
     `;
 
-    matrixEl.querySelectorAll('[data-root-step-box]').forEach((boxEl) => {
+    problemEl.querySelectorAll('[data-nb-step-box]').forEach((boxEl) => {
       boxEl.addEventListener('click', () => {
-        const colIdx = Number(boxEl.getAttribute('data-root-step-box'));
-        const nextState = clickRootStepBox(
-          squareRootsStepStates[activeQuestionIndex] || 0,
-          colIdx,
-          6
-        );
-        if (nextState !== squareRootsStepStates[activeQuestionIndex]) {
-          squareRootsStepStates[activeQuestionIndex] = nextState;
-          updateSquareRootsStageDOM();
-        }
+        clickNumberBoardStepBox(Number(boxEl.getAttribute('data-nb-step-box')));
       });
     });
-  }
-
-  // Render 8 digit slots with a fixed decimal point after the 3rd slot (___ . _____)
-  const slotState = squareRootsSlots[activeQuestionIndex];
-  const slotsRowEl = document.getElementById('roots-slots-row');
-  if (slotsRowEl && slotState) {
-    const parts = [];
-    for (let slotIdx = 0; slotIdx < 8; slotIdx++) {
-      if (slotIdx === 3) {
-        parts.push(`<span class="roots-decimal-dot" aria-hidden="true">.</span>`);
-      }
-      const ch = slotState.slots[slotIdx];
-      const isCursor = slotIdx === slotState.cursor;
-      parts.push(`
-        <div
-          class="additions-slot-box ${isCursor ? 'is-cursor' : ''}"
-          data-slot-idx="${slotIdx}"
-          role="button"
-          tabindex="-1"
-        >
-          ${ch ? escapeHtml(ch) : ''}
-        </div>
-      `);
-    }
-    slotsRowEl.innerHTML = parts.join('');
-
-    slotsRowEl.querySelectorAll('[data-slot-idx]').forEach((box) => {
+    problemEl.querySelectorAll('[data-slot-idx]').forEach((box) => {
       box.addEventListener('click', () => {
-        const sIdx = Number(box.getAttribute('data-slot-idx'));
-        squareRootsSlots[activeQuestionIndex] = setCursor(
-          squareRootsSlots[activeQuestionIndex],
-          sIdx
+        if (stageInputsLocked) return;
+        numberBoardSlots[activeQuestionIndex] = setCursor(
+          numberBoardSlots[activeQuestionIndex],
+          Number(box.getAttribute('data-slot-idx'))
         );
-        updateSquareRootsStageDOM();
+        updateNumberBoardStageDOM();
       });
     });
   }
 }
 
-function moveSquareRootsQuestion(delta) {
+function moveNumberBoardQuestion(delta) {
   if (!sessionData || stageInputsLocked) return;
   const total = sessionData.questions.length;
   const next = Math.max(0, Math.min(total - 1, activeQuestionIndex + delta));
   if (next !== activeQuestionIndex) {
     activeQuestionIndex = next;
-    updateSquareRootsStageDOM();
+    updateNumberBoardStageDOM();
+  }
+}
+
+function handleNumberBoardKeydown(e, action) {
+  if (action === 'next') {
+    e.preventDefault();
+    moveNumberBoardQuestion(1);
+    return;
+  }
+  if (action === 'previous') {
+    e.preventDefault();
+    moveNumberBoardQuestion(-1);
+    return;
+  }
+  if (action === 'step') {
+    e.preventDefault();
+    pressNumberBoardStep('*');
+    return;
+  }
+  if (action === 'unstep') {
+    e.preventDefault();
+    pressNumberBoardStep('/');
+    return;
+  }
+  const idx = activeQuestionIndex;
+  if (e.key === 'ArrowLeft') {
+    e.preventDefault();
+    numberBoardSlots[idx] = moveCursorLeft(numberBoardSlots[idx]);
+    updateNumberBoardStageDOM();
+    return;
+  }
+  if (e.key === 'ArrowRight') {
+    e.preventDefault();
+    numberBoardSlots[idx] = moveCursorRight(numberBoardSlots[idx]);
+    updateNumberBoardStageDOM();
+    return;
+  }
+  if (e.key === 'Backspace') {
+    e.preventDefault();
+    numberBoardSlots[idx] = backspace(numberBoardSlots[idx]);
+    updateNumberBoardStageDOM();
+    return;
+  }
+  if (/^[0-9]$/.test(e.key)) {
+    e.preventDefault();
+    numberBoardSlots[idx] = typeDigit(numberBoardSlots[idx], e.key);
+    updateNumberBoardStageDOM();
+    return;
+  }
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    if (activeModuleKey !== 'square_roots') {
+      // Close any blank gaps between typed digits (square roots keep exact positions)
+      numberBoardSlots[idx] = compact(numberBoardSlots[idx]);
+    }
+    const total = sessionData.questions.length;
+    if (activeQuestionIndex < total - 1) {
+      activeQuestionIndex += 1;
+      updateNumberBoardStageDOM();
+    } else {
+      updateNumberBoardStageDOM();
+      if (numberBoardSlots.every(hasSlotInput)) {
+        promptFinishConfirmation();
+      }
+    }
   }
 }
 
@@ -2226,165 +2356,8 @@ function handleGlobalStageKeydown(e) {
     return;
   }
 
-  if (activeModuleKey === 'multiplications') {
-    if (action === 'next') {
-      e.preventDefault();
-      moveMultiplicationsQuestion(1);
-      return;
-    }
-    if (action === 'previous') {
-      e.preventDefault();
-      moveMultiplicationsQuestion(-1);
-      return;
-    }
-    if (action === 'step') {
-      e.preventDefault();
-      multiplicationsStepStates[activeQuestionIndex] = pressMultStepKey(
-        multiplicationsStepStates[activeQuestionIndex] || 0,
-        '*',
-        8
-      );
-      updateMultiplicationsStageDOM();
-      return;
-    }
-    if (action === 'unstep') {
-      // '/' does nothing in Multiplications stacked format
-      e.preventDefault();
-      return;
-    }
-    if (e.key === 'ArrowLeft') {
-      e.preventDefault();
-      multiplicationsSlots[activeQuestionIndex] = moveCursorLeft(
-        multiplicationsSlots[activeQuestionIndex]
-      );
-      updateMultiplicationsStageDOM();
-      return;
-    }
-    if (e.key === 'ArrowRight') {
-      e.preventDefault();
-      multiplicationsSlots[activeQuestionIndex] = moveCursorRight(
-        multiplicationsSlots[activeQuestionIndex]
-      );
-      updateMultiplicationsStageDOM();
-      return;
-    }
-    if (e.key === 'Backspace') {
-      e.preventDefault();
-      multiplicationsSlots[activeQuestionIndex] = backspace(
-        multiplicationsSlots[activeQuestionIndex]
-      );
-      updateMultiplicationsStageDOM();
-      return;
-    }
-    if (/^[0-9]$/.test(e.key)) {
-      e.preventDefault();
-      multiplicationsSlots[activeQuestionIndex] = typeDigit(
-        multiplicationsSlots[activeQuestionIndex],
-        e.key
-      );
-      updateMultiplicationsStageDOM();
-      return;
-    }
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      multiplicationsSlots[activeQuestionIndex] = compact(
-        multiplicationsSlots[activeQuestionIndex]
-      );
-      updateMultiplicationsStageDOM();
-
-      const total = sessionData.questions.length;
-      if (activeQuestionIndex < total - 1) {
-        activeQuestionIndex += 1;
-        updateMultiplicationsStageDOM();
-      } else {
-        const allAnswered = multiplicationsSlots.every((st) => toAnswerString(st).length > 0);
-        if (allAnswered) {
-          promptFinishConfirmation();
-        }
-      }
-    }
-    return;
-  }
-
-  if (activeModuleKey === 'square_roots') {
-    if (action === 'next') {
-      e.preventDefault();
-      moveSquareRootsQuestion(1);
-      return;
-    }
-    if (action === 'previous') {
-      e.preventDefault();
-      moveSquareRootsQuestion(-1);
-      return;
-    }
-    if (action === 'step') {
-      e.preventDefault();
-      squareRootsStepStates[activeQuestionIndex] = pressRootStepKey(
-        squareRootsStepStates[activeQuestionIndex] || 0,
-        '*',
-        6
-      );
-      updateSquareRootsStageDOM();
-      return;
-    }
-    if (action === 'unstep') {
-      e.preventDefault();
-      squareRootsStepStates[activeQuestionIndex] = pressRootStepKey(
-        squareRootsStepStates[activeQuestionIndex] || 0,
-        '/',
-        6
-      );
-      updateSquareRootsStageDOM();
-      return;
-    }
-    if (e.key === 'ArrowLeft') {
-      e.preventDefault();
-      squareRootsSlots[activeQuestionIndex] = moveCursorLeft(
-        squareRootsSlots[activeQuestionIndex]
-      );
-      updateSquareRootsStageDOM();
-      return;
-    }
-    if (e.key === 'ArrowRight') {
-      e.preventDefault();
-      squareRootsSlots[activeQuestionIndex] = moveCursorRight(
-        squareRootsSlots[activeQuestionIndex]
-      );
-      updateSquareRootsStageDOM();
-      return;
-    }
-    if (e.key === 'Backspace') {
-      e.preventDefault();
-      squareRootsSlots[activeQuestionIndex] = backspace(
-        squareRootsSlots[activeQuestionIndex]
-      );
-      updateSquareRootsStageDOM();
-      return;
-    }
-    if (/^[0-9]$/.test(e.key)) {
-      e.preventDefault();
-      squareRootsSlots[activeQuestionIndex] = typeDigit(
-        squareRootsSlots[activeQuestionIndex],
-        e.key
-      );
-      updateSquareRootsStageDOM();
-      return;
-    }
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      const total = sessionData.questions.length;
-      if (activeQuestionIndex < total - 1) {
-        activeQuestionIndex += 1;
-        updateSquareRootsStageDOM();
-      } else {
-        const allAnswered = squareRootsSlots.every(
-          (st) => st && Array.isArray(st.slots) && st.slots.some((ch) => ch !== '')
-        );
-        if (allAnswered) {
-          promptFinishConfirmation();
-        }
-      }
-    }
+  if (isNumberBoardModule()) {
+    handleNumberBoardKeydown(e, action);
   }
 }
 
@@ -2498,19 +2471,19 @@ function collectCurrentAnswers() {
   if (activeModuleKey === 'calendar') {
     return calendarAnswers.slice();
   }
-  if (activeModuleKey === 'multiplications') {
-    return multiplicationsSlots.map((st) => {
+  if (activeModuleKey === 'multiplications' || activeModuleKey === 'division') {
+    return numberBoardSlots.map((st) => {
       const compacted = compact(st);
       const str = toAnswerString(compacted);
       return str.length > 0 ? str : null;
     });
   }
   if (activeModuleKey === 'square_roots') {
-    return squareRootsSlots.map((st) => {
-      if (!st || !Array.isArray(st.slots) || !st.slots.some((ch) => ch !== '')) {
+    return numberBoardSlots.map((st) => {
+      if (!hasSlotInput(st)) {
         return null;
       }
-      // Preserve exact positional slots (0..7) so blank leading/middle slots are not shifted
+      // Preserve exact positional slots so blank leading/middle slots are not shifted
       return st.slots.map((ch) => ch || '_').join('');
     });
   }
@@ -2764,12 +2737,16 @@ function renderResultsView() {
       if (isSquareRoots) {
         const k = Number(row.correct_digits) || 0;
         const pts = Number(row.points) || 0;
+        const maxDigits =
+          Number(row.max_digits) ||
+          String(row.expected_display ?? row.expected ?? '').replace(/\D/g, '').length ||
+          8;
         const statusBadge = !row.attempted
           ? `<span class="score-tag score-tag-neutral">&mdash; Not answered</span>`
           : row.correct
-            ? `<span class="score-tag score-tag-perfect">&#10003; All 8 digits</span>`
+            ? `<span class="score-tag score-tag-perfect">&#10003; All ${maxDigits} digits</span>`
             : k > 0
-              ? `<span class="score-tag score-tag-good">&#10003; ${k}/8 digits</span>`
+              ? `<span class="score-tag score-tag-good">&#10003; ${k}/${maxDigits} digits</span>`
               : `<span class="score-tag score-tag-invalid">&#10007; 0 digits</span>`;
 
         return `
@@ -2780,7 +2757,7 @@ function renderResultsView() {
             <td class="num" style="color: ${row.attempted ? 'var(--text-main)' : 'var(--text-dim)'};">
               ${escapeHtml(givenDisplay)}
             </td>
-            <td class="num" style="font-weight: 700;">${row.attempted ? `${k} / 8` : '0 / 8'}</td>
+            <td class="num" style="font-weight: 700;">${row.attempted ? `${k} / ${maxDigits}` : `0 / ${maxDigits}`}</td>
             <td class="num" style="font-weight: 800; color: var(--color-primary);">${pts}</td>
             <td style="text-align: right;">${statusBadge}</td>
           </tr>
@@ -2879,6 +2856,11 @@ function renderResultsView() {
             <div class="num" style="font-size: 2.4rem; font-weight: 900; color: var(--color-primary); line-height: 1.1; margin-top: 4px;">
               ${res.score}
             </div>
+            ${
+              Number.isFinite(Number(res.official_points)) && res.official_points !== null
+                ? `<div class="num" style="font-size: 11px; color: var(--text-muted); margin-top: 4px;" title="Memoriad points = score × time limit ÷ time used (only when every answer is finished)">${escapeHtml(Number(res.official_points).toFixed(2))} Memoriad points</div>`
+                : ''
+            }
           </div>
 
           <div style="background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: var(--space-4); text-align: center;">
@@ -2981,7 +2963,11 @@ async function callMemoriadApi(payload) {
       activeModuleKey,
       payload.answers,
       currentProfile?.id,
-      { ...currentSettings, ...(activeTodoTaskId ? { todo_task_id: activeTodoTaskId } : {}) },
+      {
+        ...currentSettings,
+        ...(activeTodoTaskId ? { todo_task_id: activeTodoTaskId } : {}),
+        duration_seconds: payload.duration_seconds,
+      },
       payload.finished_by
     );
   }

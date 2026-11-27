@@ -43,7 +43,9 @@ import {
   getGoogleMirrorConfig,
   hasGoogleMirrorConfig,
   hasSupabaseAdminConfig,
+  getSupabaseAdminConfig,
 } from './_configHelper.js';
+import { handleFullBackupPage, handleFullBackupSchema } from './_fullBackup.js';
 import {
   getSpreadsheetTabs,
   addSpreadsheetTab,
@@ -1222,12 +1224,42 @@ export default async function handler(req, res) {
       action !== 'status' &&
       action !== 'run' &&
       action !== 'rebuild_mirror' &&
-      action !== 'private_jmcwc_backup'
+      action !== 'private_jmcwc_backup' &&
+      action !== 'full_backup_schema' &&
+      action !== 'full_backup_page'
     ) {
       return res.status(400).json({
         error:
-          'Request body must specify { "action": "status" }, { "action": "run" }, { "action": "rebuild_mirror" }, or { "action": "private_jmcwc_backup" }.',
+          'Request body must specify { "action": "status" }, { "action": "run" }, { "action": "rebuild_mirror" }, { "action": "private_jmcwc_backup" }, { "action": "full_backup_schema" }, or { "action": "full_backup_page" }.',
       });
+    }
+
+    if (action === 'full_backup_schema' || action === 'full_backup_page') {
+      if (!hasSupabaseAdminConfig()) {
+        return res.status(503).json({
+          ok: false,
+          error: 'Full backup needs SUPABASE_SERVICE_ROLE_KEY on the server so every table can be read.',
+        });
+      }
+      try {
+        const { url, serviceRoleKey } = getSupabaseAdminConfig();
+        const adminSupabase = getAdminClient();
+        if (action === 'full_backup_schema') {
+          const schemaPayload = await handleFullBackupSchema({ supabase: adminSupabase, url, serviceRoleKey });
+          return res.status(200).json(schemaPayload);
+        }
+        const pagePayload = await handleFullBackupPage({
+          supabase: adminSupabase,
+          url,
+          serviceRoleKey,
+          table: typeof body.table === 'string' ? body.table : '',
+          offset: Number.isInteger(body.offset) ? body.offset : 0,
+        });
+        return res.status(pagePayload.httpStatus).json(pagePayload.body);
+      } catch (err) {
+        const safeErr = sanitizeBackupError(err);
+        return res.status(500).json({ ok: false, status: 'failed', error: safeErr });
+      }
     }
 
     try {

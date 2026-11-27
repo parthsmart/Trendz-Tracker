@@ -164,7 +164,7 @@
               <div>
                 <h2 style="font-size: var(--text-lg); margin-bottom: var(--space-1);">Backup &amp; Export Actions</h2>
                 <p style="font-size: var(--text-sm); color: var(--text-muted); margin: 0;" id="backup-actions-desc">
-                  Run an on-demand Google Sheet backup pass (8-second passes with automatic continuation) or download all data tables as a local ZIP of CSV files.
+                  <strong>Download full backup (Excel)</strong> saves every table, every column and every row, plus login accounts (without passwords), in one .xlsx file that <code>scripts/restoreFromBackup.js</code> can restore from. You can also run a Google Sheet backup pass or download the core tables as CSV files.
                 </p>
               </div>
               <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
@@ -179,8 +179,11 @@
                 >
                   Cancel
                 </button>
+                <button type="button" id="btn-download-xlsx" class="btn btn-primary btn-sm">
+                  Download full backup (Excel)
+                </button>
                 <button type="button" id="btn-download-zip" class="btn btn-outline btn-sm">
-                  Download all data (ZIP)
+                  Download core tables (CSV ZIP)
                 </button>
               </div>
             </div>

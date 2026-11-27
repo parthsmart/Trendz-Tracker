@@ -32,6 +32,7 @@ import {
   computeMemoriadUsedSeconds,
   validateFinishedBy,
   getMemoriadTimeLimit,
+  computeOfficialPoints,
 } from './_memoriad.js';
 
 const RATE_LIMIT_PER_HOUR = 60;
@@ -178,7 +179,7 @@ async function handleStart(body, student, adminClient, res) {
     }
   }
 
-  let finalTimeLimit = getMemoriadTimeLimit(moduleKey);
+  let finalTimeLimit = getMemoriadTimeLimit(moduleKey, validation.settings);
   if (validatedTask && validatedTask.duration_seconds > 0) {
     finalTimeLimit = validatedTask.duration_seconds;
   } else if (validatedHomework && validatedHomework.duration_seconds > 0) {
@@ -316,7 +317,9 @@ async function handleSubmit(body, student, adminClient, res) {
         ? 'multiplications'
         : session.activity_name === MODULES.square_roots.title
           ? 'square_roots'
-          : 'additions');
+          : session.activity_name === MODULES.division.title
+            ? 'division'
+            : 'additions');
 
   const isTodoSession = Boolean(session.settings?.is_todo || session.settings?.todo_task_id);
   const startedAtMs = new Date(session.started_at).getTime();
@@ -324,7 +327,7 @@ async function handleSubmit(body, student, adminClient, res) {
   const timeLimit =
     Number(session.settings?.time_limit_seconds) ||
     Number(session.settings?.duration_seconds) ||
-    getMemoriadTimeLimit(moduleKey);
+    getMemoriadTimeLimit(moduleKey, session.settings);
 
   const nominalDeadlineMs = startedAtMs + (concentrationSeconds + timeLimit) * 1000;
   // Authoritative server deadline check exclusively (client finishedBy is informational only)
@@ -366,7 +369,8 @@ async function handleSubmit(body, student, adminClient, res) {
       startedAtMs,
       nowMs,
       concentrationSeconds,
-      moduleKey
+      moduleKey,
+      session.settings
     );
   }
 
@@ -487,6 +491,25 @@ async function handleSubmit(body, student, adminClient, res) {
   if (moduleKey === 'square_roots') {
     resultSettings.digits_total = Number(evaluation.digits_total) || 0;
   }
+  // Digit level and layout (multiplications / square_roots / division) for history and records.
+  for (const levelKey of ['digits', 'dividend_digits', 'divisor_digits', 'layout']) {
+    if (session.settings?.[levelKey] !== undefined) resultSettings[levelKey] = session.settings[levelKey];
+  }
+  // Official Memoriad points: score x T / t, t = T unless every task was done early
+  // (all correct for exact-answer modules, all answered for square roots).
+  if (moduleKey !== 'calendar') {
+    const allDone =
+      moduleKey === 'square_roots'
+        ? evaluation.attempted === evaluation.questions_total
+        : evaluation.correct === evaluation.questions_total;
+    resultSettings.time_limit_seconds = timeLimit;
+    resultSettings.official_points = computeOfficialPoints(
+      evaluation.score,
+      timeLimit,
+      usedSeconds,
+      allDone
+    );
+  }
 
   const { data: resultRow, error: resultErr } = await adminClient
     .from('activity_results')
@@ -521,6 +544,8 @@ async function handleSubmit(body, student, adminClient, res) {
 
   return res.status(200).json({
     ...evaluation,
+    official_points: resultSettings.official_points ?? null,
+    time_limit_seconds: timeLimit,
     total: evaluation.attempted,
     used_seconds: usedSeconds,
     finished_by: finishedBy,

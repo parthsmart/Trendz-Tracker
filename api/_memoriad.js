@@ -5,7 +5,9 @@
  * Supports Phase 9b-1 competition modules:
  * - `calendar` (Mental Calendar Dates: 25, 50, 75, 100, or 125 distinct Gregorian dates in 1600..2099)
  * - `additions` (Mental Additions: 10 questions of 10 ten-digit numbers summed with BigInt)
- * Plus catalog stubs for `multiplications` and `square_roots` ("Coming soon").
+ * - `multiplications` (3d x 3d .. 10d x 10d), `square_roots` (4- to 10-digit radicands,
+ *   official tolerance scoring) and `division` (4d / 2d .. 10d / 5d, exact quotients),
+ *   all built on the shared pure generators in `js/memoriadGenerators.js`.
  *
  * SECURITY CONTRACT:
  * - Canonical expected answers are generated and evaluated exclusively on the server.
@@ -13,6 +15,27 @@
  */
 
 import crypto from 'node:crypto';
+import {
+  MULTIPLICATION_DEFAULT_DIGITS,
+  MULTIPLICATION_DIGITS_MIN,
+  MULTIPLICATION_DIGITS_MAX,
+  SQUARE_ROOT_DEFAULT_DIGITS,
+  SQUARE_ROOT_DIGITS_MIN,
+  SQUARE_ROOT_DIGITS_MAX,
+  normalizeMultiplicationDigits,
+  normalizeSquareRootDigits,
+  normalizeDivisionLevel,
+  isValidDivisionLevel,
+  normalizeLayout,
+  getMemoriadLevelTimeLimit,
+  generateMultiplicationSet,
+  generateSquareRootSet,
+  generateDivisionSet,
+  evaluateSquareRootAnswerOfficial,
+  formatSquareRoot,
+} from '../js/memoriadGenerators.js';
+
+export { computeOfficialPoints } from '../js/memoriadGenerators.js';
 
 export const CALENDAR_ALLOWED_DATES = [25, 50, 75, 100, 125];
 export const CALENDAR_DEFAULT_DATES = 125;
@@ -24,7 +47,8 @@ export const ADDITIONS_NUMBERS_PER_QUESTION = 10;
 export const ADDITIONS_DIGITS_PER_NUMBER = 10;
 
 export const MULTIPLICATIONS_QUESTION_COUNT = 10;
-export const MULTIPLICATIONS_DIGITS_PER_FACTOR = 8;
+export const MULTIPLICATIONS_DIGITS_PER_FACTOR = MULTIPLICATION_DEFAULT_DIGITS;
+export const DIVISION_QUESTION_COUNT = 10;
 
 export const SQUARE_ROOTS_QUESTION_COUNT = 10;
 export const SQUARE_ROOTS_MIN = 100000;
@@ -32,16 +56,15 @@ export const SQUARE_ROOTS_MAX = 999999;
 export const SQUARE_ROOT_TOTAL_DIGITS = 8;
 
 /**
- * Mental Square Roots scoring rules (inferred from published Memoriad championship results
- * and a competition simulator screenshot where 2 correct leading digits gave 3 points):
- * - `SQUARE_ROOT_STOP_AT_FIRST_MISTAKE`: count matching leading digits `k` from left to right
- *   (across all 8 digits: 3 integer + 5 decimal), stopping immediately at the first wrong or blank digit.
+ * Mental Square Roots scoring rules (official memoriad.com rules page):
+ * - Digit N counts when |A - B| <= 5 * 10^(M - N), M = integer digits - 1; counting stops
+ *   at the first digit outside the tolerance (`SQUARE_ROOT_STOP_AT_FIRST_MISTAKE`).
  * - `SQUARE_ROOT_POINTS_BY_CORRECT_DIGITS`: triangular points `k * (k + 1) / 2`
- *   (8 correct digits give 36, 6 give 21, 2 give 3; maximum 360 across 10 questions).
+ *   (8 counted digits = 36 for a 6-digit radicand; 10 = 55 for a 10-digit radicand).
  */
 export const SQUARE_ROOT_STOP_AT_FIRST_MISTAKE = true;
 export const SQUARE_ROOT_POINTS_BY_CORRECT_DIGITS = Object.freeze([
-  0, 1, 3, 6, 10, 15, 21, 28, 36,
+  0, 1, 3, 6, 10, 15, 21, 28, 36, 45, 55,
 ]);
 
 export const MIN_CONCENTRATION_SECONDS = 0;
@@ -51,8 +74,9 @@ export const DEFAULT_CONCENTRATION_SECONDS = 5;
 export const MEMORIAD_TIME_LIMITS = Object.freeze({
   calendar: 60,
   additions: 600,
-  multiplications: 900,
+  multiplications: 720,
   square_roots: 900,
+  division: 360,
 });
 
 export const MEMORIAD_EXPIRY_GRACE_SECONDS = 30;
@@ -64,15 +88,22 @@ export const PLAUSIBILITY_MIN_SECONDS_PER_ATTEMPT = {
   additions: 3,
   multiplications: 5,
   square_roots: 5,
+  division: 3,
 };
 
 /**
- * Returns the configured round time limit in seconds for `moduleKey`.
+ * Returns the round time limit in seconds for `moduleKey`. With `settings`, the digit level
+ * picks the time (5d x 5d = 300 s, 8d x 8d = 720 s, 10-digit roots = 1320 s, 10d / 5d = 360 s).
  * @param {string} moduleKey
+ * @param {object} [settings]
  * @returns {number}
  */
-export function getMemoriadTimeLimit(moduleKey) {
+export function getMemoriadTimeLimit(moduleKey, settings) {
   const key = typeof moduleKey === 'string' ? moduleKey.trim().toLowerCase() : '';
+  if (settings && typeof settings === 'object') {
+    const levelLimit = getMemoriadLevelTimeLimit(key, settings);
+    if (levelLimit) return levelLimit;
+  }
   return MEMORIAD_TIME_LIMITS[key] ?? 60;
 }
 
@@ -84,10 +115,10 @@ export function getMemoriadTimeLimit(moduleKey) {
  * @param {string} moduleKey
  * @returns {number}
  */
-export function computeMemoriadExpiresAtMs(startedAtMs, concentrationSeconds, moduleKey) {
+export function computeMemoriadExpiresAtMs(startedAtMs, concentrationSeconds, moduleKey, settings) {
   const start = Number(startedAtMs) || 0;
   const conc = Math.max(0, Number(concentrationSeconds) || 0);
-  const limit = getMemoriadTimeLimit(moduleKey);
+  const limit = getMemoriadTimeLimit(moduleKey, settings);
   return start + (conc + limit + MEMORIAD_EXPIRY_GRACE_SECONDS) * 1000;
 }
 
@@ -101,11 +132,11 @@ export function computeMemoriadExpiresAtMs(startedAtMs, concentrationSeconds, mo
  * @param {string} moduleKey
  * @returns {number}
  */
-export function computeMemoriadUsedSeconds(startedAtMs, nowMs, concentrationSeconds, moduleKey) {
+export function computeMemoriadUsedSeconds(startedAtMs, nowMs, concentrationSeconds, moduleKey, settings) {
   const start = Number(startedAtMs);
   const now = Number(nowMs);
   const conc = Math.max(0, Number(concentrationSeconds) || 0);
-  const limit = getMemoriadTimeLimit(moduleKey);
+  const limit = getMemoriadTimeLimit(moduleKey, settings);
   if (!Number.isFinite(start) || !Number.isFinite(now)) return 0;
   const rawElapsedSeconds = (now - start) / 1000 - conc;
   const clamped = Math.min(limit, Math.max(0, rawElapsedSeconds));
@@ -303,6 +334,48 @@ export function validateMemoriadSettings(moduleKey, rawSettings = {}) {
     };
   }
 
+  const hasValue = (v) => v !== undefined && v !== null && v !== '';
+
+  if (key === 'multiplications' || key === 'square_roots') {
+    const isMult = key === 'multiplications';
+    const min = isMult ? MULTIPLICATION_DIGITS_MIN : SQUARE_ROOT_DIGITS_MIN;
+    const max = isMult ? MULTIPLICATION_DIGITS_MAX : SQUARE_ROOT_DIGITS_MAX;
+    let digits = isMult ? MULTIPLICATION_DEFAULT_DIGITS : SQUARE_ROOT_DEFAULT_DIGITS;
+    if (hasValue(input.digits)) {
+      const parsed = Number(input.digits);
+      if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
+        return {
+          ok: false,
+          error: `${isMult ? 'Multiplication' : 'Square root'} digits must be a whole number from ${min} to ${max}.`,
+        };
+      }
+      digits = parsed;
+    }
+    const settings = { digits, concentration_seconds: concentrationSeconds };
+    if (isMult) settings.layout = normalizeLayout(input.layout);
+    return { ok: true, settings };
+  }
+
+  if (key === 'division') {
+    const dividend = hasValue(input.dividend_digits) ? Number(input.dividend_digits) : 10;
+    const divisor = hasValue(input.divisor_digits) ? Number(input.divisor_digits) : 5;
+    if (!isValidDivisionLevel(dividend, divisor)) {
+      return {
+        ok: false,
+        error:
+          'Division level must be a 4- to 10-digit dividend with a 2- to 5-digit divisor that is at least 2 digits shorter.',
+      };
+    }
+    return {
+      ok: true,
+      settings: {
+        ...normalizeDivisionLevel(dividend, divisor),
+        layout: normalizeLayout(input.layout),
+        concentration_seconds: concentrationSeconds,
+      },
+    };
+  }
+
   return {
     ok: true,
     settings: {
@@ -370,106 +443,32 @@ export function isPerfectSquare(n) {
 }
 
 /**
- * Computes the square root of a 6-digit integer `n` rounded half-up to 5 decimal places
- * using exact integer arithmetic:
- * - `m = BigInt(n) * 10^10`
- * - `r = isqrt(m)`
- * - Rounded value is `r + 1` when `m - r * r >= r + 1`, otherwise `r`
- * - Formatted as three integer digits, a point, and five decimals (`"DDD.DDDDD"`, always 8 digits).
- *
+ * Square root of integer `n` rounded half-up to 5 decimal places (exact BigInt arithmetic),
+ * formatted with `intDigits` integer digits (default: half the radicand length, rounded up).
+ * `computeSquareRootHalfUp5(587247)` -> `"766.32043"`.
  * @param {number} n
+ * @param {number} [intDigits]
  * @returns {string}
  */
-export function computeSquareRootHalfUp5(n) {
-  const m = BigInt(n) * 10000000000n;
-  const r = bigIntSqrt(m);
-  const rounded = m - r * r >= r + 1n ? r + 1n : r;
-  const digits8 = rounded.toString().padStart(8, '0');
-  return `${digits8.slice(0, 3)}.${digits8.slice(3, 8)}`;
+export function computeSquareRootHalfUp5(n, intDigits) {
+  const width = Number.isInteger(intDigits) && intDigits > 0
+    ? intDigits
+    : Math.ceil(String(Math.trunc(Number(n))).length / 2);
+  return formatSquareRoot(n, width);
 }
 
 /**
- * Parses and evaluates a single Square Roots answer against `expectedDisplay` (`"DDD.DDDDD"`).
- * - Accepts up to 8 typed digits (the decimal point is fixed after the 3rd digit),
- *   or a string with `.` (`"673.10995"`), or positional slot characters (`_` / space for blank slots).
- * - Counts leading matching digits `k` from left to right, stopping at the first wrong or blank digit.
- * - Awards `points = k * (k + 1) / 2` via `SQUARE_ROOT_POINTS_BY_CORRECT_DIGITS`.
+ * Parses and evaluates a single Square Roots answer against `expectedDisplay` (`"DDD.DDDDD"`,
+ * any number of integer digits) with the official Memoriad tolerance rule.
+ * - Accepts typed digit slots (the decimal point is fixed after the integer digits),
+ *   a string with `.` (`"673.10995"`), or positional slot characters (`_` / space = blank).
+ * - Awards `points = k * (k + 1) / 2` for `k` counted digits.
  *
- * @param {string} expectedDisplay `"DDD.DDDDD"`
+ * @param {string} expectedDisplay
  * @param {unknown} rawAnswer
  */
 export function evaluateSquareRootAnswer(expectedDisplay, rawAnswer) {
-  const expStr = String(expectedDisplay ?? '').trim();
-  const expDigits = expStr.replace('.', '');
-  const slots = new Array(SQUARE_ROOT_TOTAL_DIGITS).fill('');
-
-  if (rawAnswer !== null && rawAnswer !== undefined) {
-    const rawStr = String(rawAnswer);
-    if (rawStr.includes('.')) {
-      const [intPart = '', decPart = ''] = rawStr.split('.');
-      const cleanInt = intPart.trim();
-      const cleanDec = decPart;
-      for (let i = 0; i < 3 && i < cleanInt.length; i++) {
-        const ch = cleanInt[i];
-        if (/^[0-9]$/.test(ch)) slots[i] = ch;
-      }
-      for (let i = 0; i < 5 && i < cleanDec.length; i++) {
-        const ch = cleanDec[i];
-        if (/^[0-9]$/.test(ch)) slots[3 + i] = ch;
-      }
-    } else {
-      for (let i = 0; i < SQUARE_ROOT_TOTAL_DIGITS && i < rawStr.length; i++) {
-        const ch = rawStr[i];
-        if (/^[0-9]$/.test(ch)) {
-          slots[i] = ch;
-        }
-      }
-    }
-  }
-
-  const isAttempted = slots.some((ch) => ch !== '');
-  let k = 0;
-
-  if (isAttempted && expDigits.length === SQUARE_ROOT_TOTAL_DIGITS) {
-    for (let i = 0; i < SQUARE_ROOT_TOTAL_DIGITS; i++) {
-      if (slots[i] !== '' && slots[i] === expDigits[i]) {
-        k += 1;
-      } else if (SQUARE_ROOT_STOP_AT_FIRST_MISTAKE) {
-        break;
-      }
-    }
-  }
-
-  const points = SQUARE_ROOT_POINTS_BY_CORRECT_DIGITS[k] ?? (k * (k + 1)) / 2;
-  const isFullyCorrect = k === SQUARE_ROOT_TOTAL_DIGITS;
-
-  let givenDisplay = null;
-  if (isAttempted) {
-    const hasDecimalPart = slots.slice(3, 8).some((ch) => ch !== '');
-    const intFormatted = slots
-      .slice(0, 3)
-      .map((ch) => ch || '_')
-      .join('');
-    if (hasDecimalPart) {
-      const decFormatted = slots
-        .slice(3, 8)
-        .map((ch) => ch || '_')
-        .join('')
-        .replace(/_+$/, '');
-      givenDisplay = `${intFormatted}.${decFormatted}`;
-    } else {
-      givenDisplay = intFormatted.replace(/_+$/, '');
-    }
-  }
-
-  return {
-    attempted: isAttempted,
-    correct: isFullyCorrect,
-    correct_digits: k,
-    points,
-    given_display: givenDisplay,
-    slots,
-  };
+  return evaluateSquareRootAnswerOfficial(expectedDisplay, rawAnswer);
 }
 
 export const MODULES = {
@@ -713,34 +712,26 @@ export const MODULES = {
     comingSoon: false,
 
     /**
-     * Generates 10 questions; each has two 8-digit numbers (first digit 1..9, remaining 0..9).
-     * Expected answer is the exact product computed with BigInt as a string (15 or 16 digits).
+     * Generates 10 questions; each has two `digits`-digit numbers (3..10, default 8;
+     * first digit 1..9, remaining 0..9). Expected answer is the exact BigInt product string.
      * @param {Function} [rng=defaultRng]
      * @param {object} [settings={}]
      * @returns {{ questions: Array<[string, string]>, expected: string[], settings: object }}
      */
     generate(rng = defaultRng, settings = {}) {
-      const questions = [];
-      const expected = [];
-
-      for (let q = 0; q < MULTIPLICATIONS_QUESTION_COUNT; q++) {
-        const pair = [];
-        for (let f = 0; f < 2; f++) {
-          let digits = String(rng(1, 9));
-          for (let d = 1; d < MULTIPLICATIONS_DIGITS_PER_FACTOR; d++) {
-            digits += String(rng(0, 9));
-          }
-          pair.push(digits);
-        }
-        const product = BigInt(pair[0]) * BigInt(pair[1]);
-        questions.push(pair);
-        expected.push(product.toString());
-      }
+      const digits = normalizeMultiplicationDigits(settings?.digits);
+      const { questions, expected } = generateMultiplicationSet(
+        rng,
+        digits,
+        MULTIPLICATIONS_QUESTION_COUNT
+      );
 
       return {
         questions,
         expected,
         settings: {
+          digits,
+          layout: normalizeLayout(settings?.layout),
           concentration_seconds:
             Number.isInteger(settings?.concentration_seconds)
               ? settings.concentration_seconds
@@ -807,6 +798,66 @@ export const MODULES = {
     },
   },
 
+  division: {
+    key: 'division',
+    title: 'Mental Division',
+    defaultQuestions: DIVISION_QUESTION_COUNT,
+    timeLimitSeconds: MEMORIAD_TIME_LIMITS.division,
+    minSecondsPerAttempt: PLAUSIBILITY_MIN_SECONDS_PER_ATTEMPT.division,
+    comingSoon: false,
+
+    /**
+     * Generates 10 exact divisions: a `dividend_digits`-digit dividend (4..10) by a
+     * `divisor_digits`-digit divisor (2..5, at least 2 digits shorter), no remainder.
+     * Expected answer is the quotient string.
+     * @param {Function} [rng=defaultRng]
+     * @param {object} [settings={}]
+     * @returns {{ questions: Array<[string, string]>, expected: string[], settings: object }}
+     */
+    generate(rng = defaultRng, settings = {}) {
+      const level = normalizeDivisionLevel(settings?.dividend_digits, settings?.divisor_digits);
+      const { questions, expected } = generateDivisionSet(
+        rng,
+        level.dividend_digits,
+        level.divisor_digits,
+        DIVISION_QUESTION_COUNT
+      );
+      return {
+        questions,
+        expected,
+        settings: {
+          ...level,
+          layout: normalizeLayout(settings?.layout),
+          concentration_seconds: Number.isInteger(settings?.concentration_seconds)
+            ? settings.concentration_seconds
+            : DEFAULT_CONCENTRATION_SECONDS,
+        },
+      };
+    },
+
+    /**
+     * Evaluates exact quotients (1 point per fully correct answer, leading zeros ignored).
+     * @param {{ questions: Array<[string, string]>, expected: string[] }} session
+     * @param {Array<string|null>} answers
+     */
+    evaluate(session, answers) {
+      const base = MODULES.multiplications.evaluate(session, answers);
+      const questions = Array.isArray(session?.questions) ? session.questions : [];
+      return {
+        ...base,
+        module: 'division',
+        title: 'Mental Division',
+        detail: base.detail.map((row, i) => {
+          const pair = Array.isArray(questions[i]) ? questions[i] : [];
+          return {
+            ...row,
+            question_summary: pair.length >= 2 ? `${pair[0]} ÷ ${pair[1]}` : `Question ${i + 1}`,
+          };
+        }),
+      };
+    },
+  },
+
   square_roots: {
     key: 'square_roots',
     title: 'Mental Square Roots',
@@ -816,7 +867,7 @@ export const MODULES = {
     comingSoon: false,
 
     /**
-     * Generates 10 questions; each is a distinct 6-digit integer in 100000..999999
+     * Generates 10 questions; each is a distinct `digits`-digit integer (4..10, default 6)
      * that is NOT a perfect square.
      * Expected answer is the square root rounded half-up to 5 decimals ("DDD.DDDDD").
      * @param {Function} [rng=defaultRng]
@@ -824,24 +875,14 @@ export const MODULES = {
      * @returns {{ questions: number[], expected: string[], settings: object }}
      */
     generate(rng = defaultRng, settings = {}) {
-      const questions = [];
-      const expected = [];
-      const seen = new Set();
-
-      while (questions.length < SQUARE_ROOTS_QUESTION_COUNT) {
-        const candidate = rng(SQUARE_ROOTS_MIN, SQUARE_ROOTS_MAX);
-        if (isPerfectSquare(candidate) || seen.has(candidate)) {
-          continue;
-        }
-        seen.add(candidate);
-        questions.push(candidate);
-        expected.push(computeSquareRootHalfUp5(candidate));
-      }
+      const digits = normalizeSquareRootDigits(settings?.digits);
+      const { questions, expected } = generateSquareRootSet(rng, digits, SQUARE_ROOTS_QUESTION_COUNT);
 
       return {
         questions,
         expected,
         settings: {
+          digits,
           concentration_seconds:
             Number.isInteger(settings?.concentration_seconds)
               ? settings.concentration_seconds
@@ -851,10 +892,11 @@ export const MODULES = {
     },
 
     /**
-     * Evaluates a square_roots session using the triangular prefix-digit scoring rule:
-     * - Correct digits `k` = leading matching digits from left to right (0..8), stopping at the first wrong or blank digit.
-     * - `points = k * (k + 1) / 2` (max 36 per question, max 360 total).
-     * - `correct` = number of fully correct roots (`k === 8`).
+     * Evaluates a square_roots session with the official Memoriad tolerance rule:
+     * - Counted digits `k`: digit N counts while |A - B| <= 5 * 10^(M - N) (see
+     *   `evaluateSquareRootAnswerOfficial`), so 6-digit radicands score up to 8 digits.
+     * - `points = k * (k + 1) / 2` (max 36 per question for 6 digits, 55 for 10 digits).
+     * - `correct` = number of fully correct roots (all digits counted).
      * - `digits_total` = sum of `k` across all questions.
      * @param {{ questions: number[], expected: string[] }} session
      * @param {Array<string|null>} answers
