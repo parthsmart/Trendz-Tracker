@@ -13,6 +13,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
+import { normalizeProfileRole } from '../js/roles.js';
 import { getAdminClient, getCallerClient } from './_supabaseAdmin.js';
 import { hasSupabaseAdminConfig } from './_configHelper.js';
 import { getTeacherWebinarEmail, normalizeCohostEmail } from './_teacherWebinarEmail.js';
@@ -55,11 +56,12 @@ async function authenticateCaller(supabase, req) {
     throw err;
   }
 
-  const { data: profile, error: profError } = await supabase
+  const { data: rawProfile, error: profError } = await supabase
     .from('profiles')
     .select('id, full_name, role, level, active')
     .eq('id', user.id)
     .single();
+  const profile = normalizeProfileRole(rawProfile);
 
   if (profError || !profile) {
     const err = new Error('User profile not found.');
