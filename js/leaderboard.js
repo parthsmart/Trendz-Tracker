@@ -3,7 +3,7 @@
  *
  * Serves both Students and Admins on /pages/leaderboard.html:
  * - Guard: requireAuth(['student', 'admin'])
- * - Student view: scope switch between own level ('level') and all trainees ('global'),
+ * - Student view: scope switch between own level ('level') and all levels of their centre ('global'),
  *   top 10 + own row below top 10 if outside it, "You" highlight, level chip in global mode, no links.
  * - Admin view: level filter ('all' or specific level from profiles), up to 200 rows,
  *   names link to /pages/student-detail.html?id=<student_id>, no "You" highlight.

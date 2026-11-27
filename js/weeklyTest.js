@@ -15,7 +15,7 @@
  * - Leaderboard tab:
  *   - Test selector: "All tests" (with period selector: This week, This month [default], This year, All time,
  *     Pick a date reusing js/periods.js) plus one entry per test whose `leaderboard_ready` is true.
- *   - Scope switch ("<your level> (your level only)" / "Global (all trainees)", hidden when global_leaderboard_enabled() is false).
+ *   - Scope switch ("<your level> (your level only)" / "All levels (your centre)", hidden when global_leaderboard_enabled() is false).
  *   - Columns: Rank, Student (with level chip in global scope), Points, Correct of attempted, Time.
  *   - Highlights the student's own row and shows their own rank below the top 10.
  *   - Text under the table: "Points = correct answers minus wrong answers in each section (never below 0). Online tests appear after they close."

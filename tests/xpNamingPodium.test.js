@@ -47,8 +47,8 @@ test('naming: stars card says the champion is from last week, with dates', () =>
 });
 
 test('naming: XP leaderboard calls the month a season and all time the career', () => {
-  assert.match(boardTitle('xp', 'month', 'global'), /^XP - This season - Global/);
-  assert.match(boardTitle('xp', 'all', 'global'), /^XP - Career \(all time\) - Global/);
+  assert.match(boardTitle('xp', 'month', 'global'), /^XP - This season - All levels \(your centre\)/);
+  assert.match(boardTitle('xp', 'all', 'global'), /^XP - Career \(all time\) - All levels \(your centre\)/);
   assert.match(boardTitle('xp', 'week', 'global'), /^XP - This week - /);
   assert.match(boardTitle('points', 'month', 'global'), /This month/, 'other boards keep their words');
   const lb = read('../js/leaderboard.js');

@@ -1,7 +1,7 @@
 /**
  * Duel helpers for /api/drill (underscore file: not a Vercel function).
  *
- * A duel is two classmates at the same level playing the same seeded 1-minute
+ * A duel is two classmates in the same centre and at the same level playing the same seeded 1-minute
  * basics round, each in their own time. More correct answers wins; equal correct
  * answers are decided by the faster time; equal both is a draw. Winners are
  * decided by the database (duel_record_result), never by the browser.
@@ -34,6 +34,11 @@ function sameLevel(a, b) {
   return String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
 }
 
+/** Async duels stay inside one centre: both students must have the same centre. */
+export function sameCentre(a, b) {
+  return Boolean(a?.centre_id) && a.centre_id === b?.centre_id;
+}
+
 function fail(statusCode, error, code) {
   return { ok: false, statusCode, error, code };
 }
@@ -49,12 +54,17 @@ export async function handleDuelCreate({ body, student, adminSupabase, res }) {
     return res.status(400).json({ error: 'You cannot duel yourself.' });
   }
 
-  const { data: opponent } = await adminSupabase
+  const { data: pair } = await adminSupabase
     .from('profiles')
-    .select('id, role, active, level, leaderboard_visible')
-    .eq('id', opponentId)
-    .maybeSingle();
+    .select('id, role, active, level, leaderboard_visible, centre_id')
+    .in('id', [student.id, opponentId]);
+  const rows = Array.isArray(pair) ? pair : [];
+  const opponent = rows.find((row) => row.id === opponentId);
+  const me = rows.find((row) => row.id === student.id);
   if (!opponent || opponent.role !== 'student' || !opponent.active || opponent.leaderboard_visible === false) {
+    return res.status(404).json({ error: 'That classmate is not available for duels.' });
+  }
+  if (!sameCentre(me, opponent)) {
     return res.status(404).json({ error: 'That classmate is not available for duels.' });
   }
   if (!sameLevel(opponent.level, student.level)) {

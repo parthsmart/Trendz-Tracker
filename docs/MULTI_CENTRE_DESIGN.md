@@ -320,3 +320,32 @@ Also: `npm run build`, and a browser check of every panel with demo accounts.
   - **Transfer requests:** heads can't move students between centres; owners and directors still do it from the Network page.
   - **Audit noise:** when a person is created in a non-default centre, the audit also logs a "transfer" from BRN, because the default-centre trigger runs first.
 - Rollback: `supabase/rollbacks/36_centre_head_panel_rollback.sql` (drops the functions, no data change).
+
+### Step 5 plan (scope features)
+
+Step 5 is split into smaller parts. Each part has its own migration and PR, so the site keeps working after each one. Production has one centre today, so none of them changes what anyone sees until a second centre gets students.
+
+- **5a, migration 37:** leaderboards and async duels inside one centre (below).
+- **5b:** leagues and star of the month per centre. League groups and the week and month awards are worked out per centre, so a group never mixes two centres.
+- **5c:** cross-centre live duels. The open queue and live invites pair you with your own centre, plus the students that `centre_visibility` opens to it. Today `/api/drill` `live_invite` and the queue accept any centre.
+- **5d:** content and staff tools per centre:
+  - announcements, tasks, resources, weekly tests, homework, live classes and the store, where "everyone" means the author's centre;
+  - level access applied by a teacher (`teacher_bulk_apply_level_access`) reaches only their centre;
+  - the admin overview and the student lists show a Centre column for owners and directors.
+- **5e:** the weekly email goes to each centre's heads, and signing in from a suspended centre is blocked (`requireAuth` and the `is_*` helpers).
+
+### Step 5a implementation notes (migration 37, centre-scoped leaderboards)
+
+- Six functions now filter students by `p.centre_id = my_centre()`, unless the caller is an owner or director:
+  - `leaderboard()` (points, streak, practice days, improved, to-do, XP);
+  - `todo_task_leaderboard()`;
+  - `weekly_test_leaderboard()`;
+  - `class_vs_class()`;
+  - `daily_challenge_board()`;
+  - `duel_options()`.
+- Each one is the production definition from 2026-11-28 with only the filter lines added. A test checks that the migration adds nothing else.
+- Students, teachers and centre heads see only their own centre, whatever level, scope or limit they ask for. Owners and directors still see every centre, with student ids.
+- The "global" scope is now labelled **All levels (your centre)**. There is no network leaderboard (Q5).
+- Async duels: `duel_options()` lists classmates of your own centre only. `/api/drill` `duel_create` refuses an opponent from another centre, even when the id is sent directly.
+- Grants are unchanged (`CREATE OR REPLACE` keeps them).
+- Rollback: `supabase/rollbacks/37_centre_scoped_leaderboards_rollback.sql`. It puts back the pre-37 definitions; no data change.
