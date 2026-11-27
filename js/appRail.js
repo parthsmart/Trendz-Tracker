@@ -262,7 +262,7 @@ export function buildProfileXpHtml(data, tp) {
   return `<div class="rp-tier"><b>${tp.icon} ${esc(tp.name)}</b><span class="rp-dim">${next}</span></div>
         <div class="rp-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="Progress to the next tier"><span style="width:${pct}%"></span></div>
         <div class="rp-stats">
-          <div><b>${fmtNum(data.total_xp)}</b><span>Total XP</span></div>
+          <div><b>${fmtNum(data.season_xp ?? data.total_xp)}</b><span>${data.season_xp == null ? 'Total XP' : 'Season XP'}</span></div>
           <div><b>${fmtNum(data.week_xp)}</b><span>This week</span></div>
           <div><b>🔥 ${fmtNum(streak.current)}</b><span>Day streak</span></div>
           <div><b>${rank.rank ? `#${fmtNum(rank.rank)}` : '—'}</b><span>Week rank</span></div>
@@ -277,7 +277,7 @@ async function loadProfilePreview(panel) {
   try {
     const xp = await import('./xpRewards.js');
     const data = await xp.callXpRpc('my_profile', { p_student: null });
-    box.innerHTML = buildProfileXpHtml(data, data ? xp.tierProgress(data.total_xp, data.tier) : null);
+    box.innerHTML = buildProfileXpHtml(data, data ? xp.tierProgress(xp.seasonXp(data), data.tier) : null);
     const path = data?.profile?.avatar_path;
     if (path) {
       const { signAvatarUrls } = await import('./avatars.js');

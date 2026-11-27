@@ -149,12 +149,12 @@ test('profile preview shows name, code and level with profile links; staff get n
 test('profile preview progress block shows tier, XP, streak and rank', async () => {
   const { buildProfileXpHtml } = await import('../js/appRail.js');
   const html = buildProfileXpHtml(
-    { total_xp: 12345, week_xp: 320, streak: { current: 6 }, week_rank: { rank: 3 } },
+    { total_xp: 99999, season_xp: 12345, week_xp: 320, streak: { current: 6 }, week_rank: { rank: 3 } },
     { name: 'Gold', icon: '🥇', pct: 42, toNext: 655, nextName: 'Platinum' }
   );
   assert.ok(html.includes('🥇 Gold'));
   assert.ok(html.includes('655 XP to Platinum'));
-  assert.ok(html.includes('12,345'));
+  assert.ok(html.includes('12,345') && html.includes('Season XP'));
   assert.ok(html.includes('🔥 6'));
   assert.ok(html.includes('#3'));
   assert.match(html, /aria-valuenow="42"/);
