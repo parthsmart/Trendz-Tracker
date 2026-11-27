@@ -170,12 +170,24 @@
         font-weight: 600;
       }
 
-      .simple-feedback.is-right {
-        color: var(--color-success, #16a34a);
+      .simple-feedback {
+        color: var(--text-muted);
+        font-weight: 500;
       }
 
-      .simple-feedback.is-wrong {
-        color: var(--color-danger, #dc2626);
+      .simple-time-bar {
+        height: 4px;
+        border-radius: 999px;
+        background: var(--border-subtle);
+        overflow: hidden;
+        margin-bottom: var(--space-3);
+      }
+
+      .simple-time-bar > div {
+        height: 100%;
+        width: 0%;
+        background: var(--color-primary, #2563eb);
+        transition: width 0.25s linear;
       }
 
       .simple-stats {
@@ -308,7 +320,7 @@
                 <li><strong>Simple sums (1D 4R, 2D 2R, 3D 2R):</strong> every row can be added or taken away on the abacus directly, with no small or big friends. Plus and minus rows are mixed.</li>
                 <li><strong>Tables dodging:</strong> one table (2 to 9) with the multipliers 1 to 10 in random order, for example 2 × 3, then 2 × 7.</li>
                 <li><strong>Advanced:</strong> 2–5 mix and 2–9 mix ask from several tables at random.</li>
-                <li><strong>Online:</strong> answer each question and press Enter. Your score is saved when you finish.</li>
+                <li><strong>Online:</strong> pick how long the round runs (30 seconds to 5 minutes, or unlimited) and answer as many questions as you can. Answers are marked at the end, not one by one. When time runs out, the question on screen does not count. Your score is saved when the round ends.</li>
                 <li><strong>Offline:</strong> did a sheet on paper? Log the score from the last 7 days.</li>
               </ul>
             </div>
@@ -337,8 +349,8 @@
 
                 <div id="panel-online" role="tabpanel" aria-labelledby="tab-online">
                   <div class="simple-group">
-                    <span class="simple-label" id="simple-count-label">Questions</span>
-                    <div class="simple-chips" id="simple-count-choices" role="radiogroup" aria-labelledby="simple-count-label"></div>
+                    <span class="simple-label" id="simple-time-label">Time</span>
+                    <div class="simple-chips" id="simple-time-choices" role="radiogroup" aria-labelledby="simple-time-label"></div>
                   </div>
                   <button type="button" class="btn btn-primary" id="btn-simple-start" style="width: 100%;">Start</button>
                 </div>
@@ -377,15 +389,16 @@
                 <div id="stage-play" hidden>
                   <div class="simple-topbar">
                     <span id="play-title">Simple</span>
-                    <span><span id="play-progress" class="num">1 / 20</span> · <span id="play-clock" class="num">0:00</span></span>
+                    <span><span id="play-progress" class="num">Answered 0</span> · <span id="play-clock" class="num" aria-label="Time">0:00</span></span>
                   </div>
+                  <div class="simple-time-bar" id="play-time-bar" aria-hidden="true"><div id="play-time-fill"></div></div>
                   <div id="play-question" class="simple-question num" aria-live="polite"></div>
                   <form class="simple-answer-row" id="play-form" novalidate>
                     <label for="play-answer" class="sr-only">Your answer</label>
                     <input id="play-answer" class="form-input num" type="text" inputmode="numeric" autocomplete="off" placeholder="Answer" />
                     <button type="submit" class="btn btn-primary">Enter</button>
                   </form>
-                  <div class="simple-feedback" id="play-feedback" aria-live="assertive"></div>
+                  <div class="simple-feedback" id="play-feedback" aria-live="polite"></div>
                   <div style="display: flex; gap: var(--space-2); justify-content: center; margin-top: var(--space-3);">
                     <button type="button" class="btn btn-outline btn-sm" id="btn-play-skip">Skip</button>
                     <button type="button" class="btn btn-ghost btn-sm" id="btn-play-finish">Finish now</button>

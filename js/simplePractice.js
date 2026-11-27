@@ -60,8 +60,19 @@ export const SIMPLE_ACTIVITY_KEYS = Object.freeze(SIMPLE_ACTIVITIES.map((a) => a
 export const TABLE_MULTIPLIER_MIN = 1;
 export const TABLE_MULTIPLIER_MAX = 10;
 
-export const SIMPLE_QUESTION_COUNTS = Object.freeze([10, 20, 50, 100]);
-export const SIMPLE_DEFAULT_QUESTIONS = 20;
+/**
+ * Online round lengths, the same choices as Basics practice. A round asks
+ * questions without limit until the time runs out; 'unlimited' is a stopwatch
+ * that runs until the student presses Finish (or the 4-hour limit).
+ */
+export const SIMPLE_TIME_MODES = Object.freeze([
+  Object.freeze({ key: '30', seconds: 30, label: '30 seconds' }),
+  Object.freeze({ key: '60', seconds: 60, label: '1 minute' }),
+  Object.freeze({ key: '120', seconds: 120, label: '2 minutes' }),
+  Object.freeze({ key: '300', seconds: 300, label: '5 minutes' }),
+  Object.freeze({ key: 'unlimited', seconds: null, label: 'Unlimited (stopwatch)' }),
+]);
+export const SIMPLE_DEFAULT_TIME_KEY = '60';
 
 /** Limits shared with public.simple_practice_log. */
 export const SIMPLE_LIMITS = Object.freeze({
@@ -173,9 +184,33 @@ export function checkSimpleAnswer(q, raw) {
 
 /* --------------------------------------------------------- score entries */
 
-export function clampSimpleQuestionCount(value) {
-  const n = Math.trunc(Number(value));
-  return SIMPLE_QUESTION_COUNTS.includes(n) ? n : SIMPLE_DEFAULT_QUESTIONS;
+/** The time mode for a key; unknown keys fall back to 1 minute. */
+export function getSimpleTimeMode(key) {
+  return (
+    SIMPLE_TIME_MODES.find((m) => m.key === String(key)) ||
+    SIMPLE_TIME_MODES.find((m) => m.key === SIMPLE_DEFAULT_TIME_KEY)
+  );
+}
+
+/**
+ * Marks the answers of an online round at the end (nothing is checked while
+ * the round runs). Each attempt is { question, given } where given is the raw
+ * text, or null when the question was skipped.
+ */
+export function markSimpleRound(attempts) {
+  let correct = 0;
+  const wrong = [];
+  for (const a of attempts || []) {
+    if (a.given !== null && a.given !== undefined && checkSimpleAnswer(a.question, a.given)) {
+      correct += 1;
+    } else {
+      wrong.push({
+        question: a.question,
+        given: a.given === null || a.given === undefined ? 'skipped' : String(a.given).trim(),
+      });
+    }
+  }
+  return { correct, total: (attempts || []).length, wrong };
 }
 
 function addDays(isoDate, days) {
