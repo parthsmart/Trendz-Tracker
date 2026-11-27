@@ -1,7 +1,7 @@
 /**
- * Migration 31: Baran Centre, the centre backfill, admin -> owner, and the
- * rewrite of inline `role = 'admin'` checks. Runs migrations 30 and 31 (and the
- * 31 rollback) on PGlite against the production shape of `profiles`, with
+ * Migration 32: Baran Centre, the centre backfill, admin -> owner, and the
+ * rewrite of inline `role = 'admin'` checks. Runs migrations 30 and 32 (and the
+ * 32 rollback) on PGlite against the production shape of `profiles`, with
  * policies and functions written the way production writes them.
  */
 
@@ -17,8 +17,8 @@ import { sanitizeCachedProfile } from '../js/profileCache.js';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
 const MIGRATION_30 = read('supabase/migrations/30_multi_centre_schema.sql');
-const MIGRATION_31 = read('supabase/migrations/31_multi_centre_data.sql');
-const ROLLBACK_31 = read('supabase/rollbacks/31_multi_centre_data_rollback.sql');
+const MIGRATION_32 = read('supabase/migrations/32_multi_centre_data.sql');
+const ROLLBACK_32 = read('supabase/rollbacks/32_multi_centre_data_rollback.sql');
 
 const id = (n) => `00000000-0000-0000-0000-${String(n).padStart(12, '0')}`;
 const P = { ADMIN: id(1), TEACHER: id(2), STU1: id(3), STU2: id(4), DIRECTOR: id(5), NEW_STU: id(6) };
@@ -107,7 +107,7 @@ async function freshDb({ apply31 = true } = {}) {
   const db = new PGlite();
   await db.exec(BASE);
   await db.exec(MIGRATION_30);
-  if (apply31) await db.exec(MIGRATION_31);
+  if (apply31) await db.exec(MIGRATION_32);
   return db;
 }
 
@@ -157,7 +157,7 @@ async function makeDirector(db) {
   assert.equal(r.ok, true, r.error);
 }
 
-describe('migration 31: data', () => {
+describe('migration 32: data', () => {
   it('creates Baran Centre, puts students and teachers in it, and makes the admin the owner', async () => {
     const db = await freshDb();
     const [centre] = await rows(db, "SELECT name, code, is_default, status FROM public.centres");
@@ -187,14 +187,14 @@ describe('migration 31: data', () => {
   it('can be run twice without changing anything the second time', async () => {
     const db = await freshDb();
     const before = await rows(db, "SELECT pg_get_functiondef('public.admin_send_student_message(text)'::regprocedure) d");
-    await db.exec(MIGRATION_31);
+    await db.exec(MIGRATION_32);
     const after = await rows(db, "SELECT pg_get_functiondef('public.admin_send_student_message(text)'::regprocedure) d");
     assert.equal(after[0].d, before[0].d);
     assert.equal((await rows(db, 'SELECT count(*)::int n FROM public.centres'))[0].n, 1);
   });
 });
 
-describe('migration 31: new accounts and the centre rule', () => {
+describe('migration 32: new accounts and the centre rule', () => {
   it('a new student or teacher with no centre lands in Baran Centre', async () => {
     const db = await freshDb();
     await db.query(`INSERT INTO public.profiles (id, student_code, role, level) VALUES ('${P.NEW_STU}', 'STU099', 'student', 'Level 2')`);
@@ -232,7 +232,7 @@ describe('migration 31: new accounts and the centre rule', () => {
   });
 });
 
-describe('migration 31: inline admin checks', () => {
+describe('migration 32: inline admin checks', () => {
   it('policies let the owner and a director through and still block teachers and students', async () => {
     const db = await freshDb();
     await makeDirector(db);
@@ -270,7 +270,7 @@ describe('migration 31: inline admin checks', () => {
     const db = await freshDb({ apply31: false });
     await db.exec(`CREATE FUNCTION public.odd_check() RETURNS boolean LANGUAGE sql AS $$
       SELECT EXISTS (SELECT 1 FROM public.profiles WHERE role <> 'admin') $$`);
-    const r = await execAttempt(db, `BEGIN; ${MIGRATION_31}; COMMIT;`);
+    const r = await execAttempt(db, `BEGIN; ${MIGRATION_32}; COMMIT;`);
     await db.exec('ROLLBACK').catch(() => {});
     assert.equal(r.ok, false);
     assert.match(r.error, /odd_check/);
@@ -279,10 +279,10 @@ describe('migration 31: inline admin checks', () => {
   });
 });
 
-describe('migration 31: rollback', () => {
+describe('migration 32: rollback', () => {
   it('puts the admin, the checks and the centres back as they were', async () => {
     const db = await freshDb();
-    await db.exec(ROLLBACK_31);
+    await db.exec(ROLLBACK_32);
     const people = await rows(db, 'SELECT role, centre_id FROM public.profiles ORDER BY student_code');
     assert.deepEqual(people.map((p) => [p.role, p.centre_id]),
       [['admin', null], ['student', null], ['student', null], ['teacher', null]]);
@@ -299,7 +299,7 @@ describe('migration 31: rollback', () => {
     const db = await freshDb();
     await makeDirector(db);
     await db.exec('RESET ROLE');
-    const r = await execAttempt(db, ROLLBACK_31);
+    const r = await execAttempt(db, ROLLBACK_32);
     assert.equal(r.ok, false);
     assert.match(r.error, /Rollback refused/);
   });

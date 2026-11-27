@@ -12,7 +12,7 @@
 --   5. Converts the admin account to owner.
 --
 -- No rows are deleted. Centre heads are still not admins (step 5 scopes them).
--- Rollback: supabase/rollbacks/31_multi_centre_data_rollback.sql
+-- Rollback: supabase/rollbacks/32_multi_centre_data_rollback.sql
 
 -- ---------------------------------------------------------------------------
 -- 1. Default centre

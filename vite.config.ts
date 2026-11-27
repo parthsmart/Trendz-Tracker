@@ -123,6 +123,7 @@ export default defineConfig(({ command }) => {
           profile: path.resolve(__dirname, 'pages/profile.html'),
           arena: path.resolve(__dirname, 'pages/arena.html'),
           duels: path.resolve(__dirname, 'pages/duels.html'),
+          'live-duel': path.resolve(__dirname, 'pages/live-duel.html'),
           store: path.resolve(__dirname, 'pages/store.html'),
           certificate: path.resolve(__dirname, 'pages/certificate.html'),
           announcements: path.resolve(__dirname, 'pages/announcements.html'),

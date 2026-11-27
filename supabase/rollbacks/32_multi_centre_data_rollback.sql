@@ -1,4 +1,4 @@
--- Rollback for 31_multi_centre_data.sql: owner back to admin, everyone out of
+-- Rollback for 32_multi_centre_data.sql: owner back to admin, everyone out of
 -- Baran Centre, and the inline admin checks back to role = 'admin'.
 --
 -- Only safe while nobody holds a role the old checks do not know (director,
