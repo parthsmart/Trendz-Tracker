@@ -18,6 +18,7 @@ import { getSupabase } from './supabaseClient.js';
 import { isSupabaseConfigured } from './config.js';
 import { celebrate } from './motion.js';
 import { getDuelHub } from './duelPresence.js';
+import { ensureAvatarStyles, signAvatarUrls } from './avatars.js';
 import {
   GHOST_WAIT_SECONDS,
   LIVE_DUEL_GRACE_SECONDS,
@@ -143,6 +144,7 @@ async function loadLobby() {
 
 function renderMates() {
   if (!$('ld-mates')) return;
+  ensureAvatarStyles(document);
   const list = [...st.online].map((id) => st.players.get(id)).filter(Boolean)
     .sort((x, y) => Number(y.classmate) - Number(x.classmate) || String(x.display_name).localeCompare(String(y.display_name)));
   $('ld-mates').innerHTML = buildOnlinePlayersHtml(list, { loading: !st.presenceSeen });
@@ -155,7 +157,9 @@ async function onPresence(ids) {
   if (missing.length) {
     const { data } = await rpc('live_duel_online_players', { p_ids: missing.slice(0, 300) });
     for (const id of missing) if (!st.players.has(id)) st.players.set(id, null); // not at my level / not listed
-    for (const p of Array.isArray(data) ? data : []) st.players.set(p.id, p);
+    const found = Array.isArray(data) ? data : [];
+    const urls = await signAvatarUrls(found.map((p) => p.avatar_path).filter(Boolean)).catch(() => new Map());
+    for (const p of found) st.players.set(p.id, { ...p, url: urls.get(p.avatar_path) || null });
   }
   renderMates();
 }
@@ -164,7 +168,7 @@ async function startSearch() {
   if (st.searching) return;
   st.searching = true;
   show('ld-search');
-  $('ld-search-text').textContent = 'Looking for a classmate at your level…';
+  $('ld-search-text').textContent = 'Looking for a student at your level…';
   const loop = async () => {
     if (!st.searching) return;
     try {
@@ -174,7 +178,7 @@ async function startSearch() {
       const waited = Number(res.waited_seconds) || 0;
       const left = Math.max(0, (Number(res.ghost_after) || GHOST_WAIT_SECONDS) - waited);
       $('ld-search-text').textContent = left > 0
-        ? `Looking for a classmate at your level… (${Math.ceil(left)}s)`
+        ? `Looking for a student at your level… (${Math.ceil(left)}s)`
         : 'Nobody free right now. Racing a ghost runner instead…';
       if (left <= 0) {
         const g = await drillApi({ action: 'live_ghost' });

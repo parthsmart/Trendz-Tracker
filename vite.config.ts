@@ -96,6 +96,7 @@ export default defineConfig(({ command }) => {
           main: path.resolve(__dirname, 'index.html'),
           landing: path.resolve(__dirname, 'landing.html'),
           student: path.resolve(__dirname, 'pages/student.html'),
+          progress: path.resolve(__dirname, 'pages/progress.html'),
           roundScores: path.resolve(__dirname, 'pages/round-scores.html'),
           basics: path.resolve(__dirname, 'pages/basics.html'),
           basicsPractice: path.resolve(__dirname, 'pages/basics-practice.html'),

@@ -5,7 +5,8 @@
  * No DOM access here so tests can check the markup.
  */
 
-import { LIVE_DUEL_EMOTES, raceLanePercent } from '../shared/liveDuel.js';
+import { LIVE_DUEL_EMOTES, liveDuelTier, raceLanePercent } from '../shared/liveDuel.js';
+import { avatarHtml } from './avatars.js';
 
 export function esc(value) {
   return String(value ?? '')
@@ -86,12 +87,21 @@ export function buildResultHtml(state) {
     </div>`;
 }
 
+/** The arena banner's stats: rating, question level, won / drawn / lost. */
 export function buildRatingHtml(rating) {
   const r = rating || {};
+  const value = Number(r.rating) || 1000;
+  const tier = liveDuelTier(value);
+  const stars = `${'★'.repeat(tier)}<span class="ld-stars-off">${'★'.repeat(5 - tier)}</span>`;
+  const stat = (n, label, cls) => `<div class="ld-stat ${cls}"><b class="num">${Number(n) || 0}</b><span>${label}</span></div>`;
   return `
     <div class="ld-rating">
-      <div><span class="ld-big num">${Number(r.rating) || 1000}</span><span class="ar-dim">Duel rating</span></div>
-      <div class="ar-dim num">${Number(r.won) || 0} won · ${Number(r.drawn) || 0} drawn · ${Number(r.lost) || 0} lost</div>
+      <div class="ld-rating-top">
+        <span class="ld-big num">${value}</span>
+        <span class="ld-rating-label">Duel rating</span>
+      </div>
+      <div class="ld-level" title="Questions get harder as your rating rises">Question level <span class="ld-stars" aria-label="${tier} of 5">${stars}</span></div>
+      <div class="ld-stats">${stat(r.won, 'Won', 'is-won')}${stat(r.drawn, 'Drawn', 'is-draw')}${stat(r.lost, 'Lost', 'is-lost')}</div>
     </div>`;
 }
 
@@ -127,30 +137,35 @@ export function buildOnlinePlayersHtml(players = [], { loading = false } = {}) {
       ? '<p class="ar-dim">Checking who is online…</p>'
       : '<p class="ar-dim">Nobody at your level is online right now. Try Find an opponent to race a ghost.</p>';
   }
-  return `<ul class="ar-board ld-mates">${players
+  return `<ul class="ld-people ld-mates">${players
     .map((o) => {
       const where = o.classmate ? 'Your centre' : (o.centre_name || 'Another centre');
-      return `<li><span class="ld-dot is-on" title="Online now"></span>
-        <span class="ar-name">${esc(o.display_name)} <small class="ar-dim">· ${esc(where)} · ${Number(o.rating) || 1000}</small></span>
-        <button type="button" class="btn btn-outline btn-sm" data-challenge="${esc(o.id)}">Challenge</button></li>`;
+      return `<li>
+        <span class="ld-av-wrap">${avatarHtml(o.url || null, o.display_name, 38)}<span class="ld-dot is-on" title="Online now"></span></span>
+        <span class="ld-who"><b>${esc(o.display_name)}</b><small><span class="ld-where${o.classmate ? ' is-mine' : ''}">${esc(where)}</span> · <span class="num">${Number(o.rating) || 1000}</span></small></span>
+        <button type="button" class="btn btn-primary btn-sm ld-challenge" data-challenge="${esc(o.id)}">⚔️ Challenge</button></li>`;
     })
     .join('')}</ul>`;
 }
 
 export function buildBoardHtml(board = []) {
   if (!board.length) return '<p class="ar-dim">Nobody has a duel rating yet. Be the first!</p>';
-  return `<ol class="ar-board">${board
-    .map((b, i) => `<li class="${b.me ? 'me' : ''}"><span class="ar-rank">#${i + 1}</span><span class="ar-name">${esc(b.display_name)}</span><span class="ar-xp num">${Number(b.rating)}</span></li>`)
+  const medal = ['🥇', '🥈', '🥉'];
+  return `<ol class="ld-top">${board
+    .map((b, i) => `<li class="${b.me ? 'me' : ''}"><span class="ld-rank">${medal[i] || `<span class="num">${i + 1}</span>`}</span><span class="ld-top-name">${esc(b.display_name)}${b.me ? ' <small>(you)</small>' : ''}</span><span class="ld-top-r num">${Number(b.rating)}</span></li>`)
     .join('')}</ol>`;
 }
 
 export function buildRecentHtml(recent = []) {
-  if (!recent.length) return '<p class="ar-dim">No live duels yet.</p>';
-  return `<ul class="ar-board">${recent
-    .map((r) => `<li><span class="ld-res is-${esc(r.result)}">${esc(r.result === 'won' ? 'Won' : r.result === 'lost' ? 'Lost' : 'Draw')}</span>
-      <span class="ar-name">vs ${esc(r.other_name)} · ${esc(r.category_name)}</span>
-      <span class="num">${Number(r.my_correct) || 0}–${Number(r.other_correct) || 0}</span>
-      <span class="ar-dim num">${ratingDeltaText(r.rating_delta)}</span></li>`)
+  if (!recent.length) return '<p class="ar-dim">No live duels yet. Your races will show here.</p>';
+  return `<ul class="ld-recent">${recent
+    .map((r) => {
+      const d = Number(r.rating_delta) || 0;
+      return `<li><span class="ld-res is-${esc(r.result)}">${esc(r.result === 'won' ? 'Won' : r.result === 'lost' ? 'Lost' : 'Draw')}</span>
+      <span class="ld-who"><b>vs ${esc(r.other_name)}</b><small>${esc(r.category_name)}</small></span>
+      <span class="ld-recent-score num">${Number(r.my_correct) || 0}–${Number(r.other_correct) || 0}</span>
+      <span class="ld-delta num ${d > 0 ? 'is-up' : d < 0 ? 'is-down' : ''}">${ratingDeltaText(r.rating_delta)}</span></li>`;
+    })
     .join('')}</ul>`;
 }
 

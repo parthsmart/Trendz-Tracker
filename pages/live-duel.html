@@ -58,41 +58,48 @@
       <main class="main-content">
         <div class="container ar-container ld-container" style="max-width: 960px;">
           <div id="config-banner-placeholder"></div>
-          <header class="ar-hero">
+          <header class="ar-hero ld-hero">
             <h1>⚡ Live duel</h1>
-            <p class="ar-dim">Race another student at your level, from any centre, on the same 1-minute round, live. Most correct answers wins; reaching it first breaks a tie. <a href="/pages/duels.html">Play-later duels ›</a></p>
+            <a class="ld-later" href="/pages/duels.html">Play-later duels ›</a>
           </header>
 
           <section id="ld-lobby" hidden>
             <div id="ld-lobby-body">
               <p class="ld-off" id="ld-off" hidden>Live duels are switched off right now. Your teacher can turn them back on.</p>
               <div id="ld-invites"></div>
-              <div class="ld-grid">
-                <section class="card ar-panel ld-play">
-                  <div id="ld-rating"></div>
-                  <button type="button" class="btn btn-primary ld-quick" id="ld-quick">⚡ Find an opponent</button>
-                  <p class="ar-dim">We pair you with a student at your level from any centre. Nobody free? You race a ghost runner instead. Questions get harder as your rating rises.</p>
-                </section>
-                <section class="card ar-panel">
-                  <h2>Online now</h2>
-                  <p class="ar-dim">Students at your level from every centre. They get a pop-up to accept or reject.</p>
+              <section class="ld-arena" aria-labelledby="ld-arena-title">
+                <div class="ld-arena-play">
+                  <span class="ld-kicker"><span class="ld-live">LIVE</span> 60-second maths race</span>
+                  <h2 id="ld-arena-title">Race another student at your level, from any centre</h2>
+                  <p>Same questions, same clock. Most correct answers wins; reaching it first breaks a tie.</p>
+                  <button type="button" class="ld-quick" id="ld-quick">⚡ Find an opponent</button>
+                  <p class="ld-hint">Nobody free? You race a ghost runner instead.</p>
+                </div>
+                <div class="ld-arena-stats" id="ld-rating"></div>
+              </section>
+              <div class="ld-cols">
+                <section class="card ar-panel ld-online">
+                  <div class="ld-panel-head">
+                    <h2><span class="ld-dot is-on" aria-hidden="true"></span> Online now</h2>
+                    <span class="ar-dim">They get a pop-up to accept or reject</span>
+                  </div>
                   <div id="ld-mates"></div>
                 </section>
                 <section class="card ar-panel">
-                  <h2>Top duellists</h2>
+                  <div class="ld-panel-head"><h2>🏆 Top duellists</h2></div>
                   <div id="ld-board"></div>
                 </section>
-                <section class="card ar-panel">
-                  <h2>Recent live duels</h2>
-                  <div id="ld-recent"></div>
-                </section>
               </div>
+              <section class="card ar-panel ld-recent-card">
+                <div class="ld-panel-head"><h2>Recent live duels</h2></div>
+                <div id="ld-recent"></div>
+              </section>
             </div>
           </section>
 
           <section class="card ar-panel ld-center" id="ld-search" hidden>
             <div class="ld-spinner" aria-hidden="true">⚡</div>
-            <p id="ld-search-text" aria-live="polite">Looking for a classmate at your level…</p>
+            <p id="ld-search-text" aria-live="polite">Looking for a student at your level…</p>
             <button type="button" class="btn btn-outline" id="ld-search-cancel">Cancel</button>
           </section>
 

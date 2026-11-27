@@ -30,8 +30,24 @@
 .sh-hero .emblem small { font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--text-muted); }
 @media (max-width: 640px) { .sh-hero { padding: 20px; } .sh-hero .emblem { display: none; } .sh-hero h1 { font-size: 1.45rem; } }
 
-/* ---------- View switcher under hero ---------- */
-.sh-viewbar { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+/* ---------- Progress page (pages/progress.html) ---------- */
+.pg-head { margin: 4px 0 var(--space-4); }
+.pg-head h1 { margin: 0 0 4px; font-size: 1.6rem; }
+.pg-head p { margin: 0; color: var(--text-muted); font-size: 14px; }
+.pg-sheet-nav { flex-wrap: wrap; }
+@media (max-width: 640px) {
+  .pg-sheet-nav { width: 100%; }
+  .pg-sheet-nav > div:first-child { flex: 1 1 100%; margin-right: 0 !important; }
+  .pg-sheet-nav select { flex: 1; min-width: 0; }
+  .pg-sheet-nav > .btn { flex: 1; justify-content: center; }
+}
+
+/* ---------- My XP title row with the league pill ---------- */
+.xp-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 10px; }
+.xp-head .xp-card-title { margin: 0 !important; }
+.xp-league { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border-hairline); border-radius: 999px; padding: 5px 12px; font-size: 13px; font-weight: 600; color: var(--text-main); text-decoration: none; background: #fff; }
+.xp-league:hover { border-color: var(--color-primary, #2563EB); }
+.xp-league.is-up { background: #f0fdf4; border-color: #86efac; }
 
 /* ---------- My Day ---------- */
 .myday { display: grid; grid-template-columns: 250px minmax(0, 1fr); border: 1px solid var(--border-hairline); border-radius: 16px; background: var(--bg-surface); overflow: hidden; min-height: 360px; }
@@ -163,7 +179,6 @@
   .sh-top { display: contents; }
   .sh-top-main { order: 0; }
   .sh-top-side { order: 2; }
-  .sh-home > .sh-viewbar, #student-pane-focus, #student-pane-progress { order: 1; }
 }
 
 /* ---------- Live Duels card (js/liveDuelHome.js) ---------- */
@@ -203,6 +218,7 @@
 .ldh-pick ul { list-style: none; margin: 0; padding: 0 12px 10px; display: grid; gap: 6px; max-height: 220px; overflow: auto; }
 .ldh-pick li { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: rgba(255, 255, 255, .9); }
 .ldh-pick li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ldh-pick li small { display: block; font-size: 11.5px; color: rgba(255, 255, 255, .6); overflow: hidden; text-overflow: ellipsis; }
 .ldh-pick li button { border: 0; border-radius: 8px; padding: 5px 10px; font: inherit; font-size: 12.5px; font-weight: 800; background: #FACC15; color: #1E1B4B; cursor: pointer; }
 .ldh-pick li button:disabled { opacity: .6; cursor: default; }
 @media (max-width: 640px) {
