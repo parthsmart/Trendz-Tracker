@@ -95,7 +95,7 @@ test('student rail groups practice pages under one Practice button, like the pho
   assert.match(flyout, /href="\/pages\/flash.html" class="rail-fly-link is-current" aria-current="page"/);
 });
 
-test('student rail has its own Duels, Arena and Store buttons', async () => {
+test('student rail has its own Duels and Store buttons, and no Arena button', async () => {
   const { buildRailLinksHtml } = await import('../js/appRail.js');
   const resolved = resolveRailItems({ role: 'student' }, '/pages/duels.html');
   assert.equal(resolved.byId.get('student-duels').href, '/pages/duels.html');
@@ -104,7 +104,7 @@ test('student rail has its own Duels, Arena and Store buttons', async () => {
   const html = buildRailLinksHtml(resolved.layout, resolved.byId);
   assert.match(html, /<a href="\/pages\/duels.html" class="rail-link is-current"/);
   assert.match(html, /<a href="\/pages\/store.html" class="rail-link"/);
-  assert.match(html, /<a href="\/pages\/arena.html" class="rail-link"/);
+  assert.ok(!html.includes('/pages/arena.html'), 'the Arena is reached from the league pill in My XP');
 });
 
 test('a student without Flash access does not see it in the Practice flyout', async () => {

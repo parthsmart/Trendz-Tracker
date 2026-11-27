@@ -38,6 +38,8 @@ export const NAV_STAGE_AND_PUBLIC_ALLOWLIST = Object.freeze([
   '/pages/memoriad-play.html',
   '/pages/live-room.html',
   '/pages/live-duel.html',
+  '/pages/progress.html', // Progress tile in Practice & More on the student home
+  '/pages/arena.html', // league pill in the student home My XP panel
   '/pages/student-detail.html',
   '/pages/certificate.html',
   '/pages/report.html',
@@ -168,14 +170,6 @@ export const NAV_CONFIG = Object.freeze({
       id: 'student-profile',
       label: 'My Profile',
       href: '/pages/profile.html',
-      group: 'Account',
-      inline: false,
-      desktopPlacement: 'menu-only',
-    }),
-    Object.freeze({
-      id: 'student-arena',
-      label: 'Arena',
-      href: '/pages/arena.html',
       group: 'Account',
       inline: false,
       desktopPlacement: 'menu-only',

@@ -16,27 +16,19 @@ import { getSupabase, DemoDB } from './supabaseClient.js';
 import { isSupabaseConfigured } from './config.js';
 import { isDemoMode } from './demoDb.js';
 import { formatTodayHeadingIST } from './periods.js';
-import { fetchStudentDashboardData, fetchStudentScoreSheetData } from './dashboardData.js';
+import { fetchStudentDashboardData } from './dashboardData.js';
 import { groupTests, isSectionStartable, getWeeklyTestCompletionState } from './weeklyTestView.js';
 import {
   renderStreakCard,
   renderTodaySummaryMetrics,
   renderTodoList,
-  renderBasicsThisWeek,
-  renderFlashThisWeek,
-  renderResources,
-  renderAttendanceCard,
-  setupScoreSheetController,
-  setupProgressChartsController
 } from './dashboardComponents.js';
 import { loadAndRenderStudentHomework } from './studentHomeworkView.js';
-import { renderElementsCard } from './elementsCard.js';
-import { renderMemoriadCard } from './memoriadCard.js';
 import { fetchMyNotificationsCached } from './notificationBadge.js';
 import { formatTimeIST } from './liveClasses.js';
 import { renderXpProgressCard } from './xpRewards.js';
 import { renderDailyChallengeCard, renderStarsCard } from './homeGamify.js';
-import { renderArenaCard } from './arenaHome.js';
+import { renderLeaguePill } from './arenaHome.js';
 import { renderLiveDuelHome } from './liveDuelHome.js';
 import {
   renderPracticeTiles,
@@ -44,88 +36,6 @@ import {
   renderMyDay,
   renderComingUp,
 } from './studentHome.js';
-
-let cachedDashboardData = null;
-let progressTabLoaded = false;
-let progressTabLoadingPromise = null;
-
-async function ensureProgressTabLoaded(studentId) {
-  if (progressTabLoaded) return;
-  if (progressTabLoadingPromise) return progressTabLoadingPromise;
-
-  progressTabLoadingPromise = (async () => {
-    try {
-      const scoreSheetData = await fetchStudentScoreSheetData(studentId);
-      const data = cachedDashboardData;
-      if (!data) return;
-
-      const fullResults =
-        Array.isArray(scoreSheetData.allResults) && scoreSheetData.allResults.length > 0
-          ? scoreSheetData.allResults
-          : data.results;
-
-      data.roundSeries = scoreSheetData.roundSeries;
-      data.categorySeries = scoreSheetData.categorySeries;
-      data.studentRounds = scoreSheetData.studentRounds;
-      data.resources = scoreSheetData.resources;
-      data.results = fullResults;
-
-      // Score Sheet Table with Series Selector, 5-Round Pagination & Sticky Column
-      setupScoreSheetController({
-        results: fullResults,
-        categories: data.categories,
-        roundSeries: data.roundSeries,
-        categorySeries: data.categorySeries,
-        studentRounds: data.studentRounds
-      });
-
-      // Progress Charts (7-day vs 4-week toggle, week-over-week comparison, dual bar charts, text summaries)
-      setupProgressChartsController({
-        results: fullResults,
-        todayIST: data.todayIST,
-        containerId: 'charts-wrapper-container'
-      });
-
-      // Basics Card
-      renderBasicsThisWeek(fullResults, data.categories, data.todayIST);
-
-      // Flash Anzan Card (Phase 7)
-      renderFlashThisWeek(data.activityResults, data.todayIST);
-
-      // Elements Worksheet Drills Card (Phase 8)
-      await renderElementsCard({
-        studentId,
-        containerId: 'elements-week-container',
-        isReadOnly: false,
-        todayIST: data.todayIST,
-        preloadedResults: data.activityResults
-      });
-
-      // Memoriad Competition Practice Card (Phase 9b-1)
-      await renderMemoriadCard({
-        studentId,
-        containerId: 'memoriad-week-container',
-        isReadOnly: false,
-        todayIST: data.todayIST,
-        preloadedResults: data.activityResults
-      });
-
-      // Attendance Card (Phase 4a)
-      renderAttendanceCard(data.attendance, 'attendance-card-container');
-
-      // Learning Resources
-      renderResources(data.resources);
-
-      progressTabLoaded = true;
-    } catch (err) {
-      console.error('Failed to load Score Sheet & Progress tab:', err);
-    } finally {
-      progressTabLoadingPromise = null;
-    }
-  })();
-
-  return progressTabLoadingPromise;
-}
 
 /**
  * Re-renders the Practice tiles once the student's practice access is known,
@@ -145,7 +55,18 @@ async function refreshPracticeTilesWithAccess(profile) {
   }
 }
 
+/** The old "Score Sheet & Progress" view now lives on its own page. */
+function redirectOldProgressView() {
+  const { hash, search } = window.location;
+  if (hash === '#progress' || hash === '#score-sheet' || new URLSearchParams(search).get('view') === 'progress') {
+    window.location.replace('/pages/progress.html');
+    return true;
+  }
+  return false;
+}
+
 async function initStudentDashboard() {
+  if (redirectOldProgressView()) return;
   // 1. Guard check: Strictly for logged-in students.
   // /pages/student.html must NEVER read a student id from the URL or anywhere else.
   // Verified admin sessions return to /pages/admin.html; verified teachers return to /pages/teacher.html.
@@ -161,17 +82,18 @@ async function initStudentDashboard() {
   renderPracticeTiles(loggedInProfile);
   refreshPracticeTilesWithAccess(loggedInProfile);
   setupFullPlanToggle();
-  setupStudentHomeViewTabs(() => {
-    ensureProgressTabLoaded(currentStudentId);
-  });
-  setupProgressWeekTabs();
 
   loadAndRenderStudentLiveClassCard(currentStudentId);
   renderLiveDuelHome(document.getElementById('live-duel-home'), loggedInProfile)
     .catch((err) => console.warn('Could not load live duels:', err));
-  renderXpProgressCard(document.getElementById('xp-progress-card'), {
+  const xpCard = document.getElementById('xp-progress-card');
+  const xpReady = renderXpProgressCard(xpCard, {
     studentId: currentStudentId,
-  }).catch((err) => console.warn('Could not load XP:', err));
+  });
+  xpReady.catch((err) => console.warn('Could not load XP:', err));
+  renderLeaguePill(xpCard, xpReady.catch(() => null)).catch((err) =>
+    console.warn('Could not load the league:', err)
+  );
   renderDailyChallengeCard(document.getElementById('daily-challenge'))
     .then(() => {
       if (window.location.hash === '#daily-challenge') {
@@ -181,9 +103,6 @@ async function initStudentDashboard() {
     .catch((err) => console.warn('Could not load the daily challenge:', err));
   renderStarsCard(document.getElementById('stars-card')).catch((err) =>
     console.warn('Could not load stars:', err)
-  );
-  renderArenaCard(document.getElementById('arena-card')).catch((err) =>
-    console.warn('Could not load the arena card:', err)
   );
   // Weekly tests, homework and reminders are each fetched once and shared by
   // My Day and the Coming up panel (which also shows today's open weekly test).
@@ -210,10 +129,9 @@ async function initStudentDashboard() {
     });
   });
 
-  // 2. Fetch and render "Today's Focus" dashboard data first (Score Sheet deferred until tab open)
+  // 2. Fetch and render today's dashboard data (the score sheet lives on /pages/progress.html)
   try {
     const data = await fetchStudentDashboardData(currentStudentId, { includeScoreSheet: false });
-    cachedDashboardData = data;
 
     // Date in "Today" Header (India time)
     const todayEl = document.getElementById('display-today-ist');
@@ -235,12 +153,6 @@ async function initStudentDashboard() {
 
     // Three Small 7-Day Summary Cards: Accuracy, Speed (q/min), Practice days
     renderTodaySummaryMetrics(data.results, data.activityResults, data.todayIST);
-
-    // If user already switched to Progress or Show All while initial data was loading, load Tab 2 now
-    const progressPane = document.getElementById('student-pane-progress');
-    if (progressPane && progressPane.style.display !== 'none') {
-      await ensureProgressTabLoaded(currentStudentId);
-    }
   } catch (err) {
     console.error('Failed to load student dashboard data:', err);
   }
@@ -424,63 +336,6 @@ function setupFullPlanToggle() {
   const panel = document.getElementById('sh-full-plan');
   document.getElementById('btn-toggle-full-plan')?.addEventListener('click', () => {
     setFullPlanOpen(Boolean(panel?.hidden));
-  });
-}
-
-/**
- * Wires the calm view switcher on Student Home ("Today's Focus" | "Score Sheet & Progress" | "Show All")
- * so the page does not stack 16 cards on a single vertical scroll unless requested.
- */
-function setupStudentHomeViewTabs(onProgressVisible = null) {
-  const focusPane = document.getElementById('student-pane-focus');
-  const progressPane = document.getElementById('student-pane-progress');
-  const tabBtns = document.querySelectorAll('[data-student-view]');
-  if (!focusPane || !progressPane || tabBtns.length === 0) return;
-
-  const applyView = (mode) => {
-    tabBtns.forEach((btn) => {
-      const isMatch = btn.getAttribute('data-student-view') === mode;
-      btn.classList.toggle('active', isMatch);
-      btn.setAttribute('aria-selected', isMatch ? 'true' : 'false');
-    });
-
-    if (mode === 'progress') {
-      focusPane.style.display = 'none';
-      progressPane.style.display = '';
-      if (typeof onProgressVisible === 'function') onProgressVisible();
-    } else {
-      focusPane.style.display = '';
-      progressPane.style.display = 'none';
-    }
-  };
-
-  tabBtns.forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const mode = btn.getAttribute('data-student-view') || 'focus';
-      applyView(mode);
-    });
-  });
-}
-
-/**
- * Score Sheet & Progress: one "This week" card with a tab per section (Basics, Flash, ...).
- */
-function setupProgressWeekTabs() {
-  const tabs = document.querySelectorAll('[data-week-tab]');
-  const panes = document.querySelectorAll('[data-week-pane]');
-  if (tabs.length === 0) return;
-  tabs.forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const key = btn.getAttribute('data-week-tab');
-      tabs.forEach((b) => {
-        const on = b === btn;
-        b.classList.toggle('active', on);
-        b.setAttribute('aria-selected', on ? 'true' : 'false');
-      });
-      panes.forEach((pane) => {
-        pane.hidden = pane.getAttribute('data-week-pane') !== key;
-      });
-    });
   });
 }
 
