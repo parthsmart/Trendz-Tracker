@@ -1,4 +1,4 @@
--- Rollback for migration 37 (weekly test practice). Drops the practice
+-- Rollback for migration 38 (weekly test practice). Drops the practice
 -- functions and tables. Official weekly test data is untouched; practice runs
 -- are lost.
 DROP FUNCTION IF EXISTS public.weekly_test_practice_review(uuid);

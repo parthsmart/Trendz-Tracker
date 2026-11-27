@@ -15,7 +15,7 @@
  * - Stores expected answers server-side only in `drill_sessions.expected`.
  * - Writes results ONLY to `weekly_test_scores` and `weekly_test_attempts`
  *   (practice runs after the window closes write ONLY to
- *   `weekly_test_practice_attempts`; see migration 37)
+ *   `weekly_test_practice_attempts`; see migration 38)
  *   (NEVER writes to `activity_results` or `results`).
  * - Never logs answers, expected answers, or tokens.
  */
@@ -251,7 +251,7 @@ export async function handleStartWeeklyTestSection({
       return {
         statusCode: 500,
         payload: {
-          error: 'Weekly test practice needs migration 37_weekly_test_practice.sql.',
+          error: 'Weekly test practice needs migration 38_weekly_test_practice.sql.',
           code: 'MIGRATION_REQUIRED',
         },
       };
@@ -1573,7 +1573,7 @@ export async function handlePracticeBegin({ student, body, adminSupabase }) {
       return {
         statusCode: 500,
         payload: {
-          error: 'Weekly test practice needs migration 37_weekly_test_practice.sql.',
+          error: 'Weekly test practice needs migration 38_weekly_test_practice.sql.',
           code: 'MIGRATION_REQUIRED',
         },
       };

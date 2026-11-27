@@ -3394,7 +3394,7 @@ if (typeof document !== 'undefined') {
 }
 
 /**
- * Practice attempts (migration 37): students retaking a closed online test.
+ * Practice attempts (migration 38): students retaking a closed online test.
  * Shown under the online results, clearly labelled as practice. They never
  * count towards official scores or the leaderboard.
  */

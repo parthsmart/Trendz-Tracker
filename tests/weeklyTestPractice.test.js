@@ -1,7 +1,7 @@
-// Weekly test practice (migration 37): practice after the official window
+// Weekly test practice (migration 38): practice after the official window
 // closes, stored apart from official results.
 //
-// Runs migration 37 and the production weekly_test_leaderboard() in PGlite and
+// Runs migration 38 and the production weekly_test_leaderboard() in PGlite and
 // drives the real api/weekly-test.js handlers through a small Supabase-like
 // adapter. Proves:
 //   - isolation: the official board, scores and attempts are byte-identical
@@ -119,7 +119,7 @@ async function officialSnapshot(db, viewer, testId) {
   return JSON.stringify({ board: board.rows, scores: scores.rows, attempts: attempts.rows });
 }
 
-describe('Weekly test practice (migration 37)', () => {
+describe('Weekly test practice (migration 38)', () => {
   let db;
   let api;
   let closedTest;
@@ -205,7 +205,7 @@ describe('Weekly test practice (migration 37)', () => {
         $$ SELECT (now() - interval '60 days')::date, now()::date $$;
     `);
     await db.exec(fs.readFileSync(path.resolve('tests/fixtures/weekly_test_leaderboard_live.sql'), 'utf8'));
-    await db.exec(fs.readFileSync(path.resolve('supabase/migrations/37_weekly_test_practice.sql'), 'utf8'));
+    await db.exec(fs.readFileSync(path.resolve('supabase/migrations/38_weekly_test_practice.sql'), 'utf8'));
 
     await db.exec(`
       INSERT INTO public.centres (id, name) VALUES ('${ID.centreA}', 'A'), ('${ID.centreB}', 'B');

@@ -16,7 +16,7 @@
 -- changes.
 --
 -- No existing table, policy or function is changed.
--- Rollback: supabase/rollbacks/37_weekly_test_practice_rollback.sql
+-- Rollback: supabase/rollbacks/38_weekly_test_practice_rollback.sql
 
 -- ---------------------------------------------------------------------------
 -- 1. Tables (service role only; the site reads them through the RPCs below)

@@ -14,11 +14,11 @@
  * - Past tests show per-section scores with the shared score colour (js/scoreColors.js).
  * - Closed online tests show "Practise": a no-stakes retake (same sections, time limits and scoring)
  *   stored apart from official results, with "Where you would have stood" on the official board
- *   (labelled "Practice — not official"). See js/weeklyTestPracticeView.js and migration 37.
+ *   (labelled "Practice — not official"). See js/weeklyTestPracticeView.js and migration 38.
  * - Leaderboard tab:
  *   - Test selector: "All tests" (with period selector: This week, This month [default], This year, All time,
  *     Pick a date reusing js/periods.js) plus one entry per test whose `leaderboard_ready` is true.
- *   - Scope switch ("<your level> (your level only)" / "Global (all trainees)", hidden when global_leaderboard_enabled() is false).
+ *   - Scope switch ("<your level> (your level only)" / "All levels (your centre)", hidden when global_leaderboard_enabled() is false).
  *   - Columns: Rank, Student (with level chip in global scope), Points, Correct of attempted, Time.
  *   - Highlights the student's own row and shows their own rank below the top 10.
  *   - Text under the table: "Points = correct answers minus wrong answers in each section (never below 0). Online tests appear after they close."
@@ -1623,7 +1623,7 @@ document.addEventListener('DOMContentLoaded', initStudentWeeklyTestPage);
 
 // ---------------------------------------------------------------------------
 // Practice mode: retake a closed online test. Stored apart from official
-// results; never changes the official leaderboard (migration 37).
+// results; never changes the official leaderboard (migration 38).
 // ---------------------------------------------------------------------------
 
 let practiceTestId = null;

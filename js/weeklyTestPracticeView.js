@@ -3,7 +3,7 @@
  *
  * Pure ES module (no DOM, no network). Practice lets a student retake a closed
  * online weekly test with the same sections, time limits and scoring. Practice
- * is stored apart from official results (migration 37) and never changes the
+ * is stored apart from official results (migration 38) and never changes the
  * official leaderboard, scores or reports.
  *
  * - `canOfferPractice(test)`: whether to show "Practise" on a test card.

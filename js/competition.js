@@ -62,7 +62,7 @@ const KEY_TO_ELEMENT_IDS = {
     input: 'select-global-leaderboard',
     err: 'err-global-leaderboard',
     status: 'status-global-leaderboard',
-    label: 'Global leaderboard (all trainees)'
+    label: 'All-levels leaderboard (whole centre)'
   }
 };
 

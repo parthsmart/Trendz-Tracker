@@ -21,7 +21,7 @@ test('boardTitle formats single test and all-tests titles with scope', () => {
   );
   assert.equal(
     boardTitle('Sunday Test #5', 'month', 'global', 'Level 2'),
-    'Sunday Test #5 - Global (all trainees)'
+    'Sunday Test #5 - All levels (your centre)'
   );
   assert.equal(
     boardTitle(null, 'month', 'level', 'Level 3', '2026-04-19'),
@@ -29,7 +29,7 @@ test('boardTitle formats single test and all-tests titles with scope', () => {
   );
   assert.equal(
     boardTitle(null, 'date:2026-04-12', 'global', 'Level 1', '2026-04-19'),
-    'Weekly tests - Sun 12 Apr 2026 - Global (all trainees)'
+    'Weekly tests - Sun 12 Apr 2026 - All levels (your centre)'
   );
 });
 
