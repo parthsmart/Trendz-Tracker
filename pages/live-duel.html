@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Live duel - Trendz Tracker</title>
+    <meta name="description" content="Race a classmate live on the same 1-minute round." />
+
+    <!-- Design tokens & unified styles -->
+    <link rel="stylesheet" href="/css/style.css" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#2563EB" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Trendz Tracker" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- Top Bar Contract: 3-Zone Navigation -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <!-- Zone 1: Wordmark & Brand -->
+          <a href="/pages/student.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <!-- Mobile Menu Toggle -->
+          <button type="button" class="mobile-menu-btn" id="btn-mobile-menu" aria-label="Toggle Navigation" aria-expanded="false">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+
+          <!-- Zone 2: Navigation Links -->
+          <nav class="nav-zone" id="student-nav-zone" aria-label="Student Primary Navigation"></nav>
+
+          <!-- Zone 3: User Details & Logout Action -->
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Student</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-code" class="num" style="color: var(--text-muted);">STU</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Page Content -->
+      <main class="main-content">
+        <div class="container ar-container ld-container" style="max-width: 960px;">
+          <div id="config-banner-placeholder"></div>
+          <header class="ar-hero">
+            <h1>⚡ Live duel</h1>
+            <p class="ar-dim">Race a classmate at your level on the same 1-minute round, live. Most correct answers wins; reaching it first breaks a tie. <a href="/pages/duels.html">Play-later duels ›</a></p>
+          </header>
+
+          <section id="ld-lobby" hidden>
+            <div id="ld-lobby-body">
+              <p class="ld-off" id="ld-off" hidden>Live duels are switched off right now. Your teacher can turn them back on.</p>
+              <div id="ld-invites"></div>
+              <div class="ld-grid">
+                <section class="card ar-panel ld-play">
+                  <div id="ld-rating"></div>
+                  <button type="button" class="btn btn-primary ld-quick" id="ld-quick">⚡ Find an opponent</button>
+                  <p class="ar-dim">We pair you with a classmate at your level. Nobody free? You race a ghost runner instead.</p>
+                </section>
+                <section class="card ar-panel">
+                  <h2>Challenge a classmate</h2>
+                  <p class="ar-dim">Green dot = online now.</p>
+                  <div id="ld-mates"></div>
+                </section>
+                <section class="card ar-panel">
+                  <h2>Top duellists</h2>
+                  <div id="ld-board"></div>
+                </section>
+                <section class="card ar-panel">
+                  <h2>Recent live duels</h2>
+                  <div id="ld-recent"></div>
+                </section>
+              </div>
+            </div>
+          </section>
+
+          <section class="card ar-panel ld-center" id="ld-search" hidden>
+            <div class="ld-spinner" aria-hidden="true">⚡</div>
+            <p id="ld-search-text" aria-live="polite">Looking for a classmate at your level…</p>
+            <button type="button" class="btn btn-outline" id="ld-search-cancel">Cancel</button>
+          </section>
+
+          <section class="card ar-panel ld-center" id="ld-waiting" hidden>
+            <div class="ld-spinner" aria-hidden="true">⏳</div>
+            <p id="ld-waiting-text" aria-live="polite">Waiting…</p>
+            <button type="button" class="btn btn-outline" id="ld-waiting-cancel">Cancel</button>
+          </section>
+
+          <section class="card ar-panel ld-race" id="ld-race" hidden>
+            <div class="ld-race-head">
+              <div><strong id="ld-vs">vs …</strong><div class="ar-dim" id="ld-cat"></div></div>
+              <div class="ld-timer num" id="ld-timer" aria-label="Seconds left">60</div>
+            </div>
+            <div id="ld-lanes"></div>
+            <div class="ld-countdown num" id="ld-countdown" aria-live="assertive" hidden>5</div>
+            <p class="ar-dim ld-qnum" id="ld-qnum"></p>
+            <div id="ld-question" class="ld-question"></div>
+            <form id="ld-form" class="ld-form" autocomplete="off">
+              <input id="ld-answer" class="input ld-answer num" inputmode="numeric" maxlength="20" aria-label="Your answer" disabled />
+              <button type="submit" class="btn btn-primary">Enter</button>
+            </form>
+            <div class="ld-emotes" id="ld-emotes"></div>
+          </section>
+
+          <section class="card ar-panel" id="ld-results" hidden>
+            <div id="ld-results-lanes"></div>
+            <div id="ld-results-body"></div>
+          </section>
+
+          <section class="card ar-panel" id="ld-staff" hidden>
+            <h2>Live duels</h2>
+            <div id="ld-staff-body"><p class="ar-dim">Loading…</p></div>
+          </section>
+        </div>
+      </main>
+    </div>
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+    <script type="module" src="/js/liveDuel.js"></script>
+  </body>
+</html>
