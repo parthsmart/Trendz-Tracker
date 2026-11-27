@@ -20,7 +20,7 @@ import { buildXlsx, readXlsx, XLSX_MAX_ROWS, XLSX_MAX_SHEET_NAME } from './xlsx.
 export const FULL_BACKUP_FORMAT_VERSION = 1;
 
 /** Latest migration file in supabase/migrations (kept in sync by tests/fullBackup.test.js). */
-export const FULL_BACKUP_SCHEMA_VERSION = '26_phase25b_league_tuning';
+export const FULL_BACKUP_SCHEMA_VERSION = '27_phase27_xp_seasons';
 
 export const FULL_BACKUP_PAGE_SIZE = 1000;
 
@@ -116,6 +116,8 @@ export const FULL_BACKUP_KNOWN_TABLES = Object.freeze([
   'weekly_test_sections',
   'weekly_tests',
   'xp_award_periods',
+  'xp_season_results',
+  'xp_seasons',
   'xp_awards',
 ]);
 

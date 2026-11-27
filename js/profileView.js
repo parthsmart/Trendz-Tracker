@@ -5,7 +5,7 @@
  * summary are worked out in the database. These functions only format it.
  */
 
-import { escapeXpHtml as esc, formatXp, tierProgress, tierIcon } from './xpRewards.js';
+import { careerXp, escapeXpHtml as esc, formatXp, seasonLine, seasonName, seasonXp, tierProgress, tierIcon } from './xpRewards.js';
 
 export const FAVOURITE_LABELS = Object.freeze({
   basics: 'Basics',
@@ -125,13 +125,34 @@ export function buildStatsHtml(p) {
   const stat = (label, value, sub = '') =>
     `<div class="pf-stat"><span class="pf-dim">${esc(label)}</span><b>${value}</b>${sub ? `<span class="pf-dim">${sub}</span>` : ''}</div>`;
   return [
-    stat('Total XP', `${formatXp(p?.total_xp)}`),
+    stat('Season XP', `${formatXp(seasonXp(p))}`, p?.season_rank?.rank ? `#${formatXp(p.season_rank.rank)} of ${formatXp(p.season_rank.of)} in level` : esc(seasonLine(p))),
+    stat('Career XP', `${formatXp(careerXp(p))}`, 'All seasons'),
     stat('This week', `${formatXp(p?.week_xp)} XP`, p?.week_rank?.rank ? `#${formatXp(p.week_rank.rank)} of ${formatXp(p.week_rank.of)} in level` : ''),
     stat('Streak', `🔥 ${formatXp(streak.current)}`, `Best ${formatXp(streak.best)} days`),
     stat('Rounds', formatXp(p?.rounds_total)),
     stat('Personal bests beaten', formatXp(p?.pb_total)),
     stat('Daily challenges', formatXp(p?.challenge?.played)),
   ].join('');
+}
+
+/** Past seasons, newest first, from my_xp_summary.seasons. */
+export function buildSeasonHistoryHtml(seasons) {
+  const list = Array.isArray(seasons) ? seasons.slice(0, 24) : [];
+  if (!list.length) {
+    return '<p class="pf-dim">Each month is a new season. Your finished seasons will show here, with the tier you reached.</p>';
+  }
+  return `<ul class="xp-list">${list
+    .map((s) => {
+      const rank = Number(s?.level_rank) > 0 ? ` · #${formatXp(s.level_rank)} of ${formatXp(s.level_size)}` : '';
+      return `<li><span>${esc(seasonName(s?.season))}</span><span>${tierIcon(s?.tier)} <strong>${esc(s?.tier)}</strong> <span class="xp-dim">${formatXp(s?.xp)} XP${rank}</span></span></li>`;
+    })
+    .join('')}</ul>`;
+}
+
+/** 'Best: 💎 Diamond, March 2026' or ''. */
+export function bestSeasonText(best) {
+  if (!best || !best.tier) return '';
+  return `Best: ${tierIcon(best.tier)} ${best.tier}, ${seasonName(best.season)}`;
 }
 
 export function buildBestsHtml(bests) {
@@ -157,7 +178,7 @@ export function buildParentSummaryText(p) {
   const profile = p?.profile || {};
   const week = p?.week || {};
   const name = firstName(profile.full_name);
-  const tp = tierProgress(p?.total_xp, p?.tier);
+  const tp = tierProgress(seasonXp(p), p?.tier);
   const lines = [];
   lines.push(`Trendz Tracker weekly summary for ${name}`);
   lines.push(`Week: ${shortDate(week.from)} – ${shortDate(week.to, true)}`);
@@ -185,7 +206,7 @@ export function buildParentSummaryText(p) {
   if (newBadges.length) {
     lines.push(`• New badge${newBadges.length === 1 ? '' : 's'}: ${newBadges.map((b) => `${b.icon} ${b.name}`).join(', ')}`);
   }
-  lines.push(`• Level: ${profile.level || '—'} · Tier: ${tierIcon(tp.name)} ${tp.name} (${formatXp(p?.total_xp)} XP total)`);
+  lines.push(`• Level: ${profile.level || '—'} · Season tier: ${tierIcon(tp.name)} ${tp.name} (${formatXp(seasonXp(p))} XP this month)`);
   const titles = awardTitles(p?.awards);
   if (titles.length) lines.push(`• Titles: ${titles.map((t) => t.text).join(', ')}`);
   lines.push('');
