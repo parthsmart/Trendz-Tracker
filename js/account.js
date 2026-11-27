@@ -19,6 +19,7 @@ import { registerInstallTrigger, isStandalone } from './pwaInstall.js';
 import { logoutUser } from './auth.js';
 import { showToast } from './toast.js';
 import { signAvatarUrl } from './avatars.js';
+import { celebrate, getAutoMotionLevel, getMotionPreference, setMotionPreference } from './motion.js';
 
 // Same key js/flash.js reads, so the switch here changes the Flash Anzan setting.
 const FLASH_SOUND_KEY = 'trendz_flash_sound_v1';
@@ -173,7 +174,29 @@ async function renderAccess(profile) {
     .join('');
 }
 
+const MOTION_LABELS = { full: 'Full', lite: 'Light', off: 'Off' };
+
+function motionNote(pref) {
+  if (pref !== 'auto') return 'Saved on this device';
+  return `Auto picked ${MOTION_LABELS[getAutoMotionLevel()] || 'Full'} for this device`;
+}
+
+function setupMotionPreference() {
+  const select = document.getElementById('pref-motion');
+  const note = document.getElementById('pref-motion-note');
+  if (!select || select.dataset.ready) return;
+  select.dataset.ready = '1';
+  select.value = getMotionPreference();
+  if (note) note.textContent = motionNote(select.value);
+  select.addEventListener('change', () => {
+    const level = setMotionPreference(select.value);
+    if (note) note.textContent = motionNote(select.value);
+    if (level !== 'off') celebrate('small', select);
+  });
+}
+
 function setupPreferences() {
+  setupMotionPreference();
   const sound = document.getElementById('pref-flash-sound');
   if (sound) {
     try {

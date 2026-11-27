@@ -9,7 +9,8 @@ import { isDemoMode } from './demoDb.js';
 import { openModal } from './modal.js';
 import { showToast } from './toast.js';
 import { initStudentNotificationBell } from './notificationBadge.js';
-import { setupHeaderNavigation } from './headerNav.js';
+import { setupHeaderNavigation, isFullScreenStageActive } from './headerNav.js';
+import { initMotion } from './motion.js';
 import { formatShortFirstName } from './navConfig.js';
 import { readProfileCache } from './profileCache.js';
 import { markPerf, reportPagePerf } from './perf.js';
@@ -41,6 +42,7 @@ export function checkProductionConfigLock() {
  */
 export async function requireAuth(allowedRoles = ['student', 'teacher', 'admin']) {
   markPerf('tt:guard-start');
+  initMotion({ isQuiet: isFullScreenStageActive });
   if (checkProductionConfigLock()) {
     return null;
   }
@@ -136,6 +138,7 @@ export async function requireAuth(allowedRoles = ['student', 'teacher', 'admin']
  */
 export async function requireNoAuth() {
   markPerf('tt:guard-start');
+  initMotion();
   if (checkProductionConfigLock()) {
     return;
   }

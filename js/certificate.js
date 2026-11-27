@@ -9,6 +9,7 @@
 import { requireAuth } from './guard.js';
 import { callXpRpc } from './xpRewards.js';
 import { buildCertificateModel } from './arenaView.js';
+import { celebrateOnce } from './motion.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -41,6 +42,7 @@ async function initCertificatePage() {
   document.title = `${model.title} certificate - Trendz Tracker`;
   status.hidden = true;
   $('ce-sheet').hidden = false;
+  celebrateOnce(`cert_${badge}`, 'big', $('ce-title'));
   const print = $('ce-print');
   print.disabled = false;
   print.addEventListener('click', () => window.print());
