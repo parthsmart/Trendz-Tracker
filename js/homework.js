@@ -20,6 +20,7 @@ import {
   formatHomeworkTypeLabel,
   verifyHomeworkCompletion,
 } from './homeworkData.js';
+import { fillLevelSelect } from '../shared/levels.js';
 
 let currentProfile = null;
 let teacherStudentIds = [];
@@ -93,7 +94,7 @@ async function loadStudentRoster() {
         // Teacher role: query assigned students
         const { data: assignments } = await supabase
           .from('teacher_student_assignments')
-          .select('student_id, student:profiles!student_id (id, student_code, full_name, level, active)')
+          .select('student_id, student:profiles!student_id!inner (id, student_code, full_name, level, active)')
           .eq('teacher_id', currentProfile.id);
 
         allStudents = (assignments || [])
@@ -166,6 +167,7 @@ function populateCategoryDropdown(sectionFilter = 'basics') {
 }
 
 function setupTargetControls() {
+  fillLevelSelect(document.getElementById('hw-target-level'));
   const targetTypeSelect = document.getElementById('hw-target-type');
   const levelGroup = document.getElementById('group-target-level');
   const studentGroup = document.getElementById('group-target-student');
@@ -473,7 +475,7 @@ async function loadPendingSubmissions() {
               notes,
               updated_at,
               created_at,
-              student:profiles!student_id (id, student_code, full_name, level),
+              student:profiles!student_id!inner (id, student_code, full_name, level),
               assignment:homework_assignments!assignment_id (id, title, activity_type, required_count, assigned_by)
             `)
             .eq('status', 'pending_review')

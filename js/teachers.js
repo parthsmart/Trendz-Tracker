@@ -13,11 +13,18 @@
  */
 
 import { requireAuth } from './guard.js';
-import { getSupabase } from './supabaseClient.js';
+import { DemoDB, getSupabase } from './supabaseClient.js';
 import { isSupabaseConfigured } from './config.js';
 import { openModal, closeModal, setupModalListeners } from './modal.js';
 import { showToast } from './toast.js';
-import { createTeacher, manageTeacher, resetTeacherPassword } from './api.js';
+import {
+  createTeacher,
+  deleteTeacher,
+  listDeletedTeachers,
+  manageTeacher,
+  resetTeacherPassword,
+  restoreTeacher,
+} from './api.js';
 
 let currentAdmin = null;
 let allTeachers = [];
@@ -71,7 +78,7 @@ export async function loadTeachersData() {
           can_schedule_live_classes: false,
         },
       },
-    ];
+    ].filter((t) => !DemoDB.isDemoTeacherDeleted(t.id));
     renderTeachersTable();
     return;
   }
@@ -88,7 +95,10 @@ export async function loadTeachersData() {
 
       supabase.from('teacher_permissions').select('*'),
 
-      supabase.from('teacher_student_assignments').select('teacher_id, student_id'),
+      // Inner join: assignments to deleted (hidden) students are not counted.
+      supabase
+        .from('teacher_student_assignments')
+        .select('teacher_id, student_id, profiles!teacher_student_assignments_student_id_fkey!inner(id)'),
 
       supabase
         .from('profiles')
@@ -227,6 +237,9 @@ export function renderTeachersTable() {
                     <button type="button" class="btn btn-ghost btn-sm btn-open-audit" data-id="${escapeHtml(t.id)}" title="View activity log">
                       Log
                     </button>
+                    <button type="button" class="btn btn-danger btn-sm btn-delete-teacher" data-id="${escapeHtml(t.id)}" title="Delete teacher (keeps their data; can be restored)">
+                      Delete
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -303,6 +316,29 @@ function attachTableEventListeners() {
     });
   });
 
+  // Delete (soft delete: data stays, teacher can be restored)
+  container.querySelectorAll('.btn-delete-teacher').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const teacher = allTeachers.find((t) => t.id === btn.getAttribute('data-id'));
+      if (!teacher) return;
+      const ok = window.confirm(
+        `Delete ${teacher.full_name}?\n\n` +
+          'They will be removed from the website, lose access to their students and won\'t be able to sign in. ' +
+          'Their classes, assignments and history stay saved, and you can restore them from "Deleted teachers".'
+      );
+      if (!ok) return;
+      btn.disabled = true;
+      try {
+        await deleteTeacher(teacher);
+        showToast('success', `${teacher.full_name} has been deleted. Restore them any time from Deleted teachers.`);
+        await loadTeachersData();
+      } catch (err) {
+        showToast('error', 'Failed to delete teacher: ' + err.message);
+        btn.disabled = false;
+      }
+    });
+  });
+
   // Audit Log
   container.querySelectorAll('.btn-open-audit').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -313,7 +349,58 @@ function attachTableEventListeners() {
   });
 }
 
+/**
+ * Fills the Deleted teachers modal.
+ */
+async function renderDeletedTeachers() {
+  const tbody = document.getElementById('deleted-teachers-body');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--text-muted);">Loading...</td></tr>';
+  try {
+    const rows = await listDeletedTeachers();
+    if (rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--text-muted); padding: var(--space-5);">No deleted teachers.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows
+      .map(
+        (t) => `
+      <tr>
+        <td>
+          <strong>${escapeHtml(t.full_name || 'Teacher')}</strong>
+          <div><span class="badge badge-neutral num" style="font-size: 11px;">${escapeHtml(t.student_code || '—')}</span></div>
+        </td>
+        <td style="color: var(--text-muted);">${t.deleted_at ? escapeHtml(new Date(t.deleted_at).toLocaleDateString()) : '—'}</td>
+        <td style="text-align: right;">
+          <button type="button" class="btn btn-outline btn-sm btn-restore-teacher" data-id="${escapeHtml(t.id)}">Restore</button>
+        </td>
+      </tr>`
+      )
+      .join('');
+    tbody.querySelectorAll('.btn-restore-teacher').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try {
+          const restored = await restoreTeacher(btn.getAttribute('data-id'));
+          showToast('success', `${restored?.full_name || 'Teacher'} has been restored.`);
+          await Promise.all([renderDeletedTeachers(), loadTeachersData()]);
+        } catch (err) {
+          showToast('error', 'Failed to restore teacher: ' + err.message);
+          btn.disabled = false;
+        }
+      });
+    });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="3" style="color: var(--color-danger);">Could not load deleted teachers: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
 function setupUIEventListeners() {
+  document.getElementById('btn-open-deleted-teachers')?.addEventListener('click', () => {
+    openModal('deleted-teachers-modal');
+    renderDeletedTeachers();
+  });
+
   // Search
   const searchInput = document.getElementById('search-teachers-input');
   if (searchInput) {

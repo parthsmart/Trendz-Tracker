@@ -146,7 +146,7 @@ export async function loadTeacherOverviewData(supabase, profile) {
 
     supabase
       .from('results')
-      .select('id, student_id, flag_note, entry_date, profiles!results_student_id_fkey(full_name, student_code)')
+      .select('id, student_id, flag_note, entry_date, profiles!results_student_id_fkey!inner(full_name, student_code)')
       .in('student_id', assignedIds)
       .eq('flagged', true)
       .order('entry_date', { ascending: false })
@@ -154,7 +154,7 @@ export async function loadTeacherOverviewData(supabase, profile) {
 
     supabase
       .from('results')
-      .select('id, student_id, correct, total, entry_date, profiles!results_student_id_fkey(full_name, student_code)')
+      .select('id, student_id, correct, total, entry_date, profiles!results_student_id_fkey!inner(full_name, student_code)')
       .in('student_id', assignedIds)
       .eq('verified', false)
       .gte('entry_date', new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10))

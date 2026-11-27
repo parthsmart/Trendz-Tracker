@@ -53,6 +53,7 @@ import {
 } from './periods.js';
 import { getSupabase, DemoDB } from './supabaseClient.js';
 import { showToast } from './toast.js';
+import { levelOptionsHtml } from '../shared/levels.js';
 
 const SCOPE_STORAGE_KEY = 'trendz_leaderboard_scope_v1';
 const STATE_STORAGE_KEY = 'trendz_leaderboard_state_v2';
@@ -538,45 +539,12 @@ function updateBoardChrome() {
 }
 
 /**
- * Populates the Admin Level Filter dropdown with distinct levels from student profiles.
+ * Populates the Admin Level Filter dropdown from the one standard level list.
  */
 async function populateAdminLevelsDropdown() {
   const selectEl = document.getElementById('select-leaderboard-level');
   if (!selectEl) return;
-
-  const defaultLevels = ['Level 1', 'Level 2', 'Level 3', 'Level 4', 'Master'];
-  const levelSet = new Set(defaultLevels);
-
-  try {
-    let profiles = [];
-    if (isSupabaseConfigured()) {
-      const supabase = await getSupabase();
-      if (supabase) {
-        const { data } = await supabase
-          .from('profiles')
-          .select('level')
-          .eq('role', 'student');
-        profiles = data || [];
-      }
-    } else {
-      profiles = DemoDB.getStudents();
-    }
-
-    profiles.forEach(p => {
-      if (p.level && String(p.level).trim()) {
-        levelSet.add(String(p.level).trim());
-      }
-    });
-  } catch {
-    // Keep default level options if profile query fails
-  }
-
-  const sortedLevels = Array.from(levelSet);
-  selectEl.innerHTML =
-    `<option value="all">All levels</option>` +
-    sortedLevels
-      .map(lvl => `<option value="${escapeHtml(lvl)}">${escapeHtml(lvl)}</option>`)
-      .join('');
+  selectEl.innerHTML = levelOptionsHtml({ blankLabel: 'All levels', blankValue: 'all' });
 }
 
 /**

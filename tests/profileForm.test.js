@@ -18,7 +18,7 @@ describe('normalizeProfileInput — trimming, length limits, and empty level bec
   it('trims full_name and level, and normalizes booleans', () => {
     const res = normalizeProfileInput({
       full_name: '  Aarav Sharma  ',
-      level: '  Junior 1  ',
+      level: '  ka 1  ',
       leaderboard_visible: true,
       active: false
     });
@@ -26,7 +26,7 @@ describe('normalizeProfileInput — trimming, length limits, and empty level bec
     assert.equal(res.errors, undefined);
     assert.deepEqual(res.value, {
       full_name: 'Aarav Sharma',
-      level: 'Junior 1',
+      level: 'KA-1',
       leaderboard_visible: true,
       active: false
     });
@@ -67,17 +67,18 @@ describe('normalizeProfileInput — trimming, length limits, and empty level bec
     assert.ok(tooLong.errors?.full_name);
   });
 
-  it('enforces level length up to 30 characters when non-empty', () => {
-    const oneChar = normalizeProfileInput({ full_name: 'Riya Sen', level: 'A' });
-    assert.equal(oneChar.errors, undefined);
-    assert.equal(oneChar.value.level, 'A');
+  it('accepts only the standard level list and returns the canonical spelling', () => {
+    const grand = normalizeProfileInput({ full_name: 'Riya Sen', level: 'grand master' });
+    assert.equal(grand.errors, undefined);
+    assert.equal(grand.value.level, 'Grandmaster');
 
-    const maxLevel = normalizeProfileInput({ full_name: 'Riya Sen', level: 'L'.repeat(30) });
-    assert.equal(maxLevel.errors, undefined);
-    assert.equal(maxLevel.value.level.length, 30);
+    const six = normalizeProfileInput({ full_name: 'Riya Sen', level: 'LEVEL 6' });
+    assert.equal(six.value.level, 'Level 6');
 
-    const tooLongLevel = normalizeProfileInput({ full_name: 'Riya Sen', level: 'L'.repeat(31) });
-    assert.ok(tooLongLevel.errors?.level);
+    for (const bad of ['Junior 2', 'Level 7', 'Foundation', 'Teacher', 'Admin']) {
+      const res = normalizeProfileInput({ full_name: 'Riya Sen', level: bad });
+      assert.ok(res.errors?.level, `${bad} should be rejected`);
+    }
   });
 });
 
@@ -141,7 +142,8 @@ describe('diffProfileFields & formatProfileAuditChanges — single update diffin
       { level: 'level 2' },
       { level: '' }
     ]);
-    assert.deepEqual(levels, ['Junior 1', 'Level 2']);
+    // Standard levels first in list order, unknown legacy values after them.
+    assert.deepEqual(levels, ['Level 2', 'Junior 1']);
 
     const changes = formatProfileAuditChanges(
       { level: 'Level 1', leaderboard_visible: true },

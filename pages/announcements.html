@@ -174,14 +174,9 @@
                   </label>
                 </div>
                 <div id="ann-level-input-wrapper" style="display: none; margin-top: var(--space-2);">
-                  <input
-                    type="text"
-                    id="ann-level-input"
-                    class="form-input"
-                    list="ann-levels-datalist"
-                    placeholder="Level (e.g. Junior 2, Level 1)"
-                  />
-                  <datalist id="ann-levels-datalist"></datalist>
+                  <select id="ann-level-input" class="form-select" aria-label="Level">
+                    <option value="">Choose a level</option>
+                  </select>
                 </div>
                 <div id="ann-recipients-wrapper" style="display: none; margin-top: var(--space-2);">
                   <label class="form-label" style="font-size: var(--text-xs);">Assign to Specific Students (Assigned only)</label>

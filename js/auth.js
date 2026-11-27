@@ -168,7 +168,7 @@ export async function loginWithStudentId(studentId, password) {
         student_code: 'ADMIN01',
         full_name: 'Master Teacher (Admin)',
         role: 'admin',
-        level: 'Instructor',
+        level: 'Admin',
         active: true,
         created_at: new Date().toISOString()
       };

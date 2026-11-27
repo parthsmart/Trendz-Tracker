@@ -13,6 +13,7 @@ import { setupHeaderNavigation } from './headerNav.js';
 import { openModal, closeModal } from './modal.js';
 import { setupModalListeners } from './modal.js';
 import { TrendzMediaPlayer, formatDuration } from './mediaPlayer.js';
+import { STUDENT_LEVELS } from '../shared/levels.js';
 
 let currentUser = null;
 let currentProfile = null;
@@ -916,9 +917,8 @@ export async function initLiveClassesPage() {
       if (data.length < pageSize) break;
     }
     students = roster;
-    const levels = [...new Set(students.map((student) => student.level).filter(Boolean))].sort();
     levelSelect.replaceChildren(new Option('Choose a class level', ''));
-    for (const level of levels) levelSelect.add(new Option(level, level));
+    for (const level of STUDENT_LEVELS) levelSelect.add(new Option(level, level));
     renderStudentOptions();
     updateAudience();
   };

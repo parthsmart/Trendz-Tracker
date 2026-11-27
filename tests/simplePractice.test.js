@@ -6,13 +6,17 @@ import { fileURLToPath } from 'node:url';
 import {
   SIMPLE_ACTIVITIES,
   SIMPLE_ACTIVITY_KEYS,
+  SIMPLE_DEFAULT_TIME_KEY,
+  SIMPLE_TIME_MODES,
   allowedSimpleActivities,
   bestSimpleByActivity,
   checkSimpleAnswer,
   formatSimpleQuestion,
   generateSimplePracticeQuestion,
+  getSimpleTimeMode,
   isSimpleActivityAllowed,
   isSimplePracticeAllowed,
+  markSimpleRound,
   normalizeSimplePracticeRule,
   parseSimpleAnswer,
   simpleActivityLabel,
@@ -188,6 +192,36 @@ describe('practice access', () => {
   });
 });
 
+describe('timed rounds', () => {
+  it('offers the same round times as Basics', () => {
+    assert.deepEqual(
+      SIMPLE_TIME_MODES.map((m) => m.seconds),
+      [30, 60, 120, 300, null]
+    );
+    assert.equal(SIMPLE_DEFAULT_TIME_KEY, '60');
+    assert.equal(getSimpleTimeMode('300').seconds, 300);
+    assert.equal(getSimpleTimeMode('unlimited').seconds, null);
+    assert.equal(getSimpleTimeMode('nope').key, '60');
+  });
+
+  it('marks the whole round at the end', () => {
+    const q = (answer) => ({ kind: 'table', a: 2, b: answer / 2, answer });
+    const marked = markSimpleRound([
+      { question: q(6), given: '6' },
+      { question: q(8), given: ' 8 ' },
+      { question: q(10), given: '12' },
+      { question: q(14), given: null },
+    ]);
+    assert.equal(marked.correct, 2);
+    assert.equal(marked.total, 4);
+    assert.deepEqual(
+      marked.wrong.map((w) => w.given),
+      ['12', 'skipped']
+    );
+    assert.deepEqual(markSimpleRound([]), { correct: 0, total: 0, wrong: [] });
+  });
+});
+
 describe('Simple page', () => {
   it('is built and linked', () => {
     assert.match(read('vite.config.ts'), /pages\/simple\.html/);
@@ -195,5 +229,7 @@ describe('Simple page', () => {
     assert.match(html, /Practice online/);
     assert.match(html, /Log offline score/);
     assert.match(html, /simplePracticePage\.js/);
+    assert.match(html, /id="simple-time-choices"/);
+    assert.doesNotMatch(html, /simple-count-choices/);
   });
 });

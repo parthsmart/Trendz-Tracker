@@ -1039,12 +1039,70 @@ function saveDB(db) {
  * Interactive Mock Database implementation for Demo Mode
  */
 export const DemoDB = {
-  getStudents() {
+  /** Every stored profile, deleted students included (like the service-role backup). */
+  getAllStudentRows() {
     initDemoStorage();
     return JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_STUDENTS) || '[]');
   },
+  /** Profiles the website shows: deleted students are left out, like row level security does live. */
+  getStudents() {
+    return this.getAllStudentRows().filter((s) => !s.deleted_at);
+  },
   saveStudents(students) {
-    localStorage.setItem(DEMO_STORAGE_KEY_STUDENTS, JSON.stringify(students));
+    // Callers work on getStudents(), so keep the deleted rows they never saw.
+    const kept = this.getAllStudentRows().filter(
+      (row) => row.deleted_at && !students.some((s) => s.id === row.id)
+    );
+    localStorage.setItem(DEMO_STORAGE_KEY_STUDENTS, JSON.stringify([...students, ...kept]));
+  },
+  /** Demo teachers live in js/teachers.js; deleted ones are kept here so they can be restored. */
+  getDeletedDemoTeachers() {
+    return JSON.parse(localStorage.getItem('trendz_demo_deleted_teachers') || '[]');
+  },
+  isDemoTeacherDeleted(teacherId) {
+    return this.getDeletedDemoTeachers().some((t) => t.id === teacherId);
+  },
+  deleteDemoTeacher(teacher) {
+    const rows = this.getDeletedDemoTeachers().filter((t) => t.id !== teacher.id);
+    const row = { ...teacher, active: false, deleted_at: new Date().toISOString(), deleted_by: 'usr-admin-1' };
+    localStorage.setItem('trendz_demo_deleted_teachers', JSON.stringify([row, ...rows]));
+    return row;
+  },
+  restoreDemoTeacher(teacherId) {
+    const rows = this.getDeletedDemoTeachers();
+    const row = rows.find((t) => t.id === teacherId);
+    if (!row) throw new Error('Teacher not found.');
+    localStorage.setItem('trendz_demo_deleted_teachers', JSON.stringify(rows.filter((t) => t.id !== teacherId)));
+    return { ...row, active: true, deleted_at: null, deleted_by: null };
+  },
+  getDeletedStudents() {
+    return this.getAllStudentRows()
+      .filter((s) => s.deleted_at)
+      .sort((a, b) => String(b.deleted_at).localeCompare(String(a.deleted_at)));
+  },
+  deleteStudent(studentId) {
+    const rows = this.getAllStudentRows();
+    const row = rows.find((s) => s.id === studentId && s.role === 'student');
+    if (!row) throw new Error('Student not found.');
+    if (!row.deleted_at) {
+      row.deleted_at = new Date().toISOString();
+      row.deleted_by = 'usr-admin-1';
+      row.active = false;
+      localStorage.setItem(DEMO_STORAGE_KEY_STUDENTS, JSON.stringify(rows));
+    }
+    return row;
+  },
+  restoreStudent(studentId) {
+    const rows = this.getAllStudentRows();
+    const row = rows.find((s) => s.id === studentId && s.role === 'student');
+    if (!row) throw new Error('Student not found.');
+    if (row.deleted_at) {
+      row.deleted_at = null;
+      row.deleted_by = null;
+      row.active = true;
+      localStorage.setItem(DEMO_STORAGE_KEY_STUDENTS, JSON.stringify(rows));
+    }
+    return row;
   },
   addStudent({ student_code, full_name, level }) {
     if (!isDemoMode()) {
