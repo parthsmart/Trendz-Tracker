@@ -326,7 +326,8 @@ export async function manageTeacher(req, res, adminCaller = null) {
       supabaseAdmin.from('teacher_permissions').select('*').eq('teacher_id', teacher_id).maybeSingle(),
       supabaseAdmin
         .from('teacher_student_assignments')
-        .select('student_id, profiles!teacher_student_assignments_student_id_fkey(id, student_code, full_name, level, active)')
+        .select('student_id, profiles!teacher_student_assignments_student_id_fkey!inner(id, student_code, full_name, level, active)')
+        .is('profiles.deleted_at', null)
         .eq('teacher_id', teacher_id),
     ]);
 

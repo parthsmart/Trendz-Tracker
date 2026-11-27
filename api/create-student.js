@@ -5,6 +5,7 @@
  */
 
 import { getAdminClient, verifyAdminCaller } from './_supabaseAdmin.js';
+import { validateLevel } from '../shared/levels.js';
 
 export default async function handler(req, res) {
   // Only allow POST
@@ -25,10 +26,26 @@ export default async function handler(req, res) {
 
     const cleanCode = student_code.trim().toUpperCase();
     const cleanName = full_name.trim();
-    const cleanLevel = level ? level.trim() : null;
+    const levelCheck = validateLevel(level);
+    if (levelCheck.error) {
+      return res.status(400).json({ error: levelCheck.error });
+    }
+    const cleanLevel = levelCheck.value;
     const email = `${cleanCode.toLowerCase()}@trendz.local`;
 
     const supabaseAdmin = getAdminClient();
+
+    // A deleted student keeps their code; point the admin to Restore instead of a vague auth error.
+    const { data: existing } = await supabaseAdmin
+      .from('profiles')
+      .select('id, deleted_at')
+      .eq('student_code', cleanCode)
+      .maybeSingle();
+    if (existing?.deleted_at) {
+      return res.status(409).json({
+        error: `Student code "${cleanCode}" belongs to a deleted student. Restore them from "Deleted students" instead.`,
+      });
+    }
 
     // 3. Create user in Supabase Auth
     const { data: authUser, error: createAuthError } = await supabaseAdmin.auth.admin.createUser({

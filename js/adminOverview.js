@@ -32,6 +32,7 @@ import {
 import { getISTDateString, formatDisplayDateIST } from './stats.js';
 import { getSupabase, DemoDB } from './supabaseClient.js';
 import { showToast } from './toast.js';
+import { levelFilterOptionsHtml, matchesLevelFilter } from '../shared/levels.js';
 
 export function formatTimeIST(dateVal) {
   if (!dateVal) return 'Unavailable';
@@ -505,30 +506,15 @@ export function enrichOverviewRows(overviewRows, activityRows, resultRows, curre
 }
 
 /**
- * Syncs #filter-overview-level dropdown options with levels present on student profiles.
+ * Fills #filter-overview-level from the one standard level list.
  */
 function syncOverviewLevelFilterOptions() {
   const selectEl = document.getElementById('filter-overview-level');
   if (!selectEl) return;
   const currentVal = selectEl.value;
-  const seen = new Map();
-  const defaults = ['Junior 1', 'Junior 2', 'Level 1', 'Level 2', 'Level 3', 'Level 4', 'Level 5', 'Master'];
-  for (const lvl of defaults) {
-    seen.set(lvl.toLowerCase(), lvl);
-  }
-  for (const s of allOverviewData) {
-    const raw = typeof s.level === 'string' ? s.level.trim() : '';
-    if (raw && !seen.has(raw.toLowerCase())) {
-      seen.set(raw.toLowerCase(), raw);
-    }
-  }
-  const levels = Array.from(seen.values());
-  selectEl.innerHTML = [
-    '<option value="">All Levels</option>',
-    ...levels.map((lvl) => `<option value="${escapeHtml(lvl)}">${escapeHtml(lvl)}</option>`),
-  ].join('');
-  if (currentVal && seen.has(currentVal.toLowerCase())) {
-    selectEl.value = seen.get(currentVal.toLowerCase());
+  selectEl.innerHTML = levelFilterOptionsHtml({ allLabel: 'All Levels' });
+  if (currentVal && [...selectEl.options].some((o) => o.value === currentVal)) {
+    selectEl.value = currentVal;
   }
 }
 
@@ -791,10 +777,7 @@ function renderTable() {
     }
 
     // Level filter
-    if (currentLevelFilter) {
-      const stuLevel = String(student.level || '').trim().toLowerCase();
-      if (stuLevel !== currentLevelFilter.trim().toLowerCase()) return false;
-    }
+    if (!matchesLevelFilter(student.level, currentLevelFilter)) return false;
 
     // Status filter
     if (currentStatusFilter) {

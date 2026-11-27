@@ -168,6 +168,109 @@ export async function toggleStudentLeaderboardVisible(studentId, currentVisible)
   return data;
 }
 
+async function callProfileRpc(name, args) {
+  const supabase = await getSupabase();
+  const { data, error } = await supabase.rpc(name, args);
+  if (error) {
+    throw new Error(error.message);
+  }
+  clearProfileCache();
+  return data;
+}
+
+/**
+ * Deletes a student from the website but keeps every row in the database (soft delete):
+ * the student is marked deleted and inactive, disappears from all lists and boards and
+ * can no longer sign in. Admins can bring them back with restoreStudent().
+ * @param {string} studentId
+ */
+export async function deleteStudent(studentId) {
+  if (!isSupabaseConfigured()) {
+    if (!isDemoAllowedHost()) {
+      throw new Error('Configuration error - contact the administrator.');
+    }
+    clearProfileCache();
+    return DemoDB.deleteStudent(studentId);
+  }
+  return callProfileRpc('admin_soft_delete_profile', { p_profile: studentId });
+}
+
+/**
+ * Brings a deleted student back (active again, visible everywhere).
+ * @param {string} studentId
+ */
+export async function restoreStudent(studentId) {
+  if (!isSupabaseConfigured()) {
+    if (!isDemoAllowedHost()) {
+      throw new Error('Configuration error - contact the administrator.');
+    }
+    clearProfileCache();
+    return DemoDB.restoreStudent(studentId);
+  }
+  return callProfileRpc('admin_restore_profile', { p_profile: studentId });
+}
+
+/**
+ * Lists deleted students, newest first (admin only).
+ * @returns {Promise<object[]>}
+ */
+export async function listDeletedStudents() {
+  if (!isSupabaseConfigured()) {
+    if (!isDemoAllowedHost()) {
+      throw new Error('Configuration error - contact the administrator.');
+    }
+    return DemoDB.getDeletedStudents();
+  }
+  return listDeletedProfiles('student');
+}
+
+async function listDeletedProfiles(role) {
+  const supabase = await getSupabase();
+  const { data, error } = await supabase.rpc('admin_deleted_profiles', { p_role: role });
+  if (error) {
+    throw new Error(error.message);
+  }
+  return Array.isArray(data) ? data : [];
+}
+
+/**
+ * Deletes a teacher from the website but keeps their data (soft delete): they can no longer
+ * sign in, lose access to their students and disappear from teacher lists and pickers.
+ * Their student assignments and history stay saved and come back on restore.
+ * @param {object} teacher - the teacher row (demo mode keeps a copy to restore)
+ */
+export async function deleteTeacher(teacher) {
+  if (!isSupabaseConfigured()) {
+    if (!isDemoAllowedHost()) {
+      throw new Error('Configuration error - contact the administrator.');
+    }
+    return DemoDB.deleteDemoTeacher(teacher);
+  }
+  return callProfileRpc('admin_soft_delete_profile', { p_profile: teacher.id });
+}
+
+/** Brings a deleted teacher back (active again, with their old assignments). */
+export async function restoreTeacher(teacherId) {
+  if (!isSupabaseConfigured()) {
+    if (!isDemoAllowedHost()) {
+      throw new Error('Configuration error - contact the administrator.');
+    }
+    return DemoDB.restoreDemoTeacher(teacherId);
+  }
+  return callProfileRpc('admin_restore_profile', { p_profile: teacherId });
+}
+
+/** Lists deleted teachers, newest first (admin only). */
+export async function listDeletedTeachers() {
+  if (!isSupabaseConfigured()) {
+    if (!isDemoAllowedHost()) {
+      throw new Error('Configuration error - contact the administrator.');
+    }
+    return DemoDB.getDeletedDemoTeachers();
+  }
+  return listDeletedProfiles('teacher');
+}
+
 /**
  * Creates a new teacher user in Supabase Auth & public.profiles
  * @param {Object} data - { teacher_code, full_name, password, permissions, assigned_student_ids }

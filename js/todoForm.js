@@ -21,6 +21,7 @@
 
 import { DRILL_CATALOG } from './drillCatalog.js';
 import { MEMORIAD_TIME_LIMITS } from './memoriadConfig.js';
+import { validateLevel } from '../shared/levels.js';
 
 export const VALID_TASK_SECTIONS = Object.freeze([
   'basics',
@@ -31,7 +32,6 @@ export const VALID_TASK_SECTIONS = Object.freeze([
 ]);
 
 export const TASK_TITLE_MAX_LENGTH = 80;
-export const TASK_LEVEL_MAX_LENGTH = 30;
 
 /**
  * The Memoriad modules derived from `js/memoriadConfig.js` keys with their official titles.
@@ -112,14 +112,12 @@ export function normalizeTaskInput(input = {}, sectionOverride) {
     errors.title = `Task title must be at most ${TASK_TITLE_MAX_LENGTH} characters (currently ${title.length}).`;
   }
 
-  const rawLevel = trimText(safeInput.level);
+  const levelCheck = validateLevel(safeInput.level);
   let level = null;
-  if (rawLevel.length > 0) {
-    if (rawLevel.length > TASK_LEVEL_MAX_LENGTH) {
-      errors.level = `Level must be at most ${TASK_LEVEL_MAX_LENGTH} characters (currently ${rawLevel.length}).`;
-    } else {
-      level = rawLevel;
-    }
+  if (levelCheck.error) {
+    errors.level = levelCheck.error;
+  } else {
+    level = levelCheck.value;
   }
 
   // Validate required_count: integer 1..50; empty ("" / null / undefined) -> 1

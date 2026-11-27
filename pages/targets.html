@@ -142,14 +142,9 @@
               <div class="form-more-options-body">
                 <div class="form-group">
                   <label for="target-level-input" class="form-label">Level (optional)</label>
-                  <input
-                    type="text"
-                    id="target-level-input"
-                    class="form-input"
-                    list="levels-datalist"
-                    placeholder="Leave blank for default category rule"
-                  />
-                  <datalist id="levels-datalist"></datalist>
+                  <select id="target-level-input" class="form-select">
+                    <option value="">All levels (default rule)</option>
+                  </select>
                   <span class="form-hint">Leave blank to set the default rule for all levels.</span>
                 </div>
 

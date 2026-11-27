@@ -73,7 +73,11 @@ test('buildReviewSelectColumns embeds target fields and category relation proper
 
   const allColsFallback = buildReviewSelectColumns({ section: 'all', includeTargetFields: false });
   assert.ok(!allColsFallback.includes('min_accuracy'), 'Should omit target columns when includeTargetFields is false');
-  assert.ok(!allColsFallback.includes('!inner'), 'Should not have !inner when section is all');
+  assert.ok(!allColsFallback.includes('categories!results_category_id_fkey!inner'), 'Should not have a category !inner when section is all');
+  assert.ok(
+    allColsFallback.includes('student:profiles!results_student_id_fkey!inner('),
+    'Results of deleted (hidden) students are dropped by an inner student join'
+  );
 });
 
 test('DemoDB.getReviewEntries excludes Main Round when filtering by basics, and excludes Basics when filtering by round', () => {

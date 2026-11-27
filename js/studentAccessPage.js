@@ -13,7 +13,7 @@ import { getSupabase } from './supabaseClient.js';
 import { isSupabaseConfigured } from './config.js';
 import { showToast } from './toast.js';
 import { setupAdminNav, setupModalListeners, openModal, closeModal } from './modal.js';
-import { collectExistingLevels } from './profileForm.js';
+import { STUDENT_LEVELS } from '../shared/levels.js';
 import {
   PRESET_FULL_ACCESS,
   fetchLevelAccessDefaults,
@@ -53,20 +53,9 @@ async function loadBasicsCategories(supabase, isDemo) {
   return data || [];
 }
 
-async function loadStudentLevels(supabase, isDemo) {
-  const defaultLevels = ['Junior 1', 'Junior 2', 'Level 1', 'Level 2', 'Level 3', 'Level 4', 'Level 5', 'Master'];
-  if (isDemo || !supabase) {
-    const students = DemoDB.getStudents();
-    return collectExistingLevels([...defaultLevels, ...students]);
-  }
-
-  const { data } = await supabase
-    .from('profiles')
-    .select('level')
-    .eq('role', 'student')
-    .eq('active', true);
-
-  return collectExistingLevels([...defaultLevels, ...(data || [])]);
+async function loadStudentLevels() {
+  // Rules are set per standard level, in the fixed order.
+  return [...STUDENT_LEVELS];
 }
 
 async function refreshLevelData() {
@@ -157,7 +146,7 @@ async function initStudentAccessPage() {
   // Load basics categories and student levels
   const [cats, levels] = await Promise.all([
     loadBasicsCategories(supabase, isDemo),
-    loadStudentLevels(supabase, isDemo),
+    loadStudentLevels(),
   ]);
   basicsCategories = cats;
 

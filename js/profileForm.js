@@ -3,7 +3,8 @@
  *
  * Pure, DOM-free and network-free helpers for Phase 10c:
  * 1. `normalizeProfileInput(input)`:
- *    - Trims `full_name` (2 to 60 characters, required) and `level` (1 to 30 characters, or empty -> `null`).
+ *    - Trims `full_name` (2 to 60 characters, required).
+ *    - `level` must be one of STUDENT_LEVELS (shared/levels.js), matched loosely ('ka1' -> 'KA-1'); empty -> `null`.
  *    - Normalizes `active` and `leaderboard_visible` to booleans.
  *    - Never outputs `student_code` or `role` (enforced by database trigger as well).
  *    - Returns `{ value }` or `{ errors: { field: message } }`.
@@ -18,10 +19,10 @@
  *    - Formats `old_values` -> `new_values` from `public.profile_audit` into `{ field, label, oldText, newText }[]`.
  */
 
+import { sortLevels, validateLevel } from '../shared/levels.js';
+
 export const PROFILE_NAME_MIN_LENGTH = 2;
 export const PROFILE_NAME_MAX_LENGTH = 60;
-export const PROFILE_LEVEL_MIN_LENGTH = 1;
-export const PROFILE_LEVEL_MAX_LENGTH = 30;
 
 function trimText(val) {
   if (typeof val !== 'string') return '';
@@ -45,14 +46,12 @@ export function normalizeProfileInput(input = {}) {
     errors.full_name = `Full name must be between ${PROFILE_NAME_MIN_LENGTH} and ${PROFILE_NAME_MAX_LENGTH} characters (currently ${full_name.length}).`;
   }
 
-  const rawLevel = trimText(safe.level);
+  const levelCheck = validateLevel(safe.level);
   let level = null;
-  if (rawLevel.length > 0) {
-    if (rawLevel.length < PROFILE_LEVEL_MIN_LENGTH || rawLevel.length > PROFILE_LEVEL_MAX_LENGTH) {
-      errors.level = `Level must be between ${PROFILE_LEVEL_MIN_LENGTH} and ${PROFILE_LEVEL_MAX_LENGTH} characters (currently ${rawLevel.length}).`;
-    } else {
-      level = rawLevel;
-    }
+  if (levelCheck.error) {
+    errors.level = levelCheck.error;
+  } else {
+    level = levelCheck.value;
   }
 
   if (Object.keys(errors).length > 0) {
@@ -128,7 +127,8 @@ export function collectExistingLevels(items = []) {
     }
   }
 
-  return result.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+  // Standard levels in their fixed order first, then anything else alphabetically.
+  return sortLevels(result);
 }
 
 /**

@@ -10,11 +10,9 @@
  * - Student ID is read-only with tooltip "The student ID is the login name and cannot be changed here".
  * - Role is never shown.
  * - Full name is trimmed (2 to 60 characters).
- * - Level input has suggestions from existing student levels (trimmed, 1 to 30 characters, nullable).
+ * - Level is a dropdown of STUDENT_LEVELS (shared/levels.js) plus "No level".
  * - Above the level field shows:
  *   "Changing the level moves this student to another leaderboard group and changes which targets and tasks apply."
- * - When typed level matches an existing level except for letter case, shows
- *   "Did you mean '<Level>'?" with a button to apply it.
  * - Saves with a single update on `profiles` containing ONLY the changed fields.
  * - Shows database/trigger messages in a friendly banner while keeping the modal open on error.
  * - Prevents double clicks during save.
@@ -25,12 +23,11 @@
 import { isSupabaseConfigured } from './config.js';
 import { closeModal, openModal } from './modal.js';
 import {
-  collectExistingLevels,
   diffProfileFields,
   formatProfileAuditChanges,
-  normalizeProfileInput,
-  suggestLevel
+  normalizeProfileInput
 } from './profileForm.js';
+import { levelOptionsHtml, normalizeLevel } from '../shared/levels.js';
 import { DemoDB, getSupabase } from './supabaseClient.js';
 import { showToast } from './toast.js';
 import { shouldOpenMoreOptions, buildModalLiveSummary, setMoreOptionsOpen } from './formPattern.js';
@@ -152,7 +149,7 @@ function ensureProfileEditorDom() {
               <details id="edit-profile-more-options" class="form-more-options">
                 <summary>More options</summary>
                 <div class="form-more-options-body">
-                  <!-- Level (Optional, 1 to 30 characters, with note above & case-insensitive suggestion) -->
+                  <!-- Level (optional; one of STUDENT_LEVELS from shared/levels.js) -->
                   <div class="form-group">
                     <label for="edit-profile-level" class="form-label">Level (optional)</label>
                     <div
@@ -162,32 +159,9 @@ function ensureProfileEditorDom() {
                     >
                       Changing the level moves this student to another leaderboard group and changes which targets and tasks apply.
                     </div>
-                    <input
-                      type="text"
-                      id="edit-profile-level"
-                      class="form-input"
-                      list="edit-profile-levels-datalist"
-                      placeholder="Leave blank if unassigned (max 30 chars)"
-                      maxlength="30"
-                      autocomplete="off"
-                    />
-                    <datalist id="edit-profile-levels-datalist"></datalist>
-
-                    <!-- Case-insensitive suggestion prompt -->
-                    <div
-                      id="edit-profile-level-suggestion"
-                      class="banner banner-warning"
-                      style="display: none; margin-top: var(--space-2); padding: var(--space-2) var(--space-3); align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap;"
-                    >
-                      <span id="edit-profile-suggestion-text"></span>
-                      <button
-                        type="button"
-                        id="btn-use-suggested-level"
-                        class="btn btn-outline btn-sm"
-                      >
-                        Use it
-                      </button>
-                    </div>
+                    <select id="edit-profile-level" class="form-select">
+                      ${levelOptionsHtml({ blankLabel: 'No level' })}
+                    </select>
 
                     <div id="edit-profile-level-error" class="form-error" style="display: none;"></div>
                   </div>
@@ -260,10 +234,9 @@ function ensureProfileEditorDom() {
       }
     });
 
-    // Level input live suggestion listener
+    // Level select listener
     const levelInput = document.getElementById('edit-profile-level');
-    levelInput?.addEventListener('input', () => {
-      updateLevelSuggestionUI();
+    levelInput?.addEventListener('change', () => {
       updateEditProfileLiveSummary();
       const levelErr = document.getElementById('edit-profile-level-error');
       if (levelErr) levelErr.style.display = 'none';
@@ -279,18 +252,6 @@ function ensureProfileEditorDom() {
     document.getElementById('edit-profile-leaderboard-visible')?.addEventListener('change', updateEditProfileLiveSummary);
     document.getElementById('edit-profile-active')?.addEventListener('change', updateEditProfileLiveSummary);
 
-    // Apply suggested level button
-    document.getElementById('btn-use-suggested-level')?.addEventListener('click', () => {
-      const btn = document.getElementById('btn-use-suggested-level');
-      const suggested = btn?.getAttribute('data-suggested-level') || '';
-      if (suggested && levelInput) {
-        levelInput.value = suggested;
-        updateLevelSuggestionUI();
-        updateEditProfileLiveSummary();
-        levelInput.focus();
-      }
-    });
-
     // Submit form handler
     document.getElementById('edit-profile-form')?.addEventListener('submit', handleSaveProfileSubmit);
 
@@ -298,62 +259,6 @@ function ensureProfileEditorDom() {
     document.getElementById('btn-close-profile-audit')?.addEventListener('click', closeProfileAuditDrawer);
     document.getElementById('profile-audit-overlay')?.addEventListener('click', closeProfileAuditDrawer);
   }
-}
-
-/**
- * Checks if the typed level matches an existing level case-insensitively and updates the suggestion prompt
- */
-function updateLevelSuggestionUI() {
-  const levelInput = document.getElementById('edit-profile-level');
-  const box = document.getElementById('edit-profile-level-suggestion');
-  const textEl = document.getElementById('edit-profile-suggestion-text');
-  const btn = document.getElementById('btn-use-suggested-level');
-  if (!levelInput || !box || !textEl || !btn) return;
-
-  const levels = editorCallbacks.getExistingLevels() || [];
-  const match = suggestLevel(levels, levelInput.value);
-
-  if (match) {
-    textEl.textContent = `Did you mean '${match}'?`;
-    btn.textContent = `Use '${match}'`;
-    btn.setAttribute('data-suggested-level', match);
-    box.style.display = 'flex';
-  } else {
-    box.style.display = 'none';
-    btn.removeAttribute('data-suggested-level');
-  }
-}
-
-/**
- * Populates the `<datalist>` with existing levels from student profiles
- */
-async function populateExistingLevelsDatalist() {
-  const datalist = document.getElementById('edit-profile-levels-datalist');
-  if (!datalist) return;
-
-  let levels = editorCallbacks.getExistingLevels() || [];
-  if (!Array.isArray(levels) || levels.length === 0) {
-    try {
-      if (isSupabaseConfigured()) {
-        const supabase = await getSupabase();
-        if (supabase) {
-          const { data } = await supabase
-            .from('profiles')
-            .select('level')
-            .eq('role', 'student');
-          levels = collectExistingLevels(data || []);
-        }
-      } else {
-        levels = collectExistingLevels(DemoDB.getStudents());
-      }
-    } catch {
-      levels = [];
-    }
-  }
-
-  datalist.innerHTML = levels
-    .map(lvl => `<option value="${escapeHtml(lvl)}"></option>`)
-    .join('');
 }
 
 /**
@@ -393,7 +298,10 @@ export async function openEditProfileModal(student) {
 
   if (codeInput) codeInput.value = student.student_code || student.id || '';
   if (nameInput) nameInput.value = student.full_name || '';
-  if (levelInput) levelInput.value = student.level || '';
+  if (levelInput) {
+    // A legacy value that is no longer a level shows as 'No level' until the admin picks one.
+    levelInput.value = normalizeLevel(student.level) || '';
+  }
   if (lbCheckbox) lbCheckbox.checked = student.leaderboard_visible !== false;
   if (activeCheckbox) activeCheckbox.checked = student.active !== false;
 
@@ -405,8 +313,6 @@ export async function openEditProfileModal(student) {
     shouldOpenMoreOptions([student.level, hasNonDefaultVisibility, hasNonDefaultActive], true)
   );
 
-  await populateExistingLevelsDatalist();
-  updateLevelSuggestionUI();
   updateEditProfileLiveSummary();
 
   openModal('edit-profile-modal');
