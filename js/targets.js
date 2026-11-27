@@ -18,6 +18,7 @@ import { showToast } from './toast.js';
 import { formatSecondsToTime, parseTimeToSeconds } from './stats.js';
 import { openModal, closeModal, setupModalListeners, setupAdminNav } from './modal.js';
 import { shouldOpenMoreOptions, buildModalLiveSummary, setMoreOptionsOpen } from './formPattern.js';
+import { fillLevelSelect, levelRank } from '../shared/levels.js';
 
 let submitAndAddAnotherTarget = false;
 
@@ -134,16 +135,10 @@ function populateCategoryDropdown() {
 }
 
 /**
- * Populates the level datalist with levels from student profiles
+ * Fills the rule level dropdown from the one standard level list.
  */
 function populateLevelsDatalist() {
-  const datalist = document.getElementById('levels-datalist');
-  if (!datalist) return;
-
-  const sortedLevels = Array.from(studentLevels).sort();
-  datalist.innerHTML = sortedLevels.map(lvl => `
-    <option value="${escapeHtml(lvl)}"></option>
-  `).join('');
+  fillLevelSelect(document.getElementById('target-level-input'), { blankLabel: 'All levels (default rule)' });
 }
 
 /**
@@ -197,7 +192,7 @@ function renderTargetsList() {
     catRules.sort((a, b) => {
       if (!a.level && b.level) return -1;
       if (a.level && !b.level) return 1;
-      return String(a.level || '').localeCompare(String(b.level || ''));
+      return levelRank(a.level) - levelRank(b.level) || String(a.level || '').localeCompare(String(b.level || ''));
     });
 
     html += `

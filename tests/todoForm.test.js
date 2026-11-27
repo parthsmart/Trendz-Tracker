@@ -132,16 +132,17 @@ describe('normalizeTaskInput', () => {
     assert.equal(err81.value, undefined);
   });
 
-  it('rejects level of 31 characters (allows 30 characters and empty -> null)', () => {
-    const exact30 = 'L'.repeat(30);
-    const ok30 = normalizeTaskInput({ title: 'Valid Task', level: exact30 }, 'round');
-    assert.ok(ok30.value);
-    assert.equal(ok30.value.level, exact30);
+  it('accepts only standard levels (canonical spelling) and empty -> null', () => {
+    const ok = normalizeTaskInput({ title: 'Valid Task', level: 'level 3' }, 'round');
+    assert.ok(ok.value);
+    assert.equal(ok.value.level, 'Level 3');
 
-    const tooLong31 = 'L'.repeat(31);
-    const err31 = normalizeTaskInput({ title: 'Valid Task', level: tooLong31 }, 'round');
-    assert.ok(err31.errors?.level);
-    assert.equal(err31.value, undefined);
+    const blank = normalizeTaskInput({ title: 'Valid Task', level: '  ' }, 'round');
+    assert.equal(blank.value.level, null);
+
+    const bad = normalizeTaskInput({ title: 'Valid Task', level: 'Junior 2' }, 'round');
+    assert.ok(bad.errors?.level);
+    assert.equal(bad.value, undefined);
   });
 
   it('rejects unknown sections', () => {

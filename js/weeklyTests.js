@@ -58,6 +58,7 @@ import {
 } from './stats.js';
 import { openModal, closeModal, setupModalListeners, setupAdminNav } from './modal.js';
 import { shouldOpenMoreOptions, buildModalLiveSummary, setMoreOptionsOpen } from './formPattern.js';
+import { fillLevelSelect, levelFilterOptionsHtml, matchesLevelFilter } from '../shared/levels.js';
 
 let currentProfile = null;
 let allTests = [];
@@ -237,31 +238,16 @@ async function loadActiveStudents() {
 }
 
 /**
- * Populates the level filter dropdown and the modal datalist suggestions
+ * Populates the level filter dropdown and the test level dropdown from the standard list
  */
 function populateLevelFilter() {
-  const sortedLevels = Array.from(studentLevels).sort();
-
   const select = document.getElementById('student-level-filter');
   if (select) {
-    select.innerHTML = `
-      <option value="">All Levels</option>
-      ${sortedLevels
-        .map(
-          (lvl) => `
-        <option value="${escapeHtml(lvl)}">${escapeHtml(lvl)}</option>
-      `
-        )
-        .join('')}
-    `;
+    const current = select.value;
+    select.innerHTML = levelFilterOptionsHtml({ allLabel: 'All Levels' });
+    if (current && [...select.options].some((o) => o.value === current)) select.value = current;
   }
-
-  const datalist = document.getElementById('student-levels-datalist');
-  if (datalist) {
-    datalist.innerHTML = sortedLevels
-      .map((lvl) => `<option value="${escapeHtml(lvl)}"></option>`)
-      .join('');
-  }
+  fillLevelSelect(document.getElementById('test-level-input'), { blankLabel: 'All levels' });
 }
 
 /**
@@ -1014,7 +1000,7 @@ function renderOnlineResultsTable(test, sections, attempts, scores) {
 
   const query = searchQuery.trim().toLowerCase();
   const filteredStudents = eligibleStudents.filter((s) => {
-    if (selectedLevelFilter && s.level !== selectedLevelFilter) return false;
+    if (!matchesLevelFilter(s.level, selectedLevelFilter)) return false;
     if (query) {
       const matchName = (s.full_name || '').toLowerCase().includes(query);
       const matchCode = (s.student_code || '').toLowerCase().includes(query);
@@ -1440,7 +1426,7 @@ function renderScoresTable() {
 
   const query = searchQuery.trim().toLowerCase();
   const filtered = eligible.filter((s) => {
-    if (selectedLevelFilter && s.level !== selectedLevelFilter) return false;
+    if (!matchesLevelFilter(s.level, selectedLevelFilter)) return false;
     if (query) {
       const matchName = (s.full_name || '').toLowerCase().includes(query);
       const matchCode = (s.student_code || '').toLowerCase().includes(query);

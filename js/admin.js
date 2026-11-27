@@ -9,6 +9,7 @@ import { requireAuth } from './guard.js';
 import { closeModal, openModal, setupModalListeners, setupAdminNav } from './modal.js';
 import { initProfileEditor, openEditProfileModal, openProfileAuditDrawer } from './profileEditor.js';
 import { collectExistingLevels } from './profileForm.js';
+import { fillLevelSelect, levelFilterOptionsHtml, matchesLevelFilter } from '../shared/levels.js';
 import { DemoDB, getSupabase, clearStaleSupabaseSession } from './supabaseClient.js';
 import { showToast } from './toast.js';
 import { buildModalLiveSummary, setMoreOptionsOpen } from './formPattern.js';
@@ -142,27 +143,18 @@ function updateStats() {
 }
 
 /**
- * Sync the #filter-level dropdown options with levels present on student profiles
+ * Fill the #filter-level and #new-level dropdowns from the one standard level list.
  */
 function syncLevelFilterOptions() {
   const selectEl = document.getElementById('filter-level');
-  if (!selectEl) return;
-  const currentVal = selectEl.value;
-  const defaultLevels = ['Level 1', 'Level 2', 'Level 3', 'Level 4', 'Master'];
-  const existing = collectExistingLevels(allStudents);
-  const merged = collectExistingLevels([
-    ...defaultLevels,
-    ...existing
-  ]);
-
-  selectEl.innerHTML = [
-    '<option value="">All Levels</option>',
-    ...merged.map(lvl => `<option value="${escapeHtml(lvl)}">${escapeHtml(lvl)}</option>`)
-  ].join('');
-
-  if (currentVal && merged.some(l => l.toLowerCase() === currentVal.toLowerCase())) {
-    selectEl.value = currentVal;
+  if (selectEl) {
+    const currentVal = selectEl.value;
+    selectEl.innerHTML = levelFilterOptionsHtml({ allLabel: 'All Levels' });
+    if (currentVal && [...selectEl.options].some((o) => o.value === currentVal)) {
+      selectEl.value = currentVal;
+    }
   }
+  fillLevelSelect(document.getElementById('new-level'), { blankLabel: 'No level' });
 }
 
 /**
@@ -177,7 +169,7 @@ function renderTable() {
       student.student_code.toLowerCase().includes(currentFilter.search) ||
       student.full_name.toLowerCase().includes(currentFilter.search);
 
-    const levelMatch = !currentFilter.level || (student.level && student.level.toLowerCase() === currentFilter.level.toLowerCase());
+    const levelMatch = matchesLevelFilter(student.level, currentFilter.level);
 
     const statusMatch = !currentFilter.status ||
       (currentFilter.status === 'active' && student.active) ||

@@ -29,6 +29,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { readFullBackupWorkbook } from '../js/fullBackup.js';
+import { upgradeLegacyLevel } from '../shared/levels.js';
 
 const BATCH_ROWS = 500;
 
@@ -40,6 +41,18 @@ function dollarQuote(text) {
   let tag = 'trz';
   while (text.includes(`$${tag}$`)) tag = `trz${crypto.randomBytes(4).toString('hex')}`;
   return `$${tag}$${text}$${tag}$`;
+}
+
+/**
+ * Backups taken before the standard level list may hold old levels ('Junior 2', '2', ...)
+ * that the profiles_level_allowed check would reject. Map them the same way migration 21 did.
+ */
+export function upgradeProfileLevels(rows) {
+  return rows.map((row) => {
+    if (!row || !('level' in row)) return row;
+    const level = upgradeLegacyLevel(row.level, row.role);
+    return level === row.level ? row : { ...row, level };
+  });
 }
 
 /** Summarises what a restore would do. */
@@ -83,8 +96,9 @@ export function buildRestoreSql(backup, { only = null, schema = 'public', batchR
         : ` ON CONFLICT (${pk.map(quoteIdent).join(', ')}) DO NOTHING`
       : '';
     lines.push(`ALTER TABLE ${rel} DISABLE TRIGGER USER;`);
-    for (let i = 0; i < t.rows.length; i += batchRows) {
-      const json = JSON.stringify(t.rows.slice(i, i + batchRows));
+    const rows = t.name === 'profiles' ? upgradeProfileLevels(t.rows) : t.rows;
+    for (let i = 0; i < rows.length; i += batchRows) {
+      const json = JSON.stringify(rows.slice(i, i + batchRows));
       lines.push(
         `INSERT INTO ${rel} (${colList}) SELECT ${colList} FROM json_populate_recordset(NULL::${rel}, ${dollarQuote(json)}::json)${conflict};`
       );

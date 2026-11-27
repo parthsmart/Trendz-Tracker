@@ -20,6 +20,7 @@ import {
   formatHomeworkTypeLabel,
   verifyHomeworkCompletion,
 } from './homeworkData.js';
+import { fillLevelSelect } from '../shared/levels.js';
 
 let currentProfile = null;
 let teacherStudentIds = [];
@@ -166,6 +167,7 @@ function populateCategoryDropdown(sectionFilter = 'basics') {
 }
 
 function setupTargetControls() {
+  fillLevelSelect(document.getElementById('hw-target-level'));
   const targetTypeSelect = document.getElementById('hw-target-type');
   const levelGroup = document.getElementById('group-target-level');
   const studentGroup = document.getElementById('group-target-student');

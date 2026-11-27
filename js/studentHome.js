@@ -56,10 +56,14 @@ function daysUntil(ymd, today = todayISTYmd()) {
   return Math.round((a - b) / 86400000);
 }
 
-/** "Junior 2" → "J2", "Level 3" → "L3", "Advanced" → "A". */
+/** "KA-1" → "KA1", "Level 3" → "L3", "Graduate" → "GR", "Master" → "M", "Grandmaster" → "GM". */
 export function levelShort(level) {
   const text = String(level || '').trim();
   if (!text) return '—';
+  const ka = text.match(/^ka\s*[-_ ]?\s*(\d+)$/i);
+  if (ka) return `KA${ka[1]}`;
+  if (/^grand\s*master$/i.test(text)) return 'GM';
+  if (/^graduate$/i.test(text)) return 'GR';
   const m = text.match(/^([A-Za-z])[A-Za-z]*\s*[-_ ]?\s*(\d+)/);
   if (m) return `${m[1].toUpperCase()}${m[2]}`;
   if (/^\d+$/.test(text)) return text;

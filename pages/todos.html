@@ -320,13 +320,9 @@
                   <!-- Level (optional) -->
                   <div class="form-group">
                     <label class="form-label" for="todo-level">Level (optional)</label>
-                    <input
-                      type="text"
-                      id="todo-level"
-                      class="form-input"
-                      placeholder="e.g., Level 3 (leave blank for all students)"
-                      maxlength="30"
-                    />
+                    <select id="todo-level" class="form-select">
+                      <option value="">All levels</option>
+                    </select>
                     <span class="form-hint">Leave blank to assign to all students.</span>
                     <div id="error-todo-level" class="form-error" style="display: none;"></div>
                   </div>
