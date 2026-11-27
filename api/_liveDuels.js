@@ -12,6 +12,7 @@
 
 import {
   createSeededRng,
+  generateBasicsQuestion,
   generateBasicsSet,
   parseBasicsCategoryName,
   stripBasicsExpected,
@@ -28,18 +29,48 @@ import {
   QUEUE_STALE_SECONDS,
   RATING_START,
   botTimeline,
+  liveDuelMix,
+  liveDuelMixName,
+  liveDuelTier,
   ghostTimelineFromAnswers,
   pickLiveOpponent,
-  sameLiveCentre,
   sameLiveLevel,
 } from '../shared/liveDuel.js';
 
 const GHOST_MIN_ATTEMPTED = 5;
 
+/**
+ * A mixed set: the tier's specs in a fresh shuffled order every round of specs,
+ * so addition, multiplication and division keep alternating. Same seed, same set.
+ */
+export function generateMixedSet(mix, pool, rng) {
+  const out = [];
+  while (out.length < pool) {
+    const order = [...mix];
+    for (let i = order.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(rng() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    if (out.length && order.length > 1 && order[0] === out[out.length - 1].spec) order.push(order.shift());
+    for (const spec of order) {
+      if (out.length >= pool) break;
+      out.push({ ...generateBasicsQuestion(spec, rng), spec });
+    }
+  }
+  return out.map(({ spec, ...q }) => q);
+}
+
 /** Questions and expected answers for a duel, the same for both players. */
 export function buildLiveDuelQuestions(categoryName, seed, pool = LIVE_DUEL_POOL) {
-  const generated = generateBasicsSet(categoryName, pool, createSeededRng(Number(seed) >>> 0));
+  const rng = createSeededRng(Number(seed) >>> 0);
+  const mix = liveDuelMix(categoryName);
+  const generated = mix ? generateMixedSet(mix, pool, rng) : generateBasicsSet(categoryName, pool, rng);
   return { questions: stripBasicsExpected(generated), expected: generated.map((q) => q.expected) };
+}
+
+/** The level's category (kept for XP records) with mixed questions at the players' tier. */
+export function withDifficulty(category, ...ratings) {
+  return category ? { id: category.id, name: liveDuelMixName(liveDuelTier(...ratings)) } : null;
 }
 
 /** Start and end of a race that begins after the countdown. */
@@ -195,7 +226,7 @@ export async function handleLiveQueue({ student, adminSupabase: db, res, now = D
   if (other) {
     const { data: claimed } = await db.rpc('live_duel_claim_pair', { p_a: other.student_id, p_b: student.id });
     if (claimed === true) {
-      const category = await pickLiveCategory(db, student.level);
+      const category = withDifficulty(await pickLiveCategory(db, student.level), other.rating ?? RATING_START, rating);
       if (!category) return res.status(503).json({ error: 'No practice types are ready for duels yet.' });
       try {
         const duelId = await createLiveDuel(db, {
@@ -217,7 +248,7 @@ export async function handleLiveQueue({ student, adminSupabase: db, res, now = D
 }
 
 /** A past run at the level by someone else, as { duel, student_id, timeline }, or null. */
-export async function findGhostRun(db, student, centreId, random = Math.random) {
+export async function findGhostRun(db, student, centreId, random = Math.random, preferName = null) {
   let q = db
     .from('live_duels')
     .select('id, a_id, b_id, a_attempted, b_attempted, category_id, category_name, seed, centre_id')
@@ -234,7 +265,9 @@ export async function findGhostRun(db, student, centreId, random = Math.random) 
     if (d.b_id && d.b_id !== student.id && d.b_attempted >= GHOST_MIN_ATTEMPTED) sides.push({ duel: d, student_id: d.b_id });
   }
   if (!sides.length) return null;
-  const pick = sides[Math.floor(random() * sides.length) % sides.length];
+  const same = preferName ? sides.filter((s) => s.duel.category_name === preferName) : [];
+  const pool = same.length ? same : sides;
+  const pick = pool[Math.floor(random() * pool.length) % pool.length];
   const { data: answers } = await db
     .from('live_duel_answers')
     .select('q_index, correct, ms')
@@ -247,8 +280,8 @@ export async function findGhostRun(db, student, centreId, random = Math.random) 
 }
 
 async function startGhostDuel(db, student, now, rematchOf = null) {
-  const centreId = await centreOf(db, student.id);
-  const run = await findGhostRun(db, student, centreId);
+  const [centreId, rating] = await Promise.all([centreOf(db, student.id), ratingOf(db, student.id)]);
+  const run = await findGhostRun(db, student, centreId, Math.random, liveDuelMixName(liveDuelTier(rating)));
   let category;
   let seed;
   let ghost;
@@ -257,10 +290,10 @@ async function startGhostDuel(db, student, now, rematchOf = null) {
     seed = Number(run.duel.seed);
     ghost = { label: `Ghost runner (${student.level})`, level: student.level, bot: false, source_duel: run.duel.id, timeline: run.timeline };
   } else {
-    category = await pickLiveCategory(db, student.level);
+    category = withDifficulty(await pickLiveCategory(db, student.level), rating);
     if (!category) throw Object.assign(new Error('No practice types are ready for duels yet.'), { statusCode: 503 });
     seed = newDuelSeed();
-    ghost = { label: 'Practice bot', level: student.level, bot: true, timeline: botTimeline(seed, student.level) };
+    ghost = { label: 'Practice bot', level: student.level, bot: true, timeline: botTimeline(seed, student.level, undefined, liveDuelTier(rating)) };
   }
   return createLiveDuel(db, {
     kind: 'ghost',
@@ -288,7 +321,7 @@ export async function handleLiveGhost({ student, adminSupabase: db, res, now = D
   }
 }
 
-/** { action: 'live_invite', opponent_id } — challenge a classmate to race right now. */
+/** { action: 'live_invite', opponent_id } — challenge a student at your level (any centre) to race right now. */
 export async function handleLiveInvite({ body, student, adminSupabase: db, res, now = Date.now() }) {
   const opponentId = String(body.opponent_id || '').trim();
   if (!isUuid(opponentId)) return res.status(400).json({ error: 'Choose a classmate to challenge.' });
@@ -305,12 +338,10 @@ export async function handleLiveInvite({ body, student, adminSupabase: db, res, 
     return res.status(404).json({ error: 'That classmate is not available for duels.' });
   }
   if (!sameLiveLevel(opponent.level, student.level)) {
-    return res.status(400).json({ error: 'You can only duel classmates at your level.' });
+    return res.status(400).json({ error: 'You can only duel students at your level.' });
   }
-  const [myCentre, theirCentre] = await Promise.all([centreOf(db, student.id), centreOf(db, opponent.id)]);
-  if (!sameLiveCentre(myCentre, theirCentre)) {
-    return res.status(400).json({ error: 'You can only duel classmates at your centre.' });
-  }
+  // Any centre: live challenges are open to every student at the same level.
+  const myCentre = await centreOf(db, student.id);
   const { data: pending } = await db
     .from('live_duels')
     .select('id')
@@ -321,7 +352,8 @@ export async function handleLiveInvite({ body, student, adminSupabase: db, res, 
   if (Array.isArray(pending) && pending.length) {
     return res.status(409).json({ error: 'Wait for your last challenge to be answered first.' });
   }
-  const category = await pickLiveCategory(db, student.level);
+  const [myRating, theirRating] = await Promise.all([ratingOf(db, student.id), ratingOf(db, opponent.id)]);
+  const category = withDifficulty(await pickLiveCategory(db, student.level), myRating, theirRating);
   if (!category) return res.status(503).json({ error: 'No practice types are ready for duels yet.' });
   try {
     const duelId = await createLiveDuel(db, {

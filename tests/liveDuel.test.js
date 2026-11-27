@@ -33,6 +33,12 @@ import {
   gradeLiveAnswer,
   isLiveDuelEmote,
   liveDuelBonusXp,
+  LIVE_DUEL_TIERS,
+  liveDuelMix,
+  liveDuelMixName,
+  liveDuelRatingDelta,
+  liveDuelTier,
+  liveDuelScore,
   liveRatingChanges,
   applyRating,
   outcomeFor,
@@ -44,7 +50,7 @@ import {
   secondsLeft,
   timelineProgress,
 } from '../shared/liveDuel.js';
-import { equalIntegerAnswer, parseIntegerAnswer } from '../api/_drills.js';
+import { equalIntegerAnswer, parseBasicsCategoryName, parseIntegerAnswer } from '../api/_drills.js';
 import {
   buildLiveDuelQuestions,
   handleLiveGhost,
@@ -52,12 +58,14 @@ import {
   handleLiveQueue,
   handleLiveRematch,
   liveDuelWindow,
+  withDifficulty,
 } from '../api/_liveDuels.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const MIGRATION = fs.readFileSync(path.join(ROOT, 'supabase/migrations/31_live_duels.sql'), 'utf8');
 const MATE_AVATARS = fs.readFileSync(path.join(ROOT, 'supabase/migrations/34_live_duel_mate_avatars.sql'), 'utf8');
+const FAIR_OPEN = fs.readFileSync(path.join(ROOT, 'supabase/migrations/35_live_duel_fair_open.sql'), 'utf8');
 
 /* ===================================================================== 1 */
 
@@ -104,12 +112,26 @@ describe('live duel rules', () => {
     assert.equal(eloDelta(1000, 1000, 0), -RATING_K / 2);
     assert.equal(eloDelta(1000, 1000, 0.5), 0);
     assert.ok(eloDelta(1000, 1400, 1) > eloDelta(1400, 1000, 1), 'upset wins are worth more');
-    const live = liveRatingChanges({ aRating: 1100, bRating: 1000, result: 'b' });
+    const live = liveRatingChanges({ aRating: 1100, bRating: 1000, result: 'b', aCorrect: 10, bCorrect: 20 });
     assert.equal(live.a + live.b, 0);
-    const ghost = liveRatingChanges({ aRating: 1000, bRating: 1000, result: 'a', ghost: true });
+    const ghost = liveRatingChanges({ aRating: 1000, bRating: 1000, result: 'a', ghost: true, aCorrect: 20, bCorrect: 5 });
     assert.deepEqual(ghost, { a: RATING_K / 4, b: null });
     assert.deepEqual(liveRatingChanges({ result: 'none' }), { a: 0, b: 0 });
     assert.equal(applyRating(110, -50), 100, 'rating floor');
+  });
+
+  it('scales the rating change by the winning margin, so close races cost little', () => {
+    const close = liveRatingChanges({ aRating: 1000, bRating: 1000, result: 'b', aCorrect: 14, bCorrect: 16 });
+    assert.deepEqual(close, { a: -3, b: 3 }, 'losing by 2 costs 3, not 12');
+    assert.deepEqual(liveRatingChanges({ result: 'a', aCorrect: 20, bCorrect: 8 }), { a: 12, b: -12 }, 'a big win moves the full amount');
+    assert.deepEqual(liveRatingChanges({ result: 'a', aCorrect: 12, bCorrect: 12 }), { a: 1, b: -1 }, 'win on time only');
+    assert.equal(liveDuelScore('win', 4), 0.75);
+    assert.equal(liveDuelScore('loss', 100), 0);
+    assert.equal(liveDuelScore('draw', 3), 0.5);
+    const strongWinsNarrowly = liveRatingChanges({ aRating: 1300, bRating: 900, result: 'a', aCorrect: 11, bCorrect: 10 });
+    assert.equal(strongWinsNarrowly.a, 1, 'a winner never loses rating');
+    assert.equal(strongWinsNarrowly.b, 0, 'a loser never gains rating');
+    assert.equal(liveDuelRatingDelta(1000, 1000, 'loss', 8), -RATING_K / 2);
   });
 
   it('gives a duel bonus only for the first duels of the day, half for ghosts', () => {
@@ -129,21 +151,64 @@ describe('live duel rules', () => {
   });
 });
 
+describe('duel difficulty', () => {
+  it('picks a harder tier as the rating rises, from the average of both players', () => {
+    assert.equal(liveDuelTier(800), 1);
+    assert.equal(liveDuelTier(1000), 2);
+    assert.equal(liveDuelTier(1150), 3);
+    assert.equal(liveDuelTier(1300), 4);
+    assert.equal(liveDuelTier(1500), 5);
+    assert.equal(liveDuelTier(1000, 1300), 3, 'average of 1150');
+    assert.equal(liveDuelMixName(9), 'Mixed ★5');
+    assert.equal(liveDuelMix('1d3r'), null);
+  });
+
+  it('every tier mixes add/sub rows, multiplication and division from valid specs', () => {
+    for (const t of LIVE_DUEL_TIERS) {
+      const types = new Set(t.mix.map((n) => parseBasicsCategoryName(n)?.type));
+      assert.ok(!types.has(undefined), `tier ${t.tier} specs all parse`);
+      assert.deepEqual([...types].sort(), ['add_sub', 'div', 'mul'], `tier ${t.tier} has all three kinds`);
+    }
+  });
+
+  it('builds the same mixed set from the same seed, with the kinds interleaved', () => {
+    const a = buildLiveDuelQuestions('Mixed ★3', 99);
+    const b = buildLiveDuelQuestions('Mixed ★3', 99);
+    assert.deepEqual(a, b);
+    assert.equal(a.questions.length, LIVE_DUEL_POOL);
+    const kinds = new Set(a.questions.slice(0, 8).map((q) => q.type));
+    assert.ok(kinds.has('mul') && kinds.has('div') && kinds.has('add_sub'), 'all kinds show up early');
+    assert.ok(a.questions.every((q) => !('expected' in q)));
+    a.questions.forEach((q, i) => {
+      if (q.type === 'div') assert.equal(q.dividend / q.divisor, Number(a.expected[i]), 'exact division');
+    });
+    const hard = buildLiveDuelQuestions('Mixed ★5', 99).expected.map(Number);
+    const easy = buildLiveDuelQuestions('Mixed ★1', 99).expected.map(Number);
+    const avg = (xs) => xs.reduce((x, y) => x + Math.abs(y), 0) / xs.length;
+    assert.ok(avg(hard) > avg(easy) * 5, 'tier 5 answers are much bigger than tier 1');
+    assert.equal(withDifficulty({ id: 'c', name: '1d3r' }, 1000, 1300).name, 'Mixed ★3');
+  });
+
+  it('slows the practice bot on harder tiers', () => {
+    assert.deepEqual(botTimeline(7, 'Level 2', LIVE_DUEL_SECONDS, 2), botTimeline(7, 'Level 2'));
+    assert.ok(botTimeline(7, 'Level 2', LIVE_DUEL_SECONDS, 5).length < botTimeline(7, 'Level 2', LIVE_DUEL_SECONDS, 1).length);
+  });
+});
+
 describe('matchmaking', () => {
   const now = Date.parse('2026-11-27T10:00:00Z');
   const ago = (s) => new Date(now - s * 1000).toISOString();
   const me = { student_id: 'me', level: 'Level 2', centre_id: null, rating: 1000, joined_at: ago(0), seen_at: ago(0) };
 
-  it('pairs only the same level and centre, skipping stale and self rows', () => {
+  it('pairs only the same level (any centre), skipping stale and self rows', () => {
     const rows = [
       { student_id: 'me', level: 'Level 2', rating: 1000, joined_at: ago(5), seen_at: ago(0) },
       { student_id: 'other-level', level: 'Level 3', rating: 1000, joined_at: ago(5), seen_at: ago(0) },
-      { student_id: 'other-centre', level: 'Level 2', centre_id: 'c2', rating: 1000, joined_at: ago(5), seen_at: ago(0) },
       { student_id: 'stale', level: 'level 2', rating: 1000, joined_at: ago(30), seen_at: ago(20) },
     ];
     assert.equal(pickLiveOpponent(me, rows, now), null);
-    rows.push({ student_id: 'ok', level: 'level2', rating: 1050, joined_at: ago(4), seen_at: ago(1) });
-    assert.equal(pickLiveOpponent(me, rows, now).student_id, 'ok');
+    rows.push({ student_id: 'ok', level: 'level2', centre_id: 'c2', rating: 1050, joined_at: ago(4), seen_at: ago(1) });
+    assert.equal(pickLiveOpponent(me, rows, now).student_id, 'ok', 'another centre is fine');
   });
 
   it('prefers the closest rating, then the longest wait, and widens the window over time', () => {
@@ -411,7 +476,7 @@ describe('live duel API', () => {
     assert.equal(duel.ghost.timeline.length, 6);
   });
 
-  it('invites only an available classmate at the same level and centre', async () => {
+  it('invites an available student at the same level, from any centre', async () => {
     const profiles = [
       { id: '00000000-0000-4000-8000-00000000000b', role: 'student', active: true, level: 'level 2', leaderboard_visible: true },
       { id: '00000000-0000-4000-8000-00000000000c', role: 'student', active: true, level: 'Level 4', leaderboard_visible: true },
@@ -434,7 +499,7 @@ describe('live duel API', () => {
 
     const centre = fakeRes();
     await handleLiveInvite({ body: { opponent_id: profiles[2].id }, student: { id: 'y', level: 'Level 2' }, adminSupabase: db, res: centre });
-    assert.match(centre.body.error, /centre/);
+    assert.equal(centre.body.invited, true, 'another centre can be challenged');
 
     const bad = fakeRes();
     await handleLiveInvite({ body: { opponent_id: 'nope' }, student: STU, adminSupabase: db, res: bad });
@@ -539,6 +604,7 @@ describe('live duel SQL (PGlite)', () => {
     await db.exec(xp.slice(start, end));
     await db.exec(MIGRATION);
     await db.exec(MATE_AVATARS);
+    await db.exec(FAIR_OPEN);
     await db.query(
       `INSERT INTO public.profiles (id, role, level, full_name) VALUES
         ($1, 'student', 'Level 2', 'Asha'), ($2, 'student', 'Level 2', 'Ben'),
@@ -550,6 +616,7 @@ describe('live duel SQL (PGlite)', () => {
   it('applies twice without errors (idempotent)', async () => {
     await db.exec(MIGRATION);
     await db.exec(MATE_AVATARS);
+    await db.exec(FAIR_OPEN);
   });
 
   it('grades each answer, broadcasts progress and enforces order', async () => {
@@ -613,15 +680,15 @@ describe('live duel SQL (PGlite)', () => {
     assert.equal(d.status, 'done');
     assert.equal(d.result, 'a');
     assert.equal(d.winner_id, A);
-    assert.equal(d.a_rating_delta, 12);
-    assert.equal(d.b_rating_delta, -12);
+    assert.equal(d.a_rating_delta, 5, 'won 4-1: a 3-answer margin moves the rating part way');
+    assert.equal(d.b_rating_delta, -5);
     const ev = (await db.query("SELECT student_id, bonus_xp, xp FROM public.student_xp_events WHERE source = 'duel' AND source_id LIKE $1 ORDER BY source_id", [`${duel}%`])).rows;
     assert.equal(ev.length, 2, 'settled exactly once');
     assert.equal(ev[0].bonus_xp, 15);
     assert.equal(ev[1].bonus_xp, 5);
     assert.equal(d.a_xp, ev[0].xp);
     const ratings = (await db.query('SELECT student_id, rating, won, lost FROM public.duel_ratings ORDER BY rating DESC')).rows;
-    assert.deepEqual(ratings.map((r) => r.rating), [1012, 988]);
+    assert.deepEqual(ratings.map((r) => r.rating), [1005, 995]);
     const badges = (await db.query('SELECT badge_key FROM public.student_badges WHERE student_id = $1 ORDER BY 1', [A])).rows;
     assert.deepEqual(badges.map((b) => b.badge_key), ['duel_first', 'duel_win']);
     const finished = await one("SELECT count(*)::int AS n FROM realtime.messages WHERE topic = $1 AND event = 'finished'", [`duel:${duel}`]);
@@ -637,7 +704,7 @@ describe('live duel SQL (PGlite)', () => {
     const d = await one('SELECT result, b_correct, b_attempted, a_rating_delta, b_rating_delta FROM public.live_duels WHERE id = $1', [duel]);
     assert.equal(d.result, 'b');
     assert.equal(d.b_correct, 3, 'answers after the round do not count');
-    assert.equal(d.a_rating_delta, -6);
+    assert.equal(d.a_rating_delta, -2, 'lost 1-3 to a ghost: small loss at half K');
     assert.equal(d.b_rating_delta, null);
     const ev = await one("SELECT bonus_xp FROM public.student_xp_events WHERE source_id = $1", [`${duel}:a`]);
     assert.equal(ev.bonus_xp, 3);
@@ -749,6 +816,27 @@ describe('live duel SQL (PGlite)', () => {
     assert.equal(board.some((r) => r.display_name === 'Asha'), false, 'top duellists are per centre');
     const centre = await one('SELECT public.live_duel_centre_of($1) AS c', [C]);
     assert.equal(centre.c, '22222222-0000-4000-8000-000000000002');
+  });
+
+  it('lists online students at my level from every centre, classmates first', async () => {
+    const ids = [A, B, C, ADMIN, '99999999-0000-4000-8000-000000000009'];
+    const list = await as(A, async () => (await one('SELECT public.live_duel_online_players($1::uuid[]) AS l', [ids])).l);
+    assert.deepEqual(list.map((p) => p.display_name), ['Ben', 'Cara'], 'not me, not staff, unknown ids skipped');
+    assert.deepEqual(list.map((p) => p.classmate), [true, false]);
+    assert.ok(list.every((p) => 'avatar_path' in p && 'centre_name' in p && Number(p.rating) >= 100));
+    const none = await as(A, async () => (await one('SELECT public.live_duel_online_players($1::uuid[]) AS l', [[]])).l);
+    assert.deepEqual(none, []);
+    const staff = await as(ADMIN, async () => (await one('SELECT public.live_duel_online_players($1::uuid[]) AS l', [ids])).l);
+    assert.deepEqual(staff, [], 'only students get a lobby list');
+  });
+
+  it('rates by margin in SQL exactly like shared/liveDuel.js', async () => {
+    const cases = [[1000, 1000, 'loss', 2, 24], [1000, 1000, 'win', 2, 24], [1000, 1000, 'win', 0, 24], [1300, 900, 'win', 1, 24],
+      [900, 1300, 'loss', 1, 24], [1000, 1000, 'draw', 0, 24], [1100, 1000, 'loss', 10, 24], [1005, 1000, 'loss', 2, 12]];
+    for (const [r, o, out, m, k] of cases) {
+      const row = await one('SELECT public.live_duel_rating_delta($1, $2, $3, $4, $5) AS d', [r, o, out, m, k]);
+      assert.equal(row.d, liveDuelRatingDelta(r, o, out, m, k), `${r} v ${o} ${out} by ${m}`);
+    }
   });
 });
 

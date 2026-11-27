@@ -120,6 +120,10 @@ export async function requireAuth(allowedRoles = ['student', 'teacher', 'admin']
   renderConfigBanner();
   if (profile.role === 'student') {
     initStudentNotificationBell(profile);
+    // Online for live duels on every page, and personal challenges pop up anywhere.
+    if (typeof window !== 'undefined') {
+      import('./duelPresence.js').then((m) => m.startDuelPresence(profile)).catch(() => {});
+    }
   }
 
   markPerf('tt:guard-ready');
