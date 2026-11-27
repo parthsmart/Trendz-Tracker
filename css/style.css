@@ -2720,22 +2720,110 @@ body.stage-focus-mode .element-sticky-bar {
   cursor: not-allowed;
 }
 
-/* Memoriad Simulator */
+/* Memoriad hub module cards (kept here, not inline: Vite puts style.css after inline <style> in builds) */
 .memoriad-modules-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+  gap: var(--space-5);
+  margin-bottom: var(--space-6);
 }
 
 .memoriad-module-card {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: var(--space-6);
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
   gap: var(--space-4);
+  padding: var(--space-5);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.memoriad-module-card.is-coming-soon {
+  opacity: 0.78;
+  background: var(--bg-surface-subtle);
+}
+
+.memoriad-module-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: var(--space-2);
+}
+
+.memoriad-module-head h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+  line-height: 1.25;
+  color: var(--text-main);
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.memoriad-module-desc {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.memoriad-best-box {
+  background: var(--bg-surface-subtle);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  margin: var(--space-3) 0;
+}
+
+.memoriad-dates-tiers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: var(--space-2);
+}
+
+.memoriad-tier-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-main);
+}
+
+.memoriad-tries-wrap {
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.memoriad-tries-table {
+  width: 100%;
+  margin: 0;
+  table-layout: auto;
+}
+
+.memoriad-tries-table th,
+.memoriad-tries-table td {
+  padding: 8px 10px;
+  font-size: 12.5px;
+}
+
+.memoriad-tries-table th {
+  position: static;
+}
+
+.memoriad-tries-table .score-tag {
+  display: inline-block;
+  margin-top: 2px;
+  font-size: 10px;
+  white-space: nowrap;
 }
 
 .comp-stage-shell {
