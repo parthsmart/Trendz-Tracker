@@ -178,6 +178,22 @@ export const NAV_CONFIG = Object.freeze({
       desktopPlacement: 'menu-only',
     }),
     Object.freeze({
+      id: 'student-duels',
+      label: 'Duels',
+      href: '/pages/duels.html',
+      group: 'Account',
+      inline: false,
+      desktopPlacement: 'menu-only',
+    }),
+    Object.freeze({
+      id: 'student-store',
+      label: 'Store',
+      href: '/pages/store.html',
+      group: 'Account',
+      inline: false,
+      desktopPlacement: 'menu-only',
+    }),
+    Object.freeze({
       id: 'student-account',
       label: 'Account',
       href: '/pages/account.html',

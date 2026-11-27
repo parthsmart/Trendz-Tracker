@@ -6,6 +6,7 @@
  * student) and Rewards (spend XP on small prizes collected at the centre).
  * Students play; teachers and admins can look at every league; admins run the shop.
  * Every number comes from the database; duels go through POST /api/drill.
+ * pages/duels.html and pages/store.html reuse this file with only their own panel.
  */
 
 import { requireAuth } from './guard.js';
@@ -26,7 +27,9 @@ import {
 } from './arenaView.js';
 
 const $ = (id) => document.getElementById(id);
-const TABS = ['league', 'duels', 'classes', 'rewards'];
+const ALL_TABS = ['league', 'duels', 'classes', 'rewards'];
+// The Arena page holds every panel; Duels (duels.html) and Store (store.html) hold one each.
+let TABS = ALL_TABS;
 const state = { viewer: null, isStudent: false, isAdmin: false, loaded: new Set(), period: 'week', staffTier: 1, adminData: null };
 
 /** Calls an RPC and returns { data, error } with a readable error message. */
@@ -60,7 +63,7 @@ async function drillApi(body) {
 /* --------------------------------------------------------------- Tabs */
 
 function showTab(tab, { push = true } = {}) {
-  const name = TABS.includes(tab) ? tab : 'league';
+  const name = TABS.includes(tab) ? tab : TABS[0];
   for (const t of TABS) {
     const btn = $(`tab-${t}`);
     const panel = $(`panel-${t}`);
@@ -69,7 +72,7 @@ function showTab(tab, { push = true } = {}) {
     btn?.classList.toggle('is-active', on);
     if (panel) panel.hidden = !on;
   }
-  if (push && window.location.hash !== `#${name}`) history.replaceState(null, '', `#${name}`);
+  if (push && TABS.length > 1 && window.location.hash !== `#${name}`) history.replaceState(null, '', `#${name}`);
   if (!state.loaded.has(name)) {
     state.loaded.add(name);
     loadTab(name);
@@ -121,6 +124,7 @@ async function loadDuels() {
 }
 
 function setupDuelActions() {
+  if (!$('panel-duels')) return;
   $('panel-duels').addEventListener('click', async (e) => {
     const btn = e.target.closest('[data-duel-cancel]');
     if (!btn) return;
@@ -208,6 +212,7 @@ function fillItemForm(item) {
 }
 
 function setupRewardActions() {
+  if (!$('panel-rewards')) return;
   $('panel-rewards').addEventListener('click', async (e) => {
     const get = e.target.closest('[data-reward]');
     const cancel = e.target.closest('[data-reward-cancel]');
@@ -301,9 +306,11 @@ async function initArenaPage() {
   state.isAdmin = viewer.role === 'admin';
   ensureXpStyles(document);
   ensureAvatarStyles(document);
+  TABS = ALL_TABS.filter((t) => $(`panel-${t}`));
+  if (!TABS.length) return;
 
   for (const t of TABS) $(`tab-${t}`)?.addEventListener('click', () => showTab(t));
-  $('ar-staff-tiers').addEventListener('click', (e) => {
+  $('ar-staff-tiers')?.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-tier]');
     if (!btn) return;
     state.staffTier = Number(btn.dataset.tier) || 1;
@@ -312,7 +319,7 @@ async function initArenaPage() {
   setupDuelActions();
   setupPeriodButtons();
   setupRewardActions();
-  window.addEventListener('hashchange', () => showTab(window.location.hash.slice(1), { push: false }));
+  if (TABS.length > 1) window.addEventListener('hashchange', () => showTab(window.location.hash.slice(1), { push: false }));
   showTab(window.location.hash.slice(1), { push: false });
 }
 

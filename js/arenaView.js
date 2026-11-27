@@ -273,10 +273,10 @@ export function buildArenaSummaryHtml(s) {
     parts.push(`<a class="ar-chip" href="/pages/arena.html#league">${esc(lg.icon)} ${esc(lg.name)} league · #${formatXp(lg.rank)} of ${formatXp(lg.size)}${zone}</a>`);
   }
   const duels = Number(s.duels_to_play) || 0;
-  parts.push(`<a class="ar-chip${duels ? ' is-hot' : ''}" href="/pages/arena.html#duels">⚔️ ${duels ? `${formatXp(duels)} duel${duels === 1 ? '' : 's'} to play` : 'Challenge a classmate'}</a>`);
+  parts.push(`<a class="ar-chip${duels ? ' is-hot' : ''}" href="/pages/duels.html">⚔️ ${duels ? `${formatXp(duels)} duel${duels === 1 ? '' : 's'} to play` : 'Challenge a classmate'}</a>`);
   parts.push('<a class="ar-chip" href="/pages/arena.html#classes">🏫 Class vs class</a>');
   if (Number(s.rewards_available) > 0) {
-    parts.push(`<a class="ar-chip" href="/pages/arena.html#rewards">🎁 ${formatXp(s.reward_balance)} XP to spend</a>`);
+    parts.push(`<a class="ar-chip" href="/pages/store.html">🎁 ${formatXp(s.reward_balance)} XP to spend</a>`);
   }
   return '<div class="gm-row"><h2>🏟️ Arena</h2><a class="btn btn-outline btn-sm" href="/pages/arena.html">Open</a></div>'
     + `<div class="ar-chips">${parts.join('')}</div>`;
