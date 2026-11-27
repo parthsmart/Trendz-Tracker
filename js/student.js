@@ -37,7 +37,7 @@ import { formatTimeIST } from './liveClasses.js';
 import { renderXpProgressCard } from './xpRewards.js';
 import { renderDailyChallengeCard, renderStarsCard } from './homeGamify.js';
 import { renderArenaCard } from './arenaHome.js';
-import { fetchLeaderboard } from './leaderboardData.js';
+import { renderLiveDuelHome } from './liveDuelHome.js';
 import {
   renderPracticeTiles,
   renderHeroIdentity,
@@ -167,9 +167,10 @@ async function initStudentDashboard() {
   setupProgressWeekTabs();
 
   loadAndRenderStudentLiveClassCard(currentStudentId);
+  renderLiveDuelHome(document.getElementById('live-duel-home'), loggedInProfile)
+    .catch((err) => console.warn('Could not load live duels:', err));
   renderXpProgressCard(document.getElementById('xp-progress-card'), {
     studentId: currentStudentId,
-    loadBoard: () => fetchLeaderboard({ board: 'xp', period: 'week', limit: 5, scope: 'level' }, loggedInProfile),
   }).catch((err) => console.warn('Could not load XP:', err));
   renderDailyChallengeCard(document.getElementById('daily-challenge'))
     .then(() => {

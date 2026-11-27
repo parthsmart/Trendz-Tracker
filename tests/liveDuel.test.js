@@ -57,6 +57,7 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const MIGRATION = fs.readFileSync(path.join(ROOT, 'supabase/migrations/31_live_duels.sql'), 'utf8');
+const MATE_AVATARS = fs.readFileSync(path.join(ROOT, 'supabase/migrations/34_live_duel_mate_avatars.sql'), 'utf8');
 
 /* ===================================================================== 1 */
 
@@ -537,6 +538,7 @@ describe('live duel SQL (PGlite)', () => {
     const end = xp.indexOf('-- Per-source mapping');
     await db.exec(xp.slice(start, end));
     await db.exec(MIGRATION);
+    await db.exec(MATE_AVATARS);
     await db.query(
       `INSERT INTO public.profiles (id, role, level, full_name) VALUES
         ($1, 'student', 'Level 2', 'Asha'), ($2, 'student', 'Level 2', 'Ben'),
@@ -547,6 +549,7 @@ describe('live duel SQL (PGlite)', () => {
 
   it('applies twice without errors (idempotent)', async () => {
     await db.exec(MIGRATION);
+    await db.exec(MATE_AVATARS);
   });
 
   it('grades each answer, broadcasts progress and enforces order', async () => {
@@ -733,6 +736,7 @@ describe('live duel SQL (PGlite)', () => {
     assert.ok(mine.rating.played >= 1);
     assert.ok(mine.recent.length >= 1);
     assert.deepEqual(mine.mates.map((m) => m.display_name), ['Ben', 'Cara'], 'same level, not me, not staff');
+    assert.ok(mine.mates.every((m) => 'avatar_path' in m), 'classmates carry their visible avatar for the home card');
   });
 
   it('reads centres from profiles.centre_id once multi-centre adds it', async () => {
