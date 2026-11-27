@@ -46,7 +46,6 @@ const ROLE_LAYOUTS = {
       { id: 'student-simple', short: 'Simple', icon: '🔢', group: '', in: 'practice', label: 'Simple' },
       { id: 'student-round-scores', short: 'Main', icon: '🎯', group: '', in: 'practice', label: 'Main round', sheetLabel: 'Main round' },
       { id: 'student-duels', short: 'Duels', icon: '⚔️', group: 'Play', label: 'Duels' },
-      { id: 'student-arena', short: 'Arena', icon: '🏟️', group: 'Play', label: 'Arena' },
       { id: 'student-store', short: 'Store', icon: '🎁', group: 'Play', label: 'Store' },
       { id: 'student-weekly-test', short: 'Tests', icon: '📝', group: 'Results' },
       { id: 'student-leaderboard', short: 'Ranks', icon: '🏆', group: 'Results' },
@@ -61,7 +60,7 @@ const ROLE_LAYOUTS = {
       { id: 'student-leaderboard', icon: '🏆', label: 'Ranks' },
     ],
     more: [
-      'student-live-classes', 'student-duels', 'student-arena', 'student-store', 'student-monthly-report',
+      'student-live-classes', 'student-duels', 'student-store', 'student-monthly-report',
       'student-notifications', 'student-profile', 'student-account',
     ],
   },

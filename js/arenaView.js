@@ -282,6 +282,17 @@ export function buildArenaSummaryHtml(s) {
     + `<div class="ar-chips">${parts.join('')}</div>`;
 }
 
+/**
+ * League pill for the My XP panel on the student home: "🌱 Sprout league · #3 of 19 · ⬆️ moving up".
+ * Links to the Arena page (league, class vs class, rewards). '' when the student has no league yet.
+ */
+export function buildLeaguePillHtml(s) {
+  const lg = s?.league;
+  if (!lg) return '';
+  const up = lg.zone === 'up';
+  return `<a class="xp-league${up ? ' is-up' : ''}" href="/pages/arena.html#league" title="Open the Arena">${esc(lg.icon)} ${esc(lg.name)} league · #${formatXp(lg.rank)} of ${formatXp(lg.size)}${up ? ' · ⬆️ moving up' : ''}</a>`;
+}
+
 /* ------------------------------------------------------------ Certificates */
 
 const AWARD_KIND_TEXT = Object.freeze({ week: 'Champion of the Week', month: 'Star of the Month' });

@@ -652,9 +652,6 @@ body.has-app-rail .lb-rest-note td { text-align: center; color: var(--text-muted
   body.has-student-rail #today-summary-metrics > span:last-child:nth-child(odd) { grid-column: 1 / -1; }
 
   /* Home: view switcher fills the width; Main Round shortcut sits under it */
-  body.has-student-rail .sh-viewbar .segmented-control { width: 100%; display: flex; }
-  body.has-student-rail .sh-viewbar .segmented-btn { flex: 1; white-space: nowrap; font-size: 13px; padding-left: 6px; padding-right: 6px; }
-  body.has-student-rail .sh-viewbar > a.btn { display: none; } /* Main Round is in the Practice tab */
 
   /* Home: practice tiles as compact rows */
   body.has-student-rail .sh-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }

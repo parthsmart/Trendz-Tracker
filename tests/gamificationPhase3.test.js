@@ -10,6 +10,7 @@ import { DUEL_SECONDS, DUELS_PER_DAY, duelSide, isUuid, newDuelSeed } from '../a
 import { createSeededRng, generateBasicsSet } from '../api/_drills.js';
 import {
   buildArenaSummaryHtml,
+  buildLeaguePillHtml,
   buildCertificateModel,
   buildClassVsClassHtml,
   buildDuelFormHtml,
@@ -181,6 +182,16 @@ describe('reward shop', () => {
 });
 
 describe('home card and certificates', () => {
+  it('shows the league pill for My XP', () => {
+    const pill = buildLeaguePillHtml({ league: { icon: '🌱', name: 'Sprout', rank: 3, size: 19, zone: 'up' } });
+    assert.match(pill, /class="xp-league is-up" href="\/pages\/arena.html#league"/);
+    assert.match(pill, /🌱 Sprout league · #3 of 19 · ⬆️ moving up/);
+    assert.doesNotMatch(buildLeaguePillHtml({ league: { icon: '🌱', name: 'Sprout', rank: 9, size: 19, zone: 'stay' } }), /moving up|is-up/);
+    assert.match(buildLeaguePillHtml({ league: { icon: '<b>', name: 'X', rank: 1, size: 2 } }), /&lt;b&gt;/);
+    assert.equal(buildLeaguePillHtml({ league: null }), '');
+    assert.equal(buildLeaguePillHtml(null), '');
+  });
+
   it('summarises the arena on the home page', () => {
     const html = buildArenaSummaryHtml({ league: { icon: '🌿', name: 'Sapling', rank: 2, size: 5, zone: 'up' }, duels_to_play: 1, reward_balance: 400, rewards_available: 2 });
     assert.match(html, /Sapling league · #2 of 5 · ⬆️ moving up/);
@@ -219,11 +230,26 @@ describe('home card and certificates', () => {
 });
 
 describe('wiring', () => {
-  it('adds the arena to the student menu and the admin settings hub', () => {
-    const item = NAV_CONFIG.student.find((i) => i.id === 'student-arena');
-    assert.equal(item?.href, '/pages/arena.html');
-    assert.equal(item?.desktopPlacement, 'menu-only');
+  it('keeps the arena out of the student menu (reached from the My XP league pill) and in the admin settings hub', () => {
+    assert.equal(NAV_CONFIG.student.find((i) => i.id === 'student-arena'), undefined);
     assert.ok(SETTINGS_ENTRIES.some((e) => e.href === '/pages/arena.html'));
+  });
+
+  it('puts the league pill in My XP and the old score sheet view on its own Progress page', () => {
+    const home = fs.readFileSync(new URL('../pages/student.html', import.meta.url), 'utf8');
+    const progress = fs.readFileSync(new URL('../pages/progress.html', import.meta.url), 'utf8');
+    for (const gone of ['data-student-view', 'student-pane-progress', 'arena-card', 'sheet-table-wrapper']) {
+      assert.ok(!home.includes(gone), gone);
+    }
+    for (const id of ['sheet-table-wrapper', 'charts-wrapper-container', 'basics-week-container', 'flash-week-container',
+      'elements-week-container', 'memoriad-week-container', 'attendance-card-container', 'resources-container']) {
+      assert.ok(progress.includes(`id="${id}"`), id);
+    }
+    assert.match(progress, /src="\/js\/progress\.js"/);
+    const vite = fs.readFileSync(new URL('../vite.config.ts', import.meta.url), 'utf8');
+    assert.match(vite, /pages\/progress\.html/);
+    const tiles = fs.readFileSync(new URL('../js/studentHome.js', import.meta.url), 'utf8');
+    assert.match(tiles, /label: 'Progress', icon: '📈', href: '\/pages\/progress\.html'/);
   });
 
   it('backs up the new tables and builds the new pages', () => {

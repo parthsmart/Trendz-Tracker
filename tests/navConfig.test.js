@@ -209,7 +209,7 @@ test('student config includes Practice group, Notifications badge key, Account, 
   assert.ok(accountGroup, 'Expected Account group in student nav');
   assert.deepEqual(
     accountGroup.items.map((i) => i.label),
-    ['My Profile', 'Arena', 'Duels', 'Store', 'Account', 'Sign out']
+    ['My Profile', 'Duels', 'Store', 'Account', 'Sign out']
   );
 });
 
