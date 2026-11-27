@@ -3,8 +3,11 @@
  *
  * /pages/simple.html: no-formula sums (1D 4R, 2D 2R, 3D 2R), tables dodging
  * (2 to 9) and advanced mixed tables (2–5, 2–9).
- * - Practice online: one question at a time, Enter checks it, the score is
- *   saved when the student finishes.
+ * - Practice online: a timed round like Basics (30 s, 1, 2 or 5 minutes, or an
+ *   unlimited stopwatch) with as many questions as the student can answer.
+ *   Answers are not checked during the round; they are marked at the end and
+ *   the score is saved then. When time runs out, the question on screen is not
+ *   counted.
  * - Log offline score: correct, questions, optional time and date (last 7 days).
  * The activities shown follow the student's practice access (simple_practice key).
  */
@@ -19,14 +22,15 @@ import { showToast } from './toast.js';
 import {
   SIMPLE_GROUPS,
   SIMPLE_LIMITS,
-  SIMPLE_QUESTION_COUNTS,
-  SIMPLE_DEFAULT_QUESTIONS,
+  SIMPLE_TIME_MODES,
+  SIMPLE_DEFAULT_TIME_KEY,
   allowedSimpleActivities,
   bestSimpleByActivity,
-  checkSimpleAnswer,
   formatSimpleQuestion,
   generateSimplePracticeQuestion,
   getSimpleActivity,
+  getSimpleTimeMode,
+  markSimpleRound,
   parseSimpleAnswer,
   simpleActivityLabel,
 } from './simplePractice.js';
@@ -38,7 +42,6 @@ import {
 } from './simplePracticeData.js';
 
 const STORAGE_KEY = 'trendz_simple_practice_choice_v1';
-const FEEDBACK_MS = 450;
 
 const state = {
   profile: null,
@@ -47,7 +50,7 @@ const state = {
   rule: null,
   activities: [],
   activityKey: null,
-  count: SIMPLE_DEFAULT_QUESTIONS,
+  timeKey: SIMPLE_DEFAULT_TIME_KEY,
   today: null,
   rows: [],
   run: null,
@@ -75,7 +78,7 @@ function loadChoice() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
     if (saved && state.activities.some((a) => a.key === saved.activityKey)) state.activityKey = saved.activityKey;
-    if (saved && SIMPLE_QUESTION_COUNTS.includes(saved.count)) state.count = saved.count;
+    if (saved && SIMPLE_TIME_MODES.some((m) => m.key === saved.timeKey)) state.timeKey = saved.timeKey;
   } catch {
     // ignore
   }
@@ -84,7 +87,7 @@ function loadChoice() {
 
 function saveChoice() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ activityKey: state.activityKey, count: state.count }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ activityKey: state.activityKey, timeKey: state.timeKey }));
   } catch {
     // ignore
   }
@@ -113,12 +116,12 @@ function renderActivityGroups() {
   $('simple-activity-groups').innerHTML = html;
 }
 
-function renderCountChoices() {
-  $('simple-count-choices').innerHTML = SIMPLE_QUESTION_COUNTS.map(
-    (n) => `
+function renderTimeChoices() {
+  $('simple-time-choices').innerHTML = SIMPLE_TIME_MODES.map(
+    (m) => `
       <label class="simple-chip">
-        <input type="radio" name="simple-count" value="${n}" ${n === state.count ? 'checked' : ''} />
-        <span>${n}</span>
+        <input type="radio" name="simple-time" value="${m.key}" ${m.key === state.timeKey ? 'checked' : ''} />
+        <span>${escapeHtml(m.label)}</span>
       </label>`
   ).join('');
 }
@@ -147,7 +150,7 @@ function showStage(name) {
 
 function setPickerDisabled(disabled) {
   document
-    .querySelectorAll('input[name="simple-activity"], input[name="simple-count"], #btn-simple-start, #tab-offline')
+    .querySelectorAll('input[name="simple-activity"], input[name="simple-time"], #btn-simple-start, #tab-offline')
     .forEach((el) => {
       el.disabled = disabled;
     });
@@ -168,14 +171,28 @@ function renderQuestion() {
     el.textContent = `${q.a} × ${q.b}`;
     el.removeAttribute('aria-label');
   }
-  $('play-progress').textContent = `${run.index + 1} / ${run.total}`;
+  $('play-progress').textContent = `Answered ${run.attempts.length}`;
   $('play-answer').value = '';
   $('play-answer').focus();
 }
 
+function elapsedSeconds(run) {
+  return (performance.now() - run.startedAt) / 1000;
+}
+
 function tickClock() {
-  if (!state.run || state.run.done) return;
-  $('play-clock').textContent = clock((performance.now() - state.run.startedAt) / 1000);
+  const run = state.run;
+  if (!run || run.done) return;
+  const elapsed = elapsedSeconds(run);
+  if (run.seconds) {
+    const left = run.seconds - elapsed;
+    $('play-clock').textContent = clock(Math.ceil(Math.max(0, left)));
+    $('play-time-fill').style.width = `${Math.min(100, (elapsed / run.seconds) * 100)}%`;
+    if (left <= 0) finishRun();
+  } else {
+    $('play-clock').textContent = clock(elapsed);
+    if (elapsed >= SIMPLE_LIMITS.maxSeconds) finishRun();
+  }
 }
 
 function startRun() {
@@ -185,57 +202,39 @@ function startRun() {
     return;
   }
   saveChoice();
-  const first = generateSimplePracticeQuestion(activity);
+  const mode = getSimpleTimeMode(state.timeKey);
   state.run = {
     activity,
-    total: state.count,
-    index: 0,
-    correct: 0,
-    wrong: [],
-    question: first,
+    mode,
+    seconds: mode.seconds,
+    attempts: [],
+    question: generateSimplePracticeQuestion(activity),
     startedAt: performance.now(),
     timer: setInterval(tickClock, 250),
-    locked: false,
     done: false,
   };
-  $('play-title').textContent = simpleActivityLabel(activity.key);
+  $('play-title').textContent = `${simpleActivityLabel(activity.key)} · ${mode.label}`;
   $('play-feedback').textContent = '';
-  $('play-feedback').className = 'simple-feedback';
-  $('play-clock').textContent = '0:00';
+  $('play-clock').textContent = mode.seconds ? clock(mode.seconds) : '0:00';
+  $('play-time-bar').hidden = !mode.seconds;
+  $('play-time-fill').style.width = '0%';
   setPickerDisabled(true);
   showStage('play');
   renderQuestion();
 }
 
+/** Records the answer (or a skip) without checking it, then shows the next question. */
 function answerCurrent(raw, skipped = false) {
   const run = state.run;
-  if (!run || run.done || run.locked) return;
+  if (!run || run.done) return;
   if (!skipped && parseSimpleAnswer(raw) === null) {
-    $('play-feedback').className = 'simple-feedback is-wrong';
-    $('play-feedback').textContent = 'Type a number.';
+    $('play-feedback').textContent = 'Type a number, or press Skip.';
     return;
   }
-  const right = !skipped && checkSimpleAnswer(run.question, raw);
-  if (right) run.correct += 1;
-  else run.wrong.push({ question: run.question, given: skipped ? 'skipped' : String(raw).trim() });
-
-  const fb = $('play-feedback');
-  fb.className = `simple-feedback ${right ? 'is-right' : 'is-wrong'}`;
-  fb.textContent = right ? 'Correct' : `Answer: ${run.question.answer}`;
-
-  run.locked = true;
-  setTimeout(() => {
-    run.locked = false;
-    if (run.done) return;
-    run.index += 1;
-    if (run.index >= run.total) {
-      finishRun();
-      return;
-    }
-    run.question = generateSimplePracticeQuestion(run.activity, { previous: run.question });
-    fb.textContent = '';
-    renderQuestion();
-  }, right ? FEEDBACK_MS : FEEDBACK_MS * 2.5);
+  $('play-feedback').textContent = '';
+  run.attempts.push({ question: run.question, given: skipped ? null : String(raw).trim() });
+  run.question = generateSimplePracticeQuestion(run.activity, { previous: run.question });
+  renderQuestion();
 }
 
 async function finishRun() {
@@ -243,18 +242,20 @@ async function finishRun() {
   if (!run || run.done) return;
   run.done = true;
   clearInterval(run.timer);
-  const seconds = Math.round((performance.now() - run.startedAt) / 1000);
-  const answered = run.index >= run.total ? run.total : run.index;
+  const limit = run.seconds || SIMPLE_LIMITS.maxSeconds;
+  const seconds = Math.min(limit, Math.round(elapsedSeconds(run)));
+  const marked = markSimpleRound(run.attempts.slice(0, SIMPLE_LIMITS.maxTotal));
+  const answered = marked.total;
 
   setPickerDisabled(false);
   showStage('result');
-  $('result-title').textContent = simpleActivityLabel(run.activity.key);
-  $('result-correct').textContent = String(run.correct);
+  $('result-title').textContent = `${simpleActivityLabel(run.activity.key)} · ${run.mode.label}`;
+  $('result-correct').textContent = String(marked.correct);
   $('result-total').textContent = String(answered);
-  $('result-accuracy').textContent = answered ? `${Math.round((run.correct / answered) * 100)}%` : '–';
+  $('result-accuracy').textContent = answered ? `${Math.round((marked.correct / answered) * 100)}%` : '–';
   $('result-time').textContent = clock(seconds);
 
-  const wrong = run.wrong.slice(0, 100);
+  const wrong = marked.wrong.slice(0, 100);
   $('result-review-wrap').hidden = wrong.length === 0;
   $('result-review').innerHTML = wrong
     .map(
@@ -274,7 +275,7 @@ async function finishRun() {
       {
         activity_key: run.activity.key,
         source: 'online',
-        correct: run.correct,
+        correct: marked.correct,
         total: answered,
         time_seconds: seconds,
         practiced_on: state.today,
@@ -412,9 +413,9 @@ function wireEvents() {
       saveChoice();
     }
   });
-  $('simple-count-choices').addEventListener('change', (e) => {
-    if (e.target.name === 'simple-count') {
-      state.count = Number(e.target.value);
+  $('simple-time-choices').addEventListener('change', (e) => {
+    if (e.target.name === 'simple-time') {
+      state.timeKey = e.target.value;
       saveChoice();
     }
   });
@@ -427,7 +428,7 @@ function wireEvents() {
   });
   $('btn-play-skip').addEventListener('click', () => answerCurrent('', true));
   $('btn-play-finish').addEventListener('click', () => {
-    if (window.confirm('Finish now? Only the questions you answered will count.')) finishRun();
+    if (window.confirm('Finish now? The questions you answered will be marked and saved.')) finishRun();
   });
   $('btn-result-again').addEventListener('click', startRun);
   $('btn-result-change').addEventListener('click', () => {
@@ -507,7 +508,7 @@ async function initSimplePractice() {
 
   loadChoice();
   renderActivityGroups();
-  renderCountChoices();
+  renderTimeChoices();
   wireEvents();
   showStage('idle');
 
