@@ -11,7 +11,7 @@
 
 import { requireAuth } from './guard.js';
 import { showToast } from './toast.js';
-import { callXpRpc, ensureXpStyles, formatXp, tierProgress, tierIcon } from './xpRewards.js';
+import { callXpRpc, ensureXpStyles, formatXp, seasonXp, tierProgress, tierIcon } from './xpRewards.js';
 import { getSupabase } from './supabaseClient.js';
 import {
   avatarInitial,
@@ -25,9 +25,11 @@ import {
   MOTTO_MAX,
   badgeCounts,
   buildBadgeWallHtml,
+  bestSeasonText,
   buildBestsHtml,
   buildChallengeHistoryHtml,
   buildParentSummaryText,
+  buildSeasonHistoryHtml,
   buildStatsHtml,
   buildTitlesHtml,
   shortDate,
@@ -93,9 +95,9 @@ function render(data) {
   $('pf-joined-fact').hidden = !joined;
   setText('pf-joined', joined);
 
-  const tp = tierProgress(data.total_xp, data.tier);
+  const tp = tierProgress(seasonXp(data), data.tier);
   setText('pf-tier-icon', tp.icon);
-  setText('pf-tier', `${tp.name} · ${formatXp(data.total_xp)} XP`);
+  setText('pf-tier', `${tp.name} · ${formatXp(seasonXp(data))} season XP`);
   setText('pf-tier-next', tp.nextName ? `${formatXp(tp.toNext)} XP to ${tierIcon(tp.nextName)} ${tp.nextName}` : 'Top tier reached');
   const bar = $('pf-tier-bar');
   if (bar) {
@@ -109,6 +111,8 @@ function render(data) {
   const bc = badgeCounts(data.badges);
   setText('pf-badges-count', `${bc.earned} of ${bc.total} earned`);
   $('pf-bests').innerHTML = buildBestsHtml(data.bests);
+  $('pf-seasons').innerHTML = buildSeasonHistoryHtml(data.seasons);
+  setText('pf-seasons-best', bestSeasonText(data.best_season));
   $('pf-challenge').innerHTML = buildChallengeHistoryHtml(data.challenge);
   setText('pf-challenge-count', `${formatXp(data.challenge?.played)} played`);
 
