@@ -27,6 +27,7 @@ import {
   buildModalLiveSummary,
   setMoreOptionsOpen,
 } from './formPattern.js';
+import { fillLevelSelect } from '../shared/levels.js';
 
 let currentProfile = null;
 let allCategories = [];
@@ -911,6 +912,7 @@ function escapeHtml(str) {
 }
 
 async function initTodosPage() {
+  fillLevelSelect(document.getElementById('todo-level'), { blankLabel: 'All levels' });
   const profile = await requireAuth(['teacher', 'admin']);
   if (!profile) return;
   currentProfile = profile;

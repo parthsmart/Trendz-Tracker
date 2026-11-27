@@ -27,6 +27,7 @@ import { formatEventDateChipIST } from './notificationsView.js';
 import { buildWeeklyTestShareMessage } from './reportMessage.js';
 import { formatDisplayDateIST } from './stats.js';
 import { buildModalLiveSummary, setMoreOptionsOpen } from './formPattern.js';
+import { fillLevelSelect, sortLevels } from '../shared/levels.js';
 
 let currentProfile = null;
 let announcements = [];
@@ -381,14 +382,9 @@ async function loadStudentLevels() {
         levelSet.add(String(p.level).trim());
       }
     }
-    studentLevels = Array.from(levelSet).sort();
+    studentLevels = sortLevels(Array.from(levelSet));
 
-    const datalist = document.getElementById('ann-levels-datalist');
-    if (datalist) {
-      datalist.innerHTML = studentLevels
-        .map((lvl) => `<option value="${escapeHtml(lvl)}"></option>`)
-        .join('');
-    }
+    fillLevelSelect(document.getElementById('ann-level-input'), { blankLabel: 'Choose a level' });
   } catch (err) {
     console.warn('Could not load student levels for suggestions:', err);
   }

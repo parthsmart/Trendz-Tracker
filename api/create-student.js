@@ -5,6 +5,7 @@
  */
 
 import { getAdminClient, verifyAdminCaller } from './_supabaseAdmin.js';
+import { validateLevel } from '../shared/levels.js';
 
 export default async function handler(req, res) {
   // Only allow POST
@@ -25,7 +26,11 @@ export default async function handler(req, res) {
 
     const cleanCode = student_code.trim().toUpperCase();
     const cleanName = full_name.trim();
-    const cleanLevel = level ? level.trim() : null;
+    const levelCheck = validateLevel(level);
+    if (levelCheck.error) {
+      return res.status(400).json({ error: levelCheck.error });
+    }
+    const cleanLevel = levelCheck.value;
     const email = `${cleanCode.toLowerCase()}@trendz.local`;
 
     const supabaseAdmin = getAdminClient();

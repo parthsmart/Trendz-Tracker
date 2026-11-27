@@ -103,11 +103,6 @@
             <div style="display: flex; gap: var(--space-3); flex-wrap: wrap;">
               <select id="filter-level" class="form-select" style="width: auto; min-width: 140px;" aria-label="Filter by level">
                 <option value="">All Levels</option>
-                <option value="Level 1">Level 1</option>
-                <option value="Level 2">Level 2</option>
-                <option value="Level 3">Level 3</option>
-                <option value="Level 4">Level 4</option>
-                <option value="Master">Master</option>
               </select>
               <select id="filter-status" class="form-select" style="width: auto; min-width: 140px;" aria-label="Filter by status">
                 <option value="">All Statuses</option>
@@ -221,12 +216,9 @@
               <div class="form-more-options-body">
                 <div class="form-group" style="margin-bottom: 0;">
                   <label for="new-level" class="form-label">Level (optional)</label>
-                  <input
-                    type="text"
-                    id="new-level"
-                    class="form-input"
-                    placeholder="e.g. Level 2, Foundation, Master"
-                  />
+                  <select id="new-level" class="form-select">
+                    <option value="">No level</option>
+                  </select>
                 </div>
               </div>
             </details>
