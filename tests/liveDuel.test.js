@@ -648,6 +648,15 @@ describe('live duel SQL (PGlite)', () => {
     assert.deepEqual(d, { status: 'expired', result: 'none', a_rating_delta: null });
   });
 
+  it('shows an untouched ghost race as not played, not as a loss', async () => {
+    const duel = await liveDuel({ b: null, ghost: { label: 'Practice bot', bot: true, timeline: [[3000, 1]] } });
+    await endNow(duel);
+    const state = await as(A, async () => (await one('SELECT public.live_duel_state($1) AS s', [duel])).s);
+    const d = await one('SELECT status, a_rating_delta FROM public.live_duels WHERE id = $1', [duel]);
+    assert.deepEqual(d, { status: 'expired', a_rating_delta: null });
+    assert.equal(state.result, 'none');
+  });
+
   it('allows only preset emotes, slowly, between real players', async () => {
     const duel = await liveDuel();
     const send = (uid, e) => as(uid, async () => (await one('SELECT public.live_duel_emote($1, $2) AS r', [duel, e])).r);
@@ -688,6 +697,11 @@ describe('live duel SQL (PGlite)', () => {
     assert.ok((await visible(A, `duel-user:${A}`)) > 0);
     assert.equal(await visible(B, `duel-user:${A}`), 0);
     assert.ok((await visible(C, 'duel-lobby')) > 0);
+    await db.query("INSERT INTO realtime.messages (topic, extension, event) VALUES ('duel-lobby', 'broadcast', 'probe')");
+    assert.equal(await visible(C, 'duel-lobby'), 2, 'joining a private channel also checks broadcast read');
+    await db.exec("SET realtime.topic = 'duel-lobby'");
+    await assert.rejects(as(C, () => db.query("INSERT INTO realtime.messages (topic, extension) VALUES ('duel-lobby', 'broadcast')")),
+      'nobody can broadcast to the lobby');
     await db.exec(`SET realtime.topic = 'duel:${duel}'`);
     await assert.rejects(as(C, () => db.query("INSERT INTO realtime.messages (topic, extension) VALUES ($1, 'presence')", [`duel:${duel}`])));
     await assert.rejects(as(A, () => db.query("INSERT INTO realtime.messages (topic, extension) VALUES ($1, 'broadcast')", [`duel:${duel}`])),
@@ -748,6 +762,9 @@ describe('live duel page', () => {
     assert.match(res, /\+40 XP/);
     assert.match(res, /\+12/);
     assert.match(res, /Accept rematch/);
+    const idle = view.buildResultHtml({ result: 'none', kind: 'ghost', me: {}, other: { name: 'Ghost runner', correct: 11 } });
+    assert.match(idle, /Not counted/);
+    assert.doesNotMatch(idle, /You lost/);
     const staff = view.buildStaffHtml({ enabled: true, can_toggle: true, duels: [{ created_at: '2026-11-27T10:00:00Z', a_name: 'A', b_name: 'B', flagged: true, kind: 'quick' }] });
     assert.match(staff, /data-live-toggle checked/);
     assert.match(staff, /1 flagged/);

@@ -205,6 +205,7 @@ function setupLobbyActions() {
     btn.disabled = true;
     try {
       if (challenge) {
+        challenge.textContent = 'Sending…';
         await drillApi({ action: 'live_invite', opponent_id: challenge.dataset.challenge });
         showToast('success', 'Challenge sent! It starts as soon as they accept.');
       } else if (accept || decline) {
@@ -219,6 +220,7 @@ function setupLobbyActions() {
     } catch (err) {
       showToast('error', err.message);
       btn.disabled = false;
+      if (challenge) challenge.textContent = 'Challenge';
     }
   });
 }
@@ -529,6 +531,7 @@ function setupResultActions() {
     const btn = e.target.closest('[data-rematch]');
     if (!btn || !st.duel) return;
     btn.disabled = true;
+    btn.textContent = 'Asking…';
     try {
       const res = await drillApi({ action: 'live_rematch', duel_id: st.duel.id });
       if (res.duel_id) return enterDuel(res.duel_id);
@@ -536,6 +539,7 @@ function setupResultActions() {
     } catch (err) {
       showToast('error', err.message);
       btn.disabled = false;
+      btn.textContent = 'Rematch';
     }
   });
 }

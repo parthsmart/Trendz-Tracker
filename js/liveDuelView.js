@@ -69,7 +69,8 @@ export function buildResultHtml(state) {
   return `
     <div class="ld-result is-${esc(result)}">
       <div class="ld-result-ic" aria-hidden="true">${RESULT_ICON[result] || '⚔️'}</div>
-      <h2>${RESULT_TEXT[result] || 'Duel over'}</h2>
+      <h2>${result === 'none' && state?.kind === 'ghost' ? 'Not counted' : RESULT_TEXT[result] || 'Duel over'}</h2>
+      ${result === 'none' && state?.kind === 'ghost' ? '<p class="ar-dim">You did not answer, so this race does not count.</p>' : ''}
       <p class="ld-score num"><strong>${Number(me.correct) || 0}</strong> – <strong>${Number(other.correct) || 0}</strong></p>
       <p class="ar-dim">You: ${Number(me.correct) || 0} correct of ${Number(me.attempted) || 0}. ${esc(other.name || 'Opponent')}: ${Number(other.correct) || 0} of ${Number(other.attempted) || 0}.</p>
       ${result === 'none' ? '' : `<div class="ld-rewards">

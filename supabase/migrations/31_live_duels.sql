@@ -264,6 +264,8 @@ CREATE TRIGGER trg_live_duel_created AFTER INSERT ON public.live_duels
 --    duel-user:<uid>  only that student;  duel:<id>  only its two players.
 --    duel-lobby  any signed-in user: presence only (who is on the live duel page,
 --    by profile id; names come from duel_options for the student's own level).
+--    Read is not limited to presence: joining a private channel also checks
+--    broadcast read. Nothing can broadcast there (see the insert policy).
 --    Players may track presence; nobody can broadcast from the browser.
 -- ---------------------------------------------------------------------------
 DROP POLICY IF EXISTS live_duel_rt_read ON realtime.messages;
@@ -271,7 +273,7 @@ CREATE POLICY live_duel_rt_read ON realtime.messages
   FOR SELECT TO authenticated
   USING (
     realtime.topic() = 'duel-user:' || auth.uid()::text
-    OR (realtime.topic() = 'duel-lobby' AND realtime.messages.extension = 'presence')
+    OR realtime.topic() = 'duel-lobby'
     OR (realtime.topic() LIKE 'duel:%' AND public.live_duel_is_player(substr(realtime.topic(), 6), auth.uid()))
   );
 DROP POLICY IF EXISTS live_duel_rt_presence ON realtime.messages;
@@ -638,6 +640,7 @@ BEGIN
       'rematch', CASE v_side WHEN 'a' THEN d.b_rematch ELSE d.a_rematch END,
       'timeline', CASE WHEN v_other IS NULL AND v_started THEN d.ghost->'timeline' END),
     'result', CASE WHEN d.result IS NULL THEN NULL
+                   WHEN d.status = 'expired' THEN 'none'  -- untouched ghost race: does not count
                    WHEN d.result IN ('draw', 'none') THEN d.result
                    WHEN d.result = v_side THEN 'won' ELSE 'lost' END,
     'rematch_id', d.rematch_id
