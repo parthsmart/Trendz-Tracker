@@ -42,6 +42,7 @@ import { formatSecondsToMMSS } from './timeUtils.js';
 import { showToast } from './toast.js';
 import { submitHomeworkCompletion } from './homeworkData.js';
 import { showRoundRewards } from './xpRewards.js';
+import { celebrate } from './motion.js';
 import {
   RUNNER_EXIT_CONFIRM_TEXT,
   parseTestRunnerQuery,
@@ -1448,6 +1449,8 @@ function showDuelOutcome(duel, anchor) {
     waiting: '⏳ <strong>Your score is in.</strong> We’ll show the result when your classmate has played.',
   };
   box.innerHTML = messages[duel?.result] || 'Your round is saved.';
+  if (duel?.result === 'won') celebrate('big', box);
+  else if (duel?.result === 'draw') celebrate('small', box);
 }
 
 async function startWeeklyTestBasicsSection() {
