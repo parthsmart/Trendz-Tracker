@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My profile - Trendz Tracker</title>
+    <meta name="description" content="Your Trendz Tracker profile: photo, badges, awards, personal bests and weekly summary." />
+
+    <!-- Design tokens & unified styles -->
+    <link rel="stylesheet" href="/css/style.css" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#2563EB" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Trendz Tracker" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- Top Bar Contract: 3-Zone Navigation -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <!-- Zone 1: Wordmark & Brand -->
+          <a href="/pages/student.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <!-- Mobile Menu Toggle -->
+          <button type="button" class="mobile-menu-btn" id="btn-mobile-menu" aria-label="Toggle Navigation" aria-expanded="false">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+
+          <!-- Zone 2: Navigation Links -->
+          <nav class="nav-zone" id="student-nav-zone" aria-label="Student Primary Navigation"></nav>
+
+          <!-- Zone 3: User Details & Logout Action -->
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Student</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-code" class="num" style="color: var(--text-muted);">STU</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Page Content -->
+      <main class="main-content">
+        <div class="container pf-container" style="max-width: 960px;">
+          <div id="config-banner-placeholder"></div>
+          <div id="pf-loading" class="card pf-card"><p class="pf-dim">Loading your profile…</p></div>
+          <div id="pf-error" class="card pf-card" hidden><p id="pf-error-text" class="pf-dim"></p></div>
+
+          <div id="pf-content" hidden>
+            <!-- Who you are -->
+            <section class="card pf-hero" aria-labelledby="pf-name">
+              <div class="pf-photo-wrap">
+                <span class="pf-av" id="pf-avatar" aria-hidden="true">S</span>
+                <div class="pf-photo-actions" id="pf-photo-actions" hidden>
+                  <label class="btn btn-outline btn-sm pf-upload" id="pf-upload-label">
+                    📷 <span id="pf-upload-text">Add photo</span>
+                    <input type="file" id="pf-photo-input" accept="image/jpeg,image/png,image/webp" class="sr-only" />
+                  </label>
+                  <button type="button" class="btn btn-outline btn-sm ac-danger" id="pf-photo-remove" hidden>Remove</button>
+                </div>
+              </div>
+              <div class="pf-who">
+                <p class="pf-eyebrow" id="pf-eyebrow">My profile</p>
+                <h1 id="pf-name">Student</h1>
+                <p class="pf-motto" id="pf-motto" hidden></p>
+                <div class="ac-facts">
+                  <span class="ac-fact"><span aria-hidden="true">🪪</span> <b id="pf-code" class="num">—</b></span>
+                  <span class="ac-fact"><span aria-hidden="true">🎓</span> <b id="pf-level">—</b></span>
+                  <span class="ac-fact" id="pf-tier-fact"><span aria-hidden="true" id="pf-tier-icon">🥉</span> <b id="pf-tier">Bronze</b></span>
+                  <span class="ac-fact" id="pf-fav-fact" hidden><span aria-hidden="true">💙</span> Loves <b id="pf-fav">—</b></span>
+                  <span class="ac-fact" id="pf-joined-fact" hidden><span aria-hidden="true">📅</span> Since <b id="pf-joined">—</b></span>
+                </div>
+                <div id="pf-titles" class="pf-titles"></div>
+              </div>
+            </section>
+
+            <!-- Edit (own profile only) -->
+            <section class="card pf-card" id="pf-edit" aria-labelledby="pf-edit-h" hidden>
+              <div class="ac-card-h">
+                <h2 id="pf-edit-h">About me</h2>
+                <span class="ac-sub">Everyone in your class can see these</span>
+              </div>
+              <form id="pf-edit-form" class="pf-form">
+                <label class="pf-field">
+                  <span>My motto <small class="pf-dim" id="pf-motto-count">0/60</small></span>
+                  <input type="text" id="pf-motto-input" maxlength="60" placeholder="e.g. Practice makes perfect" autocomplete="off" />
+                </label>
+                <label class="pf-field">
+                  <span>Favourite practice</span>
+                  <select id="pf-fav-input">
+                    <option value="">Choose one</option>
+                    <option value="basics">Basics</option>
+                    <option value="flash">Flash Anzan</option>
+                    <option value="elements">Elements</option>
+                    <option value="memoriad">Memoriad</option>
+                    <option value="main_round">Main round</option>
+                    <option value="oral">Oral rounds</option>
+                  </select>
+                </label>
+                <button type="submit" class="btn btn-primary btn-sm" id="pf-edit-save">Save</button>
+              </form>
+              <p class="pf-dim pf-photo-note">Photos: use a clear photo of your face. Your trainer can remove any photo. When your trainer hides names on the leaderboard, other students cannot see photos either.</p>
+            </section>
+
+            <!-- Stats -->
+            <section class="card pf-card" aria-labelledby="pf-stats-h">
+              <div class="ac-card-h"><h2 id="pf-stats-h">My progress</h2><span class="ac-sub" id="pf-tier-next"></span></div>
+              <div class="xp-bar pf-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Progress to next tier" id="pf-tier-bar"><span style="width:0%"></span></div>
+              <div class="pf-stats" id="pf-stats"></div>
+            </section>
+
+            <!-- Badges -->
+            <section class="card pf-card" aria-labelledby="pf-badges-h">
+              <div class="ac-card-h"><h2 id="pf-badges-h">Badges</h2><span class="ac-sub" id="pf-badges-count"></span></div>
+              <div id="pf-badges"></div>
+            </section>
+
+            <div class="ac-grid">
+              <section class="card pf-card" aria-labelledby="pf-bests-h">
+                <div class="ac-card-h"><h2 id="pf-bests-h">Personal bests</h2></div>
+                <div id="pf-bests"></div>
+              </section>
+              <section class="card pf-card" aria-labelledby="pf-challenge-h">
+                <div class="ac-card-h"><h2 id="pf-challenge-h">🎲 Daily challenge</h2><span class="ac-sub" id="pf-challenge-count"></span></div>
+                <div id="pf-challenge"></div>
+              </section>
+            </div>
+
+            <!-- Weekly summary for parents -->
+            <section class="card pf-card pf-parent" aria-labelledby="pf-parent-h">
+              <div class="ac-card-h"><h2 id="pf-parent-h">👪 This week, for parents</h2><span class="ac-sub" id="pf-parent-range"></span></div>
+              <pre class="pf-parent-text" id="pf-parent-text"></pre>
+              <div class="pf-parent-actions">
+                <button type="button" class="btn btn-outline btn-sm" id="pf-parent-copy">📋 Copy</button>
+                <a class="btn btn-outline btn-sm" id="pf-parent-whatsapp" href="#" target="_blank" rel="noopener">💬 Share on WhatsApp</a>
+                <button type="button" class="btn btn-outline btn-sm" id="pf-parent-print">🖨️ Print</button>
+              </div>
+            </section>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+    <script type="module" src="/js/profile.js"></script>
+  </body>
+</html>

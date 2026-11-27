@@ -39,7 +39,15 @@ import {
   computeBasicsPoolForDuration,
   checkTimedBasicsSubmission,
   checkSubmission,
+  createSeededRng,
 } from './_drills.js';
+import {
+  CHALLENGE_SECONDS,
+  challengeSeed,
+  handleChallengeInfo,
+  recordChallengeResult,
+  resolveTodaysChallenge,
+} from './_dailyChallenge.js';
 
 export const RATE_LIMIT_SETS_PER_HOUR = 60;
 export const EXPIRY_GRACE_SECONDS = 30;
@@ -136,11 +144,28 @@ export default async function handler(req, res) {
     return handleTaskLeaderboard({ body, student, adminSupabase, res });
   }
 
+  if (action === 'challenge_info') {
+    return handleChallengeInfo({ student, adminSupabase, res, fallbackToday: fallbackTodayIst });
+  }
+
   return res.status(400).json({ error: 'Invalid action. Use "start" or "submit".' });
 }
 
 async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
-  const categoryId = String(body.category_id || '').trim();
+  // Daily challenge: the server picks today's category for the student's level.
+  const isChallenge = body.challenge === true;
+  let challenge = null;
+  if (isChallenge) {
+    try {
+      challenge = await resolveTodaysChallenge(adminSupabase, student, fallbackTodayIst);
+    } catch (err) {
+      return res.status(err.statusCode || 500).json({ error: err.message });
+    }
+    if (!challenge.category) {
+      return res.status(404).json({ error: 'There is no daily challenge for your level today.' });
+    }
+  }
+  const categoryId = isChallenge ? challenge.category.id : String(body.category_id || '').trim();
   if (!categoryId) {
     return res.status(400).json({ error: 'Please select a basics category.' });
   }
@@ -170,7 +195,7 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
   }
 
   // Validate daily task assignment if provided (before timing/mode determination)
-  const todoTaskId = body.todo_task_id;
+  const todoTaskId = isChallenge ? null : body.todo_task_id;
   const taskRes = await resolveAndValidateDailyTask(
     adminSupabase,
     todoTaskId,
@@ -184,7 +209,7 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
   const validatedTask = taskRes.task;
 
   // Validate homework assignment if provided
-  const homeworkId = body.homework_id;
+  const homeworkId = isChallenge ? null : body.homework_id;
   const hwRes = await resolveAndValidateHomework(
     adminSupabase,
     homeworkId,
@@ -197,8 +222,8 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
   }
   const validatedHomework = hwRes.homework;
 
-  // Validate student practice access for free practice
-  if (!validatedTask && !validatedHomework) {
+  // Validate student practice access for free practice (the daily challenge is open to all)
+  if (!validatedTask && !validatedHomework && !isChallenge) {
     const accessRes = await fetchStudentEffectiveAccess(student.id, { supabase: adminSupabase });
     if (!accessRes || accessRes.ok === false) {
       return res.status(503).json({
@@ -244,7 +269,12 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
   let poolSize;
   let finalExpiry;
 
-  if (
+  if (isChallenge) {
+    finalMode = 'timed';
+    finalSeconds = CHALLENGE_SECONDS;
+    poolSize = computeBasicsPoolForDuration(finalSeconds);
+    finalExpiry = 3 + finalSeconds + 15;
+  } else if (
     validatedTask &&
     validatedTask.duration_seconds !== null &&
     validatedTask.duration_seconds !== undefined
@@ -287,7 +317,14 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
   }
 
   // Generate the entire question pool and expected answers on the server
-  const generated = generateBasicsSet(category.name, poolSize);
+  // The daily challenge uses the same seeded questions for everyone at the level.
+  const generated = isChallenge
+    ? generateBasicsSet(
+        category.name,
+        poolSize,
+        createSeededRng(challengeSeed(challenge.day, challenge.level, category.id))
+      )
+    : generateBasicsSet(category.name, poolSize);
   const displayQuestions = stripBasicsExpected(generated);
   const expectedAnswers = generated.map((q) => q.expected);
 
@@ -309,7 +346,37 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
     todo_section: validatedTask ? 'basics' : null,
     todo_category_id: validatedTask ? category.id : null,
     homework_id: validatedHomework ? validatedHomework.id : null,
+    is_challenge: isChallenge,
+    challenge_day: isChallenge ? challenge.day : null,
   };
+
+  // One attempt per day: claim the attempt row before creating the session.
+  let challengeAttemptId = null;
+  if (isChallenge) {
+    const { data: attemptRow, error: attemptErr } = await adminSupabase
+      .from('daily_challenge_attempts')
+      .insert({
+        day: challenge.day,
+        level: challenge.level,
+        student_id: student.id,
+        category_id: category.id,
+        category_name: category.name,
+        seconds: finalSeconds,
+        started_at: new Date().toISOString(),
+      })
+      .select('id')
+      .single();
+    if (attemptErr || !attemptRow) {
+      if (attemptErr && String(attemptErr.code) === '23505') {
+        return res.status(409).json({
+          error: 'You have already played today’s challenge. Come back tomorrow!',
+          code: 'CHALLENGE_ALREADY_PLAYED',
+        });
+      }
+      return res.status(500).json({ error: 'Could not start the daily challenge. Please try again.' });
+    }
+    challengeAttemptId = attemptRow.id;
+  }
 
   const { data: sessionRow, error: insertErr } = await adminSupabase
     .from('drill_sessions')
@@ -329,9 +396,19 @@ async function handleStartBasicsDrill({ body, student, adminSupabase, res }) {
     .single();
 
   if (insertErr || !sessionRow) {
+    if (challengeAttemptId) {
+      await adminSupabase.from('daily_challenge_attempts').delete().eq('id', challengeAttemptId);
+    }
     return res.status(500).json({
       error: 'Could not start the basics practice session. Please try again.',
     });
+  }
+
+  if (challengeAttemptId) {
+    await adminSupabase
+      .from('daily_challenge_attempts')
+      .update({ session_id: sessionRow.id })
+      .eq('id', challengeAttemptId);
   }
 
   if (validatedHomework) {
@@ -1138,7 +1215,17 @@ async function handleSubmitBasicsSession({
     });
   }
 
+  if (session.settings?.challenge_day) {
+    await recordChallengeResult(adminSupabase, session, student, {
+      result_id: insertedResult.id,
+      correct: check.correct,
+      total: check.attempted,
+      time_seconds: check.used_seconds ?? check.time_seconds,
+    });
+  }
+
   return res.status(200).json({
+    challenge: Boolean(session.settings?.challenge_day),
     correct: check.correct,
     attempted: check.attempted,
     accuracy: check.accuracy,

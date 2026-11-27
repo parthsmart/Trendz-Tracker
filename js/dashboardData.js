@@ -469,7 +469,7 @@ export async function resolveStudentProfile(studentId) {
       if (supabase) {
         const { data, error } = await supabase
           .from('profiles')
-          .select('id, student_code, full_name, role, level, active, leaderboard_visible, created_at')
+          .select('id, student_code, full_name, role, level, active, leaderboard_visible, created_at, avatar_path')
           .eq('id', studentId)
           .eq('role', 'student')
           .single();

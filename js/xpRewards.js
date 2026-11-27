@@ -8,6 +8,7 @@
  */
 
 import { getSupabase, DemoDB } from './supabaseClient.js';
+import { avatarHtml, ensureAvatarStyles, signAvatarUrls } from './avatars.js';
 
 const STYLE_ID = 'xp-rewards-style';
 const CARD_CLASS = 'xp-round-card';
@@ -110,6 +111,12 @@ export function buildRoundCardHtml(summary) {
 
   const note = dailyFactorNote(r.daily_factor);
   const rank = rankLine(summary.week_rank);
+  const newBadges = Array.isArray(summary.new_badges) ? summary.new_badges : [];
+  const badgesHtml = newBadges.length
+    ? `<div class="xp-badges">${newBadges
+        .map((b) => `<span class="xp-badge" title="${escapeXpHtml(b?.description)}">${escapeXpHtml(b?.icon)} <b>${escapeXpHtml(b?.name)}</b></span>`)
+        .join('')}<a class="xp-badges-link" href="/pages/profile.html">Badge unlocked! See all ›</a></div>`
+    : '';
   const nextText = tp.nextName
     ? `${formatXp(tp.toNext)} XP to ${tierIcon(tp.nextName)} ${escapeXpHtml(tp.nextName)}`
     : 'Top tier reached';
@@ -124,6 +131,7 @@ export function buildRoundCardHtml(summary) {
       </div>
     </div>
     ${bestHtml}
+    ${badgesHtml}
     <div class="xp-meta">
       <span>${escapeXpHtml(streakLine(summary.streak))}</span>
       <span>📅 ${formatXp(summary.week_xp)} XP this week</span>
@@ -161,12 +169,15 @@ export function ensureXpStyles(doc = globalThis.document) {
     .xp-list li:last-child { border-bottom: 0; }
     .xp-list .me { font-weight: 700; }
     .xp-section-title { font-weight: 700; margin-top: 12px; font-size: 14px; }
+    .xp-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 10px; }
+    .xp-badge { display: inline-flex; align-items: center; gap: 4px; background: #ede9fe; color: #5b21b6; border-radius: 99px; padding: 3px 10px; font-size: 13px; animation: xp-pop .5s ease-out; }
+    .xp-badges-link { font-size: 12.5px; }
   `;
   doc.head.appendChild(style);
 }
 
 /** Calls an XP RPC; returns null on any failure (XP must never break a result screen). */
-async function callXpRpc(name, args) {
+export async function callXpRpc(name, args) {
   let supabase = null;
   try {
     supabase = await getSupabase();
@@ -230,7 +241,7 @@ export async function showRoundRewards({ sourceId, anchor = null, container = nu
  * Builds the student home "My XP" card from `my_xp_summary` plus the weekly XP board rows
  * (from `leaderboard(p_board => 'xp')`). Returns '' when there is no summary.
  */
-export function buildProgressCardHtml(summary, boardRows = []) {
+export function buildProgressCardHtml(summary, boardRows = [], avatarUrls = new Map()) {
   if (!summary) return '';
   const tp = tierProgress(summary.total_xp, summary.tier);
   const streak = summary.streak || {};
@@ -242,7 +253,7 @@ export function buildProgressCardHtml(summary, boardRows = []) {
 
   const rows = Array.isArray(boardRows) ? boardRows.slice(0, 5) : [];
   const boardHtml = rows.length
-    ? `<ol class="xp-list">${rows.map((row) => `<li class="${row?.is_me ? 'me' : ''}"><span>#${escapeXpHtml(row?.rank)} ${escapeXpHtml(row?.display_name)}${row?.is_me ? ' (you)' : ''}</span><span>${formatXp(row?.value)} XP</span></li>`).join('')}</ol>`
+    ? `<ol class="xp-list">${rows.map((row) => `<li class="${row?.is_me ? 'me' : ''}"><span style="display:inline-flex;align-items:center;gap:6px">#${escapeXpHtml(row?.rank)} ${avatarHtml(avatarUrls.get(row?.avatar_path) || null, row?.display_name, 22)} ${escapeXpHtml(row?.display_name)}${row?.is_me ? ' (you)' : ''}</span><span>${formatXp(row?.value)} XP</span></li>`).join('')}</ol>`
     : '<div class="xp-dim">No XP earned in your level yet this week. Finish a round to get on the board.</div>';
 
   const bests = Array.isArray(summary.bests) ? summary.bests.slice(0, 6) : [];
@@ -270,7 +281,7 @@ export function buildProgressCardHtml(summary, boardRows = []) {
     ${boardHtml}
     <div class="xp-section-title">Personal bests</div>
     ${bestsHtml}
-    <div class="xp-meta"><a href="/pages/leaderboard.html?board=xp">See the full XP leaderboard ›</a></div>
+    <div class="xp-meta"><a href="/pages/leaderboard.html?board=xp">See the full XP leaderboard ›</a><a href="/pages/profile.html">My badges &amp; profile ›</a></div>
   `;
 }
 
@@ -286,7 +297,10 @@ export async function renderXpProgressCard(container, { studentId = null, loadBo
       ? Promise.resolve().then(loadBoard).catch(() => [])
       : Promise.resolve([]),
   ]);
-  const html = buildProgressCardHtml(summary, rows);
+  const boardRows = Array.isArray(rows) ? rows : [];
+  ensureAvatarStyles(container.ownerDocument);
+  const avatarUrls = await signAvatarUrls(boardRows.map((r) => r?.avatar_path));
+  const html = buildProgressCardHtml(summary, boardRows, avatarUrls);
   if (!html) {
     container.hidden = true;
     return;

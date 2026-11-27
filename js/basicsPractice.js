@@ -76,6 +76,8 @@ let solvingStartPerfMs = 0;
 let solvingEndPerfMs = 0;
 let todoTaskId = null;
 let isTodoMode = false;
+// Daily challenge (?challenge=1): 1 minute, one attempt, same questions for the whole level.
+let isChallengeMode = false;
 let assignedTask = null;
 
 
@@ -276,7 +278,8 @@ async function loadSetupData(categoryIdParam) {
   renderSetupSummary();
 
   const urlParams = new URLSearchParams(window.location.search);
-  const hasAssignmentException = isTodoMode || Boolean(urlParams.get('homework_id'));
+  const hasAssignmentException =
+    isTodoMode || isChallengeMode || Boolean(urlParams.get('homework_id'));
   if (currentProfile?.role === 'student' && !hasAssignmentException && selectedCategory) {
     try {
       const { fetchStudentEffectiveAccess, isBasicsCategoryAllowed } = await import('./studentAccess.js');
@@ -755,8 +758,9 @@ async function startPracticeSession() {
           category_id: selectedCategory.id,
           mode: selectedMode,
           seconds: selectedMode === 'timed' ? selectedSeconds : null,
-          todo_task_id: todoTaskId || undefined,
-          ...(hwIdFromUrl ? { homework_id: hwIdFromUrl } : {}),
+          todo_task_id: isChallengeMode ? undefined : todoTaskId || undefined,
+          ...(hwIdFromUrl && !isChallengeMode ? { homework_id: hwIdFromUrl } : {}),
+          ...(isChallengeMode ? { challenge: true } : {}),
         }),
       });
 
@@ -1316,9 +1320,19 @@ async function initBasicsPracticePage() {
     }
   }
 
+  if (urlParams.get('challenge') === '1' && !todoParam) {
+    isChallengeMode = true;
+    selectedMode = 'timed';
+    selectedSeconds = 60;
+  }
+
   const catParam =
     urlParams.get('cat') || urlParams.get('category') || urlParams.get('category_id') || '';
   await loadSetupData(catParam);
+
+  if (isChallengeMode) {
+    applyChallengeModeUi();
+  }
 
   if (isTodoMode && selectedCategory) {
     const bannerPlaceholder = document.getElementById('config-banner-placeholder');
@@ -1332,6 +1346,38 @@ async function initBasicsPracticePage() {
     setTimeout(() => {
       startPracticeSession();
     }, 200);
+  }
+}
+
+/** Locks the setup screen to the 1-minute daily challenge and explains the rules. */
+function applyChallengeModeUi() {
+  const modeGroup = document.getElementById('time-mode-group');
+  if (modeGroup?.parentElement) modeGroup.parentElement.style.display = 'none';
+  const bannerPlaceholder = document.getElementById('config-banner-placeholder');
+  if (bannerPlaceholder) {
+    bannerPlaceholder.innerHTML = `
+      <div class="banner banner-info" style="margin-bottom: var(--space-4);">
+        <strong>🎲 Daily challenge</strong> &middot; 1 minute &middot; <strong>one attempt only</strong>.
+        Everyone in your level gets the same questions today. Press Start when you are ready.
+      </div>
+    `;
+  }
+  const startBtn = document.getElementById('btn-start-practice');
+  if (startBtn && !startBtn.disabled) startBtn.textContent = 'Start the challenge';
+  const cancel = document.getElementById('setup-cancel-link');
+  if (cancel) cancel.setAttribute('href', '/pages/student.html');
+  for (const id of ['btn-same-mode-again', 'btn-change-mode']) {
+    const btn = document.getElementById(id);
+    if (btn) btn.style.display = 'none';
+  }
+  const again = document.getElementById('btn-same-mode-again');
+  if (again && !document.getElementById('btn-challenge-board')) {
+    const link = document.createElement('a');
+    link.id = 'btn-challenge-board';
+    link.className = 'btn btn-primary';
+    link.href = '/pages/student.html#daily-challenge';
+    link.textContent = '🏁 See today\u2019s challenge board';
+    again.insertAdjacentElement('afterend', link);
   }
 }
 
