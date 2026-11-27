@@ -90,6 +90,7 @@ function allowedNavItems(profile) {
  * Practice & More tiles
  * ------------------------------------------------------------------------ */
 const TILES = [
+  { id: 'progress', label: 'Progress', icon: '📈', href: '/pages/progress.html' },
   { id: 'student-basics', label: 'Basics', icon: '➕' },
   { id: 'student-flash', label: 'Flash Anzan', icon: '⚡' },
   { id: 'student-elements', label: 'Elements', icon: '🧩' },
