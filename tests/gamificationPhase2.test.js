@@ -20,7 +20,7 @@ import {
   buildParentSummaryText,
   whatsappShareUrl,
 } from '../js/profileView.js';
-import { buildChallengeBoardHtml, buildChallengeStatusHtml, buildStarsHtml, formatSeconds } from '../js/homeGamify.js';
+import { buildChallengeBoardDropHtml, buildChallengeBoardHtml, buildChallengeStatusHtml, buildStarsHtml, formatSeconds } from '../js/homeGamify.js';
 import { buildRoundCardHtml } from '../js/xpRewards.js';
 import { mapLeaderboardRows } from '../js/leaderboardView.js';
 import { NAV_CONFIG } from '../js/navConfig.js';
@@ -183,6 +183,10 @@ describe('home cards and round card', () => {
     const html = buildChallengeBoardHtml([{ rank: 1, display_name: '<x>', correct: 9, total: 10, time_seconds: 60, is_me: true }]);
     assert.match(html, /&lt;x&gt; \(you\)/);
     assert.match(buildChallengeBoardHtml([]), /Be the first/);
+    const drop = buildChallengeBoardDropHtml([{ rank: 1, display_name: 'A', correct: 9, total: 10 }], new Map(), 12);
+    assert.match(drop, /^<details class="gm-board-drop"><summary>/, 'board is a closed dropdown');
+    assert.doesNotMatch(drop, /<details[^>]*open/);
+    assert.match(drop, /12 played/);
     const stars = buildStarsHtml({ level: 'L1', month: { label: 'October 2026', winners: [{ display_name: 'A', xp: 900 }] }, week: { winners: [] } });
     assert.match(stars, /October 2026/);
     assert.match(stars, /Not decided yet/);
