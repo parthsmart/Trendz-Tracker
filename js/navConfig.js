@@ -37,6 +37,7 @@ export const NAV_STAGE_AND_PUBLIC_ALLOWLIST = Object.freeze([
   '/pages/element-drill.html',
   '/pages/memoriad-play.html',
   '/pages/live-room.html',
+  '/pages/live-duel.html',
   '/pages/student-detail.html',
   '/pages/certificate.html',
   '/pages/report.html',
@@ -598,6 +599,10 @@ export function isNavItemCurrent(item, pathname) {
   }
   // Treat student-detail.html as active under Students in the inline bar
   if (item.href === '/pages/students.html' && cleanPath.endsWith('/student-detail.html')) {
+    return true;
+  }
+  // Treat the live duel page as active under Duels
+  if (item.href === '/pages/duels.html' && cleanPath.endsWith('/live-duel.html')) {
     return true;
   }
   // Treat Settings subpages as active under Settings in both desktop and mobile nav
