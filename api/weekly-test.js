@@ -14,6 +14,8 @@
  * - Coordinates with DB via `weekly_test_reserve_section_start(p_test, p_student, ...)` on `start`.
  * - Stores expected answers server-side only in `drill_sessions.expected`.
  * - Writes results ONLY to `weekly_test_scores` and `weekly_test_attempts`
+ *   (practice runs after the window closes write ONLY to
+ *   `weekly_test_practice_attempts`; see migration 37)
  *   (NEVER writes to `activity_results` or `results`).
  * - Never logs answers, expected answers, or tokens.
  */
@@ -48,6 +50,26 @@ import {
 const MAX_STARTS_PER_HOUR = 60;
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 const SECTION_GRACE_SECONDS = 60;
+const PRACTICE_ATTEMPTS_TABLE = 'weekly_test_practice_attempts';
+
+/**
+ * Releases a section reservation whose drill session could not be created.
+ * Official and practice reservations live in different tables and RPCs.
+ */
+async function rollbackReservation(adminSupabase, practice, attemptId, studentId, claimToken) {
+  if (practice) {
+    return adminSupabase.rpc('weekly_test_practice_rollback', {
+      p_attempt: attemptId,
+      p_student: studentId,
+      p_claim: claimToken,
+    });
+  }
+  return adminSupabase.rpc('weekly_test_rollback_start_reservation', {
+    p_attempt_id: attemptId,
+    p_student_id: studentId,
+    p_claim_token: claimToken,
+  });
+}
 
 function sendJson(res, statusCode, payload) {
   return res.status(statusCode).json(payload);
@@ -129,7 +151,22 @@ export async function handleStartWeeklyTestSection({
   body,
   adminSupabase,
   now = new Date(),
+  practice = false,
 }) {
+  // Practice runs (after the official window closed) reuse this exact flow but
+  // reserve through weekly_test_practice_reserve and store only in
+  // weekly_test_practice_attempts. Official tables are never touched.
+  const practiceRunId = practice && typeof body?.run_id === 'string' ? body.run_id.trim() : '';
+  if (practice && !isValidId(practiceRunId)) {
+    return {
+      statusCode: 400,
+      payload: { error: 'A valid practice run ID is required.' },
+    };
+  }
+  const attemptsTable = practice ? PRACTICE_ATTEMPTS_TABLE : 'weekly_test_attempts';
+  const practiceTag = practice
+    ? { attempt_type: 'practice', practice_run_id: practiceRunId }
+    : {};
   const testId = typeof body?.test_id === 'string' ? body.test_id.trim() : '';
   const rawSectionId = typeof body?.section_id === 'string' ? body.section_id.trim() : '';
   const rawCategoryId = typeof body?.category_id === 'string' ? body.category_id.trim() : '';
@@ -182,7 +219,19 @@ export async function handleStartWeeklyTestSection({
 
   // 1. Authoritative DB reservation & row lock via weekly_test_reserve_section_start
   //    Coordinates with save_weekly_test_sections_atomic to eliminate student-start / admin-edit race.
-  const { data: resData, error: resErr } = await adminSupabase.rpc(
+  if (practice && !sectionId) {
+    return {
+      statusCode: 400,
+      payload: { error: 'A valid weekly test section ID is required.' },
+    };
+  }
+  const { data: resData, error: resErr } = practice
+    ? await adminSupabase.rpc('weekly_test_practice_reserve', {
+        p_run: practiceRunId,
+        p_student: student.id,
+        p_section: sectionId,
+      })
+    : await adminSupabase.rpc(
     'weekly_test_reserve_section_start',
     {
       p_test_id: testId,
@@ -198,6 +247,15 @@ export async function handleStartWeeklyTestSection({
 
     // Recognize missing RPC in Postgres/PostgREST explicitly: return MIGRATION_REQUIRED
     // Never fall back to uncoordinated start flow
+    if (practice && (errCode === 'PGRST202' || errCode === '42883')) {
+      return {
+        statusCode: 500,
+        payload: {
+          error: 'Weekly test practice needs migration 37_weekly_test_practice.sql.',
+          code: 'MIGRATION_REQUIRED',
+        },
+      };
+    }
     if (
       errCode === 'PGRST202' ||
       errCode === '42883' ||
@@ -236,6 +294,13 @@ export async function handleStartWeeklyTestSection({
 
   if (!sectionId && check.section_id && isValidId(String(check.section_id))) {
     sectionId = String(check.section_id);
+  }
+
+  if (practice && check.test_id && String(check.test_id) !== testId) {
+    return {
+      statusCode: 400,
+      payload: { error: 'This practice run belongs to a different weekly test.' },
+    };
   }
 
   const kind = String(check.kind || 'basics').trim().toLowerCase();
@@ -300,11 +365,7 @@ export async function handleStartWeeklyTestSection({
     const rollbackAttempt = async () => {
       try {
         if (attemptId && claimToken) {
-          await adminSupabase.rpc('weekly_test_rollback_start_reservation', {
-            p_attempt_id: attemptId,
-            p_student_id: student.id,
-            p_claim_token: claimToken,
-          });
+          await rollbackReservation(adminSupabase, practice, attemptId, student.id, claimToken);
         }
       } catch {
         // Best-effort cleanup
@@ -318,6 +379,7 @@ export async function handleStartWeeklyTestSection({
 
       const sessionSettings = {
         kind: 'weekly_test',
+        ...practiceTag,
         section_kind: 'basics',
         mode: 'timed',
         test_id: testId,
@@ -355,7 +417,7 @@ export async function handleStartWeeklyTestSection({
       }
 
       const { data: updatedAtt, error: linkErr } = await adminSupabase
-        .from('weekly_test_attempts')
+        .from(attemptsTable)
         .update({ session_id: sessionRow.id })
         .eq('id', attemptId)
         .eq('claim_token', claimToken)
@@ -415,11 +477,7 @@ export async function handleStartWeeklyTestSection({
     const rollbackAttempt = async () => {
       try {
         if (attemptId && claimToken) {
-          await adminSupabase.rpc('weekly_test_rollback_start_reservation', {
-            p_attempt_id: attemptId,
-            p_student_id: student.id,
-            p_claim_token: claimToken,
-          });
+          await rollbackReservation(adminSupabase, practice, attemptId, student.id, claimToken);
         }
       } catch {
         // Best-effort cleanup
@@ -435,6 +493,7 @@ export async function handleStartWeeklyTestSection({
 
       const sessionSettings = {
         kind: 'weekly_test',
+        ...practiceTag,
         section_kind: 'elements',
         test_id: testId,
         section_id: sectionId,
@@ -471,7 +530,7 @@ export async function handleStartWeeklyTestSection({
       }
 
       const { data: updatedAtt, error: linkErr } = await adminSupabase
-        .from('weekly_test_attempts')
+        .from(attemptsTable)
         .update({ session_id: sessionRow.id })
         .eq('id', attemptId)
         .eq('claim_token', claimToken)
@@ -535,11 +594,7 @@ export async function handleStartWeeklyTestSection({
     const rollbackAttempt = async () => {
       try {
         if (attemptId && claimToken) {
-          await adminSupabase.rpc('weekly_test_rollback_start_reservation', {
-            p_attempt_id: attemptId,
-            p_student_id: student.id,
-            p_claim_token: claimToken,
-          });
+          await rollbackReservation(adminSupabase, practice, attemptId, student.id, claimToken);
         }
       } catch {
         // Best-effort cleanup
@@ -552,6 +607,7 @@ export async function handleStartWeeklyTestSection({
         ...generated.settings,
         ...fixedSettings,
         kind: 'weekly_test',
+        ...practiceTag,
         section_kind: 'memoriad',
         test_id: testId,
         section_id: sectionId,
@@ -587,7 +643,7 @@ export async function handleStartWeeklyTestSection({
       }
 
       const { data: updatedAtt, error: linkErr } = await adminSupabase
-        .from('weekly_test_attempts')
+        .from(attemptsTable)
         .update({ session_id: sessionRow.id })
         .eq('id', attemptId)
         .eq('claim_token', claimToken)
@@ -648,11 +704,7 @@ export async function handleStartWeeklyTestSection({
     const rollbackFlash = async () => {
       try {
         if (attemptId && claimToken) {
-          await adminSupabase.rpc('weekly_test_rollback_start_reservation', {
-            p_attempt_id: attemptId,
-            p_student_id: student.id,
-            p_claim_token: claimToken,
-          });
+          await rollbackReservation(adminSupabase, practice, attemptId, student.id, claimToken);
         }
       } catch {
         // Best-effort cleanup
@@ -687,6 +739,7 @@ export async function handleStartWeeklyTestSection({
 
     const sessionSettings = {
       kind: 'weekly_test',
+        ...practiceTag,
       section_kind: 'flash',
       test_id: testId,
       section_id: sectionId,
@@ -726,7 +779,7 @@ export async function handleStartWeeklyTestSection({
 
     // Link session_id (tries_started was already incremented atomically in DB reservation)
     const { data: updatedAtt, error: updAttErr } = await adminSupabase
-      .from('weekly_test_attempts')
+      .from(attemptsTable)
       .update({
         session_id: sessionRow.id,
       })
@@ -826,6 +879,42 @@ export async function handleSubmitWeeklyTestSection({
   const sectionId = settings.section_id || null;
   const categoryId = settings.category_id || null;
   const testTitle = settings.title || 'Weekly Test';
+
+  // Practice sessions are tagged server-side when they are created, so the
+  // caller cannot turn a practice session into an official score.
+  const practice = settings.attempt_type === 'practice';
+  const practiceRunId = practice ? String(settings.practice_run_id || '') : '';
+  if (practice && (!isValidId(practiceRunId) || !sectionId)) {
+    return {
+      statusCode: 400,
+      payload: { error: 'This practice session is incomplete.' },
+    };
+  }
+  const attemptsTable = practice ? PRACTICE_ATTEMPTS_TABLE : 'weekly_test_attempts';
+  const attempts = () => {
+    const base = adminSupabase.from(attemptsTable);
+    if (!practice) return base;
+    return {
+      update: (fields) => base.update(fields).eq('run_id', practiceRunId),
+      select: (cols) => base.select(cols).eq('run_id', practiceRunId),
+    };
+  };
+  const saveScore = (payload, options) => {
+    if (!practice) {
+      return adminSupabase.from('weekly_test_scores').upsert(payload, options);
+    }
+    return adminSupabase
+      .from(PRACTICE_ATTEMPTS_TABLE)
+      .update({
+        correct: payload.correct,
+        total: payload.total,
+        time_seconds: payload.time_seconds,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('run_id', practiceRunId)
+      .eq('student_id', student.id)
+      .eq('section_id', sectionId);
+  };
 
   const nowMs = now instanceof Date ? now.getTime() : new Date(now).getTime();
   const nowIso = new Date(nowMs).toISOString();
@@ -953,8 +1042,7 @@ export async function handleSubmitWeeklyTestSection({
     });
 
     if (!scoreInfo.shouldSave) {
-      const q = adminSupabase
-        .from('weekly_test_attempts')
+      const q = attempts()
         .update({
           status: 'submitted',
           finished_at: nowIso,
@@ -992,7 +1080,7 @@ export async function handleSubmitWeeklyTestSection({
       scorePayload.section_id = sectionId;
     }
 
-    const { error: scoreErr } = await adminSupabase.from('weekly_test_scores').upsert(
+    const { error: scoreErr } = await saveScore(
       scorePayload,
       {
         onConflict: sectionId
@@ -1011,8 +1099,7 @@ export async function handleSubmitWeeklyTestSection({
       };
     }
 
-    const attUpdateQ = adminSupabase
-      .from('weekly_test_attempts')
+    const attUpdateQ = attempts()
       .update({
         status: 'submitted',
         finished_at: nowIso,
@@ -1089,8 +1176,7 @@ export async function handleSubmitWeeklyTestSection({
     const scoreInfo = finalScore('elements', graded);
 
     if (!scoreInfo.shouldSave) {
-      await adminSupabase
-        .from('weekly_test_attempts')
+      await attempts()
         .update({
           status: 'submitted',
           finished_at: nowIso,
@@ -1114,7 +1200,7 @@ export async function handleSubmitWeeklyTestSection({
       };
     }
 
-    const { error: scoreErr } = await adminSupabase.from('weekly_test_scores').upsert(
+    const { error: scoreErr } = await saveScore(
       {
         test_id: testId,
         student_id: student.id,
@@ -1137,8 +1223,7 @@ export async function handleSubmitWeeklyTestSection({
       };
     }
 
-    await adminSupabase
-      .from('weekly_test_attempts')
+    await attempts()
       .update({
         status: 'submitted',
         finished_at: nowIso,
@@ -1226,8 +1311,7 @@ export async function handleSubmitWeeklyTestSection({
     });
 
     if (!scoreInfo.shouldSave) {
-      await adminSupabase
-        .from('weekly_test_attempts')
+      await attempts()
         .update({
           status: 'submitted',
           finished_at: nowIso,
@@ -1252,7 +1336,7 @@ export async function handleSubmitWeeklyTestSection({
       };
     }
 
-    const { error: scoreErr } = await adminSupabase.from('weekly_test_scores').upsert(
+    const { error: scoreErr } = await saveScore(
       {
         test_id: testId,
         student_id: student.id,
@@ -1275,8 +1359,7 @@ export async function handleSubmitWeeklyTestSection({
       };
     }
 
-    await adminSupabase
-      .from('weekly_test_attempts')
+    await attempts()
       .update({
         status: 'submitted',
         finished_at: nowIso,
@@ -1341,8 +1424,7 @@ export async function handleSubmitWeeklyTestSection({
       givenInt !== null && Number.isFinite(expectedVal) && givenInt === expectedVal;
 
     // Load the student's weekly_test_attempts row for this section
-    const { data: attemptRow, error: attLoadErr } = await adminSupabase
-      .from('weekly_test_attempts')
+    const { data: attemptRow, error: attLoadErr } = await attempts()
       .select('id, status, tries_started, tries_correct, seconds_used')
       .eq('test_id', testId)
       .eq('student_id', student.id)
@@ -1377,7 +1459,7 @@ export async function handleSubmitWeeklyTestSection({
       return { statusCode: claim.statusCode, payload: { error: claim.error } };
     }
 
-    const { error: scoreErr } = await adminSupabase.from('weekly_test_scores').upsert(
+    const { error: scoreErr } = await saveScore(
       {
         test_id: testId,
         student_id: student.id,
@@ -1411,8 +1493,7 @@ export async function handleSubmitWeeklyTestSection({
       attUpdatePayload.finished_at = nowIso;
     }
 
-    const { error: attUpdErr } = await adminSupabase
-      .from('weekly_test_attempts')
+    const { error: attUpdErr } = await attempts()
       .update(attUpdatePayload)
       .eq('id', attemptRow.id);
 
@@ -1468,6 +1549,56 @@ export async function handleSubmitWeeklyTestSection({
 }
 
 /**
+ * Handles `POST { action: 'practice_begin', test_id }`: opens a new practice run
+ * for a weekly test whose official window has closed. The database checks the
+ * window, the audience (recipients / level) and the centre.
+ */
+export async function handlePracticeBegin({ student, body, adminSupabase }) {
+  const testId = typeof body?.test_id === 'string' ? body.test_id.trim() : '';
+  if (!isValidId(testId)) {
+    return {
+      statusCode: 400,
+      payload: { error: 'A valid weekly test ID is required.' },
+    };
+  }
+
+  const { data, error } = await adminSupabase.rpc('weekly_test_practice_begin', {
+    p_test: testId,
+    p_student: student.id,
+  });
+
+  if (error) {
+    const code = String(error?.code || '');
+    if (code === 'PGRST202' || code === '42883') {
+      return {
+        statusCode: 500,
+        payload: {
+          error: 'Weekly test practice needs migration 37_weekly_test_practice.sql.',
+          code: 'MIGRATION_REQUIRED',
+        },
+      };
+    }
+    return {
+      statusCode: 400,
+      payload: { error: String(error?.message || 'This weekly test cannot be practised right now.') },
+    };
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row || !isValidId(String(row.run_id || ''))) {
+    return {
+      statusCode: 500,
+      payload: { error: 'Could not start a practice run. Please try again.' },
+    };
+  }
+
+  return {
+    statusCode: 200,
+    payload: { ok: true, attempt_type: 'practice', run_id: String(row.run_id), test_id: testId },
+  };
+}
+
+/**
  * Main Vercel serverless handler for `/api/weekly-test`.
  */
 export default async function handler(req, res) {
@@ -1515,7 +1646,27 @@ export default async function handler(req, res) {
     return sendJson(res, result.statusCode, result.payload);
   }
 
+  if (action === 'practice_begin') {
+    const result = await handlePracticeBegin({ student, body, adminSupabase });
+    return sendJson(res, result.statusCode, result.payload);
+  }
+
+  if (action === 'practice_start') {
+    const result = await handleStartWeeklyTestSection({
+      student,
+      body,
+      adminSupabase,
+      practice: true,
+    });
+    if (result.payload && typeof result.payload === 'object' && result.payload.ok) {
+      result.payload.attempt_type = 'practice';
+      result.payload.run_id = String(body?.run_id || '');
+    }
+    return sendJson(res, result.statusCode, result.payload);
+  }
+
   return sendJson(res, 400, {
-    error: 'Invalid action. Supported actions are "start" and "submit".',
+    error:
+      'Invalid action. Supported actions are "start", "submit", "practice_begin" and "practice_start".',
   });
 }

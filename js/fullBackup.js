@@ -20,7 +20,7 @@ import { buildXlsx, readXlsx, XLSX_MAX_ROWS, XLSX_MAX_SHEET_NAME } from './xlsx.
 export const FULL_BACKUP_FORMAT_VERSION = 1;
 
 /** Latest migration file in supabase/migrations (kept in sync by tests/fullBackup.test.js). */
-export const FULL_BACKUP_SCHEMA_VERSION = '36_centre_head_panel';
+export const FULL_BACKUP_SCHEMA_VERSION = '37_weekly_test_practice';
 
 export const FULL_BACKUP_PAGE_SIZE = 1000;
 
@@ -121,6 +121,8 @@ export const FULL_BACKUP_KNOWN_TABLES = Object.freeze([
   'teacher_permissions',
   'teacher_student_assignments',
   'weekly_test_attempts',
+  'weekly_test_practice_runs',
+  'weekly_test_practice_attempts',
   'weekly_test_recipients',
   'weekly_test_removals',
   'weekly_test_scores',

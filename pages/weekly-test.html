@@ -396,6 +396,21 @@
       </div>
     </div>
 
+    <!-- Practice modal: retake a closed online test (not official) -->
+    <div id="practice-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="practice-modal-title">
+      <div class="modal-dialog" style="max-width: 680px;">
+        <header class="modal-header">
+          <h2 class="modal-title" id="practice-modal-title">Practise</h2>
+          <button type="button" class="modal-close" data-close-modal="practice-modal" aria-label="Close modal">&times;</button>
+        </header>
+        <div class="modal-body" id="practice-modal-body"></div>
+        <footer class="modal-footer">
+          <button type="button" class="btn btn-outline" data-close-modal="practice-modal">Close</button>
+          <button type="button" id="btn-practice-new-run" class="btn btn-primary" style="display: none;">Start practice</button>
+        </footer>
+      </div>
+    </div>
+
     <!-- Toast Notifications Container -->
     <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
