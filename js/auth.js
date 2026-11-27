@@ -7,6 +7,7 @@ import { AUTH_EMAIL_DOMAIN, isSupabaseConfigured, isDemoAllowedHost, ensurePrevi
 import { getSupabase, DemoDB, clearStaleSupabaseSession } from './supabaseClient.js';
 import { isDemoMode } from './demoDb.js';
 import { readProfileCache, writeProfileCache, clearProfileCache } from './profileCache.js';
+import { normalizeProfileRole } from './roles.js';
 import { clearNotificationsCache } from './notificationBadge.js';
 import { clearAllJmcwcLocalRecovery, syncJmcwcRecoveryUserScope } from './jmcwcClient.js';
 
@@ -23,7 +24,7 @@ async function fetchProfileFromSupabase(supabase, userId) {
     try {
       const { data: profile, error: profileErr } = await supabase
         .from('profiles')
-        .select('id, student_code, full_name, role, level, active, leaderboard_visible, created_at')
+        .select('id, student_code, full_name, role, level, active, leaderboard_visible, created_at, centre_id')
         .eq('id', userId)
         .single();
 
@@ -70,7 +71,8 @@ async function fetchProfileFromSupabase(supabase, userId) {
         }
       }
 
-      return { profile, error: null };
+      // Owners and directors use the admin pages until their own panels exist.
+      return { profile: normalizeProfileRole(profile), error: null };
     } finally {
       inFlightProfilePromise = null;
       inFlightProfileUserId = null;
@@ -360,7 +362,7 @@ export async function getCurrentProfile({ allowCached = true, onRevalidated = nu
     return null;
   }
 
-  const demoProfile = DemoDB.getDemoAuth();
+  const demoProfile = normalizeProfileRole(DemoDB.getDemoAuth());
   if (demoProfile) {
     syncJmcwcRecoveryUserScope(demoProfile.id);
     writeProfileCache(demoProfile);

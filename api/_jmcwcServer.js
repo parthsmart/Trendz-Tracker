@@ -24,6 +24,7 @@
  */
 
 import { generateQuestionsFromBlueprint, toPublicQuestions } from './_jmcwcGenerate.js';
+import { normalizeProfileRole } from '../js/roles.js';
 import {
   buildCustomOptions,
   CUSTOM_DIFFICULTIES,
@@ -724,11 +725,12 @@ export function createJmcwcServer({
       );
     }
 
-    const { data: profile, error: profileError } = await supabase
+    const { data: rawProfile, error: profileError } = await supabase
       .from('profiles')
       .select('id, student_code, full_name, role, level, active')
       .eq('id', user.id)
       .single();
+    const profile = normalizeProfileRole(rawProfile);
 
     if (profileError || !profile) {
       throw createHttpError(403, 'Forbidden: Profile not found.', 'PROFILE_NOT_FOUND');

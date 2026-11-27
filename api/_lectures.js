@@ -11,6 +11,7 @@
  */
 
 import { getAdminClient, getCallerClient } from './_supabaseAdmin.js';
+import { normalizeProfileRole } from '../js/roles.js';
 import { hasSupabaseAdminConfig } from './_configHelper.js';
 import { JMCWC_GROUPS } from './_jmcwcMath.js';
 
@@ -46,11 +47,12 @@ async function authenticateCaller(supabase, req) {
     throw err;
   }
 
-  const { data: profile, error: profError } = await supabase
+  const { data: rawProfile, error: profError } = await supabase
     .from('profiles')
     .select('id, full_name, role, level, active')
     .eq('id', user.id)
     .single();
+  const profile = normalizeProfileRole(rawProfile);
 
   if (profError || !profile || !profile.active) {
     const err = new Error('Unauthorized or inactive account.');
