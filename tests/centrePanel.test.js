@@ -1,7 +1,7 @@
 /**
  * Multi-centre step 4: the centre head panel.
  *
- *  - migration 35 (centre_* functions) on PGlite after migrations 30, 32 and 33,
+ *  - migration 36 (centre_* functions) on PGlite after migrations 30, 32 and 33,
  *    including escalation attempts by heads, vice heads, teachers and students;
  *  - the centre checks the service-role API routes use (api/_centreScope.js);
  *  - the page logic in js/centreModel.js.
@@ -38,8 +38,8 @@ const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
 const MIGRATION_30 = read('supabase/migrations/30_multi_centre_schema.sql');
 const MIGRATION_32 = read('supabase/migrations/32_multi_centre_data.sql');
 const MIGRATION_33 = read('supabase/migrations/33_centres_guard.sql');
-const MIGRATION_35 = read('supabase/migrations/35_centre_head_panel.sql');
-const ROLLBACK_35 = read('supabase/rollbacks/35_centre_head_panel_rollback.sql');
+const MIGRATION_36 = read('supabase/migrations/36_centre_head_panel.sql');
+const ROLLBACK_36 = read('supabase/rollbacks/36_centre_head_panel_rollback.sql');
 
 const id = (n) => `00000000-0000-0000-0000-${String(n).padStart(12, '0')}`;
 const P = {
@@ -176,7 +176,7 @@ async function freshDb() {
   await db.exec(MIGRATION_30);
   await db.exec(MIGRATION_32);
   await db.exec(MIGRATION_33);
-  await db.exec(MIGRATION_35);
+  await db.exec(MIGRATION_36);
   await as(db, P.OWNER);
   const k = await attempt(db, "INSERT INTO public.centres (name, code) VALUES ('Kota Centre', 'KTA') RETURNING id");
   assert.equal(k.ok, true, k.error);
@@ -202,7 +202,7 @@ async function withVice(ctx) {
   return ctx;
 }
 
-describe('migration 35: centre_panel', () => {
+describe('migration 36: centre_panel', () => {
   it('a head reads their own centre, people, assignments and can_head', async () => {
     const { db, brn } = await freshDb();
     await as(db, P.HEAD_B);
@@ -273,7 +273,7 @@ describe('migration 35: centre_panel', () => {
   });
 });
 
-describe('migration 35: people', () => {
+describe('migration 36: people', () => {
   it('a head and a vice head edit names and levels of their own students', async () => {
     const ctx = await withVice(await freshDb());
     const { db } = ctx;
@@ -378,7 +378,7 @@ describe('migration 35: people', () => {
   });
 });
 
-describe('migration 35: teachers', () => {
+describe('migration 36: teachers', () => {
   it('a head assigns students of the same centre and the old list is replaced', async () => {
     const { db } = await freshDb();
     await as(db, P.HEAD_B);
@@ -429,7 +429,7 @@ describe('migration 35: teachers', () => {
   });
 });
 
-describe('migration 35: vice heads (set_person_role)', () => {
+describe('migration 36: vice heads (set_person_role)', () => {
   it('a head appoints and removes a vice head of their own centre', async () => {
     const ctx = await withVice(await freshDb());
     const { db, brn } = ctx;
@@ -461,7 +461,7 @@ describe('migration 35: vice heads (set_person_role)', () => {
   });
 });
 
-describe('migration 35: settings and backup', () => {
+describe('migration 36: settings and backup', () => {
   it('a head updates name, city and the allowed settings only', async () => {
     const { db, brn } = await freshDb();
     await as(db, P.HEAD_B);
@@ -536,15 +536,15 @@ describe('migration 35: settings and backup', () => {
   });
 });
 
-describe('rollback 35', () => {
+describe('rollback 36', () => {
   it('drops every centre panel function and leaves the data', async () => {
     const { db } = await freshDb();
     await db.exec('RESET ROLE');
-    await db.exec(ROLLBACK_35);
+    await db.exec(ROLLBACK_36);
     const left = await rows(db, "SELECT proname FROM pg_proc WHERE proname LIKE 'centre\\_%'");
     assert.deepEqual(left, []);
     assert.equal((await rows(db, 'SELECT count(*)::int AS n FROM public.profiles'))[0].n, 10);
-    await db.exec(MIGRATION_35);
+    await db.exec(MIGRATION_36);
   });
 });
 

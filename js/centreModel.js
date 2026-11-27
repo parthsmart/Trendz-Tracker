@@ -3,7 +3,7 @@
  *
  * Pure functions used by js/centre.js and the tests. No DOM, no network.
  * They only decide what the page shows: the database functions from
- * migration 35 make the real decisions.
+ * migration 36 make the real decisions.
  */
 
 import { isNetworkRole } from './roles.js';

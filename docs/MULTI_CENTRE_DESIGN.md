@@ -294,10 +294,10 @@ Also: `npm run build`, and a browser check of every panel with demo accounts.
 - Not yet: suspending a centre only stops new people being added to it; signing in from a suspended centre is blocked in step 5. Duel openings are saved now and take effect with cross-centre duels in step 5. The other admin pages still show every centre until step 5.
 - Rollback: `supabase/rollbacks/33_centres_guard_rollback.sql` (drops the trigger and function, no data change).
 
-### Step 4 implementation notes (migration 35, centre head panel)
+### Step 4 implementation notes (migration 36, centre head panel)
 
 - New page `pages/centre.html` (`js/centre.js`, logic in `js/centreModel.js`). Centre heads and vice heads are sent there when they sign in, or open any page they can't use. Owners and directors open it from the Network page (**Open centre panel** on a centre card, or **Open** in the centres table). For them it shows which centre they are viewing.
-- The page reads and changes data only through the `centre_*` SECURITY DEFINER functions in migration 35. They check the caller's centre and rank in the database. No existing policy or function is changed, so the admin pages behave as before; scoping the existing pages by centre is step 5.
+- The page reads and changes data only through the `centre_*` SECURITY DEFINER functions in migration 36. They check the caller's centre and rank in the database. No existing policy or function is changed, so the admin pages behave as before; scoping the existing pages by centre is step 5.
 - Head and vice head split (§4):
   - **Heads and vice heads** can:
     - add students and teachers;
@@ -319,4 +319,4 @@ Also: `npm run build`, and a browser check of every panel with demo accounts.
 - Not yet:
   - **Transfer requests:** heads can't move students between centres; owners and directors still do it from the Network page.
   - **Audit noise:** when a person is created in a non-default centre, the audit also logs a "transfer" from BRN, because the default-centre trigger runs first.
-- Rollback: `supabase/rollbacks/35_centre_head_panel_rollback.sql` (drops the functions, no data change).
+- Rollback: `supabase/rollbacks/36_centre_head_panel_rollback.sql` (drops the functions, no data change).

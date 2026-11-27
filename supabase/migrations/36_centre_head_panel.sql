@@ -15,7 +15,7 @@
 -- which already limits heads to their own centre and to ranks below their own.
 -- A suspended or archived centre's staff are refused by my_role().
 --
--- No data changes. Rollback: supabase/rollbacks/35_centre_head_panel_rollback.sql
+-- No data changes. Rollback: supabase/rollbacks/36_centre_head_panel_rollback.sql
 
 -- ---------------------------------------------------------------------------
 -- 1. Internal helpers (not callable from the site)

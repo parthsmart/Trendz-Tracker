@@ -30,7 +30,7 @@ import { createStaff } from './_networkStaff.js';
 import { assertStudentsInCentre, canManageTarget, isNetworkCaller, resolveCreateCentre } from './_centreScope.js';
 
 // Management actions with a centre-scoped database function for centre heads
-// and vice heads (migration 35). The admin_* functions stay owner/director only.
+// and vice heads (migration 36). The admin_* functions stay owner/director only.
 const CENTRE_RPC = Object.freeze({
   update_assignments: (body, teacherId) => ['centre_set_teacher_assignments', {
     p_teacher: teacherId,

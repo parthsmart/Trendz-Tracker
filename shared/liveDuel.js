@@ -29,6 +29,8 @@ export const DUEL_BONUS_XP = Object.freeze({ won: 15, draw: 8, lost: 5 });
 export const RATING_START = 1000;
 export const RATING_K = 24;
 export const RATING_FLOOR = 100;
+/** Winning by this many correct answers (or more) counts as a full win for the rating. */
+export const RATING_FULL_MARGIN = 8;
 export const EMOTE_COOLDOWN_SECONDS = 3;
 
 /** Preset emotes: the only thing players can "say" to each other. No free text. */
@@ -112,15 +114,40 @@ export function eloDelta(rating, other, score, k = RATING_K) {
 }
 
 /**
- * Rating changes for a settled duel. Ghost duels move only the real player,
- * at half K. Returns { a, b } (b is null for ghosts) or zeros for 'none'.
+ * How much of a win the result was, for the rating (0..1, 0.5 = draw).
+ * A close race moves ratings a little; a big win moves them fully:
+ * the winner scores 0.5 + margin/16 (capped at 1 from an 8-answer margin), and a
+ * win on time with equal answers counts as a 0.5-answer margin.
  */
-export function liveRatingChanges({ aRating = RATING_START, bRating = RATING_START, result, ghost = false }) {
+export function liveDuelScore(outcome, margin = 0) {
+  if (outcome === 'draw') return 0.5;
+  const m = Math.max(0.5, Math.abs(Number(margin) || 0));
+  const win = 0.5 + Math.min(0.5, m / (2 * RATING_FULL_MARGIN));
+  return outcome === 'win' ? win : 1 - win;
+}
+
+/** Rating change for one side. Winners never lose rating and losers never gain it. */
+export function liveDuelRatingDelta(rating, other, outcome, margin, k = RATING_K) {
+  const raw = k * (liveDuelScore(outcome, margin) - eloExpected(rating, other));
+  const d = Math.sign(raw) * Math.round(Math.abs(raw)); // rounds halves away from zero, like SQL round()
+  if (outcome === 'win') return Math.max(1, d);
+  if (outcome === 'loss') return Math.min(0, d);
+  return d;
+}
+
+/**
+ * Rating changes for a settled duel, scaled by the winning margin (correct answers).
+ * Ghost duels move only the real player, at half K. Returns { a, b } (b is null
+ * for ghosts) or zeros for 'none'.
+ */
+export function liveRatingChanges({ aRating = RATING_START, bRating = RATING_START, result, ghost = false, aCorrect = 0, bCorrect = 0 }) {
   if (result === 'none') return { a: 0, b: ghost ? null : 0 };
-  const aScore = result === 'a' ? 1 : result === 'b' ? 0 : 0.5;
   const k = ghost ? RATING_K / 2 : RATING_K;
-  const a = eloDelta(aRating, bRating, aScore, k);
-  return { a, b: ghost ? null : eloDelta(bRating, aRating, 1 - aScore, k) };
+  const margin = Math.abs((Number(aCorrect) || 0) - (Number(bCorrect) || 0));
+  const aOut = result === 'a' ? 'win' : result === 'b' ? 'loss' : 'draw';
+  const bOut = result === 'b' ? 'win' : result === 'a' ? 'loss' : 'draw';
+  const a = liveDuelRatingDelta(aRating, bRating, aOut, margin, k);
+  return { a, b: ghost ? null : liveDuelRatingDelta(bRating, aRating, bOut, margin, k) };
 }
 
 export function applyRating(rating, delta) {
@@ -144,6 +171,44 @@ export function outcomeFor(side, result) {
   if (result === 'draw') return 'draw';
   if (result === 'none') return 'lost';
   return result === side ? 'won' : 'lost';
+}
+
+/* ---------------------------------------------------------- Difficulty */
+
+/**
+ * Duel questions get harder as the rating climbs. Each tier mixes addition and
+ * subtraction rows with multiplication and exact division (basics category specs).
+ * A duel uses the average rating of its two players (the player's own against a
+ * ghost) and is stored with category_name "Mixed ★<tier>" so replays and ghosts
+ * rebuild exactly the same questions from the seed.
+ */
+export const LIVE_DUEL_TIERS = Object.freeze([
+  { tier: 1, from: 0, mix: ['1d3r', '1d4r', '1dx1d', '1d/1d'] },
+  { tier: 2, from: 950, mix: ['1d5r', '2d3r', '1dx1d', '2dx1d', '2d/1d'] },
+  { tier: 3, from: 1100, mix: ['2d4r', '2d5r', '2dx1d', '3d/1d'] },
+  { tier: 4, from: 1250, mix: ['2d6r', '3d4r', '3dx1d', '2dx2d', '3d/1d'] },
+  { tier: 5, from: 1400, mix: ['3d5r', '2d8r', '3dx2d', '2dx2d', '4d/1d', '4d/2d'] },
+]);
+
+/** Tier (1-5) for a rating, or for the average of several ratings. */
+export function liveDuelTier(...ratings) {
+  const list = ratings.map((r) => Number(r)).filter(Number.isFinite);
+  const avg = list.length ? list.reduce((a, b) => a + b, 0) / list.length : RATING_START;
+  let tier = 1;
+  for (const t of LIVE_DUEL_TIERS) if (avg >= t.from) tier = t.tier;
+  return tier;
+}
+
+export function liveDuelMixName(tier) {
+  const t = Math.min(5, Math.max(1, Math.round(Number(tier) || 1)));
+  return `Mixed ★${t}`;
+}
+
+/** The category specs mixed into a "Mixed ★<tier>" duel, or null for a single-category name. */
+export function liveDuelMix(categoryName) {
+  const m = String(categoryName ?? '').trim().match(/^Mixed ★([1-5])$/);
+  if (!m) return null;
+  return LIVE_DUEL_TIERS.find((t) => t.tier === Number(m[1])).mix;
 }
 
 /* --------------------------------------------------------- Matchmaking */
@@ -173,7 +238,7 @@ export function ratingWindow(waitSeconds) {
 /**
  * Picks the best waiting opponent for `me` from queue rows
  * ({ student_id, level, centre_id, rating, joined_at, seen_at }).
- * Same level and centre only; rating gap inside the wider of the two windows;
+ * Same level only, from any centre; rating gap inside the wider of the two windows;
  * closest rating first, then whoever has waited longest. Stale rows (not seen
  * for QUEUE_STALE_SECONDS) are skipped. Returns the row or null.
  */
@@ -185,7 +250,7 @@ export function pickLiveOpponent(me, waiting, nowMs = Date.now()) {
   let bestJoined = Infinity;
   for (const row of waiting) {
     if (!row || row.student_id === me.student_id) continue;
-    if (!sameLiveLevel(row.level, me.level) || !sameLiveCentre(row.centre_id, me.centre_id)) continue;
+    if (!sameLiveLevel(row.level, me.level)) continue;
     const seen = new Date(row.seen_at ?? row.joined_at).getTime();
     if (!Number.isFinite(seen) || nowMs - seen > QUEUE_STALE_SECONDS * 1000) continue;
     const joined = new Date(row.joined_at).getTime();
@@ -230,10 +295,12 @@ function mulberry32(seed) {
  * A practice bot's run when no real past run exists: steady pace with some
  * jitter, a little faster at higher levels, about 85% accurate.
  */
-export function botTimeline(seed, level, seconds = LIVE_DUEL_SECONDS) {
+export function botTimeline(seed, level, seconds = LIVE_DUEL_SECONDS, tier = 2) {
   const rng = mulberry32(Number(seed) || 1);
   const idx = Math.max(0, STUDENT_LEVELS.indexOf(normalizeLevel(level) ?? ''));
-  const meanMs = Math.max(1800, 4200 - idx * 180);
+  // Harder tiers have longer sums, so the bot slows down with them (tier 2 = the old pace).
+  const tierPace = 1 + 0.15 * ((Number(tier) || 2) - 2);
+  const meanMs = Math.round(Math.max(1800, 4200 - idx * 180) * tierPace);
   const out = [];
   let t = 0;
   while (out.length < LIVE_DUEL_POOL) {

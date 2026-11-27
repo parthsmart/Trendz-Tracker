@@ -27,6 +27,15 @@ test('live duel home: count, tiny avatars and +N overflow', () => {
   assert.match(buildLiveDuelHomeHtml({ online: online.slice(0, 1) }), /1<\/b> classmate online now/);
 });
 
+test('live duel home: a dropdown challenges online classmates, never offline ones', () => {
+  const html = buildLiveDuelHomeHtml({ online: [{ id: 'a1', display_name: 'Asha' }, { id: 'b2', display_name: '<Ben>' }] });
+  assert.match(html, /<details class="ldh-pick"><summary>Challenge a classmate<\/summary>/);
+  assert.equal((html.match(/data-ldh-challenge="/g) || []).length, 2);
+  assert.match(html, /&lt;Ben&gt;/);
+  assert.doesNotMatch(buildLiveDuelHomeHtml({ online: [] }), /ldh-pick/);
+  assert.doesNotMatch(buildLiveDuelHomeHtml({ online: [{ id: 'a1', display_name: 'A' }], connecting: true }), /ldh-pick/);
+});
+
 test('live duel home: nobody online offers a ghost race', () => {
   const html = buildLiveDuelHomeHtml({ online: [] });
   assert.match(html, /Be the first — play vs a ghost/);

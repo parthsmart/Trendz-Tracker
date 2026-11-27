@@ -1,4 +1,4 @@
--- Rollback for migration 35 (centre head panel). Drops only the new functions;
+-- Rollback for migration 36 (centre head panel). Drops only the new functions;
 -- no data was changed by the migration. Audit rows it wrote stay.
 DROP FUNCTION IF EXISTS public.centre_backup(uuid);
 DROP FUNCTION IF EXISTS public.centre_update_settings(uuid, text, text, jsonb);

@@ -3,7 +3,7 @@
  *
  * For centre heads and vice heads (and owners / directors looking at one
  * centre). Everything is read and changed through the centre_* database
- * functions from migration 35, which check the caller's centre and rank.
+ * functions from migration 36, which check the caller's centre and rank.
  * Accounts are created and passwords reset through the API routes, which
  * re-check the centre (api/_centreScope.js). Vice heads are appointed with
  * set_person_role().
