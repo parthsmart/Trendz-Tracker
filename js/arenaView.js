@@ -184,7 +184,7 @@ export function buildRewardShopHtml(shop) {
   const items = Array.isArray(shop.items) ? shop.items : [];
   const balance = Number(shop.balance) || 0;
   let html = `<div class="ar-wallet"><div><span class="ar-dim">XP to spend</span><b>${formatXp(balance)}</b></div>`
-    + `<div><span class="ar-dim">Earned</span><b>${formatXp(shop.earned)}</b></div>`
+    + `<div><span class="ar-dim">Earned since Nov 2026</span><b>${formatXp(shop.earned)}</b></div>`
     + `<div><span class="ar-dim">Spent</span><b>${formatXp(shop.spent)}</b></div></div>`
     + '<p class="ar-dim">Spending XP never lowers your level, tier or place on the leaderboard.</p>';
   if (!items.length) {
