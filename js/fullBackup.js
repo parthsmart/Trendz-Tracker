@@ -20,7 +20,7 @@ import { buildXlsx, readXlsx, XLSX_MAX_ROWS, XLSX_MAX_SHEET_NAME } from './xlsx.
 export const FULL_BACKUP_FORMAT_VERSION = 1;
 
 /** Latest migration file in supabase/migrations (kept in sync by tests/fullBackup.test.js). */
-export const FULL_BACKUP_SCHEMA_VERSION = '28_phase28_tier_naming';
+export const FULL_BACKUP_SCHEMA_VERSION = '29_revoke_public_report_rpcs';
 
 export const FULL_BACKUP_PAGE_SIZE = 1000;
 
