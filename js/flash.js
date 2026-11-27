@@ -48,6 +48,7 @@ import { showToast } from './toast.js';
 import { submitHomeworkCompletion } from './homeworkData.js';
 import { flashSummary } from './todoForm.js';
 import { setupPracticeRecordsSection } from './practiceRecordsCard.js';
+import { showRoundRewards } from './xpRewards.js';
 import {
   parseTestRunnerQuery,
   flashProgressText,
@@ -946,6 +947,7 @@ async function submitTryAnswer(answerValue) {
 
     renderTryResultScreen(result, finishedTry);
     showScreen('results');
+    showRoundRewards({ sourceId: result?.result_id, anchor: document.getElementById('results-metrics-grid') });
 
     // Check for homework assignment linking
     const urlParams = new URLSearchParams(window.location.search);

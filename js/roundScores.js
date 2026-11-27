@@ -29,6 +29,7 @@ import { formatSecondsToMMSS, parseTimeToSeconds, setupEnterKeyNavigation } from
 import { showToast } from './toast.js';
 import { ScoresheetController } from './roundScoresheet.js';
 import { submitHomeworkCompletion } from './homeworkData.js';
+import { showRoundRewards, clearRoundRewards } from './xpRewards.js';
 import { fetchStudentEffectiveAccess, isMainRoundCategoryAllowed } from './studentAccess.js';
 import {
   JMCWC_UNASSIGNED_GROUP_MESSAGE,
@@ -2460,6 +2461,9 @@ async function triggerFlatExpiry() {
   }
 }
 
+/** Attempt whose end-of-round XP card is showing (state updates repeat; fetch it once). */
+let jmcwcRewardsShownFor = null;
+
 function renderJmcwcRunnerState(state) {
   if (!state || state.status === 'idle') return;
 
@@ -2478,6 +2482,10 @@ function renderJmcwcRunnerState(state) {
       creditJmcwcHomework(attId, homeworkId);
     }
     showJmcwcSubview('review');
+    if (attId && attId !== jmcwcRewardsShownFor) {
+      jmcwcRewardsShownFor = attId;
+      showRoundRewards({ sourceId: attId, anchor: document.getElementById('jmcwc-review-paper-summary') });
+    }
     loadJmcwcOverviewAndAttempts();
     return;
   }
@@ -3116,6 +3124,8 @@ async function handleResumeOnlineAttempt(attemptId, takeover = false) {
 
 async function handleOpenCompletedReview(attemptId) {
   showJmcwcOnlineError('');
+  clearRoundRewards();
+  jmcwcRewardsShownFor = null;
   try {
     const res = await callJmcwcApi({
       action: 'get_attempt_review',

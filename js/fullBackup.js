@@ -95,6 +95,7 @@ export const FULL_BACKUP_KNOWN_TABLES = Object.freeze([
   'student_messages',
   'student_practice_access',
   'student_rounds',
+  'student_xp_events',
   'teacher_audit_log',
   'teacher_permissions',
   'teacher_student_assignments',

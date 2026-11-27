@@ -56,7 +56,7 @@ import { showToast } from './toast.js';
 
 const SCOPE_STORAGE_KEY = 'trendz_leaderboard_scope_v1';
 const STATE_STORAGE_KEY = 'trendz_leaderboard_state_v2';
-const VALID_BOARDS = ['points', 'weekly_tests', 'streak', 'practice_days', 'todo', 'improved'];
+const VALID_BOARDS = ['points', 'weekly_tests', 'streak', 'practice_days', 'todo', 'improved', 'xp'];
 
 let currentProfile = null;
 let isAdmin = false;
@@ -235,6 +235,8 @@ function getValueColumnHeader(board) {
   switch (board) {
     case 'points':
       return 'Points';
+    case 'xp':
+      return 'XP';
     case 'streak':
       return 'Streak';
     case 'practice_days':
