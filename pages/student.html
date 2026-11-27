@@ -77,11 +77,11 @@
             <div class="emblem" aria-hidden="true"><div><span><b id="student-level-short">—</b><small>Level</small></span></div></div>
           </section>
 
-          <!-- Daily challenge (filled by js/homeGamify.js) -->
-          <section class="gm-card gm-challenge" id="daily-challenge" aria-live="polite" hidden></section>
-
           <!-- My XP: tier, season and week XP, ranks and streak (filled by js/xpRewards.js) -->
           <section class="xp-progress-card" id="xp-progress-card" aria-live="polite" hidden></section>
+
+          <!-- Daily challenge (filled by js/homeGamify.js) -->
+          <section class="gm-card gm-challenge" id="daily-challenge" aria-live="polite" hidden></section>
 
           <!-- My Day: today's tasks on the left, the selected task on the right -->
           <section aria-labelledby="todo-heading">
@@ -133,14 +133,14 @@
 
           </div> <!-- /sh-top-main -->
 
-          <!-- Right column: Practice & More, then today's live class and what's coming up -->
+          <!-- Right column: Practice & More, Live Duels, then today's live class and what's coming up -->
           <aside class="sh-side sh-top-side" aria-label="Practice and more">
-            <!-- Live duels: who is online now, with a play button (filled by js/liveDuelHome.js) -->
-            <section class="ldh" id="live-duel-home" aria-labelledby="ldh-title" hidden></section>
             <section aria-labelledby="practice-more-heading">
               <div class="sh-sec-h"><h2 id="practice-more-heading">Practice &amp; More</h2></div>
               <nav class="sh-tiles" id="sh-tiles" aria-label="Practice and more"></nav>
             </section>
+            <!-- Live duels: who is online now, with a play button (filled by js/liveDuelHome.js) -->
+            <section class="ldh" id="live-duel-home" aria-labelledby="ldh-title" hidden></section>
 
             <!-- Today's live class (Webinar.gg) -->
             <div id="student-live-class-card-container"></div>

@@ -46,15 +46,14 @@ test('live duel home: names are escaped and invites link to the lobby', () => {
   assert.doesNotMatch(buildLiveDuelHomeHtml({ rating: { rating: 1000, played: 0 } }), /Rating/);
 });
 
-test('student home layout: live duels above Practice & More, daily challenge above My XP, My Day right below My XP, no board or lecture tile', () => {
+test('student home layout: live duels below Practice & More, daily challenge right below My XP, then My Day, no board or lecture tile', () => {
   const html = fs.readFileSync(path.join(ROOT, 'pages/student.html'), 'utf8');
   const at = (id) => html.indexOf(`id="${id}"`);
-  // Live duels sit in the side column, right above Practice & More.
-  assert.ok(at('live-duel-home') > html.indexOf('sh-top-side'));
-  assert.ok(at('live-duel-home') < html.indexOf('aria-labelledby="practice-more-heading"'));
+  // Live duels sit in the side column, right below Practice & More.
+  assert.ok(at('live-duel-home') > at('sh-tiles'));
+  assert.ok(at('live-duel-home') < at('student-live-class-card-container'));
   assert.ok(at('streak-card') < at('xp-progress-card'));
-  assert.ok(at('xp-progress-card') < at('todo-heading'));
-  assert.ok(at('streak-card') < at('daily-challenge') && at('daily-challenge') < at('xp-progress-card'), 'daily challenge sits between the hero and My XP');
+  assert.ok(at('xp-progress-card') < at('daily-challenge') && at('daily-challenge') < at('todo-heading'), 'daily challenge sits right below My XP, before My Day');
   assert.ok(at('todo-heading') < at('stars-card'), 'My Day comes before the stars card');
   assert.equal(at('btn-watch-lectures-today'), -1);
   assert.doesNotMatch(html, /Jr\. MCWC Video Lectures/);
