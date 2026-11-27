@@ -723,6 +723,21 @@ async function handleRebuildAllMirrorTabs() {
 }
 
 /**
+ * Deleted students and teachers are hidden from normal profile reads, so add them back from the
+ * admin-only RPC: the ZIP export must still contain every profile.
+ */
+async function appendDeletedProfiles(supabase, rows) {
+  const { data, error } = await supabase.rpc('admin_deleted_profiles', { p_role: null });
+  if (error) {
+    // Database without migration 22 yet: there are no deleted accounts to add.
+    if (/admin_deleted_profiles/.test(error.message || '')) return rows;
+    throw error;
+  }
+  const seen = new Set(rows.map((r) => r.id));
+  return [...rows, ...(data || []).filter((r) => !seen.has(r.id))];
+}
+
+/**
  * Fetches all rows for a single table in pages of 1,000 ordered by its primary key
  * using the admin's authenticated Supabase session.
  * Throws immediately if any query fails so an incomplete ZIP is never created.
@@ -809,9 +824,12 @@ async function handleDownloadAllDataZip() {
         percent: pct,
       });
 
-      const rows = useDemo
+      let rows = useDemo
         ? DemoDB.getBackupTableRows(tableMeta.name)
         : await fetchAllRowsForTableExport(supabase, tableMeta);
+      if (!useDemo && tableMeta.name === 'profiles') {
+        rows = await appendDeletedProfiles(supabase, rows);
+      }
 
       const csvText = rowsToCsv(rows, tableMeta.defaultColumns || tableMeta.primaryKey);
       zipEntries.push({

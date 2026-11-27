@@ -84,6 +84,9 @@
               </p>
             </div>
             <div>
+              <button type="button" id="btn-open-deleted-teachers" class="btn btn-outline">
+                Deleted teachers
+              </button>
               <button type="button" id="btn-open-create-teacher" class="btn btn-primary">
                 + Add Teacher
               </button>
@@ -436,6 +439,36 @@
         </div>
         <footer class="modal-footer">
           <button type="button" class="btn btn-ghost" data-close-modal="teacher-audit-modal">Close</button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Deleted Teachers Modal -->
+    <div id="deleted-teachers-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="deleted-teachers-title">
+      <div class="modal-dialog" style="max-width: 600px;">
+        <header class="modal-header">
+          <div>
+            <h2 id="deleted-teachers-title" class="modal-title">Deleted teachers</h2>
+            <p class="modal-subtitle">Hidden from the website. Restore a teacher to bring them back as active with their old students.</p>
+          </div>
+          <button type="button" class="modal-close" data-close-modal="deleted-teachers-modal" aria-label="Close modal">&times;</button>
+        </header>
+        <div class="modal-body">
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Teacher</th>
+                  <th>Deleted on</th>
+                  <th style="text-align: right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="deleted-teachers-body"></tbody>
+            </table>
+          </div>
+        </div>
+        <footer class="modal-footer">
+          <button type="button" class="btn btn-ghost" data-close-modal="deleted-teachers-modal">Close</button>
         </footer>
       </div>
     </div>

@@ -35,6 +35,18 @@ export default async function handler(req, res) {
 
     const supabaseAdmin = getAdminClient();
 
+    // A deleted student keeps their code; point the admin to Restore instead of a vague auth error.
+    const { data: existing } = await supabaseAdmin
+      .from('profiles')
+      .select('id, deleted_at')
+      .eq('student_code', cleanCode)
+      .maybeSingle();
+    if (existing?.deleted_at) {
+      return res.status(409).json({
+        error: `Student code "${cleanCode}" belongs to a deleted student. Restore them from "Deleted students" instead.`,
+      });
+    }
+
     // 3. Create user in Supabase Auth
     const { data: authUser, error: createAuthError } = await supabaseAdmin.auth.admin.createUser({
       email,

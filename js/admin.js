@@ -1,9 +1,18 @@
 /**
  * Trendz Tracker - Admin Student Management
- * Renders roster, handles student creation, password resets, and active status toggling.
+ * Renders roster, handles student creation, password resets, active status toggling,
+ * and deleting / restoring students (soft delete: data stays in the database).
  */
 
-import { createStudent, resetStudentPassword, toggleStudentActive, toggleStudentLeaderboardVisible } from './api.js';
+import {
+  createStudent,
+  deleteStudent,
+  listDeletedStudents,
+  resetStudentPassword,
+  restoreStudent,
+  toggleStudentActive,
+  toggleStudentLeaderboardVisible,
+} from './api.js';
 import { isSupabaseConfigured } from './config.js';
 import { requireAuth } from './guard.js';
 import { closeModal, openModal, setupModalListeners, setupAdminNav } from './modal.js';
@@ -264,6 +273,14 @@ function renderTable() {
             >
               ${student.active ? 'Deactivate' : 'Activate'}
             </button>
+            <button
+              type="button"
+              class="btn btn-danger btn-sm btn-delete-student"
+              data-id="${student.id}"
+              title="Delete student (keeps their data; can be restored)"
+            >
+              Delete
+            </button>
           </div>
           `
         }
@@ -334,6 +351,18 @@ function attachRowListeners() {
     });
   });
 
+  document.querySelectorAll('.btn-delete-student').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const student = allStudents.find(s => s.id === btn.getAttribute('data-id'));
+      if (!student) return;
+      document.getElementById('delete-student-id').value = student.id;
+      document.getElementById('delete-student-display-name').textContent = student.full_name || '';
+      document.getElementById('delete-student-display-code').textContent = student.student_code || '';
+      document.getElementById('delete-student-error').style.display = 'none';
+      openModal('delete-student-modal');
+    });
+  });
+
   document.querySelectorAll('.chk-leaderboard-visible').forEach(chk => {
     chk.addEventListener('change', async () => {
       const studentId = chk.getAttribute('data-id');
@@ -355,6 +384,82 @@ function attachRowListeners() {
         showToast('error', 'Failed to update leaderboard visibility: ' + (err.message || 'Database error'));
       }
     });
+  });
+}
+
+/**
+ * Fills the Deleted students modal (admin only).
+ */
+async function renderDeletedStudents() {
+  const tbody = document.getElementById('deleted-students-body');
+  if (!tbody) return;
+  tbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: var(--text-muted);"><span class="spinner" style="margin-right: 8px;"></span> Loading...</td></tr>`;
+  try {
+    const rows = await listDeletedStudents();
+    if (rows.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: var(--text-muted); padding: var(--space-5);">No deleted students.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = rows.map(row => `
+      <tr>
+        <td>
+          <strong>${escapeHtml(row.full_name)}</strong>
+          <div style="font-size: var(--text-xs); color: var(--text-muted);">
+            <span class="num">${escapeHtml(row.student_code)}</span>${row.level ? ` · ${escapeHtml(row.level)}` : ''}
+          </div>
+        </td>
+        <td style="color: var(--text-muted);">${row.deleted_at ? escapeHtml(new Date(row.deleted_at).toLocaleDateString()) : '—'}</td>
+        <td style="text-align: right;">
+          <button type="button" class="btn btn-outline btn-sm btn-restore-student" data-id="${row.id}">Restore</button>
+        </td>
+      </tr>
+    `).join('');
+    tbody.querySelectorAll('.btn-restore-student').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try {
+          const restored = await restoreStudent(btn.getAttribute('data-id'));
+          showToast('success', `${restored?.full_name || 'Student'} has been restored.`);
+          await Promise.all([renderDeletedStudents(), loadStudents()]);
+        } catch (err) {
+          showToast('error', 'Failed to restore student: ' + (err.message || 'Database error'));
+          btn.disabled = false;
+        }
+      });
+    });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="3" style="color: var(--color-danger);">Could not load deleted students: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+function setupDeleteStudentControls() {
+  const openBtn = document.getElementById('btn-open-deleted-students');
+  if (openBtn) {
+    openBtn.style.display = '';
+    openBtn.addEventListener('click', () => {
+      openModal('deleted-students-modal');
+      renderDeletedStudents();
+    });
+  }
+
+  const confirmBtn = document.getElementById('btn-confirm-delete-student');
+  confirmBtn?.addEventListener('click', async () => {
+    const studentId = document.getElementById('delete-student-id').value;
+    const errorEl = document.getElementById('delete-student-error');
+    if (!studentId) return;
+    errorEl.style.display = 'none';
+    confirmBtn.disabled = true;
+    try {
+      const deleted = await deleteStudent(studentId);
+      closeModal('delete-student-modal');
+      showToast('success', `${deleted?.full_name || 'Student'} has been deleted. Restore them any time from Deleted students.`);
+      await loadStudents();
+    } catch (err) {
+      errorEl.textContent = 'Failed to delete student: ' + (err.message || 'Database error');
+      errorEl.style.display = 'block';
+    } finally {
+      confirmBtn.disabled = false;
+    }
   });
 }
 
@@ -398,6 +503,7 @@ async function initAdmin() {
   setupModalListeners();
   if (profile.role === 'admin') {
     setupAdminNav(profile);
+    setupDeleteStudentControls();
   }
 
   initProfileEditor({
