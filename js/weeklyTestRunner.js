@@ -5,6 +5,9 @@
  * - `runnerLink(section, testId)`: builds the test-mode URL (`?test=<id>&section=<id>`) for each section kind
  * - `flashProgressText(triesStarted, questionCount)`: formats `"Try <n> of <m>"`
  * - `parseTestRunnerQuery(search)`: parses `?test=<id>&section=<id>` from URL search string
+ * - `parsePracticeRunId(search)` / `testSectionStartBody(...)`: practice mode
+ *   (`&practice=<run_id>`), a no-stakes retake of a closed test that never
+ *   touches official scores
  */
 
 export const START_SECTION_CONFIRM_TEXT =
@@ -27,7 +30,7 @@ const RUNNER_PATHS_BY_KIND = {
  * @param {string} testId
  * @returns {string|null}
  */
-export function runnerLink(sectionOrTestId, testIdOrSection) {
+export function runnerLink(sectionOrTestId, testIdOrSection, practiceRunId = null) {
   let section = sectionOrTestId;
   let testId = testIdOrSection;
   if (typeof sectionOrTestId === 'string' && testIdOrSection && typeof testIdOrSection === 'object') {
@@ -46,6 +49,8 @@ export function runnerLink(sectionOrTestId, testIdOrSection) {
   const params = new URLSearchParams();
   params.set('test', cleanTestId);
   params.set('section', cleanSectionId);
+  const cleanRun = typeof practiceRunId === 'string' ? practiceRunId.trim() : '';
+  if (cleanRun) params.set('practice', cleanRun);
   return `${basePath}?${params.toString()}`;
 }
 
@@ -88,4 +93,62 @@ export function parseTestRunnerQuery(search = '') {
     testId: testId && sectionId ? testId : null,
     sectionId: testId && sectionId ? sectionId : null,
   };
+}
+
+export const PRACTICE_LABEL = 'Practice — not official';
+
+/**
+ * "Saved" line on a runner result screen.
+ *
+ * @param {string} title  test title
+ * @param {string|null} [practiceRunId]
+ * @returns {string}
+ */
+export function testSavedText(title, practiceRunId = null) {
+  const t = title || 'Weekly Test';
+  return practiceRunId
+    ? `Practice saved for ${t}. Not official: your real score is unchanged.`
+    : `Saved as part of ${t}`;
+}
+
+/**
+ * Where "Back to Weekly Test" goes. In practice mode it reopens that test's
+ * practice panel so the student sees where they would have stood.
+ *
+ * @param {string|null} testId
+ * @param {string|null} [practiceRunId]
+ * @returns {string}
+ */
+export function weeklyTestBackHref(testId, practiceRunId = null) {
+  if (!practiceRunId || !testId) return '/pages/weekly-test.html';
+  const params = new URLSearchParams();
+  params.set('practice_test', String(testId));
+  return `/pages/weekly-test.html?${params.toString()}`;
+}
+
+/**
+ * Reads the practice run id (`&practice=<run_id>`) from a runner URL.
+ *
+ * @param {string} [search='']
+ * @returns {string|null}
+ */
+export function parsePracticeRunId(search = '') {
+  const params = new URLSearchParams(typeof search === 'string' ? search : '');
+  return (params.get('practice') || '').trim() || null;
+}
+
+/**
+ * Builds the body for starting a weekly test section: the official `start`, or
+ * `practice_start` with the run id when practising.
+ *
+ * @param {string} testId
+ * @param {string} sectionId
+ * @param {string|null} [practiceRunId]
+ * @returns {Record<string, string>}
+ */
+export function testSectionStartBody(testId, sectionId, practiceRunId = null) {
+  if (practiceRunId) {
+    return { action: 'practice_start', test_id: testId, section_id: sectionId, run_id: practiceRunId };
+  }
+  return { action: 'start', test_id: testId, section_id: sectionId };
 }

@@ -38,6 +38,10 @@ import { keyAction } from './competitionKeys.js';
 import { questionLayout, formatQuestionText } from './questionLayout.js';
 import {
   parseTestRunnerQuery,
+  parsePracticeRunId,
+  testSectionStartBody,
+  testSavedText,
+  weeklyTestBackHref,
   RUNNER_EXIT_CONFIRM_TEXT,
 } from './weeklyTestRunner.js';
 import { submitHomeworkCompletion } from './homeworkData.js';
@@ -169,6 +173,8 @@ let solvingEndPerfMs = 0;
 // Weekly Test runner mode (?test=<id>&section=<id>)
 let isTestMode = false;
 let activeTestId = null;
+/** Practice run id (`&practice=`): a no-stakes retake of a closed test. */
+let activePracticeRunId = null;
 let activeSectionId = null;
 let activeTestTitle = 'Weekly Test';
 
@@ -199,6 +205,7 @@ async function initElementDrillPage() {
   isTestMode = runnerQuery.isTestMode;
   activeTestId = runnerQuery.testId;
   activeSectionId = runnerQuery.sectionId;
+  activePracticeRunId = parsePracticeRunId(window.location.search);
 
   const params = new URLSearchParams(window.location.search);
   const todoParam = params.get('todo_task_id');
@@ -284,7 +291,7 @@ async function initElementDrillPage() {
 
   expiredNewSetBtn?.addEventListener('click', () => {
     if (isTestMode) {
-      window.location.href = '/pages/weekly-test.html';
+      window.location.href = weeklyTestBackHref(activeTestId, activePracticeRunId);
       return;
     }
     resetToIntroScreen();
@@ -300,7 +307,7 @@ async function initElementDrillPage() {
     }
     stopTimers();
     activeSessionId = null;
-    window.location.href = '/pages/weekly-test.html';
+    window.location.href = weeklyTestBackHref(activeTestId, activePracticeRunId);
   });
 
   if (isTestMode) {
@@ -309,7 +316,7 @@ async function initElementDrillPage() {
 
     const backLink = document.getElementById('link-intro-back');
     if (backLink) {
-      backLink.href = '/pages/weekly-test.html';
+      backLink.href = weeklyTestBackHref(activeTestId, activePracticeRunId);
       backLink.textContent = '← Back to Weekly Test';
     }
     if (startBtn) startBtn.style.display = 'none';
@@ -557,11 +564,9 @@ async function handleStartTestSection() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          action: 'start',
-          test_id: activeTestId,
-          section_id: activeSectionId,
-        }),
+        body: JSON.stringify(
+          testSectionStartBody(activeTestId, activeSectionId, activePracticeRunId)
+        ),
       });
 
       const data = await res.json().catch(() => ({}));
@@ -574,7 +579,8 @@ async function handleStartTestSection() {
         currentUser.id,
         activeTestId,
         null,
-        activeSectionId
+        activeSectionId,
+        { practiceRunId: activePracticeRunId }
       );
     } else {
       throw new Error('Connection is not configured.');
@@ -1227,13 +1233,13 @@ function renderResultScreen(result) {
   if (isTestMode) {
     if (sameDrillAgainBtn) sameDrillAgainBtn.style.display = 'none';
     if (allDrillsLink) {
-      allDrillsLink.href = '/pages/weekly-test.html';
+      allDrillsLink.href = weeklyTestBackHref(activeTestId, activePracticeRunId);
       allDrillsLink.className = 'btn btn-primary btn-sm';
       allDrillsLink.textContent = 'Back to Weekly Test';
     }
     if (testSavedBannerEl) {
       if (attempted > 0) {
-        testSavedBannerEl.textContent = `✓ Saved as part of ${result.title || activeTestTitle}`;
+        testSavedBannerEl.textContent = `✓ ${testSavedText(result.title || activeTestTitle, activePracticeRunId)}`;
         testSavedBannerEl.style.display = 'block';
       } else {
         testSavedBannerEl.style.display = 'none';

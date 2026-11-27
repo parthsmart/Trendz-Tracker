@@ -701,6 +701,7 @@ async function renderActiveTestDetailContent(activeTest) {
     if (offlineView) offlineView.style.display = 'none';
     if (onlineView) onlineView.style.display = 'block';
     await loadOnlineResultsForActiveTest(activeTest);
+    await loadPracticeAttemptsForActiveTest(activeTest);
   } else if (hasSections) {
     // Section-based Score Entry view (for offline tests with sections, or online tests when trainer clicks Enter/Edit Section Scores)
     if (onlineBanner) onlineBanner.style.display = 'none';
@@ -3390,4 +3391,77 @@ function escapeHtml(str) {
 
 if (typeof document !== 'undefined') {
   document.addEventListener('DOMContentLoaded', initWeeklyTestsPage);
+}
+
+/**
+ * Practice attempts (migration 38): students retaking a closed online test.
+ * Shown under the online results, clearly labelled as practice. They never
+ * count towards official scores or the leaderboard.
+ */
+async function loadPracticeAttemptsForActiveTest(test) {
+  const box = document.getElementById('online-practice-view');
+  if (!box) return;
+  box.style.display = 'block';
+  box.innerHTML = '<p class="loading-state" style="margin: 0;">Loading practice attempts…</p>';
+  try {
+    let rows = [];
+    if (isSupabaseConfigured()) {
+      const supabase = await getSupabase();
+      const { data, error } = await supabase.rpc('weekly_test_practice_review', { p_test: test.id });
+      if (error) throw error;
+      rows = Array.isArray(data) ? data : [];
+    } else if (DemoDB?.mockPracticeReview) {
+      rows = DemoDB.mockPracticeReview(test.id);
+    }
+    if (activeTestId !== test.id) return;
+    const head = `
+      <div style="display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
+        <h3 style="margin: 0; font-size: var(--text-sm);">Practice attempts</h3>
+        <span class="badge" style="background: #FEF3C7; color: #92400E;">Practice — not official</span>
+      </div>
+      <p style="margin: var(--space-1) 0 0; font-size: var(--text-xs); color: var(--text-muted);">
+        Students can retake a test after it closes. Practice runs do not change official scores or the leaderboard.
+      </p>`;
+    if (rows.length === 0) {
+      box.innerHTML = `${head}<p style="margin: var(--space-2) 0 0; font-size: var(--text-sm);">No practice attempts yet.</p>`;
+      return;
+    }
+    const body = rows
+      .map((r) => {
+        const started = r.started_at
+          ? formatDisplayDateIST(new Date(Date.parse(r.started_at) + 330 * 60000).toISOString().slice(0, 10))
+          : '';
+        return `
+          <tr data-attempt-type="practice">
+            <td><b>${escapeHtml(r.full_name || 'Student')}</b>${r.student_code ? ` <span style="color: var(--text-muted);">${escapeHtml(r.student_code)}</span>` : ''}</td>
+            <td>${escapeHtml(r.level || '')}</td>
+            <td class="num">${escapeHtml(started)}</td>
+            <td class="num" style="text-align: right;">${escapeHtml(String(r.sections_done || 0))}</td>
+            <td class="num" style="text-align: right;">${escapeHtml(`${r.correct || 0} of ${r.attempted || 0}`)}</td>
+            <td><span class="badge" style="background: #FEF3C7; color: #92400E;">Practice</span></td>
+          </tr>`;
+      })
+      .join('');
+    box.innerHTML = `${head}
+      <div class="table-wrapper" style="margin-top: var(--space-2);">
+        <table class="table" id="online-practice-table" aria-label="Practice attempts (not official)">
+          <thead>
+            <tr>
+              <th>Student</th>
+              <th>Level</th>
+              <th>Started</th>
+              <th style="text-align: right;">Sections done</th>
+              <th style="text-align: right;">Correct of attempted</th>
+              <th>Type</th>
+            </tr>
+          </thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>`;
+  } catch (err) {
+    const msg = String(err?.message || '');
+    box.innerHTML = /weekly_test_practice_review|PGRST202|function/i.test(msg)
+      ? ''
+      : `<p style="margin: 0; color: var(--text-muted); font-size: var(--text-sm);">Practice attempts unavailable: ${escapeHtml(msg)}</p>`;
+  }
 }

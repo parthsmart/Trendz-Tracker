@@ -12,6 +12,9 @@
  * - Offline test cards show date, "With your trainer", their sections as information, and per-section scores
  *   once entered ("Entered by teacher", shared score colour, "n wrong").
  * - Past tests show per-section scores with the shared score colour (js/scoreColors.js).
+ * - Closed online tests show "Practise": a no-stakes retake (same sections, time limits and scoring)
+ *   stored apart from official results, with "Where you would have stood" on the official board
+ *   (labelled "Practice — not official"). See js/weeklyTestPracticeView.js and migration 38.
  * - Leaderboard tab:
  *   - Test selector: "All tests" (with period selector: This week, This month [default], This year, All time,
  *     Pick a date reusing js/periods.js) plus one entry per test whose `leaderboard_ready` is true.
@@ -43,6 +46,13 @@ import {
   START_SECTION_CONFIRM_TEXT,
   runnerLink,
 } from './weeklyTestRunner.js';
+import {
+  PRACTICE_LABEL,
+  PRACTICE_EXPLANATION,
+  canOfferPractice,
+  practiceSectionRows,
+  standingHeadline,
+} from './weeklyTestPracticeView.js';
 import {
   WEEKLY_TEST_BOARD_EXPLANATION,
   boardTitle,
@@ -149,6 +159,7 @@ async function initStudentWeeklyTestPage() {
   setupStartModalHandlers();
   setupPlayerHandlers();
   setupResultsHandlers();
+  setupPracticeHandlers();
 
   const [, globalFlag] = await Promise.all([
     loadMyWeeklyTests(),
@@ -162,6 +173,11 @@ async function initStudentWeeklyTestPage() {
   }
   syncWtScopeUI();
   await handleWeeklyTestUrlParams();
+
+  const practiceTestParam = new URLSearchParams(window.location.search).get('practice_test');
+  if (practiceTestParam && myTests.some((t) => String(t.id) === practiceTestParam)) {
+    openPracticeModal(practiceTestParam);
+  }
 }
 
 function setupBeforeUnloadGuard() {
@@ -622,6 +638,11 @@ function renderWeeklyTestsGroups() {
     };
   });
 
+  // Bind "Practise" buttons on closed online tests
+  container.querySelectorAll('.btn-practise-test').forEach((btn) => {
+    btn.onclick = () => openPracticeModal(btn.getAttribute('data-test-id'));
+  });
+
   // Bind "View test leaderboard" buttons
   container.querySelectorAll('.btn-open-test-leaderboard').forEach((btn) => {
     btn.onclick = () => {
@@ -675,6 +696,9 @@ function renderTestCard(test, groupKind) {
   const lbBtnHtml = lbReady
     ? `<button type="button" class="btn btn-outline btn-sm btn-open-test-leaderboard" data-test-id="${escapeHtml(test.id)}"><span aria-hidden="true">🏆</span> Leaderboard</button>`
     : '';
+  const practiseBtnHtml = canOfferPractice(test)
+    ? `<button type="button" class="btn btn-outline btn-sm btn-practise-test" data-test-id="${escapeHtml(test.id)}" title="Retake for practice. Does not change the official leaderboard."><span aria-hidden="true">🔁</span> Practise</button>`
+    : '';
   const typeChip = isOnline
     ? '<span class="wt-chip wt-chip-blue">Online</span>'
     : '<span class="wt-chip">With your trainer</span>';
@@ -704,6 +728,7 @@ function renderTestCard(test, groupKind) {
                 : ''
             }
             ${lbBtnHtml}
+            ${practiseBtnHtml}
           </div>
         </div>
         ${pills}
@@ -1595,3 +1620,243 @@ export async function handleWeeklyTestUrlParams() {
 }
 
 document.addEventListener('DOMContentLoaded', initStudentWeeklyTestPage);
+
+// ---------------------------------------------------------------------------
+// Practice mode: retake a closed online test. Stored apart from official
+// results; never changes the official leaderboard (migration 38).
+// ---------------------------------------------------------------------------
+
+let practiceTestId = null;
+let practiceRunId = null;
+
+async function practiceApi(body) {
+  const token = await getAccessToken();
+  const resp = await fetch('/api/weekly-test', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data.error || 'Could not start practice.');
+  return data;
+}
+
+async function fetchPracticeState(testId) {
+  if (isSupabaseConfigured()) {
+    const supabase = await getSupabase();
+    const { data, error } = await supabase.rpc('my_weekly_test_practice', { p_test: testId });
+    if (error) throw error;
+    return data || { runs: [] };
+  }
+  if (isDemoMode() && DemoDB?.mockMyWeeklyTestPractice) {
+    return DemoDB.mockMyWeeklyTestPractice(currentProfile.id, testId);
+  }
+  throw new Error('Database connection is not configured.');
+}
+
+async function fetchPracticeStanding(testId, runId) {
+  if (isSupabaseConfigured()) {
+    const supabase = await getSupabase();
+    const { data, error } = await supabase.rpc('weekly_test_practice_standing', {
+      p_test: testId,
+      p_run: runId || null,
+    });
+    if (error) throw error;
+    return data;
+  }
+  if (isDemoMode() && DemoDB?.mockPracticeStanding) {
+    return DemoDB.mockPracticeStanding(currentProfile.id, testId, runId, currentProfile);
+  }
+  throw new Error('Database connection is not configured.');
+}
+
+async function beginPracticeRun(testId) {
+  if (isSupabaseConfigured()) {
+    return practiceApi({ action: 'practice_begin', test_id: testId });
+  }
+  if (isDemoMode() && DemoDB?.mockPracticeBegin) {
+    return DemoDB.mockPracticeBegin(currentProfile.id, testId);
+  }
+  throw new Error('Database connection is not configured.');
+}
+
+function renderPracticeBoardHtml(standing) {
+  const rows = Array.isArray(standing?.board) ? standing.board : [];
+  if (rows.length === 0) return '';
+  const body = rows
+    .map((row) => {
+      const mine = Boolean(row.is_practice);
+      const style = mine
+        ? 'background: #FFFBEB; font-weight: 700; outline: 2px dashed #F59E0B; outline-offset: -2px;'
+        : '';
+      const tag = mine
+        ? `<span class="badge" style="margin-left: 8px; background: #FEF3C7; color: #92400E;">You (practice)</span>`
+        : '';
+      return `
+        <tr style="${style}" data-is-practice="${mine ? 'true' : 'false'}">
+          <td><span class="num" style="font-weight: 700;">#${escapeHtml(row.rank)}</span></td>
+          <td><span style="font-weight: ${mine ? '700' : '600'};">${escapeHtml(row.display_name)}</span>${tag}</td>
+          <td class="num" style="text-align: right; font-weight: 700;">${escapeHtml(String(row.points))}</td>
+          <td class="num" style="text-align: right;">${escapeHtml(`${row.correct} of ${row.attempted}`)}</td>
+          <td class="num" style="text-align: right; color: var(--text-muted);">${escapeHtml(formatSecondsToTime(row.seconds))}</td>
+        </tr>`;
+    })
+    .join('');
+  return `
+    <div class="table-wrapper" style="margin-top: var(--space-3);">
+      <table class="table" id="wt-practice-board" aria-label="Where you would have stood (practice, not official)">
+        <thead>
+          <tr>
+            <th style="width: 64px;">Rank</th>
+            <th>Student</th>
+            <th style="text-align: right;">Points</th>
+            <th style="text-align: right;">Correct of attempted</th>
+            <th style="text-align: right;">Time</th>
+          </tr>
+        </thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>`;
+}
+
+function renderPracticeSectionsHtml(test, run) {
+  const rows = practiceSectionRows(testSections(test), run);
+  return rows
+    .map((row, idx) => {
+      const summary = sectionSummary(row.section);
+      let status = '<span class="wt-chip wt-status">To do</span>';
+      if (row.done && row.total !== null) {
+        status = `<span class="wt-chip wt-chip-ok wt-status num">${row.correct} of ${row.total}</span>`;
+      } else if (row.status) {
+        status = '<span class="wt-chip wt-chip-blue wt-status">In progress</span>';
+      }
+      const btn = row.action
+        ? `<button type="button" class="btn btn-primary btn-sm btn-practice-section"
+              data-section-id="${escapeHtml(row.section_id)}"
+              data-kind="${escapeHtml(row.kind)}">${row.action === 'continue' ? 'Continue' : 'Start'}</button>`
+        : '';
+      return `
+        <div class="wt-sec ${row.done ? 'is-done' : ''}" data-practice-section="${escapeHtml(row.section_id)}">
+          <div class="wt-sec-r">
+            <span class="wt-kind">${escapeHtml(sectionKindLabel(row.kind))}</span>
+            <span class="wt-pos num">#${idx + 1}</span>
+          </div>
+          <b class="wt-sec-title">${escapeHtml(summary)}</b>
+          <div class="wt-sec-status">${status}${
+            row.time_seconds != null
+              ? `<span class="wt-time num">${escapeHtml(formatSecondsToTime(row.time_seconds))}</span>`
+              : ''
+          }</div>
+          ${btn}
+        </div>`;
+    })
+    .join('');
+}
+
+async function renderPracticeModal() {
+  const bodyEl = document.getElementById('practice-modal-body');
+  const titleEl = document.getElementById('practice-modal-title');
+  const newRunBtn = document.getElementById('btn-practice-new-run');
+  if (!bodyEl) return;
+  const test = myTests.find((t) => String(t.id) === String(practiceTestId));
+  if (!test) {
+    bodyEl.innerHTML = '<p>This test was not found.</p>';
+    return;
+  }
+  if (titleEl) titleEl.textContent = `Practise: ${test.title}`;
+  bodyEl.innerHTML = '<p class="loading-state">Loading practice…</p>';
+
+  try {
+    const state = await fetchPracticeState(test.id);
+    if (!state.can_practise) {
+      bodyEl.innerHTML = `<p>${escapeHtml(state.reason || 'This test cannot be practised right now.')}</p>`;
+      if (newRunBtn) newRunBtn.style.display = 'none';
+      return;
+    }
+    const runs = Array.isArray(state.runs) ? state.runs : [];
+    const run = runs.find((r) => r.run_id === practiceRunId) || runs[0] || null;
+    practiceRunId = run ? run.run_id : null;
+
+    let standingHtml = '';
+    const hasScore = run && (run.sections || []).some((s) => s.total !== null && s.total !== undefined);
+    if (hasScore) {
+      try {
+        const standing = await fetchPracticeStanding(test.id, practiceRunId);
+        const { headline, detail } = standingHeadline(standing);
+        standingHtml = `
+          <div id="wt-practice-standing" style="margin-top: var(--space-4);">
+            <h3 style="margin: 0 0 var(--space-1); font-size: var(--text-base);">Where you would have stood <span class="badge" style="margin-left: 6px; background: #FEF3C7; color: #92400E;">${escapeHtml(standing?.label || PRACTICE_LABEL)}</span></h3>
+            <p style="margin: 0; font-weight: 700;">${escapeHtml(headline)}</p>
+            <p style="margin: 0; font-size: var(--text-sm); color: var(--text-muted);">${escapeHtml(detail)}</p>
+            ${renderPracticeBoardHtml(standing)}
+          </div>`;
+      } catch (err) {
+        standingHtml = `<p style="margin-top: var(--space-4); color: var(--text-muted);">${escapeHtml(err.message || 'Standing unavailable.')}</p>`;
+      }
+    }
+
+    const runInfo = run
+      ? `<p style="margin: 0 0 var(--space-2); font-size: var(--text-sm); color: var(--text-muted);">Practice run started ${escapeHtml(formatDisplayDateIST(getISTDateYMD(run.started_at)))}${runs.length > 1 ? ` &middot; ${runs.length} runs so far` : ''}</p>`
+      : '';
+
+    bodyEl.innerHTML = `
+      <div style="padding: var(--space-3); background: #FFFBEB; border: 1px solid #FDE68A; border-radius: var(--radius-md); font-size: var(--text-sm); color: #92400E;">
+        <b>${escapeHtml(PRACTICE_LABEL)}.</b> ${escapeHtml(PRACTICE_EXPLANATION)}
+      </div>
+      <div style="margin-top: var(--space-3);">
+        ${
+          run
+            ? `${runInfo}<div class="wt-secs">${renderPracticeSectionsHtml(test, run)}</div>`
+            : '<p style="margin: 0;">Start a practice run to take the sections again.</p>'
+        }
+      </div>
+      ${standingHtml}
+    `;
+    if (newRunBtn) {
+      newRunBtn.style.display = 'inline-flex';
+      newRunBtn.textContent = run ? 'New practice run' : 'Start practice';
+    }
+
+    bodyEl.querySelectorAll('.btn-practice-section').forEach((btn) => {
+      btn.onclick = () => {
+        const url = runnerLink(
+          { kind: btn.getAttribute('data-kind') || 'basics', section_id: btn.getAttribute('data-section-id') },
+          String(test.id),
+          practiceRunId
+        );
+        if (url) window.location.href = url;
+      };
+    });
+  } catch (err) {
+    console.error('Failed to load practice:', err);
+    bodyEl.innerHTML = `<p style="color: var(--color-danger);">${escapeHtml(err.message || 'Could not load practice.')}</p>`;
+  }
+}
+
+function openPracticeModal(testId) {
+  practiceTestId = testId;
+  practiceRunId = null;
+  openModal('practice-modal');
+  renderPracticeModal();
+}
+
+function setupPracticeHandlers() {
+  const newRunBtn = document.getElementById('btn-practice-new-run');
+  if (!newRunBtn) return;
+  newRunBtn.onclick = async () => {
+    if (!practiceTestId) return;
+    newRunBtn.disabled = true;
+    try {
+      const res = await beginPracticeRun(practiceTestId);
+      practiceRunId = res.run_id;
+      await renderPracticeModal();
+    } catch (err) {
+      showToast('error', err.message || 'Could not start practice.');
+    } finally {
+      newRunBtn.disabled = false;
+    }
+  };
+}
