@@ -280,3 +280,16 @@ Also: `npm run build`, and a browser check of every panel with demo accounts.
 - On the site and in the API, owners and directors get the *effective* role `admin` (`js/roles.js`, `normalizeProfileRole`), so the existing admin pages and checks keep working until the owner panel (step 3). The real role is kept in `network_role`. A stored `network_role` can only refine an effective `admin`; it never widens a role.
 - Release order: ship the site and API first (they work before and after the migration), then back up and apply migration 32. (Migration 31 is the live duels work.)
 - Rollback: `supabase/rollbacks/32_multi_centre_data_rollback.sql`. It refuses while any director, head or second owner exists.
+
+### Step 3 implementation notes (migration 33, owner/director panel)
+
+- New page `pages/network.html` (`js/network.js`, logic in `js/networkModel.js`), linked as **Network** in the admin rail for owners, directors and the legacy admin only. Teachers and centre heads are sent away from it.
+- What it does: a dashboard per centre; add, edit, suspend, archive and restore centres; add staff accounts (owner, director, centre head, vice head); change anyone's role or centre through `set_person_role()`; activate or deactivate people; an all-people table with each person's centre and filters; duel openings (`centre_visibility`); and the recent audit log. A centre switcher on the page narrows the view to one centre or to network staff and is remembered in the browser.
+- Staff accounts are created by `/api/manage-teacher` with `action: 'create_staff'`. The caller is checked with the new `verifyStaffCaller(req, { minRole })`. The Auth user is made with the service key, but the role is given with `set_person_role()` through the **caller's own session**, so the database applies the same rank and centre rules. If that fails, the new login is deleted. The password is typed by the owner or director and is never logged or returned.
+- Migration 33 adds `centres_guard`:
+  - The default centre (BRN) stays active and default, because new students land in it.
+  - No new centre can be the default.
+  - A centre can't be archived while it still has people or an open head post.
+  - The database fills in `created_by`, `archived_at` and `archived_by`.
+- Not yet: suspending a centre only stops new people being added to it; signing in from a suspended centre is blocked in step 5. Duel openings are saved now and take effect with cross-centre duels in step 5. The other admin pages still show every centre until step 5.
+- Rollback: `supabase/rollbacks/33_centres_guard_rollback.sql` (drops the trigger and function, no data change).

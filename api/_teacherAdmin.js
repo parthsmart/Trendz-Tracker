@@ -20,11 +20,13 @@
  * 3. teacherEndpointHandler:
  *    - Unified HTTP handler verifying POST and active admin authorization
  *    - Routes action: 'create' / 'create_teacher' / create payload to createTeacher
+ *    - Routes 'create_staff' to createStaff (api/_networkStaff.js)
  *    - Routes management actions to manageTeacher
  */
 
-import { getAdminClient, getCallerClient, verifyAdminCaller } from './_supabaseAdmin.js';
+import { getAdminClient, getCallerClient, verifyAdminCaller, verifyStaffCaller } from './_supabaseAdmin.js';
 import { getTeacherWebinarEmail, normalizeCohostEmail } from './_teacherWebinarEmail.js';
+import { createStaff } from './_networkStaff.js';
 
 /**
  * Handles teacher creation with compensating cleanup on database failure
@@ -369,12 +371,17 @@ export async function teacherEndpointHandler(req, res) {
   }
 
   try {
-    // 1. Verify caller is an authenticated active admin
-    const adminCaller = await verifyAdminCaller(req);
-
-    // 2. Dispatch based on payload
     const body = req.body || {};
     const action = body.action;
+
+    // Owners and directors creating network or centre staff
+    if (action === 'create_staff') {
+      const staffCaller = await verifyStaffCaller(req, { minRole: 'director' });
+      return await createStaff(req, res, staffCaller);
+    }
+
+    // 1. Verify caller is an authenticated active admin
+    const adminCaller = await verifyAdminCaller(req);
 
     // Creation dispatch: explicit action or creation payload fields
     if (action === 'create' || action === 'create_teacher' || (!action && body.teacher_code && body.password)) {

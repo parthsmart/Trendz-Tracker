@@ -374,6 +374,60 @@ export async function manageTeacher(payload) {
 }
 
 /**
+ * Creates an owner, director, centre head or vice centre head account.
+ * Only owners and directors may call it; the server and database check rank.
+ * @param {{ staff_code: string, full_name: string, password: string, role: string, centre_id?: string|null }} data
+ */
+export async function createStaff(data) {
+  if (!isSupabaseConfigured()) {
+    if (!isDemoAllowedHost()) {
+      throw new Error('Configuration error - contact the administrator.');
+    }
+    return {
+      success: true,
+      staff: {
+        id: 'demo-staff-' + Date.now(),
+        student_code: String(data.staff_code || '').toUpperCase(),
+        full_name: data.full_name,
+        role: data.role,
+        centre_id: data.centre_id || null,
+        active: true,
+      },
+    };
+  }
+
+  const supabase = await getSupabase();
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    throw new Error('Authentication required. Please sign in again.');
+  }
+
+  const response = await fetch('/api/manage-teacher', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.access_token}`
+    },
+    body: JSON.stringify({ action: 'create_staff', ...data })
+  });
+
+  let result = null;
+  const rawText = await response.text();
+  try {
+    result = rawText && rawText.trim() ? JSON.parse(rawText) : null;
+  } catch {
+    result = null;
+  }
+
+  if (!response.ok || !result || !result.success) {
+    throw new Error(result?.error || `Failed to create the account (Status ${response.status})`);
+  }
+
+  clearProfileCache();
+  return result;
+}
+
+/**
  * Resets a teacher's password
  * @param {string} teacherId - The UUID of the teacher in profiles/auth.users
  * @param {string} newPassword - The new temporary password

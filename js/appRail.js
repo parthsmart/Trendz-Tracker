@@ -19,6 +19,7 @@
 
 import { STAFF_PAGE_ICONS, enhanceStaffUi } from './staffUi.js';
 import { getRoleNavItems, isNavItemCurrent } from './navConfig.js';
+import { isNetworkRole } from './roles.js';
 
 /**
  * Per-role layout.
@@ -78,6 +79,7 @@ const ROLE_LAYOUTS = {
       { id: 'admin-live-classes', href: '/pages/live-classes.html', label: 'Live Classes', short: 'Live', icon: '🎥', group: 'Manage' },
       { id: 'admin-homework', href: '/pages/homework.html', label: 'Homework', short: 'Homework', icon: '📚', group: 'Manage' },
       { id: 'admin-teachers', href: '/pages/teachers.html', label: 'Teachers', short: 'Teachers', icon: '🧑‍🏫', group: 'Manage' },
+      { id: 'admin-network', href: '/pages/network.html', label: 'Network', short: 'Network', icon: '🏢', group: 'Manage', network: true },
       { id: 'admin-settings', short: 'Settings', icon: '⚙️', group: 'Manage' },
     ],
     tabs: [
@@ -87,7 +89,7 @@ const ROLE_LAYOUTS = {
     ],
     more: [
       'admin-attendance', 'admin-leaderboard', 'admin-monthly-report', 'admin-live-classes',
-      'admin-homework', 'admin-teachers', 'admin-settings', 'admin-account',
+      'admin-homework', 'admin-teachers', 'admin-network', 'admin-settings', 'admin-account',
     ],
   },
   teacher: {
@@ -168,6 +170,7 @@ export function resolveRailItems(profile, pathname) {
   for (const r of layout.rail) {
     if (!r.href || byId.has(r.id)) continue;
     if (r.perm && permissions && permissions[r.perm] === false) continue;
+    if (r.network && !isNetworkRole(profile.network_role)) continue;
     byId.set(r.id, { id: r.id, label: r.label, href: r.href, group: r.group });
   }
 
