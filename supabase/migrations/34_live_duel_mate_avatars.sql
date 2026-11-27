@@ -1,4 +1,4 @@
--- Phase 33: live duel classmates carry their (privacy-checked) avatar so the student home
+-- Phase 34: live duel classmates carry their (privacy-checked) avatar so the student home
 -- Live Duels card can show who is online as small avatars. Only my_live_duels() changes:
 -- each 'mates' entry gains 'avatar_path' from avatar_visible(), which already hides
 -- avatars the student chose not to show.

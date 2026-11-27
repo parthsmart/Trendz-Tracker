@@ -57,7 +57,7 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const MIGRATION = fs.readFileSync(path.join(ROOT, 'supabase/migrations/31_live_duels.sql'), 'utf8');
-const MATE_AVATARS = fs.readFileSync(path.join(ROOT, 'supabase/migrations/33_live_duel_mate_avatars.sql'), 'utf8');
+const MATE_AVATARS = fs.readFileSync(path.join(ROOT, 'supabase/migrations/34_live_duel_mate_avatars.sql'), 'utf8');
 
 /* ===================================================================== 1 */
 

@@ -5,7 +5,7 @@
  */
 
 import crypto from 'node:crypto';
-import { normalizeProfileRole } from '../js/roles.js';
+import { normalizeProfileRole, roleRank } from '../js/roles.js';
 import { createClient } from '@supabase/supabase-js';
 import {
   getSupabaseAdminConfig,
@@ -322,6 +322,56 @@ export async function verifyAdminCaller(req) {
     ...profile,
     accessToken: token,
   };
+}
+
+/**
+ * Verifies the caller is an active staff member ranked at least `minRole`
+ * (owner > director > centre_head > vice_centre_head > teacher).
+ * Returns the normalized profile with `network_role`, `centre_id` and `accessToken`.
+ * The database still decides what the caller may actually change.
+ *
+ * @param {Request | Object} req
+ * @param {{ minRole?: string }} [options]
+ */
+export async function verifyStaffCaller(req, { minRole = 'teacher' } = {}) {
+  let authHeader = '';
+  if (req && req.headers) {
+    authHeader = typeof req.headers.get === 'function'
+      ? req.headers.get('authorization') || ''
+      : req.headers.authorization || req.headers.Authorization || '';
+  }
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+  if (!token) {
+    const err = new Error('Unauthorized: Missing or invalid Bearer token.');
+    err.statusCode = 401;
+    throw err;
+  }
+
+  const supabase = hasSupabaseAdminConfig() ? getAdminClient() : getCallerClient(token);
+  const { data: { user } = {}, error: userError } = await supabase.auth.getUser(token);
+  if (userError || !user) {
+    const err = new Error('Unauthorized: Invalid authentication session.');
+    err.statusCode = 401;
+    throw err;
+  }
+
+  const { data: rawProfile, error: profileError } = await supabase
+    .from('profiles')
+    .select('id, student_code, role, active, centre_id, deleted_at')
+    .eq('id', user.id)
+    .single();
+  const profile = normalizeProfileRole(rawProfile);
+  if (profileError || !profile || profile.deleted_at) {
+    const err = new Error('Forbidden: Caller profile not found.');
+    err.statusCode = 403;
+    throw err;
+  }
+  if (!profile.active || roleRank(profile.network_role) < roleRank(minRole)) {
+    const err = new Error('Forbidden: Your role cannot do this.');
+    err.statusCode = 403;
+    throw err;
+  }
+  return { ...profile, accessToken: token };
 }
 
 /**
