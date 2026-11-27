@@ -203,6 +203,7 @@
 .ldh-pick ul { list-style: none; margin: 0; padding: 0 12px 10px; display: grid; gap: 6px; max-height: 220px; overflow: auto; }
 .ldh-pick li { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: rgba(255, 255, 255, .9); }
 .ldh-pick li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ldh-pick li small { display: block; font-size: 11.5px; color: rgba(255, 255, 255, .6); overflow: hidden; text-overflow: ellipsis; }
 .ldh-pick li button { border: 0; border-radius: 8px; padding: 5px 10px; font: inherit; font-size: 12.5px; font-weight: 800; background: #FACC15; color: #1E1B4B; cursor: pointer; }
 .ldh-pick li button:disabled { opacity: .6; cursor: default; }
 @media (max-width: 640px) {
