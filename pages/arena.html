@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Arena - Trendz Tracker</title>
+    <meta name="description" content="Weekly leagues, duels, class vs class and rewards on Trendz Tracker." />
+
+    <!-- Design tokens & unified styles -->
+    <link rel="stylesheet" href="/css/style.css" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#2563EB" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Trendz Tracker" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- Top Bar Contract: 3-Zone Navigation -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <!-- Zone 1: Wordmark & Brand -->
+          <a href="/pages/student.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <!-- Mobile Menu Toggle -->
+          <button type="button" class="mobile-menu-btn" id="btn-mobile-menu" aria-label="Toggle Navigation" aria-expanded="false">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+
+          <!-- Zone 2: Navigation Links -->
+          <nav class="nav-zone" id="student-nav-zone" aria-label="Student Primary Navigation"></nav>
+
+          <!-- Zone 3: User Details & Logout Action -->
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Student</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-code" class="num" style="color: var(--text-muted);">STU</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Page Content -->
+      <main class="main-content">
+        <div class="container ar-container" style="max-width: 960px;">
+          <div id="config-banner-placeholder"></div>
+          <header class="ar-hero">
+            <h1>🏟️ Arena</h1>
+            <p class="ar-dim">Weekly leagues, duels with classmates, class vs class and rewards you can collect at the centre.</p>
+          </header>
+          <nav class="ar-tabs" role="tablist" aria-label="Arena sections">
+            <button type="button" role="tab" class="ar-tab" data-tab="league" id="tab-league" aria-controls="panel-league">🏅 League</button>
+            <button type="button" role="tab" class="ar-tab" data-tab="duels" id="tab-duels" aria-controls="panel-duels">⚔️ Duels</button>
+            <button type="button" role="tab" class="ar-tab" data-tab="classes" id="tab-classes" aria-controls="panel-classes">🏫 Class vs class</button>
+            <button type="button" role="tab" class="ar-tab" data-tab="rewards" id="tab-rewards" aria-controls="panel-rewards">🎁 Rewards</button>
+          </nav>
+
+          <section class="card ar-panel" role="tabpanel" id="panel-league" aria-labelledby="tab-league" hidden>
+            <div class="ar-staff-tiers" id="ar-staff-tiers" hidden></div>
+            <div id="ar-league"><p class="ar-dim">Loading…</p></div>
+          </section>
+
+          <section class="card ar-panel" role="tabpanel" id="panel-duels" aria-labelledby="tab-duels" hidden>
+            <div id="ar-duels-student">
+              <h2>My duels</h2>
+              <div id="ar-duel-list"><p class="ar-dim">Loading…</p></div>
+              <h2 class="ar-h2">Challenge a classmate</h2>
+              <div id="ar-duel-form-wrap"></div>
+            </div>
+            <p class="ar-dim" id="ar-duels-staff" hidden>Students challenge classmates at their own level to the same 1-minute basics round. Correct answers decide the winner; time only breaks a tie.</p>
+          </section>
+
+          <section class="card ar-panel" role="tabpanel" id="panel-classes" aria-labelledby="tab-classes" hidden>
+            <div class="ar-period" role="group" aria-label="Period">
+              <button type="button" class="btn btn-sm btn-primary" data-period="week">This week</button>
+              <button type="button" class="btn btn-sm btn-outline" data-period="month">This month</button>
+            </div>
+            <div id="ar-classes"><p class="ar-dim">Loading…</p></div>
+          </section>
+
+          <section class="card ar-panel" role="tabpanel" id="panel-rewards" aria-labelledby="tab-rewards" hidden>
+            <div id="ar-rewards"><p class="ar-dim">Loading…</p></div>
+            <form class="ar-item-form" id="ar-item-form" hidden>
+              <h3 class="ar-h3" id="ar-item-form-title">Add a reward</h3>
+              <input type="hidden" name="id" />
+              <label>Icon<input name="icon" maxlength="8" placeholder="🎁" /></label>
+              <label class="ar-grow">Name<input name="name" maxlength="60" required placeholder="e.g. Pencil set" /></label>
+              <label>XP cost<input name="cost" type="number" min="1" step="1" required /></label>
+              <label>Stock<input name="stock" type="number" min="0" step="1" placeholder="unlimited" /></label>
+              <label class="ar-full">Description<input name="description" maxlength="140" placeholder="Optional" /></label>
+              <label class="ar-check"><input name="active" type="checkbox" checked /> Show in the shop</label>
+              <div class="ar-full ar-form-actions">
+                <button type="submit" class="btn btn-primary btn-sm">Save reward</button>
+                <button type="button" class="btn btn-outline btn-sm" id="ar-item-reset">Clear</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      </main>
+    </div>
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+    <script type="module" src="/js/arena.js"></script>
+  </body>
+</html>
