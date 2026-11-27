@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Network — Trendz Tracker</title>
+    <meta name="description" content="Owner and director panel: centres, staff, people and duel openings." />
+    <link rel="stylesheet" href="/css/style.css" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#2563EB" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Trendz Tracker" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- Top Bar: 3-Zone Navigation -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <a href="/pages/admin.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="4" y="2" width="16" height="20" rx="2"></rect>
+                <line x1="8" y1="6" x2="16" y2="6"></line>
+                <line x1="16" y1="14" x2="16" y2="18"></line>
+                <path d="M16 10h.01"></path>
+                <path d="M12 10h.01"></path>
+                <path d="M8 10h.01"></path>
+                <path d="M12 14h.01"></path>
+                <path d="M8 14h.01"></path>
+                <path d="M12 18h.01"></path>
+                <path d="M8 18h.01"></path>
+              </svg>
+            </span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <button type="button" class="mobile-menu-btn" id="btn-mobile-menu" aria-label="Toggle Navigation" aria-expanded="false">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+
+          <nav class="nav-zone" id="admin-nav-zone" aria-label="Admin Primary Navigation"></nav>
+
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-sm); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Admin</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-role" style="color: var(--text-muted);">Teacher</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main class="main-content">
+        <div class="container">
+          <div id="config-banner-placeholder"></div>
+
+          <div class="section-header-row" style="margin-bottom: var(--space-6); display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: var(--space-4);">
+            <div>
+              <h1 style="margin: 0 0 var(--space-2) 0;">Network</h1>
+              <p style="font-size: var(--text-sm); margin: 0; color: var(--text-muted);">
+                Centres, staff and every person across Trendz. Signed in as <b id="network-actor-role">Owner</b>.
+              </p>
+            </div>
+            <div style="display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap;">
+              <label for="network-centre-switch" class="form-label" style="margin: 0;">Viewing</label>
+              <select id="network-centre-switch" class="form-select" style="width: auto; min-width: 180px;">
+                <option value="">All centres</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="network-error" class="banner banner-error" style="display: none;" role="alert"></div>
+
+          <section aria-label="Dashboard" style="margin-bottom: var(--space-6);">
+            <div class="stats-grid" id="network-totals"></div>
+            <div class="stats-grid" id="network-centre-cards"></div>
+          </section>
+
+          <section class="card" aria-labelledby="network-centres-title" style="margin-bottom: var(--space-6);">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3);">
+              <h2 id="network-centres-title" style="margin: 0; font-size: var(--text-lg);">Centres and schools</h2>
+              <button type="button" id="btn-open-create-centre" class="btn btn-primary btn-sm">+ Add centre</button>
+            </div>
+            <div class="card-body" id="network-centres-table"><div class="empty-state">Loading centres…</div></div>
+          </section>
+
+          <section class="card" aria-labelledby="network-people-title" style="margin-bottom: var(--space-6);">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3);">
+              <div style="display: flex; align-items: center; gap: var(--space-3);">
+                <h2 id="network-people-title" style="margin: 0; font-size: var(--text-lg);">People</h2>
+                <span class="badge badge-neutral num" id="network-people-count">0</span>
+              </div>
+              <div style="display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center;">
+                <select id="network-people-role" class="form-select" style="width: auto;" aria-label="Filter by role">
+                  <option value="">Everyone</option>
+                  <option value="staff">All staff</option>
+                  <option value="owner">Owners</option>
+                  <option value="director">Directors</option>
+                  <option value="centre_head">Centre heads</option>
+                  <option value="vice_centre_head">Vice centre heads</option>
+                  <option value="teacher">Teachers</option>
+                  <option value="student">Students</option>
+                </select>
+                <input type="search" id="network-people-search" class="form-input" style="max-width: 220px;" placeholder="Search name or code…" autocomplete="off" aria-label="Search people" />
+                <button type="button" id="btn-open-create-staff" class="btn btn-primary btn-sm">+ Add staff</button>
+              </div>
+            </div>
+            <div class="card-body" id="network-people-table"><div class="empty-state">Loading people…</div></div>
+          </section>
+
+          <section class="card" aria-labelledby="network-grants-title" style="margin-bottom: var(--space-6);">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3);">
+              <div>
+                <h2 id="network-grants-title" style="margin: 0; font-size: var(--text-lg);">Cross-centre duels</h2>
+                <p class="form-hint" style="margin: var(--space-1) 0 0 0;">Choose which students other centres can challenge. Saved now; duels across centres switch on in a later update.</p>
+              </div>
+              <button type="button" id="btn-open-create-grant" class="btn btn-outline btn-sm">+ Open students for duels</button>
+            </div>
+            <div class="card-body" id="network-grants-list"><div class="empty-state">Loading…</div></div>
+          </section>
+
+          <section class="card" aria-labelledby="network-audit-title">
+            <div class="card-header">
+              <h2 id="network-audit-title" style="margin: 0; font-size: var(--text-lg);">Recent role and centre changes</h2>
+            </div>
+            <div class="card-body" id="network-audit-list"><div class="empty-state">Loading…</div></div>
+          </section>
+        </div>
+      </main>
+
+      <footer class="app-footer">
+        <div class="container footer-inner">
+          <span>&copy; 2026 Trendz Abacus. Network administration.</span>
+          <span class="num">Network</span>
+        </div>
+      </footer>
+    </div>
+
+    <div id="centre-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="centre-modal-title">
+      <div class="modal-dialog" style="max-width: 520px;">
+        <header class="modal-header">
+          <div>
+            <h2 id="centre-modal-title" class="modal-title">Add centre</h2>
+            <p class="modal-subtitle">A centre or school with its own students, teachers and leaderboard.</p>
+          </div>
+          <button type="button" class="modal-close" data-close-modal="centre-modal" aria-label="Close">&times;</button>
+        </header>
+        <form id="centre-form" novalidate>
+          <div class="modal-body" style="display: flex; flex-direction: column; gap: var(--space-4);">
+            <div id="centre-form-error" class="banner banner-error" style="display: none;" role="alert"></div>
+            <input type="hidden" id="centre-id" />
+            <div class="form-group">
+              <label for="centre-name" class="form-label">Name</label>
+              <input id="centre-name" class="form-input" maxlength="80" required />
+            </div>
+            <div class="form-group">
+              <label for="centre-code" class="form-label">Code</label>
+              <input id="centre-code" class="form-input" maxlength="8" required style="text-transform: uppercase;" />
+              <span class="form-hint">2–8 capital letters or numbers, e.g. BRN.</span>
+            </div>
+            <div class="form-group">
+              <label for="centre-kind" class="form-label">Type</label>
+              <select id="centre-kind" class="form-select">
+                <option value="centre">Centre</option>
+                <option value="school">School</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="centre-city" class="form-label">City (optional)</label>
+              <input id="centre-city" class="form-input" maxlength="80" />
+            </div>
+          </div>
+          <footer class="modal-footer">
+            <button type="button" class="btn btn-ghost" data-close-modal="centre-modal">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="centre-submit">Save centre</button>
+          </footer>
+        </form>
+      </div>
+    </div>
+
+    <div id="staff-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="staff-modal-title">
+      <div class="modal-dialog" style="max-width: 560px;">
+        <header class="modal-header">
+          <div>
+            <h2 id="staff-modal-title" class="modal-title">Add staff account</h2>
+            <p class="modal-subtitle">Owners, directors, centre heads and vice heads. Add teachers on the Teachers page.</p>
+          </div>
+          <button type="button" class="modal-close" data-close-modal="staff-modal" aria-label="Close">&times;</button>
+        </header>
+        <form id="staff-form" novalidate autocomplete="off">
+          <div class="modal-body" style="display: flex; flex-direction: column; gap: var(--space-4);">
+            <div id="staff-form-error" class="banner banner-error" style="display: none;" role="alert"></div>
+            <div class="form-group">
+              <label for="staff-role" class="form-label">Role</label>
+              <select id="staff-role" class="form-select"></select>
+            </div>
+            <div class="form-group" id="staff-centre-group">
+              <label for="staff-centre" class="form-label">Centre</label>
+              <select id="staff-centre" class="form-select"></select>
+            </div>
+            <div class="form-group">
+              <label for="staff-code" class="form-label">Login code</label>
+              <input id="staff-code" class="form-input" maxlength="20" required style="text-transform: uppercase;" autocomplete="off" />
+              <span class="form-hint">Used to sign in, e.g. DIR01.</span>
+            </div>
+            <div class="form-group">
+              <label for="staff-name" class="form-label">Full name</label>
+              <input id="staff-name" class="form-input" maxlength="80" required autocomplete="off" />
+            </div>
+            <div class="form-group">
+              <label for="staff-password" class="form-label">Password</label>
+              <input id="staff-password" type="password" class="form-input" minlength="8" required autocomplete="new-password" />
+              <span class="form-hint">At least 8 characters. Type it yourself and share it privately.</span>
+            </div>
+          </div>
+          <footer class="modal-footer">
+            <button type="button" class="btn btn-ghost" data-close-modal="staff-modal">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="staff-submit">Create account</button>
+          </footer>
+        </form>
+      </div>
+    </div>
+
+    <div id="person-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="person-modal-title">
+      <div class="modal-dialog" style="max-width: 520px;">
+        <header class="modal-header">
+          <div>
+            <h2 id="person-modal-title" class="modal-title">Change role or centre</h2>
+            <p class="modal-subtitle" id="person-modal-subtitle"></p>
+          </div>
+          <button type="button" class="modal-close" data-close-modal="person-modal" aria-label="Close">&times;</button>
+        </header>
+        <form id="person-form" novalidate>
+          <div class="modal-body" style="display: flex; flex-direction: column; gap: var(--space-4);">
+            <div id="person-form-error" class="banner banner-error" style="display: none;" role="alert"></div>
+            <input type="hidden" id="person-id" />
+            <div class="form-group">
+              <label for="person-role" class="form-label">Role</label>
+              <select id="person-role" class="form-select"></select>
+            </div>
+            <div class="form-group" id="person-centre-group">
+              <label for="person-centre" class="form-label">Centre</label>
+              <select id="person-centre" class="form-select"></select>
+              <span class="form-hint">Changing the centre moves this person to that centre.</span>
+            </div>
+          </div>
+          <footer class="modal-footer">
+            <button type="button" class="btn btn-ghost" data-close-modal="person-modal">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="person-submit">Save</button>
+          </footer>
+        </form>
+      </div>
+    </div>
+
+    <div id="grant-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="grant-modal-title">
+      <div class="modal-dialog" style="max-width: 560px;">
+        <header class="modal-header">
+          <div>
+            <h2 id="grant-modal-title" class="modal-title">Open students for duels</h2>
+            <p class="modal-subtitle">Students in other centres will be able to challenge the students you choose.</p>
+          </div>
+          <button type="button" class="modal-close" data-close-modal="grant-modal" aria-label="Close">&times;</button>
+        </header>
+        <form id="grant-form" novalidate>
+          <div class="modal-body" style="display: flex; flex-direction: column; gap: var(--space-4);">
+            <div id="grant-form-error" class="banner banner-error" style="display: none;" role="alert"></div>
+            <div class="form-group">
+              <label for="grant-source" class="form-label">Students from</label>
+              <select id="grant-source" class="form-select"></select>
+            </div>
+            <div class="form-group">
+              <label for="grant-viewer" class="form-label">Open to</label>
+              <select id="grant-viewer" class="form-select"></select>
+            </div>
+            <div class="form-group">
+              <label for="grant-mode" class="form-label">Who</label>
+              <select id="grant-mode" class="form-select">
+                <option value="all">All students</option>
+                <option value="top_n">Top N students</option>
+                <option value="students">Chosen students</option>
+              </select>
+            </div>
+            <div class="form-group" id="grant-topn-group" style="display: none;">
+              <label for="grant-topn" class="form-label">How many</label>
+              <input id="grant-topn" type="number" min="1" max="500" value="10" class="form-input" />
+            </div>
+            <div class="form-group" id="grant-students-group" style="display: none;">
+              <span class="form-label">Students</span>
+              <div id="grant-students" style="max-height: 220px; overflow: auto; border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: var(--space-2);"></div>
+            </div>
+          </div>
+          <footer class="modal-footer">
+            <button type="button" class="btn btn-ghost" data-close-modal="grant-modal">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="grant-submit">Save</button>
+          </footer>
+        </form>
+      </div>
+    </div>
+
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <script type="module" src="/js/network.js"></script>
+  </body>
+</html>
