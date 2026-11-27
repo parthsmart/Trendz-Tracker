@@ -79,6 +79,7 @@ import {
 } from './weeklyTestRunner.js';
 import { submitHomeworkCompletion } from './homeworkData.js';
 import { showToast } from './toast.js';
+import { showRoundRewards } from './xpRewards.js';
 
 const STORAGE_PREFIX = 'trendz_memoriad_settings_v1_';
 
@@ -2573,6 +2574,10 @@ async function submitCurrentSession(finishedBy = lastFinishedBy || 'finish') {
 
     isSubmitting = false;
     renderResultsView();
+    if (!isTestMode && response?.saved && response?.result_id) {
+      const root = document.getElementById('memoriad-view-root');
+      showRoundRewards({ sourceId: response.result_id, anchor: root?.querySelector('section.card') || null, container: root });
+    }
   } catch (err) {
     isSubmitting = false;
     lastSubmissionError = {

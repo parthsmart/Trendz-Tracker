@@ -14,7 +14,8 @@ export const BOARD_LABELS = {
   streak: 'Streak',
   practice_days: 'Practice days',
   todo: 'Daily To-Do',
-  improved: 'Most improved'
+  improved: 'Most improved',
+  xp: 'XP'
 };
 
 export const PERIOD_LABELS = {
@@ -44,7 +45,8 @@ export function boardUsesPeriod(board) {
     board === 'points' ||
     board === 'weekly_tests' ||
     board === 'practice_days' ||
-    board === 'todo'
+    board === 'todo' ||
+    board === 'xp'
   );
 }
 
@@ -249,6 +251,8 @@ export function formatBoardValue(board, value) {
     case 'practice_days':
     case 'todo':
       return `${formattedNum} ${num === 1 ? 'day' : 'days'}`;
+    case 'xp':
+      return `${formattedNum} XP`;
     case 'improved': {
       const prefix = num > 0 ? '+' : '';
       return `${prefix}${formattedNum}% accuracy`;
