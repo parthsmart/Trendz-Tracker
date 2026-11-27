@@ -5,7 +5,7 @@
  * matchmaking (live_queue), ghost races (live_ghost), live challenges
  * (live_invite) and rematches (live_rematch). Answers, emotes, accepting a
  * challenge and settling go straight to SECURITY DEFINER RPCs in
- * supabase/migrations/30_live_duels.sql, which grade every answer themselves.
+ * supabase/migrations/31_live_duels.sql, which grade every answer themselves.
  *
  * Expected answers are written to live_duel_keys and never returned.
  */

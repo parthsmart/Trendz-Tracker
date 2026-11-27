@@ -119,7 +119,7 @@ async function privateChannel(topic, handlers, presenceKey) {
 /* -------------------------------------------------------------- Lobby */
 
 async function loadLobby() {
-  const [home, board, options] = await Promise.all([rpc('my_live_duels'), rpc('live_duel_board'), rpc('duel_options')]);
+  const [home, board] = await Promise.all([rpc('my_live_duels'), rpc('live_duel_board')]);
   st.home = home.data;
   if (home.error || !home.data) {
     $('ld-lobby-body').innerHTML = '<p class="ar-dim">Could not load live duels. Please refresh.</p>';
@@ -135,7 +135,7 @@ async function loadLobby() {
   $('ld-invites').innerHTML = buildInvitesHtml(home.data.invites, home.data.sent);
   $('ld-recent').innerHTML = buildRecentHtml(home.data.recent);
   $('ld-board').innerHTML = board.error ? '' : buildBoardHtml(board.data);
-  st.opponents = Array.isArray(options.data?.opponents) ? options.data.opponents : [];
+  st.opponents = Array.isArray(home.data.mates) ? home.data.mates : [];
   renderMates();
   show('ld-lobby');
 }

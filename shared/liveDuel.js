@@ -8,7 +8,7 @@
  *
  * This file holds the pure rules shared by the API (api/_liveDuels.js), the
  * page (js/liveDuel.js) and the tests. The database (supabase/migrations/
- * 30_live_duels.sql) applies the same rules when it grades answers and settles
+ * 31_live_duels.sql) applies the same rules when it grades answers and settles
  * a duel; tests/liveDuel.test.js checks the two agree.
  */
 

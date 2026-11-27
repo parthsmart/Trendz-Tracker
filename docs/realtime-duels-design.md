@@ -33,7 +33,7 @@ anti-cheat. We copy the mechanics only — no Matiks name, art or branding.
    plus a "Top duellists" board in the student's centre/level.
 
 ## Technical design
-- **Tables** (new migration `29_realtime_duels.sql`):
+- **Tables** (new migration `31_live_duels.sql`):
   `duel_queue` (student, level, centre_id, rating, joined_at),
   `live_duels` (id, a_id, b_id or ghost_of, level, centre_id, category, seed,
   start_at, end_at, status, a_correct/a_attempted, b_…, winner, rematch_of),

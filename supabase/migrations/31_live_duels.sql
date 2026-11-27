@@ -1,5 +1,5 @@
 -- =============================================================================
--- Phase 30: live duels (real-time head-to-head races)
+-- Phase 31: live duels (real-time head-to-head races)
 --
 --   * Two students at the same level (and centre, once centres exist) race the
 --     same seeded 60-second basics round at the same moment. Both see each
@@ -672,6 +672,14 @@ BEGIN
                        ORDER BY d.created_at DESC)
         FROM public.live_duels d JOIN public.profiles p ON p.id = d.a_id
        WHERE d.b_id = v_me AND d.status = 'invited'), '[]'::jsonb),
+    'mates', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object('id', p.id,
+               'display_name', public.display_name_for(p.full_name, p.student_code))
+             ORDER BY public.display_name_for(p.full_name, p.student_code))
+        FROM public.profiles p
+       WHERE p.role = 'student' AND p.active AND p.leaderboard_visible AND p.id <> v_me
+         AND p.level IS NOT DISTINCT FROM (SELECT m.level FROM public.profiles m WHERE m.id = v_me)
+         AND public.live_duel_centre_of(p.id) IS NOT DISTINCT FROM public.live_duel_centre_of(v_me)), '[]'::jsonb),
     'sent', COALESCE((
       SELECT jsonb_agg(jsonb_build_object('id', d.id, 'to_name', public.display_name_for(p.full_name, p.student_code),
                                           'expires_at', d.invite_expires_at))

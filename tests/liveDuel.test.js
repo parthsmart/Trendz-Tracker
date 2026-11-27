@@ -1,5 +1,5 @@
 /**
- * Live duels (shared/liveDuel.js, api/_liveDuels.js, migration 30).
+ * Live duels (shared/liveDuel.js, api/_liveDuels.js, migration 31).
  *
  * 1. Pure rules: answer grading, timing checks, winner, Elo, bonus XP,
  *    matchmaking, ghost and bot timelines, race bar.
@@ -56,7 +56,7 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
-const MIGRATION = fs.readFileSync(path.join(ROOT, 'supabase/migrations/30_live_duels.sql'), 'utf8');
+const MIGRATION = fs.readFileSync(path.join(ROOT, 'supabase/migrations/31_live_duels.sql'), 'utf8');
 
 /* ===================================================================== 1 */
 
@@ -718,6 +718,19 @@ describe('live duel SQL (PGlite)', () => {
     assert.equal(mine.enabled, true);
     assert.ok(mine.rating.played >= 1);
     assert.ok(mine.recent.length >= 1);
+    assert.deepEqual(mine.mates.map((m) => m.display_name), ['Ben', 'Cara'], 'same level, not me, not staff');
+  });
+
+  it('reads centres from profiles.centre_id once multi-centre adds it', async () => {
+    await db.exec('ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS centre_id uuid');
+    await db.query("UPDATE public.profiles SET centre_id = '11111111-0000-4000-8000-000000000001' WHERE id IN ($1, $2)", [A, B]);
+    await db.query("UPDATE public.profiles SET centre_id = '22222222-0000-4000-8000-000000000002' WHERE id = $1", [C]);
+    const mine = await as(A, async () => (await one('SELECT public.my_live_duels() AS m', [])).m);
+    assert.deepEqual(mine.mates.map((m) => m.display_name), ['Ben'], 'other centres are not offered');
+    const board = await as(C, async () => (await one('SELECT public.live_duel_board() AS b', [])).b);
+    assert.equal(board.some((r) => r.display_name === 'Asha'), false, 'top duellists are per centre');
+    const centre = await one('SELECT public.live_duel_centre_of($1) AS c', [C]);
+    assert.equal(centre.c, '22222222-0000-4000-8000-000000000002');
   });
 });
 
