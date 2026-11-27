@@ -27,6 +27,23 @@
 import { getAdminClient, getCallerClient, verifyAdminCaller, verifyStaffCaller } from './_supabaseAdmin.js';
 import { getTeacherWebinarEmail, normalizeCohostEmail } from './_teacherWebinarEmail.js';
 import { createStaff } from './_networkStaff.js';
+import { assertStudentsInCentre, canManageTarget, isNetworkCaller, resolveCreateCentre } from './_centreScope.js';
+
+// Management actions with a centre-scoped database function for centre heads
+// and vice heads (migration 36). The admin_* functions stay owner/director only.
+const CENTRE_RPC = Object.freeze({
+  update_assignments: (body, teacherId) => ['centre_set_teacher_assignments', {
+    p_teacher: teacherId,
+    p_student_ids: Array.isArray(body.assigned_student_ids)
+      ? body.assigned_student_ids.filter((id) => typeof id === 'string' && id.trim().length > 0)
+      : [],
+  }],
+  update_permissions: (body, teacherId) => ['centre_update_teacher_permissions', {
+    p_teacher: teacherId,
+    p_permissions: body.permissions || {},
+  }],
+  set_active: (body, teacherId) => ['centre_set_active', { p_target: teacherId, p_active: body.active }],
+});
 
 /**
  * Handles teacher creation with compensating cleanup on database failure
@@ -40,7 +57,8 @@ export async function createTeacher(req, res, adminCaller = null) {
     password,
     webinar_email,
     permissions = {},
-    assigned_student_ids = []
+    assigned_student_ids = [],
+    centre_id
   } = req.body || {};
 
   if (!teacher_code || !full_name || !password) {
@@ -65,6 +83,18 @@ export async function createTeacher(req, res, adminCaller = null) {
 
   const supabaseAdmin = getAdminClient();
 
+  // Centre: chosen by owners and directors, always the caller's own for heads.
+  let centreId;
+  let checkedStudentIds = null;
+  try {
+    centreId = await resolveCreateCentre(caller, centre_id, supabaseAdmin);
+    if (centreId) {
+      checkedStudentIds = await assertStudentsInCentre(supabaseAdmin, assigned_student_ids, centreId);
+    }
+  } catch (err) {
+    return res.status(err.statusCode || 400).json({ error: err.message });
+  }
+
   // 1. Create user in Supabase Auth (server-side administrative Auth)
   const { data: authUser, error: createAuthError } = await supabaseAdmin.auth.admin.createUser({
     email,
@@ -85,9 +115,9 @@ export async function createTeacher(req, res, adminCaller = null) {
   const teacherUserId = authUser.user.id;
 
   // 2. Validate & clean student IDs array
-  const validStudentIds = Array.isArray(assigned_student_ids)
+  const validStudentIds = checkedStudentIds || (Array.isArray(assigned_student_ids)
     ? assigned_student_ids.filter((id) => typeof id === 'string' && id.trim().length > 0)
-    : [];
+    : []);
 
   // Auth may have created a default student profile. Initialize only this new user
   // through the server-only client, with the verified admin as the audit actor.
@@ -114,6 +144,19 @@ export async function createTeacher(req, res, adminCaller = null) {
     return res.status(400).json({
       error: 'Failed to initialize teacher in database: ' + (rpcError.message || 'Unknown error')
     });
+  }
+
+  // 3. Move the new teacher into the chosen centre (new accounts start in the default one)
+  if (centreId) {
+    const { error: centreErr } = await supabaseAdmin
+      .from('profiles')
+      .update({ centre_id: centreId })
+      .eq('id', teacherUserId);
+    if (centreErr) {
+      console.warn('Compensating cleanup: Deleting Auth user after centre assignment failure:', centreErr.message);
+      await supabaseAdmin.auth.admin.deleteUser(teacherUserId);
+      return res.status(400).json({ error: 'Failed to add the teacher to the centre: ' + centreErr.message });
+    }
   }
 
   // 4. Fetch created profile to return to client
@@ -149,7 +192,7 @@ export async function manageTeacher(req, res, adminCaller = null) {
   // Verify target is a valid teacher profile
   const { data: teacherProfile, error: profileErr } = await supabaseAdmin
     .from('profiles')
-    .select('id, student_code, full_name, role, active')
+    .select('id, student_code, full_name, role, active, centre_id')
     .eq('id', teacher_id)
     .single();
 
@@ -159,6 +202,26 @@ export async function manageTeacher(req, res, adminCaller = null) {
 
   if (teacherProfile.role !== 'teacher') {
     return res.status(400).json({ error: 'Target user is not a teacher.' });
+  }
+
+  // Centre heads and vice heads: only teachers of their own centre, and the
+  // database changes go through the centre-scoped functions.
+  if (!isNetworkCaller(caller)) {
+    if (!canManageTarget(caller, teacherProfile)) {
+      return res.status(403).json({ error: 'Forbidden: You can only manage teachers of your own centre.' });
+    }
+    const centreRpc = CENTRE_RPC[action];
+    if (centreRpc) {
+      if (action === 'set_active' && typeof req.body.active !== 'boolean') {
+        return res.status(400).json({ error: 'Field "active" must be a boolean.' });
+      }
+      const [fn, args] = centreRpc(req.body, teacher_id);
+      const { data, error } = await dbClient.rpc(fn, args);
+      if (error) {
+        return res.status(400).json({ error: error.message || 'Could not update the teacher.' });
+      }
+      return res.status(200).json({ success: true, ...(data || {}) });
+    }
   }
 
   if (action === 'get_webinar_email') {
@@ -380,8 +443,9 @@ export async function teacherEndpointHandler(req, res) {
       return await createStaff(req, res, staffCaller);
     }
 
-    // 1. Verify caller is an authenticated active admin
-    const adminCaller = await verifyAdminCaller(req);
+    // 1. Verify caller: owners, directors, centre heads and vice heads.
+    //    Heads are limited to their own centre in createTeacher / manageTeacher.
+    const adminCaller = await verifyStaffCaller(req, { minRole: 'vice_centre_head' });
 
     // Creation dispatch: explicit action or creation payload fields
     if (action === 'create' || action === 'create_teacher' || (!action && body.teacher_code && body.password)) {

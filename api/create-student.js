@@ -1,10 +1,12 @@
 /**
  * Vercel Serverless Function: /api/create-student
  * Creates a student in Supabase Auth & public.profiles using the Service Role Key.
- * Verifies caller is an authenticated admin first.
+ * Verifies the caller first: owners and directors may add a student to any
+ * active centre (centre_id), centre heads and vice heads only to their own.
  */
 
-import { getAdminClient, verifyAdminCaller } from './_supabaseAdmin.js';
+import { getAdminClient, verifyStaffCaller } from './_supabaseAdmin.js';
+import { resolveCreateCentre } from './_centreScope.js';
 import { validateLevel } from '../shared/levels.js';
 
 export default async function handler(req, res) {
@@ -14,11 +16,11 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1. Verify caller is an active admin
-    await verifyAdminCaller(req);
+    // 1. Verify caller is active staff ranked vice centre head or above
+    const caller = await verifyStaffCaller(req, { minRole: 'vice_centre_head' });
 
     // 2. Parse payload
-    const { student_code, full_name, level, password } = req.body || {};
+    const { student_code, full_name, level, password, centre_id } = req.body || {};
 
     if (!student_code || !full_name || !password) {
       return res.status(400).json({ error: 'Student code, full name, and temporary password are required.' });
@@ -34,6 +36,8 @@ export default async function handler(req, res) {
     const email = `${cleanCode.toLowerCase()}@trendz.local`;
 
     const supabaseAdmin = getAdminClient();
+    // null = the default centre (set by the database)
+    const centreId = await resolveCreateCentre(caller, centre_id, supabaseAdmin);
 
     // A deleted student keeps their code; point the admin to Restore instead of a vague auth error.
     const { data: existing } = await supabaseAdmin
@@ -73,7 +77,8 @@ export default async function handler(req, res) {
         full_name: cleanName,
         role: 'student',
         level: cleanLevel,
-        active: true
+        active: true,
+        ...(centreId ? { centre_id: centreId } : {})
       })
       .select()
       .single();
@@ -90,7 +95,8 @@ export default async function handler(req, res) {
     });
   } catch (err) {
     console.error('Error in /api/create-student:', err);
-    return res.status(err.message.includes('Unauthorized') ? 401 : 403).json({
+    const status = err.statusCode || (err.message?.includes('Unauthorized') ? 401 : 403);
+    return res.status(status).json({
       error: err.message || 'Internal Server Error'
     });
   }
