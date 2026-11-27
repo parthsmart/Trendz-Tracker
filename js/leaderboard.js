@@ -39,6 +39,7 @@ import {
   isSpeedRankableTask,
   scopeLabel,
   boardTitle,
+  XP_PERIOD_LABELS,
   formatTaskFilterOptions,
   mapLeaderboardRows,
   mapTaskLeaderboardRows
@@ -333,6 +334,9 @@ function syncToolbarControlsUI() {
   const periodButtons = document.querySelectorAll('[data-period-choice]');
   periodButtons.forEach(b => {
     const choice = b.getAttribute('data-period-choice');
+    if (!b.dataset.defaultLabel) b.dataset.defaultLabel = b.textContent.trim();
+    const xpLabel = currentBoard === 'xp' ? XP_PERIOD_LABELS[choice] : null;
+    b.textContent = xpLabel || b.dataset.defaultLabel;
     const active = choice === currentPeriodChoice;
     b.classList.toggle('active', active);
     b.setAttribute('aria-pressed', active ? 'true' : 'false');
@@ -601,6 +605,12 @@ function buildRankCellHtml(rankNum) {
 // Signed photo URLs for the board being shown (avatar_path -> url).
 let avatarUrls = new Map();
 
+/** Name and (global scope) level on the row, so the top-five podium never has to guess them. */
+function buildRowDataAttrs(row) {
+  const level = row.show_level_chip && row.level ? ` data-level="${escapeHtml(row.level)}"` : '';
+  return `data-name="${escapeHtml(row.display_name || '')}"${level}`;
+}
+
 function buildStudentCellHtml(row) {
   const isMe = row.is_me;
   const avatar = row.avatar_path !== undefined
@@ -723,7 +733,7 @@ async function loadActiveBoard() {
           : '';
 
         htmlRows.push(`
-          <tr style="${rowStyle}" data-is-me="${isMe ? 'true' : 'false'}">
+          <tr style="${rowStyle}" data-is-me="${isMe ? 'true' : 'false'}" ${buildRowDataAttrs(row)}>
             <td>${buildRankCellHtml(row.rank)}</td>
             <td>${buildStudentCellHtml(row)}</td>
             <td class="num" style="text-align: right; font-weight: 700; color: ${isMe ? 'var(--color-primary)' : 'var(--text-main)'};">
@@ -796,7 +806,7 @@ async function loadActiveBoard() {
           : '';
 
         htmlRows.push(`
-          <tr style="${rowStyle}" data-is-me="${isMe ? 'true' : 'false'}">
+          <tr style="${rowStyle}" data-is-me="${isMe ? 'true' : 'false'}" ${buildRowDataAttrs(row)}>
             <td>${buildRankCellHtml(row.rank)}</td>
             <td>${buildStudentCellHtml(row)}</td>
             <td class="num" style="text-align: right; font-weight: 700; color: ${isMe ? 'var(--color-primary)' : 'var(--text-main)'};">
@@ -875,7 +885,7 @@ async function loadActiveBoard() {
         : '';
 
       htmlRows.push(`
-        <tr style="${rowStyle}" data-is-me="${isMe ? 'true' : 'false'}">
+        <tr style="${rowStyle}" data-is-me="${isMe ? 'true' : 'false'}" ${buildRowDataAttrs(row)}>
           <td>${buildRankCellHtml(row.rank)}</td>
           <td>${buildStudentCellHtml(row)}</td>
           <td class="num" style="text-align: right; font-weight: 700; color: ${isMe ? 'var(--color-primary)' : 'var(--text-main)'};">

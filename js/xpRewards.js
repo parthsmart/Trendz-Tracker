@@ -36,9 +36,17 @@ const TIER_ICONS = {
   Gold: '🥇',
   Platinum: '💠',
   Diamond: '💎',
-  Master: '👑',
+  Elite: '👑',
+  Master: '👑', // old name of Elite, kept for saved season results
   Legend: '🌟',
 };
+
+/** "Master level" / "Level 2" / "your level": a class level, never confused with a tier. */
+export function levelName(level) {
+  const l = String(level ?? '').trim();
+  if (!l) return 'your level';
+  return /\blevel\b/i.test(l) ? l : `${l} level`;
+}
 
 export function tierIcon(name) {
   return TIER_ICONS[name] || '⭐';
@@ -121,7 +129,8 @@ export function streakLine(streak) {
 export function rankLine(weekRank) {
   const r = weekRank || {};
   if (!r.rank) return '';
-  const pos = `#${r.rank} in ${r.level || 'your level'} this week`;
+  const of = Number(r.of) > 0 ? ` of ${formatXp(r.of)}` : '';
+  const pos = `#${r.rank}${of} in ${levelName(r.level)} this week`;
   if (r.rank === 1 || !r.above_name) return `🏆 ${pos}. You are on top!`;
   return `🏆 ${pos} · ${formatXp(r.gap)} XP behind ${r.above_name}`;
 }
@@ -302,7 +311,7 @@ export function buildProgressCardHtml(summary, boardRows = [], avatarUrls = new 
   const rows = Array.isArray(boardRows) ? boardRows.slice(0, 5) : [];
   const boardHtml = rows.length
     ? `<ol class="xp-list">${rows.map((row) => `<li class="${row?.is_me ? 'me' : ''}"><span style="display:inline-flex;align-items:center;gap:6px">#${escapeXpHtml(row?.rank)} ${avatarHtml(avatarUrls.get(row?.avatar_path) || null, row?.display_name, 22)} ${escapeXpHtml(row?.display_name)}${row?.is_me ? ' (you)' : ''}</span><span>${formatXp(row?.value)} XP</span></li>`).join('')}</ol>`
-    : '<div class="xp-dim">No XP earned in your level yet this week. Finish a round to get on the board.</div>';
+    : '<div class="xp-dim">No XP earned in your class level yet this week. Finish a round to get on the board.</div>';
 
   const bests = Array.isArray(summary.bests) ? summary.bests.slice(0, 6) : [];
   const bestsHtml = bests.length
@@ -320,13 +329,13 @@ export function buildProgressCardHtml(summary, boardRows = [], avatarUrls = new 
     </div>
     <div class="xp-stats">
       <div class="xp-stat"><span class="xp-dim">This week</span><b>${formatXp(summary.week_xp)} XP</b><span class="xp-dim">Today ${formatXp(summary.today_xp)}</span></div>
-      <div class="xp-stat"><span class="xp-dim">Season rank</span><b>${sRank.rank ? `#${formatXp(sRank.rank)}` : '—'}</b><span class="xp-dim">${sRank.of ? `of ${formatXp(sRank.of)}` : ''}</span></div>
+      <div class="xp-stat"><span class="xp-dim">Season rank</span><b>${sRank.rank ? `#${formatXp(sRank.rank)}` : '—'}</b><span class="xp-dim">${sRank.of ? `of ${formatXp(sRank.of)} · ${escapeXpHtml(levelName(sRank.level || rank.level))}` : ''}</span></div>
       <div class="xp-stat"><span class="xp-dim">Streak</span><b>🔥 ${formatXp(streak.current)}</b><span class="xp-dim">${Number(streak.shields) > 0 ? `🛡️ ${formatXp(streak.shields)} shield${Number(streak.shields) === 1 ? '' : 's'}` : `Best ${formatXp(streak.best)}`}</span></div>
-      <div class="xp-stat"><span class="xp-dim">Week rank</span><b>${rank.rank ? `#${formatXp(rank.rank)}` : '—'}</b><span class="xp-dim">${rank.of ? `of ${formatXp(rank.of)}` : ''}</span></div>
+      <div class="xp-stat"><span class="xp-dim">Week rank</span><b>${rank.rank ? `#${formatXp(rank.rank)}` : '—'}</b><span class="xp-dim">${rank.of ? `of ${formatXp(rank.of)} · ${escapeXpHtml(levelName(rank.level || sRank.level))}` : ''}</span></div>
     </div>
     ${rankText ? `<div class="xp-meta"><span>${escapeXpHtml(rankText)}</span></div>` : ''}
     <div class="xp-meta">${sLine ? `<span>${escapeXpHtml(sLine)}</span>` : ''}<span class="xp-dim">Career ${formatXp(careerXp(summary))} XP</span></div>
-    <div class="xp-section-title">This week's XP board</div>
+    <div class="xp-section-title">This week's XP board · ${escapeXpHtml(levelName(rank.level || sRank.level))}</div>
     ${boardHtml}
     <div class="xp-section-title">Personal bests</div>
     ${bestsHtml}
@@ -375,7 +384,7 @@ export function buildSeasonRecapHtml(recap) {
   const tier = recap.tier || {};
   const icon = tierIcon(tier.name);
   const rank = Number(recap.level_rank) > 0
-    ? `#${formatXp(recap.level_rank)} of ${formatXp(recap.level_size)} in ${escapeXpHtml(recap.level || 'your level')}`
+    ? `#${formatXp(recap.level_rank)} of ${formatXp(recap.level_size)} in ${escapeXpHtml(levelName(recap.level))}`
     : '';
   const badges = Array.isArray(recap.badges) ? recap.badges : [];
   const stat = (label, value) => `<div class="xp-stat"><span class="xp-dim">${label}</span><b>${value}</b></div>`;

@@ -1,8 +1,8 @@
 /**
  * Trendz Tracker - Leaderboard top-five graph (js/leaderboardPodium.js)
  *
- * Student layout only: a bar graph of the top five on the current board, with everyone
- * else listed underneath. It reads the rows js/leaderboard.js already rendered (no extra
+ * Student layout only: a podium of the top five on the current board (#1 in the middle,
+ * #2 and #3 beside it, #4 and #5 on the outside), with everyone else listed underneath. It reads the rows js/leaderboard.js already rendered (no extra
  * data calls), so every board, period, scope and privacy rule stays exactly as before.
  * Shown by CSS when the side menu is mounted (body.has-app-rail), for students and staff.
  */
@@ -19,17 +19,45 @@ function esc(str) {
     .replace(/'/g, '&#039;');
 }
 
-function readRow(tr) {
+/**
+ * Podium display order for the top n (as indexes into the rank-ordered list):
+ * #1 in the middle, #2 and #3 either side, #4 and #5 on the outside -> 4 2 1 3 5.
+ */
+export function podiumOrder(n) {
+  return [3, 1, 0, 2, 4].filter((i) => i < Math.max(0, Math.min(TOP_N, Number(n) || 0)));
+}
+
+/** Step height (px) of a podium block by rank, so the podium always reads 1 > 2 > 3 > 4 > 5. */
+export const STEP_HEIGHTS = [118, 92, 74, 58, 46];
+
+function initialOf(name) {
+  return String(name || '?').trim().charAt(0).toUpperCase() || '?';
+}
+
+export function readRow(tr) {
   const cells = tr.querySelectorAll('td');
   if (cells.length < 3) return null;
   const rank = (cells[0].textContent || '').trim();
   if (!/^#?\d+/.test(rank)) return null;
-  const nameEl = cells[1].querySelector('a, span:not(.lb-av):not(.badge)');
-  const name = (nameEl?.textContent || cells[1].textContent || '').replace(/\s+/g, ' ').trim();
+  // leaderboard.js puts the display name on the row; the cell also holds the avatar initial,
+  // a level chip and a "You" badge, so its text is only a fallback.
+  let name = (tr.getAttribute('data-name') || '').trim();
+  if (!name) {
+    const nameEl = cells[1].querySelector('a, span:not(.lb-av):not(.tt-av):not(.badge):not(:empty)');
+    name = (nameEl?.textContent || '').replace(/\s+/g, ' ').trim();
+  }
   // The main score is always the third column (Points / Best / Days / Tasks ...).
   const value = (cells[2].textContent || '').replace(/\s+/g, ' ').trim();
   if (!name) return null;
-  return { rank: Number(rank.replace(/^#/, '')), name, value, me: tr.getAttribute('data-is-me') === 'true' };
+  const photo = cells[1].querySelector('.tt-av img')?.getAttribute('src') || '';
+  return {
+    rank: Number(rank.replace(/^#/, '')),
+    name,
+    value,
+    level: (tr.getAttribute('data-level') || '').trim(),
+    photo,
+    me: tr.getAttribute('data-is-me') === 'true',
+  };
 }
 
 /** Leading number of a score, or null for times (m:ss) and anything non-numeric. */
@@ -44,50 +72,59 @@ function metricLabel() {
   return (th?.textContent || 'Score').trim();
 }
 
+function avatarFor(r) {
+  return r.photo
+    ? `<span class="tt-av lb-pav"><img src="${esc(r.photo)}" alt="" loading="lazy" decoding="async" /></span>`
+    : `<span class="tt-av lb-pav" aria-hidden="true">${esc(initialOf(r.name))}</span>`;
+}
+
+/** Podium HTML for the rank-ordered top rows (pure, so it can be tested). */
+export function buildPodiumHtml(rows, metric) {
+  const list = Array.isArray(rows) ? rows.slice(0, TOP_N) : [];
+  const lowerIsBetter = /^best$/i.test(metric || '');
+  const cols = podiumOrder(list.length)
+    .map((i) => {
+      const r = list[i];
+      const place = i + 1;
+      const tip = `#${r.rank} ${r.name}${r.me ? ' (you)' : ''}: ${r.value} ${metric}`;
+      const medal = MEDALS[r.rank - 1] ? `<span class="lb-medal" aria-hidden="true">${MEDALS[r.rank - 1]}</span>` : '';
+      return `<li class="lb-col lb-place-${place}${r.me ? ' is-me' : ''}" title="${esc(tip)}" aria-label="${esc(tip)}">
+        <div class="lb-who" aria-hidden="true">
+          ${place === 1 ? '<span class="lb-crown">👑</span>' : ''}
+          ${avatarFor(r)}
+          <b class="lb-name">${esc(r.name)}</b>
+          ${r.level ? `<span class="lb-level">${esc(r.level)}</span>` : ''}
+          ${r.me ? '<span class="lb-you">You</span>' : ''}
+          <span class="lb-val num">${esc(r.value)}</span>
+        </div>
+        <div class="lb-step" style="--step:${STEP_HEIGHTS[i]}px" aria-hidden="true">
+          <span class="lb-rank num">${medal}#${esc(r.rank)}</span>
+        </div>
+      </li>`;
+    })
+    .join('');
+  return `
+    <div class="lb-graph-head">
+      <h3 class="lb-graph-title">Top ${list.length}</h3>
+      <span class="lb-graph-metric">${esc(metric)}${lowerIsBetter ? ' · lower is better' : ''}</span>
+    </div>
+    <ol class="lb-bars" style="--cols:${list.length}" aria-label="Top ${list.length}, number 1 in the middle">${cols}</ol>`;
+}
+
 function renderGraph(graph, rows, metric) {
   const nums = rows.map((r) => toNumber(r.value));
-  // Lower-is-better boards (fastest time) and text values get evenly stepped bars by rank.
   const lowerIsBetter = /^best$/i.test(metric) || nums.some((n) => n === null);
   const max = Math.max(0, ...nums.filter((n) => n !== null));
-  const heightFor = (r, i) => {
-    if (lowerIsBetter || max <= 0) return 100 - i * 14;
-    return Math.max(6, Math.round((nums[i] / max) * 100));
-  };
-
-  graph.innerHTML = `
-    <div class="lb-graph-head">
-      <h3 class="lb-graph-title">Top ${rows.length}</h3>
-      <span class="lb-graph-metric">${esc(metric)}${lowerIsBetter && /^best$/i.test(metric) ? ' · lower is better' : ''}</span>
-    </div>
-    <ol class="lb-bars" style="--cols:${rows.length}">
-      ${rows
-        .map((r, i) => {
-          const tip = `#${r.rank} ${r.name}${r.me ? ' (you)' : ''}: ${r.value} ${metric}`;
-          const medal = MEDALS[r.rank - 1] ? `<span class="lb-medal" aria-hidden="true">${MEDALS[r.rank - 1]}</span>` : '';
-          return `<li class="lb-col${r.me ? ' is-me' : ''}" title="${esc(tip)}" aria-label="${esc(tip)}">
-            <div class="lb-plot" aria-hidden="true">
-              <span class="lb-val num">${esc(r.value)}</span>
-              <span class="lb-bar" style="height:${heightFor(r, i)}%"></span>
-            </div>
-            <div class="lb-who" aria-hidden="true">
-              <span class="lb-rank num">${medal}#${esc(r.rank)}</span>
-              <span class="lb-av">${esc(r.name.charAt(0).toUpperCase())}</span>
-              <b class="lb-name">${esc(r.name)}</b>
-              ${r.me ? '<span class="lb-you">You</span>' : ''}
-            </div>
-          </li>`;
-        })
-        .join('')}
-    </ol>`;
+  graph.innerHTML = buildPodiumHtml(rows, metric);
   return { lowerIsBetter, max, nums };
 }
 
-/** Adds an initial avatar and a thin score meter to a row below the graph (idempotent). */
+/** Adds a thin score meter (and an initial only if the row has no avatar) to a row below the podium. */
 function decorateRestRow(tr, row, scale) {
   const cells = tr.querySelectorAll('td');
   const who = cells[1];
-  if (!who.querySelector('.lb-av')) {
-    who.insertAdjacentHTML('afterbegin', `<span class="lb-av" aria-hidden="true">${esc(row.name.charAt(0).toUpperCase())}</span>`);
+  if (!who.querySelector('.lb-av, .tt-av')) {
+    who.insertAdjacentHTML('afterbegin', `<span class="lb-av" aria-hidden="true">${esc(initialOf(row.name))}</span>`);
   }
   who.classList.add('lb-who-cell');
   who.querySelector('.lb-meter')?.remove();
@@ -144,7 +181,7 @@ function init() {
   const graph = document.createElement('section');
   graph.id = 'leaderboard-podium';
   graph.className = 'lb-podium lb-graph';
-  graph.setAttribute('aria-label', 'Top students graph');
+  graph.setAttribute('aria-label', 'Top five podium');
   graph.hidden = true;
   const restTitle = document.createElement('h3');
   restTitle.className = 'lb-rest-title';
@@ -175,8 +212,10 @@ function init() {
   update();
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
-} else {
-  init();
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
 }
