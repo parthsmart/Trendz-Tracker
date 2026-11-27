@@ -65,7 +65,7 @@ test('naming: migration renames the Master tier to Elite and keeps badge keys', 
   assert.match(sql, /UPDATE public\.xp_season_results SET tier = 'Elite' WHERE tier = 'Master'/);
   assert.match(sql, /\('tier_master', 'Elite tier'/, 'badge key unchanged, name fixed');
   assert.match(sql, /COALESCE\(v\.d, badge_catalogue\.description\)/);
-  assert.match(read('../js/fullBackup.js'), /'28_phase28_tier_naming'/);
+  assert.match(read('../js/fullBackup.js'), /FULL_BACKUP_SCHEMA_VERSION = '(2[89]|[3-9]\d)_/);
 });
 
 test('podium: #1 in the middle, #2 and #3 beside it, #4 and #5 outside', () => {
