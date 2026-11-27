@@ -41,9 +41,9 @@ describe('scopeLabel(level, scope)', () => {
     assert.equal(scopeLabel('   '), 'Your group (your level only)');
   });
 
-  it('returns "Global (all trainees)" when scope is "global"', () => {
-    assert.equal(scopeLabel('Junior 2', 'global'), 'Global (all trainees)');
-    assert.equal(scopeLabel(null, 'global'), 'Global (all trainees)');
+  it('returns "All levels (your centre)" when scope is "global"', () => {
+    assert.equal(scopeLabel('Junior 2', 'global'), 'All levels (your centre)');
+    assert.equal(scopeLabel(null, 'global'), 'All levels (your centre)');
   });
 });
 
@@ -62,7 +62,7 @@ describe('boardTitle(board, period, scope, level, taskTitle, todayIST)', () => {
   it('formats board or "<task title> - <period label> - <scope or level>" accurately', () => {
     assert.equal(
       boardTitle('streak', 'week', 'global'),
-      'Streak - Global (all trainees)'
+      'Streak - All levels (your centre)'
     );
     assert.equal(
       boardTitle('todo', 'week', 'level', 'Junior 2'),
@@ -74,7 +74,7 @@ describe('boardTitle(board, period, scope, level, taskTitle, todayIST)', () => {
     );
     assert.equal(
       boardTitle('todo', 'date:2026-10-29', 'global', null, 'Mental Basics: 1d4r', '2026-10-31'),
-      'Mental Basics: 1d4r - Thu 29 Oct 2026 - Global (all trainees)'
+      'Mental Basics: 1d4r - Thu 29 Oct 2026 - All levels (your centre)'
     );
     assert.equal(
       boardTitle('points', 'all', 'Junior 2 (your level only)'),

@@ -34,7 +34,7 @@ export function scoreText(correct, attempted) {
  *
  * Examples:
  * - Single test: "Sunday Test #4 - Level 2 (your level)"
- * - All tests in period: "Weekly tests - This month - Global (all trainees)"
+ * - All tests in period: "Weekly tests - This month - All levels (your centre)"
  *
  * @param {object|string|null} test - Weekly test object `{ title }` or title string, or null for "All tests"
  * @param {string} period - Period key ('today'|'yesterday'|'week'|'month'|'year'|'all'|'date:YYYY-MM-DD')

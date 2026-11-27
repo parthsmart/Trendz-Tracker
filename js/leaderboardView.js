@@ -83,7 +83,7 @@ export function isSpeedRankableTask(task) {
 
 /**
  * Formats the student scope label for their own level or global scope.
- * - When scope is 'global', returns "Global (all trainees)".
+ * - When scope is 'global', returns "All levels (your centre)".
  * - When level is non-empty, returns "<level> (your level only)" (e.g. "Junior 2 (your level only)").
  * - When the student has no level, returns "Your group (your level only)".
  *
@@ -93,7 +93,7 @@ export function isSpeedRankableTask(task) {
  */
 export function scopeLabel(level, scope = 'level') {
   if (scope === 'global') {
-    return 'Global (all trainees)';
+    return 'All levels (your centre)';
   }
   const cleanLevel = typeof level === 'string' ? level.trim() : '';
   if (cleanLevel) {
@@ -126,10 +126,10 @@ export function resolvePeriodTitleLabel(period, todayIST) {
 /**
  * Builds the card header title showing the board (or selected task title), period (when applicable), and scope.
  * Examples:
- * - boardTitle('streak', 'week', 'global') -> "Streak - Global (all trainees)"
+ * - boardTitle('streak', 'week', 'global') -> "Streak - All levels (your centre)"
  * - boardTitle('todo', 'week', 'level', 'Junior 2') -> "Daily To-Do - This week - Junior 2 (your level only)"
  * - boardTitle('todo', 'week', 'level', 'Junior 2', 'Mental Basics: 1d4r') -> "Mental Basics: 1d4r - This week - Junior 2 (your level only)"
- * - boardTitle('todo', 'date:2026-10-29', 'global', null, 'Mental Basics: 1d4r') -> "Mental Basics: 1d4r - Thu 29 Oct 2026 - Global (all trainees)"
+ * - boardTitle('todo', 'date:2026-10-29', 'global', null, 'Mental Basics: 1d4r') -> "Mental Basics: 1d4r - Thu 29 Oct 2026 - All levels (your centre)"
  * - boardTitle('points', 'month', 'Junior 2 (your level only)') -> "Points - This month - Junior 2 (your level only)"
  *
  * @param {string} board - 'points' | 'streak' | 'practice_days' | 'todo' | 'improved'
@@ -165,7 +165,7 @@ export function boardTitle(
 
   let resolvedScope = '';
   if (scope === 'global') {
-    resolvedScope = 'Global (all trainees)';
+    resolvedScope = 'All levels (your centre)';
   } else if (scope === 'level') {
     resolvedScope = scopeLabel(level, 'level');
   } else if (typeof scope === 'string' && scope.trim()) {
