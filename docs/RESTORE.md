@@ -1,8 +1,78 @@
 # Trendz Tracker — Disaster Recovery & Data Restoration Guide (`docs/RESTORE.md`)
 
-This document provides step-by-step instructions for restoring Trendz Tracker data from either:
+This document provides step-by-step instructions for restoring Trendz Tracker data. **Start with section 0 (Full Excel Backup) when you have one**: it covers every table and the login accounts. The older options are:
 1. **Option A: Manual ZIP Archive (`trendz-backup-YYYY-MM-DD.zip`)** — recommended when available because every CSV already contains exact current-state snapshots of all 18 tables.
 2. **Option B: Nightly Google Sheet Backup (`BACKUP_SHEET_ID`)** — used when restoring from the automated Google Sheet backup (requires deduplicating the 6 append-mode tables by `id`).
+
+---
+
+## 0. Recommended: Restoring from the Full Excel Backup (`trendz-full-backup-YYYY-MM-DD-HHMM.xlsx`)
+
+**Download full backup (Excel)** on `/pages/backup.html` (admin only) saves the whole database in one workbook. Download one regularly and keep it somewhere private.
+
+### What the workbook contains
+
+- **Every table in the `public` schema, every column, every row.** The tables are found automatically from the live database, so a new table is included without code changes. `tests/fullBackup.test.js` fails if a `create table` in the repo is missing from `FULL_BACKUP_KNOWN_TABLES`. The only thing left out is the view `results_with_target`, because it is rebuilt from `results`.
+- **Exact values:**
+  - IDs and foreign keys are kept as they are.
+  - Timestamps are kept to the microsecond, as the original `timestamptz` text.
+  - Numbers are kept as their exact text.
+  - `jsonb` and array columns are stored as JSON text.
+  - An empty cell means NULL. An empty string is stored as an empty text cell.
+- **Sheets:**
+  - `README` explains the file.
+  - `_meta` holds the export time, source project, schema version and format version.
+  - `_tables` holds each table's row count, primary key, the tables it depends on, and the restore order.
+  - `_columns` holds each column's type and foreign key.
+  - `_auth_users` holds the login accounts.
+  - Then one sheet per table, in restore order.
+- **Limits:**
+  - Values longer than 32,000 characters continue in the `_overflow` sheet and are joined back together on restore.
+  - Tables larger than one Excel sheet continue in sheets named `table~2`, `table~3` and so on.
+- **Excel safety:** every text cell is plain text, so a value like `=SUM()` is never run as a formula.
+- **Sensitive data:** `jmcwc_payloads` (Main Round answer keys) is included, so treat the file as confidential.
+
+### Login accounts (`auth.users`)
+
+- **Included:** id, email, phone, role, the confirmed, last-sign-in, created, updated and banned timestamps, `is_anonymous`, `is_sso_user`, `user_metadata`, and `app_metadata`.
+- **Never included:** password hashes, tokens, recovery or confirmation codes, MFA factors, or identities. They are removed on the server before the file is built.
+- **How logins come back:**
+  - `--recreate-auth` (below) recreates every account with its **original id and email**, so `profiles.id` and every foreign key still match.
+  - Each recreated account gets a new random temporary password, written only to the CSV you name.
+  - Give each student their temporary password, or reset it from the Students page.
+  - Passwords can't be recovered from any backup, by design.
+
+### Not included
+
+- **Storage files** in the `lectures` and `recordings` buckets. Their rows (`lectures`, `live_class_recordings`) are in the workbook, but the files themselves are not. Copy the buckets separately from the Supabase dashboard.
+- **Database structure** (tables, functions, policies, triggers). Recreate it from `supabase/migrations` (see section 1).
+- **Point-in-time consistency:** tables are read one page at a time while the app is running. Export during a quiet period so that rows written mid-export don't leave a child row without its parent.
+
+### Restore procedure
+
+1. Create a new Supabase project and apply every migration in `supabase/migrations` in order.
+2. Dry run. This checks the file and prints the restore order; it writes nothing:
+   ```powershell
+   node scripts/restoreFromBackup.js trendz-full-backup-2026-11-26-1030.xlsx
+   ```
+3. Recreate the login accounts first, because `profiles.id` references `auth.users`:
+   ```powershell
+   $env:SUPABASE_URL = "https://<new-project>.supabase.co"; $env:SUPABASE_SERVICE_ROLE_KEY = "<new service role key>"
+   node scripts/restoreFromBackup.js trendz-full-backup-2026-11-26-1030.xlsx --recreate-auth --passwords-out temp-passwords.csv
+   ```
+4. Restore the data. Either:
+   - insert it directly with `$env:RESTORE_DATABASE_URL = "postgresql://..."` and `--apply`; or
+   - write a script with `--sql-out restore.sql` and run it with `psql -f restore.sql`.
+
+   How the restore runs:
+   - It is one transaction, parents first.
+   - Each table's user triggers are paused, so audit, streak and notification triggers don't add extra rows.
+   - Foreign keys and constraints stay enforced.
+   - It refuses to run if any table other than `profiles` already has rows, unless you add `--allow-nonempty`. Profile rows created when logins were recreated are overwritten with the backup's values.
+   - If any row fails, nothing is kept.
+   - `--only table1,table2` restores just those tables.
+5. Check that the row counts printed by `--apply` match the `_tables` sheet. Then go through section 5.
+6. Delete `temp-passwords.csv` once every student has their new password.
 
 ---
 
