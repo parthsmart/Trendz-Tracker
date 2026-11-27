@@ -52,7 +52,7 @@ export function getRecordsRulesExplanation(section) {
     case 'element':
       return `Elements rankings compare attempts on the exact same worksheet drill configuration. Sorted by highest score, with fastest completion time as tie-breaker. Genuine ties share the record. ${commonRules}`;
     case 'memoriad':
-      return `Memoriad rankings compare attempts within each standard competition module (Calendar, Additions, Multiplications, Square Roots). Sorted by highest official score and elapsed time. Genuine ties share the record. ${commonRules}`;
+      return `Memoriad rankings compare attempts within each standard competition module (Calendar, Additions, Multiplications, Division, Square Roots). Sorted by highest official score and elapsed time. Genuine ties share the record. ${commonRules}`;
     default:
       return commonRules;
   }
@@ -345,7 +345,7 @@ export async function setupPracticeRecordsSection(
         : '';
 
       containerEl.innerHTML = `
-        <div class="card practice-highest-records-card" style="margin-bottom: var(--space-5); padding: var(--space-4) var(--space-5);">
+        <div class="card practice-highest-records-card" data-records-section="${escapeHtml(section)}" style="margin-bottom: var(--space-5); padding: var(--space-4) var(--space-5);">
           <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-2);">
             <div>
               <div style="display: flex; align-items: center; gap: 8px;">

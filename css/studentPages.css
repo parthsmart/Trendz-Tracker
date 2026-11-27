@@ -72,6 +72,11 @@ body.flash-playing #flash-answer-panel { width: min(520px, 100%); background: #f
 .record-card-acts { display: flex; gap: 6px; margin-top: auto; padding-top: 6px; }
 .record-card-acts .btn { flex: 1; justify-content: center; text-decoration: none; padding: 7px 8px; font-size: 13px; }
 .record-card-acts .btn-records-log { flex: 0 0 auto; padding: 7px 14px; }
+/* Memoriad: five long module names + level tags; give cards room and let tags wrap below the title */
+[data-records-section="memoriad"] .practice-records-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 185px), 1fr)); }
+[data-records-section="memoriad"] .record-card-top { flex-direction: column; align-items: flex-start; gap: 2px; }
+[data-records-section="memoriad"] .record-card-title { font-size: 15px; line-height: 1.25; }
+[data-records-section="memoriad"] .record-card-tag { white-space: normal; padding-top: 0; }
 /* Basics: records render their own card; drop the outer wrapper card */
 #online-practice-categories-card { background: none; border: 0; box-shadow: none; padding: 0 !important; }
 
