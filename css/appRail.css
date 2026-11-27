@@ -42,13 +42,45 @@
 .app-rail .rail-bell .nav-notifications-badge { position: absolute; top: -4px; right: -6px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: var(--color-danger); color: #fff; font-size: 10px; font-weight: 700; display: grid; place-items: center; }
 .app-rail .rail-avatar { border: 0; background: none; padding: 0; display: flex; align-items: center; gap: 10px; cursor: pointer; font-family: inherit; color: var(--text-main); font-weight: 700; font-size: 14px; }
 .app-rail .rail-avatar .av { width: 38px; height: 38px; border-radius: 50%; background: var(--color-primary); color: #fff; font-weight: 800; font-size: 15px; display: grid; place-items: center; flex: none; }
-.app-rail .rail-menu { position: absolute; left: 52px; bottom: 0; min-width: 190px; background: var(--bg-surface); border: 1px solid var(--border-hairline); border-radius: 12px; box-shadow: var(--shadow-lg); padding: 6px; display: grid; gap: 2px; z-index: 5; }
-.app-rail .rail-menu[hidden] { display: none; }
-.app-rail .rail-menu .who { padding: 8px 10px; font-size: 13px; color: var(--text-muted); border-bottom: 1px solid var(--border-hairline); margin-bottom: 4px; }
-.app-rail .rail-menu .who b { display: block; color: var(--text-main); font-size: 14px; }
-.app-rail .rail-menu button { text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: 8px; font: inherit; font-size: 14px; font-weight: 600; color: var(--text-main); cursor: pointer; }
-.app-rail .rail-menu button:hover { background: var(--bg-surface-subtle); }
-.app-rail .rail-menu button.danger { color: var(--color-danger-text); }
+.app-rail .rail-avatar .av { overflow: hidden; }
+.app-rail .rail-avatar .av img, .app-rail .rp-av img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.app-rail .rail-avatar.is-open .av { box-shadow: 0 0 0 3px var(--color-primary-subtle); }
+
+/* ---------- Flyouts and the profile preview: they open beside the rail ---------- */
+.app-rail button.rail-link { border: 0; background: none; font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; }
+.app-rail .rail-link.is-open { background: var(--bg-surface-subtle); color: var(--text-main); }
+.app-rail .rail-link.is-current.is-open { background: var(--color-primary-subtle); color: var(--color-primary-text); }
+.app-rail .rail-link:focus-visible, .app-rail .rail-avatar:focus-visible, .app-rail .rail-fly-link:focus-visible, .app-rail .rp-link:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.app-rail .rail-pop { position: fixed; left: var(--pop-left, 86px); top: var(--pop-top, auto); bottom: var(--pop-bottom, auto); z-index: 90; background: var(--bg-surface); border: 1px solid var(--border-hairline); border-radius: 16px; box-shadow: 0 16px 44px rgba(15, 23, 42, .2); padding: 14px; text-align: left; }
+.app-rail .rail-pop[hidden] { display: none !important; }
+.app-rail .rail-pop-h { margin: 0 4px 10px; font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--text-dim); }
+.app-rail .rail-flyout { width: 320px; }
+.app-rail .rail-fly-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.app-rail .rail-fly-link { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 12px 4px; border-radius: 12px; border: 1px solid var(--border-hairline); background: #FBFCFE; color: var(--text-main); text-decoration: none; font-size: 13px; font-weight: 600; text-align: center; line-height: 1.2; }
+.app-rail .rail-fly-link .ic { font-size: 22px; line-height: 1; }
+.app-rail .rail-fly-link:hover { background: var(--bg-surface-subtle); }
+.app-rail .rail-fly-link.is-current { background: var(--color-primary-subtle); color: var(--color-primary-text); border-color: #BFDBFE; }
+
+.app-rail .rail-profile { width: 290px; padding: 16px; display: grid; gap: 12px; }
+.app-rail .rp-head { display: flex; align-items: center; gap: 12px; }
+.app-rail .rp-av { width: 52px; height: 52px; border-radius: 50%; overflow: hidden; flex: none; display: grid; place-items: center; background: var(--color-primary); color: #fff; font-weight: 800; font-size: 21px; }
+.app-rail .rp-id { min-width: 0; display: grid; gap: 2px; font-size: 13px; color: var(--text-muted); }
+.app-rail .rp-id b { font-size: 16px; color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-rail .rp-dim { margin: 0; font-size: 12.5px; color: var(--text-muted); }
+.app-rail .rp-xp { display: grid; gap: 8px; padding: 12px; border-radius: 12px; background: var(--bg-surface-subtle, #F8FAFC); border: 1px solid var(--border-hairline); }
+.app-rail .rp-tier { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.app-rail .rp-tier b { font-size: 15px; color: var(--text-main); }
+.app-rail .rp-bar { height: 7px; border-radius: 999px; background: #E2E8F0; overflow: hidden; }
+.app-rail .rp-bar span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--color-primary), #7C3AED); }
+.app-rail .rp-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; text-align: center; }
+.app-rail .rp-stats div { display: grid; gap: 1px; }
+.app-rail .rp-stats b { font-size: 14px; color: var(--text-main); white-space: nowrap; }
+.app-rail .rp-stats span { font-size: 10.5px; color: var(--text-muted); }
+.app-rail .rp-actions { display: grid; gap: 2px; border-top: 1px solid var(--border-hairline); padding-top: 8px; }
+.app-rail .rp-link { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border: 0; border-radius: 10px; background: none; font: inherit; font-size: 14px; font-weight: 600; color: var(--text-main); text-decoration: none; text-align: left; cursor: pointer; }
+.app-rail .rp-link .ic { width: 20px; text-align: center; }
+.app-rail .rp-link:hover { background: var(--bg-surface-subtle); }
+.app-rail .rp-link.danger { color: var(--color-danger-text); }
 
 /* ---------- Expanded sidebar ---------- */
 body.rail-expanded .app-rail .rail-top { grid-template-columns: auto 1fr auto; align-items: center; justify-items: start; gap: 10px; margin-bottom: 14px; }
@@ -63,7 +95,16 @@ body.rail-expanded .app-rail .rail-bottom { justify-items: stretch; border-top: 
 body.rail-expanded .app-rail .rail-bell { width: auto; height: 40px; border-radius: 10px; justify-content: flex-start; padding: 0 12px; font-size: 14.5px; font-weight: 600; }
 body.rail-expanded .app-rail .rail-bell .nav-notifications-badge { position: static; margin-left: auto; }
 body.rail-expanded .app-rail .rail-avatar { padding: 4px 6px; }
-body.rail-expanded .app-rail .rail-menu { left: 0; bottom: 52px; }
+body.rail-expanded .app-rail button.rail-link { width: 100%; font-size: 14.5px; }
+body.rail-expanded .app-rail .rail-fly .chev { display: inline; margin-left: auto; font-size: 16px; transition: transform .15s ease; }
+body.rail-expanded .app-rail .rail-fly.is-open .chev { transform: rotate(90deg); }
+/* With the sidebar open, a flyout becomes a group under its button */
+body.rail-expanded .app-rail .rail-flyout { position: static; width: auto; padding: 2px 0 6px 14px; border: 0; border-radius: 0; box-shadow: none; background: none; }
+body.rail-expanded .app-rail .rail-flyout .rail-pop-h { display: none; }
+body.rail-expanded .app-rail .rail-fly-grid { grid-template-columns: 1fr; gap: 2px; }
+body.rail-expanded .app-rail .rail-fly-link { flex-direction: row; justify-content: flex-start; gap: 12px; padding: 8px 12px; border: 0; background: none; font-size: 14px; text-align: left; border-left: 2px solid var(--border-hairline); border-radius: 0 10px 10px 0; }
+body.rail-expanded .app-rail .rail-fly-link .ic { font-size: 16px; width: 20px; }
+body.rail-expanded .app-rail .rail-fly-link.is-current { background: var(--color-primary-subtle); border-left-color: var(--color-primary); }
 
 /* ---------- Phones & tablets (< 1024px): top bar + bottom tab bar ---------- */
 .app-mbar, .app-mtabs, .app-msheets { display: none; }

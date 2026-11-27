@@ -1415,7 +1415,7 @@ function applyDuelModeUi() {
   const startBtn = document.getElementById('btn-start-practice');
   if (startBtn && !startBtn.disabled) startBtn.textContent = 'Start the duel';
   const cancel = document.getElementById('setup-cancel-link');
-  if (cancel) cancel.setAttribute('href', '/pages/arena.html#duels');
+  if (cancel) cancel.setAttribute('href', '/pages/duels.html');
   for (const id of ['btn-same-mode-again', 'btn-change-mode']) {
     const btn = document.getElementById(id);
     if (btn) btn.style.display = 'none';
@@ -1425,7 +1425,7 @@ function applyDuelModeUi() {
     const link = document.createElement('a');
     link.id = 'btn-duel-back';
     link.className = 'btn btn-primary';
-    link.href = '/pages/arena.html#duels';
+    link.href = '/pages/duels.html';
     link.textContent = '⚔️ Back to my duels';
     again.insertAdjacentElement('afterend', link);
   }
