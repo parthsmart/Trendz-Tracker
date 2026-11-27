@@ -8,7 +8,6 @@
  */
 
 import { getSupabase, DemoDB } from './supabaseClient.js';
-import { avatarHtml, ensureAvatarStyles, signAvatarUrls } from './avatars.js';
 import { celebrate, celebrateOnce, countUpWithin } from './motion.js';
 
 const STYLE_ID = 'xp-rewards-style';
@@ -293,10 +292,11 @@ export async function showRoundRewards({ sourceId, anchor = null, container = nu
 }
 
 /**
- * Builds the student home "My XP" card from `my_xp_summary` plus the weekly XP board rows
- * (from `leaderboard(p_board => 'xp')`). Returns '' when there is no summary.
+ * Builds the student home "My XP" card from `my_xp_summary`: tier, season/week XP, ranks and streak.
+ * The weekly board and personal bests live on the leaderboard and profile pages.
+ * Returns '' when there is no summary.
  */
-export function buildProgressCardHtml(summary, boardRows = [], avatarUrls = new Map()) {
+export function buildProgressCardHtml(summary) {
   if (!summary) return '';
   const tp = tierProgress(seasonXp(summary), summary.tier);
   const streak = summary.streak || {};
@@ -307,16 +307,6 @@ export function buildProgressCardHtml(summary, boardRows = [], avatarUrls = new 
     ? `${formatXp(tp.toNext)} XP to ${tierIcon(tp.nextName)} ${escapeXpHtml(tp.nextName)}`
     : 'Top tier reached';
   const rankText = rankLine(rank);
-
-  const rows = Array.isArray(boardRows) ? boardRows.slice(0, 5) : [];
-  const boardHtml = rows.length
-    ? `<ol class="xp-list">${rows.map((row) => `<li class="${row?.is_me ? 'me' : ''}"><span style="display:inline-flex;align-items:center;gap:6px">#${escapeXpHtml(row?.rank)} ${avatarHtml(avatarUrls.get(row?.avatar_path) || null, row?.display_name, 22)} ${escapeXpHtml(row?.display_name)}${row?.is_me ? ' (you)' : ''}</span><span>${formatXp(row?.value)} XP</span></li>`).join('')}</ol>`
-    : '<div class="xp-dim">No XP earned in your class level yet this week. Finish a round to get on the board.</div>';
-
-  const bests = Array.isArray(summary.bests) ? summary.bests.slice(0, 6) : [];
-  const bestsHtml = bests.length
-    ? `<ul class="xp-list">${bests.map((b) => `<li><span>${escapeXpHtml(b?.label)}</span><span><strong>${escapeXpHtml(b?.score)}</strong> <span class="xp-dim">${escapeXpHtml(b?.day || '')}</span></span></li>`).join('')}</ul>`
-    : '<div class="xp-dim">Score 70% or more in a round to set your first personal best.</div>';
 
   return `
     <div class="xp-head">
@@ -335,30 +325,16 @@ export function buildProgressCardHtml(summary, boardRows = [], avatarUrls = new 
     </div>
     ${rankText ? `<div class="xp-meta"><span>${escapeXpHtml(rankText)}</span></div>` : ''}
     <div class="xp-meta">${sLine ? `<span>${escapeXpHtml(sLine)}</span>` : ''}<span class="xp-dim">Career ${formatXp(careerXp(summary))} XP</span></div>
-    <div class="xp-section-title">This week's XP board · ${escapeXpHtml(levelName(rank.level || sRank.level))}</div>
-    ${boardHtml}
-    <div class="xp-section-title">Personal bests</div>
-    ${bestsHtml}
-    <div class="xp-meta"><a href="/pages/leaderboard.html?board=xp&amp;period=month">See the season leaderboard ›</a><a href="/pages/profile.html">My badges &amp; profile ›</a></div>
   `;
 }
 
 /**
  * Renders the "My XP" card into `container` (student home). Hides it when XP is unavailable.
- * `loadBoard` returns the weekly XP board rows; it is injected so this file has no leaderboard dependency.
  */
-export async function renderXpProgressCard(container, { studentId = null, loadBoard = null } = {}) {
+export async function renderXpProgressCard(container, { studentId = null } = {}) {
   if (!container) return;
-  const [summary, rows] = await Promise.all([
-    fetchXpSummary(studentId),
-    typeof loadBoard === 'function'
-      ? Promise.resolve().then(loadBoard).catch(() => [])
-      : Promise.resolve([]),
-  ]);
-  const boardRows = Array.isArray(rows) ? rows : [];
-  ensureAvatarStyles(container.ownerDocument);
-  const avatarUrls = await signAvatarUrls(boardRows.map((r) => r?.avatar_path));
-  const html = buildProgressCardHtml(summary, boardRows, avatarUrls);
+  const summary = await fetchXpSummary(studentId);
+  const html = buildProgressCardHtml(summary);
   if (!html) {
     container.hidden = true;
     return;

@@ -72,20 +72,14 @@ test('round card: nothing for an unrewarded round, PB details and escaping other
   assert.match(first, /First score/);
 });
 
-test('progress card shows board rows, bests and the leaderboard link', () => {
+test('home XP card shows the totals without the weekly board or personal bests', () => {
   assert.equal(buildProgressCardHtml(null), '');
-  const html = buildProgressCardHtml(
-    { ...totals, bests: [{ label: 'Flash 2D', score: '10/10', day: '2026-11-20' }] },
-    [{ rank: 1, display_name: '<i>x</i>', value: 300 }, { rank: 3, display_name: 'Me', value: 120, is_me: true }]
-  );
+  const html = buildProgressCardHtml({ ...totals, bests: [{ label: 'Flash 2D', score: '10/10', day: '2026-11-20' }] });
   assert.match(html, /1,500 XP this season/);
-  assert.match(html, /&lt;i&gt;x&lt;\/i&gt;/);
-  assert.match(html, /Me \(you\)/);
-  assert.match(html, /Flash 2D/);
-  assert.match(html, /leaderboard\.html\?board=xp&amp;period=month/);
-  const empty = buildProgressCardHtml({ ...totals, bests: [] }, []);
-  assert.match(empty, /No XP earned/);
-  assert.match(empty, /first personal best/);
+  assert.match(html, /This week/);
+  assert.doesNotMatch(html, /XP board/);
+  assert.doesNotMatch(html, /Personal bests/);
+  assert.doesNotMatch(html, /Flash 2D/);
 });
 
 test('leaderboard knows the XP board', () => {
@@ -118,7 +112,7 @@ test('seasons: the month decides the tier, lifetime is the career number', () =>
 });
 
 test('seasons: cards show season XP, season rank and career XP', () => {
-  const card = buildProgressCardHtml(seasonTotals, []);
+  const card = buildProgressCardHtml(seasonTotals);
   assert.match(card, /1,200 XP this season/);
   assert.match(card, /Season rank/);
   assert.match(card, /#2/);
