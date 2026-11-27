@@ -316,7 +316,7 @@ describe('Phase 18 — Teacher API HTTP Handlers & Identity Enforcement', () => 
       resStudent
     );
     assert.equal(resStudent.getStatusCode(), 403);
-    assert.match(resStudent.getData().error, /Admin access required/i);
+    assert.match(resStudent.getData().error, /Admin access required|Your role cannot do this/i);
 
     const resTeacher = createMockRes();
     await manageTeacherHandler(
@@ -328,7 +328,7 @@ describe('Phase 18 — Teacher API HTTP Handlers & Identity Enforcement', () => 
       resTeacher
     );
     assert.equal(resTeacher.getStatusCode(), 403);
-    assert.match(resTeacher.getData().error, /Admin access required/i);
+    assert.match(resTeacher.getData().error, /Admin access required|Your role cannot do this/i);
   });
 
   it('rejects teacher caller token with 403 Forbidden across all administrative APIs (create-student, reset-password, backup)', async () => {
@@ -343,7 +343,7 @@ describe('Phase 18 — Teacher API HTTP Handlers & Identity Enforcement', () => 
       resCreateStudent
     );
     assert.equal(resCreateStudent.getStatusCode(), 403);
-    assert.match(resCreateStudent.getData().error, /Admin access required/i);
+    assert.match(resCreateStudent.getData().error, /Admin access required|Your role cannot do this/i);
 
     // 2. /api/reset-password
     const resResetPwd = createMockRes();
@@ -356,7 +356,7 @@ describe('Phase 18 — Teacher API HTTP Handlers & Identity Enforcement', () => 
       resResetPwd
     );
     assert.equal(resResetPwd.getStatusCode(), 403);
-    assert.match(resResetPwd.getData().error, /Admin access required/i);
+    assert.match(resResetPwd.getData().error, /Admin access required|Your role cannot do this/i);
 
     // 3. /api/backup
     const resBackup = createMockRes();
@@ -369,7 +369,7 @@ describe('Phase 18 — Teacher API HTTP Handlers & Identity Enforcement', () => 
       resBackup
     );
     assert.equal(resBackup.getStatusCode(), 403);
-    assert.match(resBackup.getData().error, /Admin access required/i);
+    assert.match(resBackup.getData().error, /Admin access required|Your role cannot do this/i);
   });
 
   it('rejects inactive admin token with 403 Forbidden', async () => {
@@ -383,7 +383,7 @@ describe('Phase 18 — Teacher API HTTP Handlers & Identity Enforcement', () => 
       res
     );
     assert.equal(res.getStatusCode(), 403);
-    assert.match(res.getData().error, /Admin access required/i);
+    assert.match(res.getData().error, /Admin access required|Your role cannot do this/i);
   });
 
   // ---------------------------------------------------------------------------

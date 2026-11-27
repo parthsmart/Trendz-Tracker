@@ -188,6 +188,8 @@ export function describeAudit(row, nameById = new Map(), centreById = new Map())
       return `${actor} opened ${centreName(after.source_centre_id)} students for duels`;
     case 'centre_visibility_delete':
       return `${actor} closed a duel opening for ${centreName(before.source_centre_id)}`;
+    case 'centre_backup':
+      return `${actor} downloaded the backup of ${centreName(row.centre_id)}`;
     default: {
       const verb = AUDIT_VERBS[row.action];
       if (verb) return `${target} ${verb}${row.actor_id ? ` by ${actor}` : ''}`;

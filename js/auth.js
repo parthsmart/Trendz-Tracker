@@ -473,6 +473,8 @@ export function redirectByRole(profile) {
     window.location.href = '/pages/admin.html';
   } else if (profile.role === 'teacher') {
     window.location.href = '/pages/teacher.html';
+  } else if (profile.role === 'centre_head' || profile.role === 'vice_centre_head') {
+    window.location.href = '/pages/centre.html';
   } else {
     window.location.href = '/pages/student.html';
   }

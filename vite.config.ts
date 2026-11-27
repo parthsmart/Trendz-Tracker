@@ -139,6 +139,7 @@ export default defineConfig(({ command }) => {
           teacher: path.resolve(__dirname, 'pages/teacher.html'),
           teachers: path.resolve(__dirname, 'pages/teachers.html'),
           network: path.resolve(__dirname, 'pages/network.html'),
+          centre: path.resolve(__dirname, 'pages/centre.html'),
           liveClasses: path.resolve(__dirname, 'pages/live-classes.html'),
           liveRoom: path.resolve(__dirname, 'pages/live-room.html'),
           myLiveClasses: path.resolve(__dirname, 'pages/my-live-classes.html'),

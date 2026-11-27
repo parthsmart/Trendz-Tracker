@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Centre — Trendz Tracker</title>
+    <meta name="description" content="Centre head panel: students, teachers, vice heads, settings and backup." />
+    <link rel="stylesheet" href="/css/style.css" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#2563EB" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Trendz Tracker" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- Top Bar: 3-Zone Navigation -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <a href="/pages/centre.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="4" y="2" width="16" height="20" rx="2"></rect>
+                <line x1="8" y1="6" x2="16" y2="6"></line>
+                <line x1="16" y1="14" x2="16" y2="18"></line>
+                <path d="M16 10h.01"></path>
+                <path d="M12 10h.01"></path>
+                <path d="M8 10h.01"></path>
+                <path d="M12 14h.01"></path>
+                <path d="M8 14h.01"></path>
+                <path d="M12 18h.01"></path>
+                <path d="M8 18h.01"></path>
+              </svg>
+            </span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <button type="button" class="mobile-menu-btn" id="btn-mobile-menu" aria-label="Toggle Navigation" aria-expanded="false">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+
+          <nav class="nav-zone" id="admin-nav-zone" aria-label="Centre navigation"></nav>
+
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-sm); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Admin</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-role" style="color: var(--text-muted);">Teacher</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main class="main-content">
+        <div class="container">
+          <div id="config-banner-placeholder"></div>
+
+          <div class="section-header-row" style="margin-bottom: var(--space-5); display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: var(--space-4);">
+            <div>
+              <h1 style="margin: 0 0 var(--space-2) 0;" id="centre-title">Centre</h1>
+              <p style="font-size: var(--text-sm); margin: 0; color: var(--text-muted);">
+                Signed in as <b id="centre-actor-role">Centre head</b>. <span id="centre-subtitle"></span>
+              </p>
+            </div>
+            <div style="display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap;">
+              <a href="/pages/account.html" class="btn btn-ghost btn-sm">My account</a>
+              <a href="/pages/network.html" class="btn btn-outline btn-sm" id="centre-back-network" style="display: none;">Back to Network</a>
+            </div>
+          </div>
+
+          <div id="centre-viewing-banner" class="banner banner-info" style="display: none;" role="status"></div>
+          <div id="centre-error" class="banner banner-error" style="display: none;" role="alert"></div>
+
+          <section aria-label="Centre summary" style="margin-bottom: var(--space-5);">
+            <div class="stats-grid" id="centre-stats"></div>
+          </section>
+
+          <div class="tabs" role="tablist" aria-label="Centre sections" id="centre-tabs" style="display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-4);">
+            <button type="button" class="btn btn-sm btn-primary" role="tab" data-tab="students" aria-selected="true">Students</button>
+            <button type="button" class="btn btn-sm btn-ghost" role="tab" data-tab="teachers" aria-selected="false">Teachers</button>
+            <button type="button" class="btn btn-sm btn-ghost" role="tab" data-tab="staff" aria-selected="false">Head and vice heads</button>
+            <button type="button" class="btn btn-sm btn-ghost" role="tab" data-tab="settings" aria-selected="false" data-head-only>Settings</button>
+            <button type="button" class="btn btn-sm btn-ghost" role="tab" data-tab="backup" aria-selected="false" data-head-only>Backup and log</button>
+          </div>
+
+          <section class="card" data-panel="students" aria-labelledby="centre-students-title">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3);">
+              <div style="display: flex; align-items: center; gap: var(--space-3);">
+                <h2 id="centre-students-title" style="margin: 0; font-size: var(--text-lg);">Students</h2>
+                <span class="badge badge-neutral num" id="centre-students-count">0</span>
+              </div>
+              <div style="display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center;">
+                <select id="centre-students-status" class="form-select" style="width: auto;" aria-label="Filter by status">
+                  <option value="all">All</option>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+                <input type="search" id="centre-students-search" class="form-input" style="max-width: 220px;" placeholder="Search name or code…" autocomplete="off" aria-label="Search students" />
+                <button type="button" id="btn-add-student" class="btn btn-primary btn-sm">+ Add student</button>
+              </div>
+            </div>
+            <div class="card-body" id="centre-students-table"><div class="empty-state">Loading students…</div></div>
+          </section>
+
+          <section class="card" data-panel="teachers" aria-labelledby="centre-teachers-title" hidden>
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3);">
+              <div style="display: flex; align-items: center; gap: var(--space-3);">
+                <h2 id="centre-teachers-title" style="margin: 0; font-size: var(--text-lg);">Teachers</h2>
+                <span class="badge badge-neutral num" id="centre-teachers-count">0</span>
+              </div>
+              <button type="button" id="btn-add-teacher" class="btn btn-primary btn-sm">+ Add teacher</button>
+            </div>
+            <div class="card-body" id="centre-teachers-table"><div class="empty-state">Loading teachers…</div></div>
+          </section>
+
+          <section class="card" data-panel="staff" aria-labelledby="centre-staff-title" hidden>
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3);">
+              <div>
+                <h2 id="centre-staff-title" style="margin: 0; font-size: var(--text-lg);">Head and vice heads</h2>
+                <p class="form-hint" style="margin: var(--space-1) 0 0 0;">The centre head can make a teacher of this centre a vice head, or turn a vice head back into a teacher.</p>
+              </div>
+              <div style="display: flex; gap: var(--space-2); align-items: center;" id="centre-vice-add" data-head-only>
+                <select id="centre-vice-candidate" class="form-select" style="width: auto; min-width: 200px;" aria-label="Teacher to make vice head"></select>
+                <button type="button" id="btn-make-vice" class="btn btn-primary btn-sm">Make vice head</button>
+              </div>
+            </div>
+            <div class="card-body" id="centre-staff-list"><div class="empty-state">Loading…</div></div>
+          </section>
+
+          <section class="card" data-panel="settings" aria-labelledby="centre-settings-title" hidden>
+            <div class="card-header">
+              <h2 id="centre-settings-title" style="margin: 0; font-size: var(--text-lg);">Centre settings</h2>
+              <p class="form-hint" style="margin: var(--space-1) 0 0 0;">The code, type and status are set by the owner or a director.</p>
+            </div>
+            <form id="settings-form" class="card-body" novalidate style="display: flex; flex-direction: column; gap: var(--space-4); max-width: 560px;">
+              <div id="settings-form-error" class="banner banner-error" style="display: none;" role="alert"></div>
+              <div class="form-group">
+                <label for="settings-name" class="form-label">Centre name</label>
+                <input id="settings-name" class="form-input" maxlength="80" required />
+              </div>
+              <div class="form-group">
+                <label for="settings-city" class="form-label">City</label>
+                <input id="settings-city" class="form-input" maxlength="80" />
+              </div>
+              <div class="form-group">
+                <label for="settings-address" class="form-label">Address</label>
+                <input id="settings-address" class="form-input" maxlength="200" />
+              </div>
+              <div class="form-group">
+                <label for="settings-phone" class="form-label">Phone</label>
+                <input id="settings-phone" class="form-input" maxlength="30" inputmode="tel" />
+              </div>
+              <div class="form-group">
+                <label for="settings-email" class="form-label">Email</label>
+                <input id="settings-email" class="form-input" maxlength="120" type="email" />
+              </div>
+              <div class="form-group">
+                <label for="settings-notes" class="form-label">Notes</label>
+                <textarea id="settings-notes" class="form-input" maxlength="500" rows="3"></textarea>
+              </div>
+              <div>
+                <button type="submit" class="btn btn-primary" id="settings-submit">Save settings</button>
+              </div>
+            </form>
+          </section>
+
+          <section data-panel="backup" hidden>
+            <div class="card" style="margin-bottom: var(--space-5);">
+              <div class="card-header">
+                <h2 style="margin: 0; font-size: var(--text-lg);">Centre backup</h2>
+                <p class="form-hint" style="margin: var(--space-1) 0 0 0;">An Excel file with this centre's students, teachers and their records. Practice content and answer keys are not included. Each download is recorded.</p>
+              </div>
+              <div class="card-body">
+                <button type="button" id="btn-centre-backup" class="btn btn-primary">Download centre backup (Excel)</button>
+                <span id="centre-backup-status" class="form-hint" style="margin-left: var(--space-3);"></span>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-header">
+                <h2 style="margin: 0; font-size: var(--text-lg);">Recent changes in this centre</h2>
+              </div>
+              <div class="card-body" id="centre-audit-list"><div class="empty-state">Loading…</div></div>
+            </div>
+          </section>
+        </div>
+      </main>
+
+      <footer class="app-footer">
+        <div class="container footer-inner">
+          <span>&copy; 2026 Trendz Abacus. Centre administration.</span>
+          <span class="num">Centre</span>
+        </div>
+      </footer>
+    </div>
+
+    <div id="add-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="add-modal-title">
+      <div class="modal-dialog" style="max-width: 520px;">
+        <header class="modal-header">
+          <div>
+            <h2 id="add-modal-title" class="modal-title">Add student</h2>
+            <p class="modal-subtitle" id="add-modal-subtitle">They will be added to this centre.</p>
+          </div>
+          <button type="button" class="modal-close" data-close-modal="add-modal" aria-label="Close">&times;</button>
+        </header>
+        <form id="add-form" novalidate autocomplete="off">
+          <div class="modal-body" style="display: flex; flex-direction: column; gap: var(--space-4);">
+            <div id="add-form-error" class="banner banner-error" style="display: none;" role="alert"></div>
+            <input type="hidden" id="add-role" value="student" />
+            <div class="form-group">
+              <label for="add-code" class="form-label">Login code</label>
+              <input id="add-code" class="form-input" maxlength="20" required style="text-transform: uppercase;" autocomplete="off" />
+              <span class="form-hint">Used to sign in. It must be unique across all centres.</span>
+            </div>
+            <div class="form-group">
+              <label for="add-name" class="form-label">Full name</label>
+              <input id="add-name" class="form-input" maxlength="80" required autocomplete="off" />
+            </div>
+            <div class="form-group" id="add-level-group">
+              <label for="add-level" class="form-label">Level</label>
+              <select id="add-level" class="form-select"></select>
+            </div>
+            <div class="form-group">
+              <label for="add-password" class="form-label">Temporary password</label>
+              <input id="add-password" type="password" class="form-input" minlength="6" required autocomplete="new-password" />
+              <span class="form-hint">At least 6 characters. Share it privately.</span>
+            </div>
+          </div>
+          <footer class="modal-footer">
+            <button type="button" class="btn btn-ghost" data-close-modal="add-modal">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="add-submit">Add</button>
+          </footer>
+        </form>
+      </div>
+    </div>
+
+    <div id="edit-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
+      <div class="modal-dialog" style="max-width: 480px;">
+        <header class="modal-header">
+          <div>
+            <h2 id="edit-modal-title" class="modal-title">Edit</h2>
+            <p class="modal-subtitle" id="edit-modal-subtitle"></p>
+          </div>
+          <button type="button" class="modal-close" data-close-modal="edit-modal" aria-label="Close">&times;</button>
+        </header>
+        <form id="edit-form" novalidate>
+          <div class="modal-body" style="display: flex; flex-direction: column; gap: var(--space-4);">
+            <div id="edit-form-error" class="banner banner-error" style="display: none;" role="alert"></div>
+            <input type="hidden" id="edit-id" />
+            <div class="form-group">
+              <label for="edit-name" class="form-label">Full name</label>
+              <input id="edit-name" class="form-input" maxlength="80" required />
+            </div>
+            <div class="form-group" id="edit-level-group">
+              <label for="edit-level" class="form-label">Level</label>
+              <select id="edit-level" class="form-select"></select>
+            </div>
+          </div>
+          <footer class="modal-footer">
+            <button type="button" class="btn btn-ghost" data-close-modal="edit-modal">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="edit-submit">Save</button>
+          </footer>
+        </form>
+      </div>
+    </div>
+
+    <div id="password-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="password-modal-title">
+      <div class="modal-dialog" style="max-width: 440px;">
+        <header class="modal-header">
+          <div>
+            <h2 id="password-modal-title" class="modal-title">Reset password</h2>
+            <p class="modal-subtitle" id="password-modal-subtitle"></p>
+          </div>
+          <button type="button" class="modal-close" data-close-modal="password-modal" aria-label="Close">&times;</button>
+        </header>
+        <form id="password-form" novalidate autocomplete="off">
+          <div class="modal-body" style="display: flex; flex-direction: column; gap: var(--space-4);">
+            <div id="password-form-error" class="banner banner-error" style="display: none;" role="alert"></div>
+            <input type="hidden" id="password-id" />
+            <div class="form-group">
+              <label for="password-new" class="form-label">New password</label>
+              <input id="password-new" type="password" class="form-input" minlength="6" required autocomplete="new-password" />
+              <span class="form-hint">At least 6 characters. Share it privately.</span>
+            </div>
+          </div>
+          <footer class="modal-footer">
+            <button type="button" class="btn btn-ghost" data-close-modal="password-modal">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="password-submit">Reset password</button>
+          </footer>
+        </form>
+      </div>
+    </div>
+
+    <div id="teacher-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="teacher-modal-title">
+      <div class="modal-dialog" style="max-width: 620px;">
+        <header class="modal-header">
+          <div>
+            <h2 id="teacher-modal-title" class="modal-title">Students and permissions</h2>
+            <p class="modal-subtitle" id="teacher-modal-subtitle"></p>
+          </div>
+          <button type="button" class="modal-close" data-close-modal="teacher-modal" aria-label="Close">&times;</button>
+        </header>
+        <form id="teacher-form" novalidate>
+          <div class="modal-body" style="display: flex; flex-direction: column; gap: var(--space-4);">
+            <div id="teacher-form-error" class="banner banner-error" style="display: none;" role="alert"></div>
+            <input type="hidden" id="teacher-id" />
+            <div class="form-group">
+              <span class="form-label">Assigned students</span>
+              <input type="search" id="teacher-students-search" class="form-input" placeholder="Search…" autocomplete="off" aria-label="Search students to assign" style="margin-bottom: var(--space-2);" />
+              <div id="teacher-students" style="max-height: 220px; overflow: auto; border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: var(--space-2);"></div>
+            </div>
+            <div class="form-group">
+              <span class="form-label">Permissions</span>
+              <div id="teacher-permissions" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--space-2);"></div>
+            </div>
+          </div>
+          <footer class="modal-footer">
+            <button type="button" class="btn btn-ghost" data-close-modal="teacher-modal">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="teacher-submit">Save</button>
+          </footer>
+        </form>
+      </div>
+    </div>
+
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <script type="module" src="/js/centre.js"></script>
+  </body>
+</html>

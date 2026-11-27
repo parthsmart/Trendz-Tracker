@@ -1,12 +1,15 @@
 /**
  * Vercel Serverless Function: /api/reset-password
  * Resets a student's or teacher's password using Supabase Service Role Key.
- * Verifies caller is an authenticated admin first.
+ * Verifies the caller first. Owners and directors may reset anyone ranked below
+ * them (owners also other owners); centre heads and vice heads only students
+ * and teachers of their own centre.
  * If target is a teacher, records an audit log entry in public.teacher_audit_log
  * with action 'reset_password' (never storing the password).
  */
 
-import { getAdminClient, verifyAdminCaller } from './_supabaseAdmin.js';
+import { getAdminClient, verifyStaffCaller } from './_supabaseAdmin.js';
+import { canManageTarget } from './_centreScope.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -14,8 +17,8 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1. Verify caller is an active admin
-    const adminProfile = await verifyAdminCaller(req);
+    // 1. Verify caller is active staff ranked vice centre head or above
+    const adminProfile = await verifyStaffCaller(req, { minRole: 'vice_centre_head' });
 
     // 2. Parse payload
     const { student_id, user_id, teacher_id, new_password } = req.body || {};
@@ -34,9 +37,16 @@ export default async function handler(req, res) {
     // 3. Check target user role
     const { data: targetProfile } = await supabaseAdmin
       .from('profiles')
-      .select('id, student_code, full_name, role')
+      .select('id, student_code, full_name, role, centre_id')
       .eq('id', targetUserId)
       .maybeSingle();
+
+    if (!targetProfile) {
+      return res.status(404).json({ error: 'Person not found.' });
+    }
+    if (!canManageTarget(adminProfile, targetProfile)) {
+      return res.status(403).json({ error: 'Forbidden: You cannot reset this person’s password.' });
+    }
 
     // 4. Update password in Supabase Auth
     const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(targetUserId, {

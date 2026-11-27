@@ -293,3 +293,30 @@ Also: `npm run build`, and a browser check of every panel with demo accounts.
   - The database fills in `created_by`, `archived_at` and `archived_by`.
 - Not yet: suspending a centre only stops new people being added to it; signing in from a suspended centre is blocked in step 5. Duel openings are saved now and take effect with cross-centre duels in step 5. The other admin pages still show every centre until step 5.
 - Rollback: `supabase/rollbacks/33_centres_guard_rollback.sql` (drops the trigger and function, no data change).
+
+### Step 4 implementation notes (migration 35, centre head panel)
+
+- New page `pages/centre.html` (`js/centre.js`, logic in `js/centreModel.js`). Centre heads and vice heads are sent there when they sign in, or open any page they can't use. Owners and directors open it from the Network page (**Open centre panel** on a centre card, or **Open** in the centres table). For them it shows which centre they are viewing.
+- The page reads and changes data only through the `centre_*` SECURITY DEFINER functions in migration 35. They check the caller's centre and rank in the database. No existing policy or function is changed, so the admin pages behave as before; scoping the existing pages by centre is step 5.
+- Head and vice head split (§4):
+  - **Heads and vice heads** can:
+    - add students and teachers;
+    - edit names and levels;
+    - reset passwords;
+    - activate and deactivate accounts;
+    - set a teacher's students and permissions.
+  - **Heads only** can:
+    - delete and restore accounts (the records are kept);
+    - appoint and remove vice heads (through `set_person_role()`);
+    - edit centre settings (name, city, address, phone, email, notes; not the code, type, status or default flag);
+    - download the centre backup.
+- Centre backup (`centre_backup()`) contains the centre's profiles, teacher permissions and assignments, and each student table, capped at 50,000 rows per table. It is downloaded as an .xlsx file. Shared content (rounds, tests) is not included. Every export is written to `role_audit` as `centre_backup`.
+- The service-role API routes check the centre again in `api/_centreScope.js`. This covers `/api/create-student`, `/api/reset-password` and `/api/manage-teacher`: create, assignments, permissions, active and reset.
+  - A head's or vice head's `centre_id` always comes from their own profile. If they send another centre, the request is refused.
+  - A suspended centre's staff can't add people.
+  - Nobody can reset the password of someone at or above their own rank, so directors can't reset owners.
+- A suspended or archived centre's heads are refused by every `centre_*` function, because `my_role()` returns null for them.
+- Not yet:
+  - **Transfer requests:** heads can't move students between centres; owners and directors still do it from the Network page.
+  - **Audit noise:** when a person is created in a non-default centre, the audit also logs a "transfer" from BRN, because the default-centre trigger runs first.
+- Rollback: `supabase/rollbacks/35_centre_head_panel_rollback.sql` (drops the functions, no data change).
