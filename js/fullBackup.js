@@ -20,7 +20,7 @@ import { buildXlsx, readXlsx, XLSX_MAX_ROWS, XLSX_MAX_SHEET_NAME } from './xlsx.
 export const FULL_BACKUP_FORMAT_VERSION = 1;
 
 /** Latest migration file in supabase/migrations (kept in sync by tests/fullBackup.test.js). */
-export const FULL_BACKUP_SCHEMA_VERSION = '29_revoke_public_report_rpcs';
+export const FULL_BACKUP_SCHEMA_VERSION = '30_multi_centre_schema';
 
 export const FULL_BACKUP_PAGE_SIZE = 1000;
 
@@ -36,6 +36,7 @@ export const FULL_BACKUP_CELL_CHUNK = 32000;
  */
 export const FULL_BACKUP_EXCLUDED_RELATIONS = Object.freeze({
   results_with_target: 'View computed from results and targets; it holds no data of its own.',
+  role_change_tickets: 'One-time tickets used inside a single role change; always empty between changes.',
 });
 
 /**
@@ -58,6 +59,9 @@ export const FULL_BACKUP_KNOWN_TABLES = Object.freeze([
   'categories',
   'category_aliases',
   'category_series',
+  'centre_staff',
+  'centre_visibility',
+  'centres',
   'competition_settings',
   'daily_challenge_attempts',
   'daily_task_recipients',
@@ -95,6 +99,7 @@ export const FULL_BACKUP_KNOWN_TABLES = Object.freeze([
   'reward_items',
   'reward_redemptions',
   'results',
+  'role_audit',
   'rollout_boundaries',
   'round_series',
   'rounds',
