@@ -4,15 +4,20 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { buildLiveDuelHomeHtml, HOME_AVATAR_LIMIT, onlineMates } from '../js/liveDuelHome.js';
+import { buildLiveDuelHomeHtml, HOME_AVATAR_LIMIT, onlinePlayers } from '../js/liveDuelHome.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-test('live duel home: only classmates in presence count, never me', () => {
-  const mates = [{ id: 'a', display_name: 'Asha' }, { id: 'b', display_name: 'Ben' }, { id: 'c', display_name: 'Cara' }];
-  const list = onlineMates(mates, ['b', 'me', 'stranger', 'a'], 'me');
-  assert.deepEqual(list.map((m) => m.id), ['a', 'b'], 'keeps classmate order, drops me and other levels or centres');
-  assert.deepEqual(onlineMates(null, ['a']), []);
+test('live duel home: every online player at my level counts (any centre), classmates first, never me', () => {
+  const known = new Map([
+    ['a', { id: 'a', display_name: 'Zed', classmate: true }],
+    ['b', { id: 'b', display_name: 'Ben', classmate: false, centre_name: 'North' }],
+    ['c', { id: 'c', display_name: 'Cara', classmate: false }],
+    ['other-level', null],
+  ]);
+  const list = onlinePlayers(known, ['b', 'me', 'other-level', 'a', 'c', 'unknown'], 'me');
+  assert.deepEqual(list.map((m) => m.id), ['a', 'b', 'c'], 'classmates first, then by name; drops me, other levels and unknown ids');
+  assert.deepEqual(onlinePlayers(null, ['a']), []);
 });
 
 test('live duel home: count, tiny avatars and +N overflow', () => {
@@ -20,16 +25,18 @@ test('live duel home: count, tiny avatars and +N overflow', () => {
   const html = buildLiveDuelHomeHtml({ online });
   assert.equal((html.match(/class="ldh-av"/g) || []).length, HOME_AVATAR_LIMIT);
   assert.match(html, />\+3</);
-  assert.match(html, /<b class="num">8<\/b> classmates online now/);
+  assert.match(html, /<b class="num">8<\/b> players online now/);
   assert.match(html, /width:22px;height:22px/);
   assert.match(html, /Play live duel/);
   assert.match(html, /href="\/pages\/live-duel\.html"/);
-  assert.match(buildLiveDuelHomeHtml({ online: online.slice(0, 1) }), /1<\/b> classmate online now/);
+  assert.match(buildLiveDuelHomeHtml({ online: online.slice(0, 1) }), /1<\/b> player online now/);
 });
 
-test('live duel home: a dropdown challenges online classmates, never offline ones', () => {
-  const html = buildLiveDuelHomeHtml({ online: [{ id: 'a1', display_name: 'Asha' }, { id: 'b2', display_name: '<Ben>' }] });
-  assert.match(html, /<details class="ldh-pick"><summary>Challenge a classmate<\/summary>/);
+test('live duel home: a dropdown challenges any online player, never offline ones', () => {
+  const html = buildLiveDuelHomeHtml({ online: [{ id: 'a1', display_name: 'Asha', classmate: true }, { id: 'b2', display_name: '<Ben>', centre_name: 'North' }] });
+  assert.match(html, /<details class="ldh-pick"><summary>Challenge a player<\/summary>/);
+  assert.match(html, /Your centre/);
+  assert.match(html, /North/);
   assert.equal((html.match(/data-ldh-challenge="/g) || []).length, 2);
   assert.match(html, /&lt;Ben&gt;/);
   assert.doesNotMatch(buildLiveDuelHomeHtml({ online: [] }), /ldh-pick/);
