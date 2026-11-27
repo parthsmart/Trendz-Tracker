@@ -60,6 +60,11 @@ export function buildChallengeBoardHtml(rows, urls = new Map()) {
     .join('')}</ol>`;
 }
 
+/** Today's board, folded into a dropdown so the card stays short. Closed by default. */
+export function buildChallengeBoardDropHtml(rows, urls = new Map(), players = 0) {
+  return `<details class="gm-board-drop"><summary><b>Today’s board</b><span class="gm-sub">${players ? `${formatXp(players)} played` : ''}</span></summary>${buildChallengeBoardHtml(rows, urls)}</details>`;
+}
+
 export function buildChallengeStatusHtml(info) {
   if (!info || !info.available) {
     return '<p class="gm-sub">No challenge for your level today. Keep practising and check back tomorrow!</p>';
@@ -90,7 +95,7 @@ export async function renderDailyChallengeCard(container) {
   container.innerHTML = `
     <h2>🎲 Daily challenge</h2>
     ${buildChallengeStatusHtml(info)}
-    ${info.available ? `<div class="gm-row" style="margin-top:8px"><b style="font-size:14px">Today’s board</b><span class="gm-sub">${players ? `${formatXp(players)} played` : ''}</span></div>${buildChallengeBoardHtml(boardRows, urls)}` : ''}
+    ${info.available ? buildChallengeBoardDropHtml(boardRows, urls, players) : ''}
   `;
   container.hidden = false;
 }

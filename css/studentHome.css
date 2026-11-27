@@ -204,4 +204,13 @@
   .ldh-play { text-align: center; }
   .ldh-rating { text-align: center; }
 }
+/* In the 380px side column above Practice & More: stacked, full-width button */
+@media (min-width: 1101px) {
+  .sh-top-side .ldh { padding: 16px; }
+  .sh-top-side .ldh-main { flex-wrap: wrap; gap: 12px; }
+  .sh-top-side .ldh-ic { width: 44px; height: 44px; font-size: 22px; }
+  .sh-top-side .ldh-text { flex-basis: calc(100% - 56px); }
+  .sh-top-side .ldh-cta { width: 100%; justify-items: stretch; }
+  .sh-top-side .ldh-play, .sh-top-side .ldh-rating { text-align: center; }
+}
 @media (prefers-reduced-motion: reduce) { .ldh-dot { animation: none; } }
