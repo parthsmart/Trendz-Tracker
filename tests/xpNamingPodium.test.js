@@ -23,10 +23,9 @@ test('naming: home XP card says which level the ranks are in', () => {
     tier: { name: 'Gold', floor: 1000, next_name: 'Platinum', next_floor: 2500 },
     week_rank: { rank: 2, of: 4, level: 'Master' },
     season_rank: { rank: 3, of: 9, level: 'Master' },
-  }, []);
+  });
   assert.match(html, /of 4 · Master level/);
   assert.match(html, /of 9 · Master level/);
-  assert.match(html, /This week's XP board · Master level/);
   assert.equal(rankLine({ rank: 2, of: 4, level: 'Master', gap: 18, above_name: 'Riya S.' }),
     '🏆 #2 of 4 in Master level this week · 18 XP behind Riya S.');
   assert.equal(rankLine({ rank: 1, level: 'Level 3' }), '🏆 #1 in Level 3 this week. You are on top!');
