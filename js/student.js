@@ -36,6 +36,7 @@ import { fetchMyNotificationsCached } from './notificationBadge.js';
 import { formatTimeIST } from './liveClasses.js';
 import { renderXpProgressCard } from './xpRewards.js';
 import { renderDailyChallengeCard, renderStarsCard } from './homeGamify.js';
+import { renderArenaCard } from './arenaHome.js';
 import { fetchLeaderboard } from './leaderboardData.js';
 import {
   renderPracticeTiles,
@@ -179,6 +180,9 @@ async function initStudentDashboard() {
     .catch((err) => console.warn('Could not load the daily challenge:', err));
   renderStarsCard(document.getElementById('stars-card')).catch((err) =>
     console.warn('Could not load stars:', err)
+  );
+  renderArenaCard(document.getElementById('arena-card')).catch((err) =>
+    console.warn('Could not load the arena card:', err)
   );
   // Weekly tests, homework and reminders are each fetched once and shared by
   // My Day and the Coming up panel (which also shows today's open weekly test).

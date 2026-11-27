@@ -20,7 +20,7 @@ import { buildXlsx, readXlsx, XLSX_MAX_ROWS, XLSX_MAX_SHEET_NAME } from './xlsx.
 export const FULL_BACKUP_FORMAT_VERSION = 1;
 
 /** Latest migration file in supabase/migrations (kept in sync by tests/fullBackup.test.js). */
-export const FULL_BACKUP_SCHEMA_VERSION = '24_phase24_profiles_badges_challenge';
+export const FULL_BACKUP_SCHEMA_VERSION = '26_phase25b_league_tuning';
 
 export const FULL_BACKUP_PAGE_SIZE = 1000;
 
@@ -64,6 +64,7 @@ export const FULL_BACKUP_KNOWN_TABLES = Object.freeze([
   'daily_tasks',
   'daily_todo_log',
   'drill_sessions',
+  'duels',
   'homework_assignments',
   'homework_bound_sessions',
   'homework_completions',
@@ -75,6 +76,9 @@ export const FULL_BACKUP_KNOWN_TABLES = Object.freeze([
   'jmcwc_payloads',
   'jmcwc_scores',
   'jmcwc_targets',
+  'league_results',
+  'league_tiers',
+  'league_weeks',
   'lecture_categories',
   'lectures',
   'live_class_recording_audit_log',
@@ -88,6 +92,8 @@ export const FULL_BACKUP_KNOWN_TABLES = Object.freeze([
   'resource_recipients',
   'resources',
   'result_audit',
+  'reward_items',
+  'reward_redemptions',
   'results',
   'rollout_boundaries',
   'round_series',
@@ -97,6 +103,7 @@ export const FULL_BACKUP_KNOWN_TABLES = Object.freeze([
   'student_messages',
   'student_practice_access',
   'student_badges',
+  'student_leagues',
   'student_rounds',
   'student_xp_events',
   'teacher_audit_log',

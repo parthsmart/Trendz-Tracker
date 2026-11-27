@@ -78,6 +78,8 @@ let todoTaskId = null;
 let isTodoMode = false;
 // Daily challenge (?challenge=1): 1 minute, one attempt, same questions for the whole level.
 let isChallengeMode = false;
+// Duel (?duel=<id>): the duel decides the category, time and questions; one play each.
+let duelId = null;
 let assignedTask = null;
 
 
@@ -279,7 +281,7 @@ async function loadSetupData(categoryIdParam) {
 
   const urlParams = new URLSearchParams(window.location.search);
   const hasAssignmentException =
-    isTodoMode || isChallengeMode || Boolean(urlParams.get('homework_id'));
+    isTodoMode || isChallengeMode || Boolean(duelId) || Boolean(urlParams.get('homework_id'));
   if (currentProfile?.role === 'student' && !hasAssignmentException && selectedCategory) {
     try {
       const { fetchStudentEffectiveAccess, isBasicsCategoryAllowed } = await import('./studentAccess.js');
@@ -758,9 +760,10 @@ async function startPracticeSession() {
           category_id: selectedCategory.id,
           mode: selectedMode,
           seconds: selectedMode === 'timed' ? selectedSeconds : null,
-          todo_task_id: isChallengeMode ? undefined : todoTaskId || undefined,
-          ...(hwIdFromUrl && !isChallengeMode ? { homework_id: hwIdFromUrl } : {}),
+          todo_task_id: isChallengeMode || duelId ? undefined : todoTaskId || undefined,
+          ...(hwIdFromUrl && !isChallengeMode && !duelId ? { homework_id: hwIdFromUrl } : {}),
           ...(isChallengeMode ? { challenge: true } : {}),
+          ...(duelId ? { duel_id: duelId } : {}),
         }),
       });
 
@@ -1132,6 +1135,9 @@ async function renderResultsScreen(resultData) {
   if (!isTestMode && resultData?.result_id) {
     showRoundRewards({ sourceId: resultData.result_id, anchor: pbBannerEl });
   }
+  if (duelId) {
+    showDuelOutcome(resultData?.duel, pbBannerEl);
+  }
 
   const savedConfirmEl = document.getElementById('results-saved-confirmation');
   const backBtnEl = document.getElementById('btn-back-to-basics');
@@ -1326,12 +1332,22 @@ async function initBasicsPracticePage() {
     selectedSeconds = 60;
   }
 
+  const duelParam = urlParams.get('duel');
+  if (duelParam && !todoParam && !isChallengeMode && /^[0-9a-f-]{36}$/i.test(duelParam)) {
+    duelId = duelParam;
+    selectedMode = 'timed';
+    selectedSeconds = 60;
+  }
+
   const catParam =
     urlParams.get('cat') || urlParams.get('category') || urlParams.get('category_id') || '';
   await loadSetupData(catParam);
 
   if (isChallengeMode) {
     applyChallengeModeUi();
+  }
+  if (duelId) {
+    applyDuelModeUi();
   }
 
   if (isTodoMode && selectedCategory) {
@@ -1379,6 +1395,59 @@ function applyChallengeModeUi() {
     link.textContent = '🏁 See today\u2019s challenge board';
     again.insertAdjacentElement('afterend', link);
   }
+}
+
+/** Locks the setup screen to the duel round and explains the rules. */
+function applyDuelModeUi() {
+  const modeGroup = document.getElementById('time-mode-group');
+  if (modeGroup?.parentElement) modeGroup.parentElement.style.display = 'none';
+  const bannerPlaceholder = document.getElementById('config-banner-placeholder');
+  if (bannerPlaceholder) {
+    bannerPlaceholder.innerHTML = `
+      <div class="banner banner-info" style="margin-bottom: var(--space-4);">
+        <strong>⚔️ Duel</strong> &middot; 1 minute &middot; <strong>one play only</strong>.
+        You and your classmate get the same questions. Correct answers count first; time only breaks a tie,
+        so take care rather than rush.
+      </div>
+    `;
+  }
+  const startBtn = document.getElementById('btn-start-practice');
+  if (startBtn && !startBtn.disabled) startBtn.textContent = 'Start the duel';
+  const cancel = document.getElementById('setup-cancel-link');
+  if (cancel) cancel.setAttribute('href', '/pages/arena.html#duels');
+  for (const id of ['btn-same-mode-again', 'btn-change-mode']) {
+    const btn = document.getElementById(id);
+    if (btn) btn.style.display = 'none';
+  }
+  const again = document.getElementById('btn-same-mode-again');
+  if (again && !document.getElementById('btn-duel-back')) {
+    const link = document.createElement('a');
+    link.id = 'btn-duel-back';
+    link.className = 'btn btn-primary';
+    link.href = '/pages/arena.html#duels';
+    link.textContent = '⚔️ Back to my duels';
+    again.insertAdjacentElement('afterend', link);
+  }
+}
+
+/** Shows how the duel stands after this round. */
+function showDuelOutcome(duel, anchor) {
+  if (!anchor?.parentElement) return;
+  let box = document.getElementById('duel-outcome');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'duel-outcome';
+    box.className = 'banner banner-info';
+    box.style.marginBottom = 'var(--space-4)';
+    anchor.insertAdjacentElement('beforebegin', box);
+  }
+  const messages = {
+    won: '🏆 <strong>You won the duel!</strong> Great accuracy.',
+    lost: '🤝 <strong>Your classmate won this one.</strong> Every round makes you sharper — try a rematch!',
+    draw: '🤝 <strong>It’s a draw!</strong> Same score and same time.',
+    waiting: '⏳ <strong>Your score is in.</strong> We’ll show the result when your classmate has played.',
+  };
+  box.innerHTML = messages[duel?.result] || 'Your round is saved.';
 }
 
 async function startWeeklyTestBasicsSection() {

@@ -121,6 +121,8 @@ export default defineConfig(({ command }) => {
           notifications: path.resolve(__dirname, 'pages/notifications.html'),
           account: path.resolve(__dirname, 'pages/account.html'),
           profile: path.resolve(__dirname, 'pages/profile.html'),
+          arena: path.resolve(__dirname, 'pages/arena.html'),
+          certificate: path.resolve(__dirname, 'pages/certificate.html'),
           announcements: path.resolve(__dirname, 'pages/announcements.html'),
           import: path.resolve(__dirname, 'pages/import.html'),
           homework: path.resolve(__dirname, 'pages/homework.html'),

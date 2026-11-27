@@ -105,7 +105,7 @@ function render(data) {
 
   $('pf-titles').innerHTML = buildTitlesHtml(data.awards);
   $('pf-stats').innerHTML = buildStatsHtml(data);
-  $('pf-badges').innerHTML = buildBadgeWallHtml(data.badges);
+  $('pf-badges').innerHTML = buildBadgeWallHtml(data.badges, { studentId: state.targetId });
   const bc = badgeCounts(data.badges);
   setText('pf-badges-count', `${bc.earned} of ${bc.total} earned`);
   $('pf-bests').innerHTML = buildBestsHtml(data.bests);
