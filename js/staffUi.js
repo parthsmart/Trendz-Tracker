@@ -9,7 +9,7 @@
 export const STAFF_PAGE_ICONS = Object.freeze({
   'todos.html': '☑️', 'targets.html': '🎯', 'categories.html': '🗂️', 'resources.html': '📁',
   'homework.html': '📚', 'student-access.html': '🔐', 'competition.html': '🏁', 'rounds.html': '🔁',
-  'live-classes.html': '🎥', 'announcements.html': '📣', 'monthly-report.html': '📊', 'teachers.html': '🧑‍🏫',
+  'live-classes.html': '🎥', 'announcements.html': '📣', 'monthly-report.html': '📊', 'teachers.html': '🧑‍🏫', 'network.html': '🏢',
   'import.html': '📥', 'backup.html': '💾', 'notifications.html': '🔔',
 });
 
