@@ -327,7 +327,7 @@ Step 5 is split into smaller parts. Each part has its own migration and PR, so t
 
 - **5a, migration 37:** leaderboards and async duels inside one centre (below).
 - **5b:** leagues and star of the month per centre. League groups and the week and month awards are worked out per centre, so a group never mixes two centres.
-- **5c:** cross-centre live duels. The open queue and live invites pair you with your own centre, plus the students that `centre_visibility` opens to it. Today `/api/drill` `live_invite` and the queue accept any centre.
+- **5c:** cross-centre live duels. The open queue and live invites pair you with your own centre, plus the students that `centre_visibility` opens to it. Done in migration 41 (below).
 - **5d:** content and staff tools per centre:
   - announcements, tasks, resources, weekly tests, homework, live classes and the store, where "everyone" means the author's centre;
   - level access applied by a teacher (`teacher_bulk_apply_level_access`) reaches only their centre;
@@ -360,3 +360,13 @@ Step 5 is split into smaller parts. Each part has its own migration and PR, so t
 - Past league weeks and awards are not re-settled. No data is deleted.
 - Rollback: `supabase/rollbacks/40_centre_leagues_awards_rollback.sql`. It restores the pre-40 functions and keeps the new column and its values.
 - Not covered yet: season ranks (`xp_settle_seasons` level_rank) and the `challenge_win` badge still compare a level across the network.
+
+### Step 5c implementation notes (migration 41, cross-centre live duels)
+
+- Two students of different centres can duel live only when **both** centres are opened to each other in `centre_visibility` (purpose 'duels', written by owners and directors only). A grant one way is not enough. Students of the same centre duel exactly as before.
+- `live_duel_visible_to(student, viewer_centre)`: for another centre the student must be active, shown on leaderboards, in an active centre, and covered by an unexpired grant (viewer centre or every centre) with mode 'all', 'students' (listed), or 'top_n' (in the source centre's top N by total XP). The viewer centre must be active too.
+- `live_duel_pairable(a, b)` and `live_duel_pairable_ids(me, ids)` (service_role only) apply that both ways.
+- Gated: the lobby (`live_duel_online_players`), live invites and rematches (`/api/drill` `live_invite`, `live_rematch`), quick match (the API filters the queue first; `live_duel_claim_pair` refuses as well), and accepting an invite (`live_duel_respond` expires it if the grant was removed after it was sent). If the check fails, the API falls back to the student's own centre.
+- Before 41 the lobby listed online students of every centre at your level; that is closed now.
+- Unchanged: async duels and ghost runs stay inside a centre; the duel board (`live_duel_board`) and `my_live_duels` mates stay per centre.
+- Rollback: `supabase/rollbacks/41_cross_centre_live_duels_rollback.sql` (restores the pre-41 functions and drops the helpers; no data changes).

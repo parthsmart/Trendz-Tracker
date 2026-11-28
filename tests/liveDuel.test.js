@@ -208,7 +208,7 @@ describe('matchmaking', () => {
     ];
     assert.equal(pickLiveOpponent(me, rows, now), null);
     rows.push({ student_id: 'ok', level: 'level2', centre_id: 'c2', rating: 1050, joined_at: ago(4), seen_at: ago(1) });
-    assert.equal(pickLiveOpponent(me, rows, now).student_id, 'ok', 'another centre is fine');
+    assert.equal(pickLiveOpponent(me, rows, now).student_id, 'ok', 'the picker leaves centres to the API, which filters first');
   });
 
   it('prefers the closest rating, then the longest wait, and widens the window over time', () => {
@@ -375,6 +375,14 @@ function fakeDb(seed = {}) {
       calls.push({ rpc: name, args });
       if (name === 'live_duel_enabled') return { data: tables.enabled !== false, error: null };
       if (name === 'live_duel_centre_of') return { data: tables.centres?.[args.p_student] ?? null, error: null };
+      if (name === 'live_duel_pairable_ids') {
+        // Same centre, or a pair listed in tables.open (both centres opened to each other).
+        if (tables.pairableFails) return { data: null, error: { message: 'down' } };
+        const mine = tables.centres?.[args.p_me] ?? null;
+        const ok = args.p_ids.filter((id) => (tables.centres?.[id] ?? null) === mine
+          || (tables.open || []).some((p) => p.includes(args.p_me) && p.includes(id)));
+        return { data: ok, error: null };
+      }
       if (name === 'daily_challenge_candidates') {
         return { data: [{ category_id: 'cat-1', name: '2d5r', students: 3 }], error: null };
       }
@@ -402,6 +410,28 @@ const STU = { id: 'stu-a', level: 'Level 2' };
 const STU_B = { id: 'stu-b', level: 'Level 2' };
 
 describe('live duel API', () => {
+  it('quick match pairs another centre only when both centres opened to each other', async () => {
+    const now = Date.now();
+    const db = fakeDb({ centres: { 'stu-a': 'BRN', 'stu-b': 'KTA' } });
+    await handleLiveQueue({ student: STU, adminSupabase: db, res: fakeRes(), now });
+    const closed = fakeRes();
+    await handleLiveQueue({ student: STU_B, adminSupabase: db, res: closed, now: now + 1000 });
+    assert.equal(closed.body.waiting, true, 'no grant: they keep waiting');
+    assert.equal(db.tables.live_duels.length, 0);
+    assert.equal(db.calls.some((c) => c.rpc === 'live_duel_claim_pair'), false, 'never tries to claim the pair');
+
+    db.tables.pairableFails = true;
+    const down = fakeRes();
+    await handleLiveQueue({ student: STU_B, adminSupabase: db, res: down, now: now + 2000 });
+    assert.equal(down.body.waiting, true, 'check down: same centre only');
+
+    db.tables.pairableFails = false;
+    db.tables.open = [['stu-a', 'stu-b']];
+    const open = fakeRes();
+    await handleLiveQueue({ student: STU_B, adminSupabase: db, res: open, now: now + 3000 });
+    assert.ok(open.body.duel_id, JSON.stringify(open.body));
+  });
+
   it('queues, then pairs the next student at the level with the same questions', async () => {
     const db = fakeDb();
     const now = Date.now();
@@ -476,7 +506,7 @@ describe('live duel API', () => {
     assert.equal(duel.ghost.timeline.length, 6);
   });
 
-  it('invites an available student at the same level, from any centre', async () => {
+  it('invites a student at the same level: own centre, or another centre only when opened', async () => {
     const profiles = [
       { id: '00000000-0000-4000-8000-00000000000b', role: 'student', active: true, level: 'level 2', leaderboard_visible: true },
       { id: '00000000-0000-4000-8000-00000000000c', role: 'student', active: true, level: 'Level 4', leaderboard_visible: true },
@@ -497,9 +527,20 @@ describe('live duel API', () => {
     await handleLiveInvite({ body: { opponent_id: profiles[1].id }, student: { id: 'x', level: 'Level 2' }, adminSupabase: db, res: level });
     assert.equal(level.statusCode, 400);
 
+    const closed = fakeRes();
+    await handleLiveInvite({ body: { opponent_id: profiles[2].id }, student: { id: 'y', level: 'Level 2' }, adminSupabase: db, res: closed });
+    assert.equal(closed.statusCode, 403, 'another centre is closed without a grant');
+    assert.equal(db.tables.live_duels.length, 1, 'no duel was created');
+
+    db.tables.open = [['y', profiles[2].id]];
     const centre = fakeRes();
     await handleLiveInvite({ body: { opponent_id: profiles[2].id }, student: { id: 'y', level: 'Level 2' }, adminSupabase: db, res: centre });
-    assert.equal(centre.body.invited, true, 'another centre can be challenged');
+    assert.equal(centre.body.invited, true, 'an opened centre can be challenged');
+
+    db.tables.pairableFails = true;
+    const down = fakeRes();
+    await handleLiveInvite({ body: { opponent_id: profiles[0].id }, student: { id: 'z', level: 'Level 2' }, adminSupabase: db, res: down });
+    assert.equal(down.statusCode, 403, 'fails closed when the check is down');
 
     const bad = fakeRes();
     await handleLiveInvite({ body: { opponent_id: 'nope' }, student: STU, adminSupabase: db, res: bad });
