@@ -19,7 +19,7 @@
 --
 -- No data is dropped. The only constraint removed is xp_seasons_first_day (a window may now
 -- start on any day); every existing row still starts on the 1st.
--- Rollback: supabase/rollbacks/38_world_journey_seasons_rollback.sql
+-- Rollback: supabase/rollbacks/48_world_journey_seasons_rollback.sql
 
 -- 1. Mascots --------------------------------------------------------------------------------
 

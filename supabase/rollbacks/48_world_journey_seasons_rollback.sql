@@ -1,4 +1,4 @@
--- Rollback for 38_world_journey_seasons.sql (keeps all data; only removes the new layer).
+-- Rollback for 48_world_journey_seasons.sql (keeps all data; only removes the new layer).
 -- After running this, re-apply the xp_settle_seasons / xp_season_live / xp_totals / my_xp_summary
 -- definitions from 27/28 and leaderboard() from 37 to restore monthly seasons.
 DROP FUNCTION IF EXISTS public.journey_levelup_review(uuid, text, text, text);

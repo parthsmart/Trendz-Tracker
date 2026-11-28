@@ -42,7 +42,7 @@ export const MASCOTS = Object.freeze({
     kind: 'dragon',
     name: 'Ember',
     title: 'Ember the dragon',
-    blurb: 'Hatches from an egg and grows wings and horns. A number glows on its belly.',
+    blurb: 'Hatches from an egg and grows horns and wings. A little abacus glows on its belly.',
     forms: ['Egg', 'Hatchling', 'Nibbler', 'Glider', 'Flamelet', 'Soarer', 'Skyfire',
       'Stormwing', 'Highflame', 'Graduate', 'Elder', 'Grand elder'],
   }),

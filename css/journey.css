@@ -1,0 +1,85 @@
+/* Journey page: mascot, level islands, boss rounds and seasons (pages/journey.html). */
+
+.jy-page { display: grid; gap: var(--space-5); margin-bottom: var(--space-6); }
+.jy-page .card { padding: var(--space-5); }
+.jy-page h2 { font-size: 1.1rem; font-weight: 800; margin: 0; color: var(--text-main); }
+.jy-grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: var(--space-5); align-items: start; }
+.jy-col { display: grid; gap: var(--space-5); min-width: 0; }
+@media (max-width: 1000px) { .jy-grid { grid-template-columns: minmax(0, 1fr); } }
+
+.jy-dim { color: var(--text-muted); font-size: 13px; }
+.jy-eyebrow { font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--text-muted); }
+.jy-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: var(--radius-full); background: var(--chip-neutral-bg); color: var(--chip-neutral-text); border: 1px solid var(--chip-neutral-border); font-size: 12.5px; font-weight: 700; white-space: nowrap; }
+.jy-row-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-3); }
+
+/* Season banner */
+.jy-season { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; border-left: 6px solid var(--jy-theme); background: linear-gradient(90deg, color-mix(in srgb, var(--jy-theme) 10%, var(--bg-surface)), var(--bg-surface) 70%); }
+.jy-season h2 { font-size: 1.35rem; }
+.jy-season-side { display: grid; gap: 6px; justify-items: end; max-width: 340px; text-align: right; }
+@media (max-width: 640px) { .jy-season-side { justify-items: start; text-align: left; } }
+
+/* Mascot */
+.jy-mascot { display: flex; align-items: center; gap: var(--space-5); flex-wrap: wrap; }
+.jy-mascot-art { flex: none; display: grid; place-items: center; width: 160px; height: 160px; border-radius: 50%; background: radial-gradient(circle, var(--color-primary-subtle), transparent 70%); }
+.jy-mascot-info { flex: 1; min-width: 200px; display: grid; gap: 6px; justify-items: start; }
+.jy-mascot-empty { justify-content: space-between; }
+.jy-pick-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); }
+@media (max-width: 640px) { .jy-pick-grid { grid-template-columns: minmax(0, 1fr); } }
+.jy-pick { display: grid; justify-items: center; gap: 6px; padding: var(--space-4); border: 2px solid var(--border-color); border-radius: var(--radius-lg); background: var(--bg-surface); color: inherit; font: inherit; text-align: center; cursor: pointer; }
+.jy-pick:hover { border-color: var(--color-primary); }
+.jy-pick.is-on { border-color: var(--color-primary); background: var(--color-primary-subtle); }
+.jy-pick:focus-visible, .jy-chip-btn:focus-visible { outline: 3px solid var(--color-focus-ring); outline-offset: 2px; }
+.jy-outfits { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: var(--space-3); }
+.jy-chip-btn { padding: 5px 12px; border-radius: var(--radius-full); border: 1px solid var(--border-color); background: var(--bg-surface); color: inherit; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.jy-chip-btn.is-on { border-color: var(--color-primary); background: var(--color-primary-subtle); color: var(--color-primary-text); }
+
+/* Islands */
+.jy-islands { list-style: none; margin: 0; padding: 4px 2px 10px; display: flex; gap: 10px; overflow-x: auto; scroll-snap-type: x proximity; }
+.jy-island { flex: none; width: 118px; scroll-snap-align: center; display: grid; justify-items: center; gap: 2px; padding: 10px 6px; border-radius: 18px 18px 40px 40px; background: var(--bg-surface-subtle); border: 1px solid var(--border-hairline); text-align: center; font-size: 13px; }
+.jy-island b { font-size: 12.5px; line-height: 1.2; }
+.jy-isle-dot { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--bg-surface); border: 1px solid var(--border-color); font-size: 15px; }
+.jy-island.is-past { background: var(--color-success-subtle); border-color: var(--color-success-border); }
+.jy-island.is-here { background: var(--color-primary-subtle); border: 2px solid var(--color-primary); }
+.jy-island.is-ahead { opacity: .6; }
+
+/* Stages and boss */
+.jy-stages { list-style: none; margin: 0 0 var(--space-4); padding: 0; display: grid; gap: 10px; }
+.jy-stage, .jy-boss { display: flex; align-items: center; gap: var(--space-3); padding: 10px 12px; border: 1px solid var(--border-hairline); border-radius: var(--radius-md); background: var(--bg-surface); }
+.jy-stage.is-done { background: var(--color-success-subtle); border-color: var(--color-success-border); }
+.jy-stage-icon, .jy-boss-icon { flex: none; font-size: 22px; width: 32px; text-align: center; }
+.jy-stage-body { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.jy-bar { height: 7px; border-radius: 99px; background: var(--bg-subtle); overflow: hidden; }
+.jy-bar span { display: block; height: 100%; border-radius: inherit; background: var(--color-primary); }
+.jy-stage.is-done .jy-bar span { background: var(--color-success); }
+.jy-boss { border: 2px dashed var(--border-strong); }
+.jy-boss.is-open { border: 2px solid var(--color-accent); background: var(--color-accent-subtle); }
+
+/* Tables */
+.jy-scroll { overflow-x: auto; }
+.jy-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.jy-table th, .jy-table td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border-hairline); vertical-align: middle; }
+.jy-table th { font-size: 12px; color: var(--text-muted); font-weight: 700; }
+.jy-table .num { text-align: right; }
+.jy-table tr.is-me td { background: var(--color-primary-subtle); font-weight: 700; }
+.jy-table td .btn + .btn { margin-left: 4px; }
+
+/* Season form */
+.jy-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); align-items: end; margin: var(--space-3) 0 var(--space-4); }
+.jy-form label { display: grid; gap: 4px; font-size: 13px; font-weight: 600; }
+.jy-form .jy-wide { grid-column: 1 / -1; }
+@media (max-width: 760px) { .jy-form { grid-template-columns: minmax(0, 1fr); } }
+
+/* Boss / oral runner */
+.jy-run-backdrop { position: fixed; inset: 0; z-index: 900; background: rgba(15, 23, 42, .55); display: grid; place-items: center; padding: 16px; overflow-y: auto; }
+.jy-run { width: min(560px, 100%); display: grid; gap: var(--space-3); padding: var(--space-5); }
+.jy-q { min-height: 150px; display: grid; place-items: center; padding: var(--space-4); border-radius: var(--radius-lg); background: var(--bg-surface-subtle); }
+.jy-q-big { font-size: 44px; font-weight: 800; letter-spacing: .02em; min-height: 56px; text-align: center; }
+.jy-q-rows { display: grid; justify-items: end; gap: 2px; font-size: 30px; font-weight: 800; }
+.jy-flash { display: grid; justify-items: center; gap: 10px; text-align: center; }
+.jy-answer { display: flex; gap: 8px; flex-wrap: wrap; }
+.jy-answer input { flex: 1 1 140px; font-size: 22px; font-weight: 700; text-align: center; }
+.jy-result-head { display: flex; align-items: center; gap: var(--space-4); }
+.jy-result-head h2 { font-size: 1.6rem; }
+.jy-review ol { margin: 8px 0 0; padding-left: 22px; display: grid; gap: 4px; font-size: 14px; }
+.jy-review li.bad b { color: var(--color-danger-text); }
+.jy-review li.ok b { color: var(--color-success-text); }

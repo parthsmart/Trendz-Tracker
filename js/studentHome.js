@@ -91,6 +91,7 @@ function allowedNavItems(profile) {
  * ------------------------------------------------------------------------ */
 const TILES = [
   { id: 'progress', label: 'Progress', icon: '📈', href: '/pages/progress.html' },
+  { id: 'journey', label: 'Journey', icon: '🏝️', href: '/pages/journey.html' },
   { id: 'student-basics', label: 'Basics', icon: '➕' },
   { id: 'student-flash', label: 'Flash Anzan', icon: '⚡' },
   { id: 'student-elements', label: 'Elements', icon: '🧩' },

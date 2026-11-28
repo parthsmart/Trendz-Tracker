@@ -292,6 +292,8 @@ export async function showRoundRewards({ sourceId, anchor = null, container = nu
   if (hasBadge) cue('levelup');
   else if (summary.round?.personal_best) cue('pb');
   countUpWithin(card);
+  // The student's mascot reacts to the round (only if they picked one on the Journey page).
+  import('./mascot.js').then((m) => m.attachRoundMascot(card, summary)).catch(() => {});
   return card;
 }
 

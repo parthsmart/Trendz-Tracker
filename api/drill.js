@@ -27,6 +27,7 @@
  *   once both players are in, starts its live duel. Brackets run in the tournament_* RPCs.
  *
  * - { action: 'submit', session_id, answers }
+ * - { action: 'journey_start' | 'journey_submit' } (boss rounds and oral sets, see _journey.js)
  *   Verifies active student caller, loads the student's open session, checks
  *   expiry (started_at + time_limit_seconds + 30s) and minimum plausible completion
  *   time (attempted * 0.25s), atomically claims the session (status 'open' -> 'submitted'),
@@ -68,6 +69,7 @@ import {
 } from './_dailyChallenge.js';
 import { claimDuelStart, handleDuelCancel, handleDuelCreate, recordDuelResult } from './_duels.js';
 import { assessFairPlay, loadFairPlayThresholds, reviewAfterSave } from './_fairPlay.js';
+import { handleJourneyStart, handleJourneySubmit } from './_journey.js';
 import { handleGhostOptions, handleLiveGhost, handleLiveInvite, handleLiveQueue, handleLiveRematch } from './_liveDuels.js';
 import { handleRoyaleJoin } from './_royale.js';
 import { handleTournamentCheckIn } from './_tournaments.js';
@@ -206,6 +208,14 @@ export default async function handler(req, res) {
 
   if (action === 'live_rematch') {
     return handleLiveRematch({ body, student, adminSupabase, res });
+  }
+
+  if (action === 'journey_start') {
+    return handleJourneyStart({ body, student, adminSupabase, res });
+  }
+
+  if (action === 'journey_submit') {
+    return handleJourneySubmit({ body, student, adminSupabase, res });
   }
 
   if (action === 'challenge_info') {
