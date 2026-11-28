@@ -14,9 +14,17 @@
  * - { action: 'duel_create', opponent_id, category_id } / { action: 'duel_cancel', duel_id }
  *   Sends a duel to a classmate at the same level, or cancels/declines one nobody has played.
  *
- * - { action: 'live_queue' | 'live_ghost' | 'live_invite' | 'live_rematch' }
+ * - { action: 'live_queue' | 'live_ghost' | 'live_invite' | 'live_rematch' | 'ghost_options' }
  *   Live duels (api/_liveDuels.js): matchmaking, ghost races, live challenges and
  *   rematches. Answers are graded by the live_duel_answer RPC, never here.
+ *
+ * - { action: 'royale_join' }
+ *   Battle royale (api/_royale.js): joins the waiting game at the student's level.
+ *   Rounds, answers and eliminations run in the royale_* RPCs.
+ *
+ * - { action: 'tournament_check_in', match_id }
+ *   Tournaments (api/_tournaments.js): checks the student in to their match and,
+ *   once both players are in, starts its live duel. Brackets run in the tournament_* RPCs.
  *
  * - { action: 'submit', session_id, answers }
  *   Verifies active student caller, loads the student's open session, checks
@@ -60,7 +68,9 @@ import {
 } from './_dailyChallenge.js';
 import { claimDuelStart, handleDuelCancel, handleDuelCreate, recordDuelResult } from './_duels.js';
 import { assessFairPlay, loadFairPlayThresholds, reviewAfterSave } from './_fairPlay.js';
-import { handleLiveGhost, handleLiveInvite, handleLiveQueue, handleLiveRematch } from './_liveDuels.js';
+import { handleGhostOptions, handleLiveGhost, handleLiveInvite, handleLiveQueue, handleLiveRematch } from './_liveDuels.js';
+import { handleRoyaleJoin } from './_royale.js';
+import { handleTournamentCheckIn } from './_tournaments.js';
 
 export const RATE_LIMIT_SETS_PER_HOUR = 60;
 export const EXPIRY_GRACE_SECONDS = 30;
@@ -175,7 +185,19 @@ export default async function handler(req, res) {
   }
 
   if (action === 'live_ghost') {
-    return handleLiveGhost({ student, adminSupabase, res });
+    return handleLiveGhost({ body, student, adminSupabase, res });
+  }
+
+  if (action === 'ghost_options') {
+    return handleGhostOptions({ student, adminSupabase, res });
+  }
+
+  if (action === 'royale_join') {
+    return handleRoyaleJoin({ student, adminSupabase, res });
+  }
+
+  if (action === 'tournament_check_in') {
+    return handleTournamentCheckIn({ body, student, adminSupabase, res });
   }
 
   if (action === 'live_invite') {

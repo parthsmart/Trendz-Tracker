@@ -20,6 +20,14 @@ import { celebrate } from './motion.js';
 import { cue, practiceStarted, practiceEnded } from './feedback.js';
 import { getDuelHub } from './duelPresence.js';
 import { ensureAvatarStyles, signAvatarUrls } from './avatars.js';
+import { enterRoyale, loadRoyaleHome, royaleBusy, setupRoyale } from './royale.js';
+import {
+  loadTournamentHome,
+  loadTournamentStaff,
+  onTournamentReady,
+  pauseTournaments,
+  setupTournaments,
+} from './tournament.js';
 import {
   GHOST_WAIT_SECONDS,
   LIVE_DUEL_GRACE_SECONDS,
@@ -31,6 +39,7 @@ import {
 import {
   buildBoardHtml,
   buildEmoteBarHtml,
+  buildGhostOptionsHtml,
   buildInvitesHtml,
   buildLanesHtml,
   buildOnlinePlayersHtml,
@@ -43,7 +52,7 @@ import {
 
 const $ = (id) => document.getElementById(id);
 const MUTE_KEY = 'tt.liveDuel.muted';
-const VIEWS = ['ld-lobby', 'ld-search', 'ld-waiting', 'ld-race', 'ld-results', 'ld-staff'];
+const VIEWS = ['ld-lobby', 'ld-search', 'ld-waiting', 'ld-race', 'ld-results', 'ld-staff', 'ld-royale-game'];
 
 const st = {
   viewer: null,
@@ -206,6 +215,55 @@ function foundDuel(id) {
   st.searching = false;
   clearTimeout(st.searchTimer);
   enterDuel(id);
+}
+
+/* --------------------------------------------------------- Mode tabs */
+
+const MODES = ['duel', 'ghost', 'royale', 'tourney'];
+
+function setMode(mode) {
+  const m = MODES.includes(mode) ? mode : 'duel';
+  document.querySelectorAll('[data-ld-mode]').forEach((b) => {
+    const on = b.dataset.ldMode === m;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  document.querySelectorAll('[data-ld-pane]').forEach((p) => { p.hidden = p.dataset.ldPane !== m; });
+  const url = new URL(window.location.href);
+  if (m === 'duel') url.searchParams.delete('mode');
+  else url.searchParams.set('mode', m);
+  window.history.replaceState(null, '', url);
+  if (m === 'ghost') loadGhostOptions();
+  if (m === 'royale') loadRoyaleHome();
+  if (m === 'tourney') loadTournamentHome();
+  else pauseTournaments();
+}
+
+async function loadGhostOptions() {
+  try {
+    const opts = await drillApi({ action: 'ghost_options' });
+    $('ld-ghost').innerHTML = buildGhostOptionsHtml(opts, { disabled: st.home?.enabled === false });
+  } catch {
+    $('ld-ghost').innerHTML = '<p class="ar-dim">Could not load ghost races. Please refresh.</p>';
+  }
+}
+
+function setupModeActions() {
+  document.querySelectorAll('[data-ld-mode]').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.ldMode)));
+  $('ld-ghost').addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-ghost-target]');
+    if (!btn) return;
+    btn.disabled = true;
+    btn.textContent = 'Starting…';
+    try {
+      const res = await drillApi({ action: 'live_ghost', target: btn.dataset.ghostTarget });
+      enterDuel(res.duel_id);
+    } catch (err) {
+      showToast('error', err.message);
+      btn.disabled = false;
+      btn.textContent = '👻 Start race';
+    }
+  });
 }
 
 function setupLobbyActions() {
@@ -575,6 +633,7 @@ async function loadStaff() {
   show('ld-staff');
   const { data, error } = await rpc('live_duels_staff', { p_days: 7 });
   $('ld-staff-body').innerHTML = error ? '<p class="ar-dim">Could not load live duels.</p>' : buildStaffHtml(data);
+  await loadTournamentStaff();
 }
 
 function setupStaffActions() {
@@ -603,12 +662,33 @@ async function initLiveDuelPage() {
   st.supabase = await getSupabase();
   try { st.muted = localStorage.getItem(MUTE_KEY) === '1'; } catch { st.muted = false; }
 
+  const tournamentDeps = {
+    rpc,
+    drillApi,
+    showToast,
+    enabled: () => st.home?.enabled !== false,
+    enterDuel: (id) => { pauseTournaments(); enterDuel(id); },
+    inDuel: () => Boolean(st.duel),
+  };
+
   if (viewer.role !== 'student') {
+    setupTournaments({ ...tournamentDeps, enterDuel: () => {} });
     setupStaffActions();
     await loadStaff();
     return;
   }
   setupLobbyActions();
+  setupModeActions();
+  setupRoyale({
+    rpc,
+    drillApi,
+    showToast,
+    celebrate: () => celebrate('big'),
+    enabled: () => st.home?.enabled !== false,
+    show,
+    back: () => { show('ld-lobby'); setMode('royale'); },
+  });
+  setupTournaments(tournamentDeps);
   setupRaceActions();
   setupResultActions();
 
@@ -616,13 +696,16 @@ async function initLiveDuelPage() {
   // invites arrive as a pop-up with Accept / Reject, here and on every other page.
   st.hub = await getDuelHub(viewer);
   if (st.hub) {
-    st.hub.blockPopups(() => Boolean(st.duel && st.duel.status === 'live'));
+    st.hub.blockPopups(() => Boolean(st.duel && st.duel.status === 'live') || royaleBusy());
     st.hub.on('matched', (p) => {
       if (!p.duel_id || st.duel?.id === p.duel_id) return;
-      if (st.duel && st.duel.status === 'live') return;
+      if ((st.duel && st.duel.status === 'live') || royaleBusy()) return;
       st.searching = false;
       clearTimeout(st.searchTimer);
       enterDuel(p.duel_id);
+    });
+    st.hub.on('tournament_ready', () => {
+      if (!st.duel && !royaleBusy()) onTournamentReady();
     });
     st.hub.on('invite', () => {
       if (!st.duel && !st.searching) loadLobby();
@@ -654,9 +737,17 @@ async function initLiveDuelPage() {
     leaveDuelView();
   });
 
-  const duelId = new URLSearchParams(window.location.search).get('duel');
+  const params = new URLSearchParams(window.location.search);
+  const duelId = params.get('duel');
   if (duelId) await enterDuel(duelId);
-  else await loadLobby();
+  else if (params.get('royale')) {
+    await loadLobby();
+    show('ld-lobby');
+    if (!(await enterRoyale(params.get('royale')))) setMode('royale');
+  } else {
+    await loadLobby();
+    if (params.get('mode')) setMode(params.get('mode'));
+  }
 
   window.addEventListener('pagehide', () => {
     if (st.searching) rpc('live_duel_leave_queue');

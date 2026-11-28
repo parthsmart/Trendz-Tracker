@@ -63,28 +63,58 @@ export function buildResultHtml(state) {
   const result = state?.result || 'none';
   const me = state?.me || {};
   const other = state?.other || {};
-  const ratingLine = state?.kind === 'ghost' && result !== 'none'
-    ? `Duel rating ${ratingDeltaText(me.rating_delta)} (ghost races count half)`
-    : `Duel rating ${ratingDeltaText(me.rating_delta)}`;
+  const target = state?.kind === 'ghost' ? other.target : null;
+  const unrated = target === 'best' || target === 'topper';
+  const ratingLine = unrated
+    ? 'Not rated'
+    : state?.kind === 'ghost' && result !== 'none'
+      ? `Duel rating ${ratingDeltaText(me.rating_delta)} (ghost races count half)`
+      : `Duel rating ${ratingDeltaText(me.rating_delta)}`;
+  const personalBest = target === 'best' && result === 'won';
   const rematchLabel = me.rematch ? 'Waiting for them…' : other.rematch ? 'Accept rematch' : 'Rematch';
   return `
     <div class="ld-result is-${esc(result)}">
       <div class="ld-result-ic" aria-hidden="true">${RESULT_ICON[result] || '⚔️'}</div>
       <h2>${result === 'none' && state?.kind === 'ghost' ? 'Not counted' : RESULT_TEXT[result] || 'Duel over'}</h2>
+      ${personalBest ? '<p class="ld-pb">🎉 New personal best!</p>' : ''}
       ${result === 'none' && state?.kind === 'ghost' ? '<p class="ar-dim">You did not answer, so this race does not count.</p>' : ''}
       <p class="ld-score num"><strong>${Number(me.correct) || 0}</strong> – <strong>${Number(other.correct) || 0}</strong></p>
       <p class="ar-dim">You: ${Number(me.correct) || 0} correct of ${Number(me.attempted) || 0}. ${esc(other.name || 'Opponent')}: ${Number(other.correct) || 0} of ${Number(other.attempted) || 0}.</p>
       ${result === 'none' ? '' : `<div class="ld-rewards">
         <span class="ld-chip">⭐ +${Number(me.xp) || 0} XP</span>
         <span class="ld-chip">📈 ${esc(ratingLine)}</span>
-        ${me.rating ? `<span class="ld-chip">Rating ${Number(me.rating)}</span>` : ''}
+        ${me.rating && !unrated ? `<span class="ld-chip">Rating ${Number(me.rating)}</span>` : ''}
       </div>`}
-      ${other.rematch && !me.rematch ? `<p class="ld-note">${esc(other.name)} wants a rematch!</p>` : ''}
-      <div class="ld-actions">
-        <button type="button" class="btn btn-primary" data-rematch ${me.rematch ? 'disabled' : ''}>${rematchLabel}</button>
-        <a class="btn btn-outline" href="/pages/live-duel.html">Back to lobby</a>
+      ${other.rematch && !me.rematch && state?.kind !== 'tournament' ? `<p class="ld-note">${esc(other.name)} wants a rematch!</p>` : ''}
+      <div class="ld-actions">${state?.kind === 'tournament'
+        ? '<a class="btn btn-primary" href="/pages/live-duel.html?mode=tourney">🏆 Back to the bracket</a>'
+        : `<button type="button" class="btn btn-primary" data-rematch ${me.rematch ? 'disabled' : ''}>${unrated ? 'Race again' : rematchLabel}</button>
+        <a class="btn btn-outline" href="/pages/live-duel.html">Back to lobby</a>`}
       </div>
     </div>`;
+}
+
+/**
+ * Ghost race tab: two cards, "Beat my best" and "Race a topper".
+ * `opts` is the ghost_options reply: { best: {name, correct, attempted} | null, topper: {...} | null }.
+ */
+export function buildGhostOptionsHtml(opts, { disabled = false } = {}) {
+  const card = (key, icon, title, run, line, empty) => `
+    <article class="ld-ghost-card${run ? '' : ' is-empty'}">
+      <div class="ld-ghost-ic" aria-hidden="true">${icon}</div>
+      <h3>${title}</h3>
+      <p class="ld-ghost-line">${run ? line(run) : esc(empty)}</p>
+      <button type="button" class="btn btn-primary" data-ghost-target="${key}" ${run && !disabled ? '' : 'disabled'}>👻 Start race</button>
+    </article>`;
+  return `<div class="ld-ghost-grid">
+    ${card('best', '🏅', 'Beat my best', opts?.best,
+      (r) => `Your best at this level: <b class="num">${Number(r.correct) || 0}</b> correct of <span class="num">${Number(r.attempted) || 0}</span>`,
+      'Play a live duel first (5 or more answers) to set your best.')}
+    ${card('topper', '👑', 'Race a topper', opts?.topper,
+      (r) => `This week's top run: <b>${esc(r.name)}</b> · <b class="num">${Number(r.correct) || 0}</b> correct`,
+      'Nobody at your level has a race this week yet. Be the first!')}
+  </div>
+  <p class="ar-dim ld-ghost-note">Same questions as the run you race. Ghost races are not rated and give a small XP bonus (up to 10 a day).</p>`;
 }
 
 /** The arena banner's stats: rating, question level, won / drawn / lost. */

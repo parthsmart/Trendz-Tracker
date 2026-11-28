@@ -52,6 +52,20 @@ export function buildDuelPopupHtml(invite, secondsLeftNow = null) {
     </div>`;
 }
 
+/** Pop-up on other pages when a tournament match is ready to check in. */
+export function buildTournamentPopupHtml() {
+  return `
+    <div class="tt-dp-ic" aria-hidden="true">🏆</div>
+    <div class="tt-dp-text">
+      <strong id="tt-dp-title">Your tournament match is ready!</strong>
+      <span>Check in within 3 minutes or you forfeit.</span>
+    </div>
+    <div class="tt-dp-actions">
+      <a class="tt-dp-accept" href="${LOBBY_URL}?mode=tourney">Check in</a>
+      <button type="button" class="tt-dp-reject" data-dp="later">Later</button>
+    </div>`;
+}
+
 function ensureStyles(doc) {
   if (doc.getElementById(STYLE_ID)) return;
   const style = doc.createElement('style');
@@ -150,10 +164,26 @@ async function createHub(viewer) {
   };
 
   const user = supabase.channel(`duel-user:${viewer.id}`, { config: { private: true } });
-  for (const event of ['invite', 'cancelled', 'declined', 'matched']) {
+  const showTournamentPopup = (payload) => {
+    const id = `tourney:${payload?.match_id || ''}`;
+    if (popups.has(id) || typeof document === 'undefined') return;
+    if (typeof location !== 'undefined' && location.pathname.startsWith(LOBBY_URL)) return; // the page shows its own card
+    ensureStyles(document);
+    const el = document.createElement('div');
+    el.className = 'tt-dp';
+    el.setAttribute('role', 'alertdialog');
+    el.setAttribute('aria-labelledby', 'tt-dp-title');
+    el.innerHTML = buildTournamentPopupHtml();
+    el.addEventListener('click', (e) => { if (e.target.closest('[data-dp="later"]')) closePopup(id); });
+    document.body.appendChild(el);
+    popups.set(id, { el, timer: setTimeout(() => closePopup(id), 180_000) });
+  };
+
+  for (const event of ['invite', 'cancelled', 'declined', 'matched', 'tournament_ready']) {
     user.on('broadcast', { event }, (msg) => {
       const payload = msg?.payload || {};
       if (event === 'invite') showPopup(payload);
+      if (event === 'tournament_ready') showTournamentPopup(payload);
       if (event === 'cancelled') closePopup(payload.duel_id);
       emit(event, payload);
     });

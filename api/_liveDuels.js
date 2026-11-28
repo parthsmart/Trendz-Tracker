@@ -34,11 +34,15 @@ import {
   liveDuelMixName,
   liveDuelTier,
   ghostTimelineFromAnswers,
+  GHOST_MIN_ATTEMPTED,
+  isGhostTarget,
+  pickBestRun,
   pickLiveOpponent,
+  pickTopperRun,
   sameLiveLevel,
+  shortName,
+  weekStartIst,
 } from '../shared/liveDuel.js';
-
-const GHOST_MIN_ATTEMPTED = 5;
 
 /**
  * A mixed set: the tier's specs in a fresh shuffled order every round of specs,
@@ -80,7 +84,7 @@ export function liveDuelWindow(nowMs, seconds = LIVE_DUEL_SECONDS) {
   return { start_at: new Date(start).toISOString(), end_at: new Date(start + seconds * 1000).toISOString() };
 }
 
-async function liveEnabled(db) {
+export async function liveEnabled(db) {
   try {
     const { data, error } = await db.rpc('live_duel_enabled');
     if (error) return true;
@@ -138,7 +142,7 @@ async function overHourlyLimit(db, studentId, nowMs) {
   return (count || 0) >= LIVE_DUELS_PER_HOUR;
 }
 
-async function ratingOf(db, studentId) {
+export async function ratingOf(db, studentId) {
   const { data } = await db.from('duel_ratings').select('rating').eq('student_id', studentId).maybeSingle();
   return Number(data?.rating) || RATING_START;
 }
@@ -331,13 +335,129 @@ async function startGhostDuel(db, student, now, rematchOf = null) {
   }, now);
 }
 
-/** { action: 'live_ghost' } — nobody came: race a ghost (real past run) or a practice bot. */
-export async function handleLiveGhost({ student, adminSupabase: db, res, now = Date.now() }) {
+/* ------------------------------------------------------------ Ghost race */
+
+const RUN_COLUMNS = 'id, kind, status, flagged, a_id, b_id, a_correct, b_correct, a_attempted, b_attempted, '
+  + 'a_last_correct_ms, b_last_correct_ms, category_id, category_name, seed, level, finished_at';
+
+/** The student's finished duels at their level (both sides). */
+async function myRunRows(db, student) {
+  const pick = (col) => db
+    .from('live_duels')
+    .select(RUN_COLUMNS)
+    .eq(col, student.id)
+    .eq('status', 'done')
+    .eq('level', student.level)
+    .order('finished_at', { ascending: false })
+    .limit(300);
+  const [a, b] = await Promise.all([pick('a_id'), pick('b_id')]);
+  return [...(a.data || []), ...(b.data || [])];
+}
+
+/** Finished duels at the level this week (India time), from every centre. */
+async function weekRunRows(db, student, nowMs) {
+  const { data } = await db
+    .from('live_duels')
+    .select(RUN_COLUMNS)
+    .eq('status', 'done')
+    .eq('level', student.level)
+    .gte('finished_at', weekStartIst(nowMs))
+    .order('finished_at', { ascending: false })
+    .limit(1000);
+  return data || [];
+}
+
+/** "First L." for a topper, following the site's leaderboard name rule when the database has it. */
+async function topperName(db, studentId) {
+  const { data: p } = await db.from('profiles').select('full_name, student_code').eq('id', studentId).maybeSingle();
+  try {
+    const { data, error } = await db.rpc('display_name_for', { p_name: p?.full_name || '', p_code: p?.student_code || '' });
+    if (!error && typeof data === 'string' && data.trim()) return data.trim();
+  } catch {
+    // fall back below
+  }
+  return shortName(p?.full_name);
+}
+
+/** The run to race for a target: { run, name } or null. */
+async function findTargetRun(db, student, target, nowMs) {
+  if (target === 'best') {
+    const run = pickBestRun(await myRunRows(db, student), student.id);
+    return run ? { run, name: 'Your best' } : null;
+  }
+  const run = pickTopperRun(await weekRunRows(db, student, nowMs), student.id);
+  return run ? { run, name: await topperName(db, run.student_id) } : null;
+}
+
+async function runTimeline(db, run) {
+  const { data: answers } = await db
+    .from('live_duel_answers')
+    .select('q_index, correct, ms')
+    .eq('duel_id', run.duel.id)
+    .eq('student_id', run.student_id)
+    .order('q_index', { ascending: true });
+  return ghostTimelineFromAnswers(answers || []);
+}
+
+const NO_TARGET_TEXT = Object.freeze({
+  best: 'Play a live duel first (5 or more answers) to set your best.',
+  topper: 'Nobody at your level has a race this week yet. Be the first!',
+});
+
+/** A ghost race against the student's own best run or this week's top run at the level. Unrated. */
+async function startTargetGhost(db, student, target, now, rematchOf = null) {
+  const found = await findTargetRun(db, student, target, now);
+  const timeline = found ? await runTimeline(db, found.run) : [];
+  if (!found || timeline.length < GHOST_MIN_ATTEMPTED) {
+    throw Object.assign(new Error(NO_TARGET_TEXT[target]), { statusCode: 404 });
+  }
+  const { run, name } = found;
+  const label = target === 'best' ? 'Your best' : `${name} · week's top`;
+  return createLiveDuel(db, {
+    kind: 'ghost',
+    aId: student.id,
+    bId: null,
+    ghost: {
+      label,
+      level: student.level,
+      bot: false,
+      target,
+      target_correct: run.correct,
+      source_duel: run.duel.id,
+      timeline,
+    },
+    level: student.level,
+    centreId: await centreOf(db, student.id),
+    category: { id: run.duel.category_id, name: run.duel.category_name },
+    seed: Number(run.duel.seed),
+    rematchOf,
+  }, now);
+}
+
+/** { action: 'ghost_options' } — what the Ghost race tab offers: my best and this week's top run. */
+export async function handleGhostOptions({ student, adminSupabase: db, res, now = Date.now() }) {
+  if (!student.level) return res.status(200).json({ best: null, topper: null });
+  const [best, topper] = await Promise.all([
+    findTargetRun(db, student, 'best', now),
+    findTargetRun(db, student, 'topper', now),
+  ]);
+  const view = (f) => (f ? { name: f.name, correct: f.run.correct, attempted: f.run.attempted } : null);
+  return res.status(200).json({ best: view(best), topper: view(topper) });
+}
+
+/**
+ * { action: 'live_ghost', target? } — race a ghost.
+ * Without a target (nobody came in quick match): a real past run at the level or a practice bot.
+ * With target 'best' or 'topper': the student's own best run, or this week's top run at the level.
+ */
+export async function handleLiveGhost({ body = {}, student, adminSupabase: db, res, now = Date.now() }) {
+  const target = body?.target ?? null;
+  if (target !== null && !isGhostTarget(target)) return res.status(400).json({ error: 'Choose a ghost to race.' });
   const gate = await startGate(db, student, now);
   if (gate) return respond(res, gate);
   await db.from('live_duel_queue').delete().eq('student_id', student.id);
   try {
-    const duelId = await startGhostDuel(db, student, now);
+    const duelId = target ? await startTargetGhost(db, student, target, now) : await startGhostDuel(db, student, now);
     return res.status(200).json({ duel_id: duelId });
   } catch (err) {
     return res.status(err.statusCode || 500).json({ error: err.message });
@@ -407,7 +527,7 @@ export async function handleLiveRematch({ body, student, adminSupabase: db, res,
   if (!isUuid(duelId)) return res.status(400).json({ error: 'Duel not found.' });
   const { data: duel } = await db
     .from('live_duels')
-    .select('id, kind, status, a_id, b_id, a_rematch, b_rematch, rematch_id, level, centre_id, category_id, category_name')
+    .select('id, kind, status, a_id, b_id, a_rematch, b_rematch, rematch_id, level, centre_id, category_id, category_name, ghost')
     .eq('id', duelId)
     .maybeSingle();
   const side = duel?.a_id === student.id ? 'a' : duel?.b_id === student.id ? 'b' : null;
@@ -415,6 +535,7 @@ export async function handleLiveRematch({ body, student, adminSupabase: db, res,
   if (duel.status !== 'done' && duel.status !== 'expired') {
     return res.status(409).json({ error: 'This duel has not finished yet.' });
   }
+  if (duel.kind === 'tournament') return res.status(409).json({ error: 'Tournament matches have no rematch.' });
   if (duel.rematch_id) return res.status(200).json({ duel_id: duel.rematch_id });
   if (duel.b_id && await isBlockedPair(db, duel.a_id, duel.b_id)) {
     return res.status(404).json({ error: 'A rematch is not available.' });
@@ -425,7 +546,10 @@ export async function handleLiveRematch({ body, student, adminSupabase: db, res,
 
   if (!duel.b_id) {
     try {
-      const newId = await startGhostDuel(db, student, now, duel.id);
+      const target = isGhostTarget(duel.ghost?.target) ? duel.ghost.target : null;
+      const newId = target
+        ? await startTargetGhost(db, student, target, now, duel.id)
+        : await startGhostDuel(db, student, now, duel.id);
       await db.from('live_duels').update({ rematch_id: newId, a_rematch: true }).eq('id', duel.id);
       return res.status(200).json({ duel_id: newId });
     } catch (err) {
