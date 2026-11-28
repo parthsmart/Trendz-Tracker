@@ -18,6 +18,7 @@ import {
   stripBasicsExpected,
 } from './_drills.js';
 import { isUuid, newDuelSeed } from './_duels.js';
+import { blockedIdsFor, isBlockedPair } from './_socialBlocks.js';
 import {
   GHOST_WAIT_SECONDS,
   INVITE_SECONDS,
@@ -222,7 +223,8 @@ export async function handleLiveQueue({ student, adminSupabase: db, res, now = D
     .neq('student_id', student.id)
     .gt('seen_at', staleIso)
     .limit(50);
-  const other = pickLiveOpponent(me, waiting || [], now);
+  const blocked = await blockedIdsFor(db, student.id);
+  const other = pickLiveOpponent(me, (waiting || []).filter((w) => !blocked.has(w.student_id)), now);
   if (other) {
     const { data: claimed } = await db.rpc('live_duel_claim_pair', { p_a: other.student_id, p_b: student.id });
     if (claimed === true) {
@@ -334,7 +336,8 @@ export async function handleLiveInvite({ body, student, adminSupabase: db, res, 
     .select('id, role, active, level, leaderboard_visible')
     .eq('id', opponentId)
     .maybeSingle();
-  if (!opponent || opponent.role !== 'student' || !opponent.active || opponent.leaderboard_visible === false) {
+  if (!opponent || opponent.role !== 'student' || !opponent.active || opponent.leaderboard_visible === false
+      || await isBlockedPair(db, student.id, opponent.id)) {
     return res.status(404).json({ error: 'That classmate is not available for duels.' });
   }
   if (!sameLiveLevel(opponent.level, student.level)) {
@@ -386,6 +389,9 @@ export async function handleLiveRematch({ body, student, adminSupabase: db, res,
     return res.status(409).json({ error: 'This duel has not finished yet.' });
   }
   if (duel.rematch_id) return res.status(200).json({ duel_id: duel.rematch_id });
+  if (duel.b_id && await isBlockedPair(db, duel.a_id, duel.b_id)) {
+    return res.status(404).json({ error: 'A rematch is not available.' });
+  }
 
   const gate = await startGate(db, student, now);
   if (gate) return respond(res, gate);
