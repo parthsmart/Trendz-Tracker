@@ -2,7 +2,7 @@
  * Trendz Tracker - Student comfort settings (pure model, no DOM).
  *
  * One small object holds every "how the app feels" choice a student makes:
- * sound, music, vibration, theme, large numbers and animations. It is saved
+ * sound, music, vibration, large numbers and animations. It is saved
  * on the device (localStorage) and, for signed-in students, in the database
  * (public.student_preferences via my_preferences / save_my_preferences) so
  * it follows them to any phone or computer.
@@ -14,7 +14,6 @@
 export const PREFS_STORAGE_KEY = 'tt_prefs';
 export const PREFS_VERSION = 1;
 
-export const THEME_CHOICES = Object.freeze(['system', 'light', 'dark']);
 /** Same values as js/motion.js MOTION_PREFS ('off' = reduced motion). */
 export const MOTION_CHOICES = Object.freeze(['auto', 'full', 'lite', 'off']);
 export const VOLUME_STEPS = Object.freeze([0.25, 0.5, 0.75, 1]);
@@ -25,7 +24,6 @@ export const DEFAULT_PREFS = Object.freeze({
   music: false, // background music during practice; off until the student turns it on
   musicInTests: false, // also play in weekly tests and Memoriad competition rounds
   vibrate: true, // phone buzz where the browser supports it
-  theme: 'system',
   largeNumbers: false,
   motion: 'auto',
 });
@@ -43,7 +41,6 @@ export function normalizePrefs(raw) {
   const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   const out = { ...DEFAULT_PREFS };
   for (const k of BOOL_KEYS) if (typeof src[k] === 'boolean') out[k] = src[k];
-  if (THEME_CHOICES.includes(src.theme)) out.theme = src.theme;
   if (MOTION_CHOICES.includes(src.motion)) out.motion = src.motion;
   if (src.volume !== undefined) out.volume = nearestVolume(src.volume);
   return out;
@@ -61,13 +58,6 @@ export function prefsEqual(a, b) {
   const x = normalizePrefs(a);
   const y = normalizePrefs(b);
   return Object.keys(DEFAULT_PREFS).every((k) => x[k] === y[k]);
-}
-
-/** 'light' | 'dark' for a theme choice and the system setting. */
-export function resolveTheme(choice, systemDark = false) {
-  if (choice === 'dark') return 'dark';
-  if (choice === 'light') return 'light';
-  return systemDark ? 'dark' : 'light';
 }
 
 /**

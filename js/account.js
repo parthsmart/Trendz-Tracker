@@ -177,8 +177,6 @@ async function renderAccess(profile) {
 }
 
 const MOTION_LABELS = { full: 'Full', lite: 'Light', off: 'Off' };
-const THEME_NOTES = { system: 'Follows your device', light: 'Always light', dark: 'Always dark' };
-
 function motionNote(pref) {
   if (pref === 'off') return 'Animations and moving effects are off';
   if (pref !== 'auto') return 'Your choice';
@@ -212,11 +210,6 @@ function renderSettings(p = getPrefs()) {
   document.getElementById('pref-music-tests-row')?.classList.toggle('is-off', !p.music);
   const testsInput = document.getElementById('pref-music-tests');
   if (testsInput) testsInput.disabled = !p.music;
-  document.querySelectorAll('#pref-theme [data-theme-choice]').forEach((btn) => {
-    btn.setAttribute('aria-pressed', String(btn.dataset.themeChoice === p.theme));
-  });
-  const themeNote = document.getElementById('pref-theme-note');
-  if (themeNote) themeNote.textContent = THEME_NOTES[p.theme] || THEME_NOTES.system;
   const motion = document.getElementById('pref-motion');
   if (motion) motion.value = p.motion;
   const motionText = document.getElementById('pref-motion-note');
@@ -277,14 +270,6 @@ function setupSettingsPanel(profile) {
     setTimeout(() => {
       btn.textContent = '▶ Listen';
     }, 8000);
-  });
-  card.querySelectorAll('#pref-theme [data-theme-choice]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const root = document.documentElement;
-      root.classList.add('tt-theme-switching');
-      setPrefs({ theme: btn.dataset.themeChoice });
-      setTimeout(() => root.classList.remove('tt-theme-switching'), 400);
-    });
   });
   document.getElementById('pref-motion')?.addEventListener('change', (e) => {
     const next = setPrefs({ motion: e.target.value });
