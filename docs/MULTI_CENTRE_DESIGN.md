@@ -349,3 +349,14 @@ Step 5 is split into smaller parts. Each part has its own migration and PR, so t
 - Async duels: `duel_options()` lists classmates of your own centre only. `/api/drill` `duel_create` refuses an opponent from another centre, even when the id is sent directly.
 - Grants are unchanged (`CREATE OR REPLACE` keeps them).
 - Rollback: `supabase/rollbacks/37_centre_scoped_leaderboards_rollback.sql`. It puts back the pre-37 definitions; no data change.
+
+### Step 5b implementation notes (migration 39, leagues and awards per centre)
+
+- Migration number 39: 38 was taken by weekly test practice (PR #129).
+- `league_members()` draws groups per (tier, centre, level) and returns `centre_id`. Its return type changed, so it is dropped and created again with the same grants (service_role only).
+- `league_settle_week()` ranks each group inside its centre. `league_board()`: students see their own group; teachers, centre heads and vice heads see the groups of their centre; owners and directors see every centre, and the group label starts with the centre code (e.g. "KTA Level 1 Group 1"). Tier counts cover the caller's centre.
+- `xp_awards.centre_id` (new, nullable) records the winner's centre; existing rows are filled from the winner's current centre. `xp_settle_period()` picks one winner per centre and level. `star_of_month()` shows only your own centre's winners (owners and directors see all).
+- Centre heads and vice heads can now pick a level in `star_of_month()` and see the league as staff, like teachers.
+- Past league weeks and awards are not re-settled. No data is deleted.
+- Rollback: `supabase/rollbacks/39_centre_leagues_awards_rollback.sql`. It restores the pre-39 functions and keeps the new column and its values.
+- Not covered yet: season ranks (`xp_settle_seasons` level_rank) and the `challenge_win` badge still compare a level across the network.
