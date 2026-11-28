@@ -21,8 +21,8 @@ const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
 const MIGRATION_30 = read('supabase/migrations/30_multi_centre_schema.sql');
 const MIGRATION_32 = read('supabase/migrations/32_multi_centre_data.sql');
 const MIGRATION_33 = read('supabase/migrations/33_centres_guard.sql');
-const SOCIAL = read('supabase/migrations/40_social_friends_feed.sql');
-const SOCIAL_ROLLBACK = read('supabase/rollbacks/40_social_friends_feed_rollback.sql');
+const SOCIAL = read('supabase/migrations/41_social_friends_feed.sql');
+const SOCIAL_ROLLBACK = read('supabase/rollbacks/41_social_friends_feed_rollback.sql');
 
 const id = (n) => `00000000-0000-0000-0000-${String(n).padStart(12, '0')}`;
 const P = {

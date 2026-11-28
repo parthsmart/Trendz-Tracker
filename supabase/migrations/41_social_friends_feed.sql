@@ -17,7 +17,7 @@
 --
 -- Depends on migration 30 (centres, my_centre, is_centre_admin, ...).
 -- No existing table, policy or function is changed. No data changes.
--- Rollback: supabase/rollbacks/40_social_friends_feed_rollback.sql
+-- Rollback: supabase/rollbacks/41_social_friends_feed_rollback.sql
 
 -- ---------------------------------------------------------------------------
 -- 1. Tables

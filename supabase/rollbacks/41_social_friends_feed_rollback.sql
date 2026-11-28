@@ -1,4 +1,4 @@
--- Rollback for 40_social_friends_feed.sql.
+-- Rollback for 41_social_friends_feed.sql.
 -- Take a backup of the social tables first if any rows should be kept: this
 -- removes the social feature completely (friends, feed, reactions, reports).
 
