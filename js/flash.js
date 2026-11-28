@@ -51,6 +51,10 @@ import { setupPracticeRecordsSection } from './practiceRecordsCard.js';
 import { showRoundRewards } from './xpRewards.js';
 import {
   parseTestRunnerQuery,
+  parsePracticeRunId,
+  testSectionStartBody,
+  testSavedText,
+  weeklyTestBackHref,
   flashProgressText,
   RUNNER_EXIT_CONFIRM_TEXT,
 } from './weeklyTestRunner.js';
@@ -104,6 +108,8 @@ let cachedHistoryRows = [];
 // Weekly test runner state (?test=<id>&section=<id>)
 let isTestMode = false;
 let activeTestId = null;
+/** Practice run id (`&practice=`): a no-stakes retake of a closed test. */
+let activePracticeRunId = null;
 let activeSectionId = null;
 let activeTestTitle = 'Weekly Test';
 let activeTryNo = 1;
@@ -569,7 +575,7 @@ function handleVisibilityChange() {
     clearActiveTimers();
     activeTry = null;
     if (isTestMode) {
-      window.location.href = '/pages/weekly-test.html';
+      window.location.href = weeklyTestBackHref(activeTestId, activePracticeRunId);
       return;
     }
     showScreen('setup');
@@ -744,7 +750,8 @@ async function callTestFlashStartApi() {
       currentProfile?.id,
       activeTestId,
       null,
-      activeSectionId
+      activeSectionId,
+      { practiceRunId: activePracticeRunId }
     );
   }
   const token = await getBearerToken();
@@ -754,11 +761,9 @@ async function callTestFlashStartApi() {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify({
-      action: 'start',
-      test_id: activeTestId,
-      section_id: activeSectionId,
-    }),
+    body: JSON.stringify(
+      testSectionStartBody(activeTestId, activeSectionId, activePracticeRunId)
+    ),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -1095,7 +1100,7 @@ function renderTestTryResultScreen(result, finishedTry) {
     backWeeklyBtn.className = 'btn btn-primary';
   }
   if (testSavedBanner) {
-    testSavedBanner.textContent = `✓ Saved as part of ${testTitle}`;
+    testSavedBanner.textContent = `✓ ${testSavedText(testTitle, activePracticeRunId)}`;
     testSavedBanner.style.display = 'block';
   }
 
@@ -1636,7 +1641,7 @@ function setupEventListeners() {
     activeTry = null;
     if (stopConfirmBar) stopConfirmBar.style.display = 'none';
     if (isTestMode) {
-      window.location.href = '/pages/weekly-test.html';
+      window.location.href = weeklyTestBackHref(activeTestId, activePracticeRunId);
       return;
     }
     showScreen('setup');
@@ -1820,6 +1825,7 @@ async function initFlashTrainerPage() {
   isTestMode = runnerQuery.isTestMode;
   activeTestId = runnerQuery.testId;
   activeSectionId = runnerQuery.sectionId;
+  activePracticeRunId = parsePracticeRunId(window.location.search);
 
   if (isTestMode) {
     setupEventListeners();

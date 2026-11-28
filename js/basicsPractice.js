@@ -46,11 +46,17 @@ import { celebrate } from './motion.js';
 import {
   RUNNER_EXIT_CONFIRM_TEXT,
   parseTestRunnerQuery,
+  parsePracticeRunId,
+  testSectionStartBody,
+  testSavedText,
+  weeklyTestBackHref,
 } from './weeklyTestRunner.js';
 
 let currentProfile = null;
 let isTestMode = false;
 let activeTestId = '';
+/** Practice run id (`&practice=`): a no-stakes retake of a closed test. */
+let activePracticeRunId = null;
 let activeSectionId = '';
 let activeTestTitle = 'Weekly Test';
 let selectedCategory = null;
@@ -1146,10 +1152,13 @@ async function renderResultsScreen(resultData) {
   const sameModeBtnEl = document.getElementById('btn-same-mode-again');
   if (isTestMode) {
     if (savedConfirmEl) {
-      savedConfirmEl.textContent = `Saved as part of ${resultData.title || activeTestTitle || 'Weekly Test'}`;
+      savedConfirmEl.textContent = testSavedText(
+        resultData.title || activeTestTitle || 'Weekly Test',
+        activePracticeRunId
+      );
     }
     if (backBtnEl) {
-      backBtnEl.href = '/pages/weekly-test.html';
+      backBtnEl.href = weeklyTestBackHref(activeTestId, activePracticeRunId);
       backBtnEl.textContent = 'Back to Weekly Test';
       backBtnEl.className = 'btn btn-primary';
     }
@@ -1285,6 +1294,7 @@ async function initBasicsPracticePage() {
     isTestMode = true;
     activeTestId = testRunner.testId;
     activeSectionId = testRunner.sectionId;
+    activePracticeRunId = parsePracticeRunId(window.location.search);
     document.body.classList.add('stage-focus-mode');
     const headerEl = document.querySelector('.app-header');
     if (headerEl) headerEl.style.display = 'none';
@@ -1468,11 +1478,9 @@ async function startWeeklyTestBasicsSection() {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({
-          action: 'start',
-          test_id: activeTestId,
-          section_id: activeSectionId,
-        }),
+        body: JSON.stringify(
+          testSectionStartBody(activeTestId, activeSectionId, activePracticeRunId)
+        ),
       });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) {
@@ -1484,7 +1492,8 @@ async function startWeeklyTestBasicsSection() {
         currentProfile?.id || 'usr-101',
         activeTestId,
         null,
-        activeSectionId
+        activeSectionId,
+        { practiceRunId: activePracticeRunId }
       );
     } else {
       throw new Error('Database connection is not configured.');

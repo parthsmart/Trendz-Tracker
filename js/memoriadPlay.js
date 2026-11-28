@@ -75,6 +75,10 @@ import {
 import { getScoreFeedback } from './scoreColors.js';
 import {
   parseTestRunnerQuery,
+  parsePracticeRunId,
+  testSectionStartBody,
+  testSavedText,
+  weeklyTestBackHref,
   RUNNER_EXIT_CONFIRM_TEXT,
 } from './weeklyTestRunner.js';
 import { submitHomeworkCompletion } from './homeworkData.js';
@@ -203,6 +207,8 @@ let memoriadAccessSettings = null;
 // Weekly Test runner state (?test=<id>&section=<id>)
 let isTestMode = false;
 let activeTestId = null;
+/** Practice run id (`&practice=`): a no-stakes retake of a closed test. */
+let activePracticeRunId = null;
 let activeSectionId = null;
 let activeTestTitle = 'Weekly Test';
 
@@ -237,6 +243,7 @@ async function initMemoriadPlay() {
   isTestMode = runnerQuery.isTestMode;
   activeTestId = runnerQuery.testId;
   activeSectionId = runnerQuery.sectionId;
+  activePracticeRunId = parsePracticeRunId(window.location.search);
 
   const params = new URLSearchParams(window.location.search);
   const requestedModule = (params.get('module') || 'calendar').trim().toLowerCase();
@@ -254,7 +261,7 @@ async function initMemoriadPlay() {
         'Use a laptop or desktop with a keyboard for this test section';
     }
     if (narrowBack) {
-      narrowBack.href = '/pages/weekly-test.html';
+      narrowBack.href = weeklyTestBackHref(activeTestId, activePracticeRunId);
       narrowBack.textContent = '← Back to Weekly Test';
     }
 
@@ -1058,11 +1065,9 @@ async function startTestMemoriadSection() {
   }
 
   try {
-    const started = await callMemoriadApi({
-      action: 'start',
-      test_id: activeTestId,
-      section_id: activeSectionId,
-    });
+    const started = await callMemoriadApi(
+      testSectionStartBody(activeTestId, activeSectionId, activePracticeRunId)
+    );
 
     if (started.module && MODULE_META[started.module]) {
       activeModuleKey = started.module;
@@ -1100,7 +1105,7 @@ async function startTestMemoriadSection() {
           <p style="font-size: var(--text-sm); color: var(--text-main); margin-bottom: var(--space-4);">
             ${escapeHtml(err?.message || 'Could not start this weekly test section.')}
           </p>
-          <a href="/pages/weekly-test.html" class="btn btn-primary" style="text-decoration: none;">
+          <a href="${weeklyTestBackHref(activeTestId, activePracticeRunId)}" class="btn btn-primary" style="text-decoration: none;">
             &larr; Back to Weekly Test
           </a>
         </div>
@@ -2398,7 +2403,7 @@ function bindStageChromeButtons() {
         }
         if (isTestMode) {
           phase = 'results';
-          window.location.href = '/pages/weekly-test.html';
+          window.location.href = weeklyTestBackHref(activeTestId, activePracticeRunId);
           return;
         }
         if (activeTodoTaskId) {
@@ -2619,7 +2624,7 @@ function renderSubmissionErrorView() {
     `;
 
   const backHref = isTestMode
-    ? '/pages/weekly-test.html'
+    ? weeklyTestBackHref(activeTestId, activePracticeRunId)
     : (activeTodoTaskId ? '/pages/student.html' : '/pages/memoriad.html');
   const backLabel = isTestMode
     ? 'Back to Weekly Test'
@@ -2657,7 +2662,7 @@ function renderSubmissionErrorView() {
 
 export function deriveMemoriadSaveBanner(
   res,
-  { isTestMode = false, activeTestTitle = 'Weekly Test' } = {}
+  { isTestMode = false, activeTestTitle = 'Weekly Test', practiceRunId = null } = {}
 ) {
   if (!res) {
     return {
@@ -2688,7 +2693,7 @@ export function deriveMemoriadSaveBanner(
   if (isSaved) {
     const testTitle = res.test_title || activeTestTitle;
     return {
-      text: isTestMode ? `Saved as part of ${testTitle}` : 'Saved to your scores.',
+      text: isTestMode ? testSavedText(testTitle, practiceRunId) : 'Saved to your scores.',
       bannerClass: 'banner-success',
       saved: true,
       emptyExpiry: false,
@@ -2716,7 +2721,11 @@ function renderResultsView() {
   const res = lastSubmissionResult;
   const feedback = getScoreFeedback(res.correct, res.attempted);
   const usedSecondsFormatted = Number(res.used_seconds || 0).toFixed(2);
-  const bannerInfo = deriveMemoriadSaveBanner(res, { isTestMode, activeTestTitle });
+  const bannerInfo = deriveMemoriadSaveBanner(res, {
+    isTestMode,
+    activeTestTitle,
+    practiceRunId: activePracticeRunId,
+  });
   const saveBannerText = bannerInfo.text;
   const saveBannerClass = bannerInfo.bannerClass;
 
@@ -2830,7 +2839,7 @@ function renderResultsView() {
           <div style="display: flex; gap: var(--space-2);">
             ${
               isTestMode
-                ? `<a href="/pages/weekly-test.html" class="btn btn-primary" style="text-decoration: none;">Back to Weekly Test</a>`
+                ? `<a href="${weeklyTestBackHref(activeTestId, activePracticeRunId)}" class="btn btn-primary" style="text-decoration: none;">Back to Weekly Test</a>`
                 : activeTodoTaskId
                   ? `
                     <button type="button" id="btn-results-try-again" class="btn btn-primary">
@@ -2938,12 +2947,13 @@ function renderResultsView() {
 async function callMemoriadApi(payload) {
   if (isDemoMode() || !isSupabaseConfigured()) {
     if (isTestMode) {
-      if (payload.action === 'start') {
+      if (payload.action === 'start' || payload.action === 'practice_start') {
         return DemoDB.mockStartWeeklyTestSection(
           currentProfile?.id,
           activeTestId,
           null,
-          activeSectionId
+          activeSectionId,
+          { practiceRunId: activePracticeRunId }
         );
       }
       return DemoDB.mockSubmitWeeklyTestSection(

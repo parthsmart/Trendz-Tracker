@@ -47,6 +47,12 @@ const DEMO_STORAGE_KEY_WEEKLY_SECTIONS = 'trendz_demo_weekly_sections_v1';
 const DEMO_STORAGE_KEY_WEEKLY_ATTEMPTS = 'trendz_demo_weekly_attempts_v1';
 const DEMO_STORAGE_KEY_WEEKLY_REMOVALS = 'trendz_demo_weekly_removals_v1';
 const DEMO_STORAGE_KEY_WEEKLY_SESSIONS = 'trendz_demo_weekly_sessions_v1';
+// Weekly test practice (no-stakes retakes of closed tests). Kept apart from
+// the official demo attempts and scores.
+const DEMO_STORAGE_KEY_WEEKLY_PRACTICE_RUNS = 'trendz_demo_weekly_practice_runs_v1';
+function demoPracticeKey(runId, part) {
+  return `trendz_demo_weekly_practice_${part}_v1::${runId}`;
+}
 const DEMO_STORAGE_KEY_CATEGORY_ALIASES = 'trendz_demo_category_aliases_v1';
 const DEMO_STORAGE_KEY_IMPORT_BATCHES = 'trendz_demo_import_batches_v1';
 const DEMO_STORAGE_KEY_COMPETITION_SETTINGS = 'trendz_demo_competition_settings_v1';
@@ -2528,7 +2534,12 @@ export const DemoDB = {
       });
   },
 
-  mockStartWeeklyTestSection(studentId, testId, categoryId, sectionId = null) {
+  mockStartWeeklyTestSection(studentId, testId, categoryId, sectionId = null, opts = {}) {
+    // opts.practiceRunId: practice mode. Uses a separate store per run and
+    // never touches the official demo attempts or scores.
+    const practiceRunId = opts && opts.practiceRunId ? String(opts.practiceRunId) : null;
+    const attemptsKey = practiceRunId ? demoPracticeKey(practiceRunId, 'attempts') : DEMO_STORAGE_KEY_WEEKLY_ATTEMPTS;
+    const scoresKey = practiceRunId ? demoPracticeKey(practiceRunId, 'scores') : DEMO_STORAGE_KEY_WEEKLY_SCORES;
     if (!isDemoMode()) {
       throw new Error('Action blocked: Demo mode cannot mutate live database.');
     }
@@ -2538,7 +2549,11 @@ export const DemoDB = {
     if (!test || test.type !== 'online') {
       throw new Error('Online weekly test not found.');
     }
-    if (test.state !== 'open') {
+    if (practiceRunId) {
+      if (test.state !== 'closed') {
+        throw new Error('Practice opens after the official test closes.');
+      }
+    } else if (test.state !== 'open') {
       throw new Error('This weekly test is not currently open.');
     }
     const sec = (test.sections || []).find(
@@ -2548,8 +2563,8 @@ export const DemoDB = {
       throw new Error('Section not found in this weekly test.');
     }
     const kind = String(sec.kind || 'basics').toLowerCase();
-    const attempts = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_ATTEMPTS) || '[]');
-    const scores = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_SCORES) || '[]');
+    const attempts = JSON.parse(localStorage.getItem(attemptsKey) || '[]');
+    const scores = JSON.parse(localStorage.getItem(scoresKey) || '[]');
     const sessions = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_SESSIONS) || '{}');
     const sessionId = `demo-wt-sess-${Date.now()}`;
     const startedAt = new Date().toISOString();
@@ -2605,14 +2620,14 @@ export const DemoDB = {
           correct: 0,
           total: qCount,
           time_seconds: 0,
-          source: 'online',
+          source: practiceRunId ? 'practice' : 'online',
           created_at: startedAt,
         };
         if (scIdx >= 0) scores[scIdx] = partialScore;
         else scores.push(partialScore);
-        localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_SCORES, JSON.stringify(scores));
+        localStorage.setItem(scoresKey, JSON.stringify(scores));
       }
-      localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_ATTEMPTS, JSON.stringify(attempts));
+      localStorage.setItem(attemptsKey, JSON.stringify(attempts));
 
       const flashSettings = {
         digits: Number(sec.flash_digits) || 2,
@@ -2637,6 +2652,7 @@ export const DemoDB = {
         expected: expectedSum,
         settings: flashSettings,
         started_at: startedAt,
+        practice_run_id: practiceRunId,
       };
       localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_SESSIONS, JSON.stringify(sessions));
 
@@ -2655,7 +2671,11 @@ export const DemoDB = {
       };
     }
 
-    if (sec.attempt) {
+    if (practiceRunId) {
+      if (attempts.some(a => a.section_id === sec.section_id && a.student_id === studentId)) {
+        throw new Error('You have already done this section in this practice run.');
+      }
+    } else if (sec.attempt) {
       throw new Error('You have already started this section.');
     }
 
@@ -2673,7 +2693,7 @@ export const DemoDB = {
       started_at: startedAt,
       finished_at: null,
     });
-    localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_ATTEMPTS, JSON.stringify(attempts));
+    localStorage.setItem(attemptsKey, JSON.stringify(attempts));
 
     if (kind === 'elements') {
       const elemStart = this.mockElementDrillStart(sec.activity_key || 'day_codes');
@@ -2687,6 +2707,7 @@ export const DemoDB = {
         drill_title: elemStart.title,
         time_limit_seconds: elemStart.time_limit_seconds,
         started_at: startedAt,
+        practice_run_id: practiceRunId,
       };
       localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_SESSIONS, JSON.stringify(sessions));
       return {
@@ -2724,6 +2745,7 @@ export const DemoDB = {
         module_title: memStart.title,
         time_limit_seconds: memStart.time_limit_seconds,
         started_at: startedAt,
+        practice_run_id: practiceRunId,
       };
       localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_SESSIONS, JSON.stringify(sessions));
       return {
@@ -2757,6 +2779,7 @@ export const DemoDB = {
       seconds: sec.seconds,
       started_at: startedAt,
       drill_session_id: drillStart.session_id,
+      practice_run_id: practiceRunId,
     };
     localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_SESSIONS, JSON.stringify(sessions));
 
@@ -2785,8 +2808,11 @@ export const DemoDB = {
     }
 
     const kind = String(sess.kind || 'basics').toLowerCase();
-    const attempts = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_ATTEMPTS) || '[]');
-    const scores = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_SCORES) || '[]');
+    const practiceRunId = sess.practice_run_id || null;
+    const attemptsKey = practiceRunId ? demoPracticeKey(practiceRunId, 'attempts') : DEMO_STORAGE_KEY_WEEKLY_ATTEMPTS;
+    const scoresKey = practiceRunId ? demoPracticeKey(practiceRunId, 'scores') : DEMO_STORAGE_KEY_WEEKLY_SCORES;
+    const attempts = JSON.parse(localStorage.getItem(attemptsKey) || '[]');
+    const scores = JSON.parse(localStorage.getItem(scoresKey) || '[]');
 
     const upsertScoreRow = (correct, total, timeSeconds, categoryId = null) => {
       const existingIdx = scores.findIndex(
@@ -2805,12 +2831,12 @@ export const DemoDB = {
         correct,
         total,
         time_seconds: timeSeconds,
-        source: 'online',
+        source: practiceRunId ? 'practice' : 'online',
         created_at: new Date().toISOString(),
       };
       if (existingIdx >= 0) scores[existingIdx] = row;
       else scores.push(row);
-      localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_SCORES, JSON.stringify(scores));
+      localStorage.setItem(scoresKey, JSON.stringify(scores));
     };
 
     if (kind === 'flash') {
@@ -2836,7 +2862,7 @@ export const DemoDB = {
           attempts[attIdx].status = 'submitted';
           attempts[attIdx].finished_at = new Date().toISOString();
         }
-        localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_ATTEMPTS, JSON.stringify(attempts));
+        localStorage.setItem(attemptsKey, JSON.stringify(attempts));
       }
 
       upsertScoreRow(newTriesCorrect, qCount, newSecondsUsed, null);
@@ -2890,7 +2916,7 @@ export const DemoDB = {
         attempts[attIdx].status = 'submitted';
         attempts[attIdx].seconds_used = fixedResult.seconds;
         attempts[attIdx].finished_at = new Date().toISOString();
-        localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_ATTEMPTS, JSON.stringify(attempts));
+        localStorage.setItem(attemptsKey, JSON.stringify(attempts));
       }
       upsertScoreRow(fixedResult.correct, fixedResult.questions_total, fixedResult.seconds, null);
       return fixedResult;
@@ -2908,7 +2934,7 @@ export const DemoDB = {
         attempts[attIdx].status = 'submitted';
         attempts[attIdx].seconds_used = Math.round(usedSec);
         attempts[attIdx].finished_at = new Date().toISOString();
-        localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_ATTEMPTS, JSON.stringify(attempts));
+        localStorage.setItem(attemptsKey, JSON.stringify(attempts));
       }
       upsertScoreRow(correctQ, totalQ, Math.round(usedSec), null);
       return {
@@ -2950,7 +2976,7 @@ export const DemoDB = {
       attempts[attIdx].status = 'submitted';
       attempts[attIdx].seconds_used = elapsedSec;
       attempts[attIdx].finished_at = new Date().toISOString();
-      localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_ATTEMPTS, JSON.stringify(attempts));
+      localStorage.setItem(attemptsKey, JSON.stringify(attempts));
     }
 
     if (attempted === 0) {
@@ -2992,6 +3018,184 @@ export const DemoDB = {
       accuracy,
       used_seconds: elapsedSec,
     };
+  },
+
+  /** Demo practice: why practice is blocked for this test, or null. */
+  mockPracticeBlockReason(studentId, testId) {
+    const test = this.mockMyWeeklyTests(studentId).find(t => t.id === testId);
+    if (!test || test.type !== 'online') return 'Online weekly test not found.';
+    if (test.state !== 'closed') return 'Practice opens after the official test closes.';
+    return null;
+  },
+
+  mockPracticeBegin(studentId, testId) {
+    if (!isDemoMode()) {
+      throw new Error('Action blocked: Demo mode cannot mutate live database.');
+    }
+    initDemoStorage();
+    const reason = this.mockPracticeBlockReason(studentId, testId);
+    if (reason) throw new Error(reason);
+    const runs = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_PRACTICE_RUNS) || '[]');
+    const run = {
+      id: `demo-prun-${Date.now()}`,
+      test_id: testId,
+      student_id: studentId,
+      started_at: new Date().toISOString(),
+    };
+    runs.push(run);
+    localStorage.setItem(DEMO_STORAGE_KEY_WEEKLY_PRACTICE_RUNS, JSON.stringify(runs));
+    return { ok: true, run_id: run.id, test_id: testId };
+  },
+
+  _mockPracticeRunSections(run, testSections) {
+    const attempts = JSON.parse(localStorage.getItem(demoPracticeKey(run.id, 'attempts')) || '[]');
+    const scores = JSON.parse(localStorage.getItem(demoPracticeKey(run.id, 'scores')) || '[]');
+    return (testSections || []).map(sec => {
+      const att = attempts.find(a => a.section_id === sec.section_id);
+      const sc = scores.find(r => r.section_id === sec.section_id);
+      return {
+        section_id: sec.section_id,
+        kind: sec.kind,
+        status: att ? att.status : null,
+        tries_started: att ? Number(att.tries_started) || 0 : 0,
+        correct: sc ? Number(sc.correct) : null,
+        total: sc ? Number(sc.total) : null,
+        time_seconds: sc && sc.time_seconds != null ? Number(sc.time_seconds) : null,
+      };
+    });
+  },
+
+  mockMyWeeklyTestPractice(studentId, testId) {
+    initDemoStorage();
+    const test = this.mockMyWeeklyTests(studentId).find(t => t.id === testId);
+    const reason = this.mockPracticeBlockReason(studentId, testId);
+    const runs = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_PRACTICE_RUNS) || '[]')
+      .filter(r => r.test_id === testId && r.student_id === studentId)
+      .sort((a, b) => String(b.started_at).localeCompare(String(a.started_at)));
+    return {
+      test_id: testId,
+      can_practise: !reason,
+      reason,
+      runs: runs.map(r => ({
+        run_id: r.id,
+        started_at: r.started_at,
+        sections: this._mockPracticeRunSections(r, test?.sections || []),
+      })),
+    };
+  },
+
+  mockPracticeStanding(studentId, testId, runId = null, callerProfile = null) {
+    initDemoStorage();
+    const reason = this.mockPracticeBlockReason(studentId, testId);
+    if (reason) throw new Error(reason);
+    const mine = this.mockMyWeeklyTestPractice(studentId, testId);
+    const scored = mine.runs.filter(r => r.sections.some(s => s.total != null));
+    const run = runId ? mine.runs.find(r => r.run_id === runId) : scored[0];
+    if (!run || !run.sections.some(s => s.total != null)) {
+      throw new Error('No practice score yet. Finish at least one section first.');
+    }
+    const mult = Number(this.mockCompetitionRules().weekly_test_multiplier) || 1;
+    const done = run.sections.filter(s => s.total != null);
+    const raw = done.reduce((acc, s) => acc + Math.max(0, 2 * s.correct - s.total), 0);
+    const practice = {
+      points: Math.round(raw * mult * 10) / 10,
+      correct: done.reduce((acc, s) => acc + s.correct, 0),
+      attempted: done.reduce((acc, s) => acc + s.total, 0),
+      seconds: done.reduce((acc, s) => acc + (s.time_seconds || 0), 0),
+      sections_done: run.sections.filter(s => s.status === 'submitted').length,
+      sections_total: run.sections.length,
+    };
+    const profile = callerProfile || this.getStudents().find(s => s.id === studentId) || null;
+    const official = this.mockWeeklyTestLeaderboard({ p_test: testId, p_limit: 200 }, profile);
+    const officialMe = official.find(r => r.is_me) || null;
+    const meName = officialMe?.display_name || 'You';
+    const rows = official
+      .filter(r => !r.is_me)
+      .map(r => ({ ...r, is_me: false, is_practice: false }));
+    if (raw > 0) {
+      rows.push({
+        display_name: meName,
+        level: profile?.level || null,
+        points: practice.points,
+        correct: practice.correct,
+        attempted: practice.attempted,
+        seconds: practice.seconds,
+        is_me: true,
+        is_practice: true,
+      });
+    }
+    rows.sort(
+      (a, b) =>
+        b.points - a.points ||
+        b.correct - a.correct ||
+        a.seconds - b.seconds ||
+        Number(a.is_practice) - Number(b.is_practice)
+    );
+    let prev = null;
+    rows.forEach((r, i) => {
+      if (prev && prev.points === r.points && prev.correct === r.correct && prev.seconds === r.seconds) {
+        r.rank = prev.rank;
+      } else {
+        r.rank = i + 1;
+      }
+      prev = r;
+    });
+    const me = rows.find(r => r.is_practice) || null;
+    const board = rows.filter(r => r.rank <= 10 || r.is_practice);
+    return {
+      test_id: testId,
+      run_id: run.run_id,
+      run_started_at: run.started_at,
+      label: 'Practice — not official',
+      practice: { ...practice, rank: me ? me.rank : null, out_of: rows.length },
+      official: {
+        took_test: Boolean(officialMe),
+        rank: officialMe ? officialMe.rank : null,
+        points: officialMe ? officialMe.points : null,
+      },
+      board: board.map(r => ({
+        rank: r.rank,
+        display_name: r.display_name,
+        level: r.level,
+        points: r.points,
+        correct: r.correct,
+        attempted: r.attempted,
+        seconds: r.seconds,
+        is_me: r.is_me,
+        is_practice: r.is_practice,
+      })),
+    };
+  },
+
+  /** Demo staff view of practice runs for one test. */
+  mockPracticeReview(testId) {
+    initDemoStorage();
+    const runs = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_PRACTICE_RUNS) || '[]')
+      .filter(r => r.test_id === testId)
+      .sort((a, b) => String(b.started_at).localeCompare(String(a.started_at)));
+    const students = this.getStudents();
+    const sections = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY_WEEKLY_SECTIONS) || '[]')
+      .filter(s => s.test_id === testId)
+      .map(s => ({ section_id: s.id, kind: s.kind || 'basics' }));
+    return runs.map(r => {
+      const st = students.find(x => x.id === r.student_id);
+      const secs = this._mockPracticeRunSections(r, sections);
+      const done = secs.filter(s => s.total != null);
+      return {
+        attempt_type: 'practice',
+        run_id: r.id,
+        student_id: r.student_id,
+        full_name: st?.full_name || 'Student',
+        student_code: st?.student_code || null,
+        level: st?.level || null,
+        started_at: r.started_at,
+        sections_done: secs.filter(s => s.status === 'submitted').length,
+        correct: done.reduce((acc, s) => acc + s.correct, 0),
+        attempted: done.reduce((acc, s) => acc + s.total, 0),
+        seconds: done.reduce((acc, s) => acc + (s.time_seconds || 0), 0),
+        points: done.reduce((acc, s) => acc + Math.max(0, 2 * s.correct - s.total), 0),
+      };
+    });
   },
 
   getWeeklyTestScores(testId, categoryId = null, sectionId = null) {
