@@ -47,6 +47,7 @@ export const NAV_STAGE_AND_PUBLIC_ALLOWLIST = Object.freeze([
   '/pages/teachers.html',
   '/pages/network.html',
   '/pages/centre.html',
+  '/pages/fair-play.html', // linked from Review and the centre panel
   ...SETTINGS_SUBPAGE_PATHS,
 ]);
 

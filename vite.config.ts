@@ -115,6 +115,7 @@ export default defineConfig(({ command }) => {
           resources: path.resolve(__dirname, 'pages/resources.html'),
           studentDetail: path.resolve(__dirname, 'pages/student-detail.html'),
           review: path.resolve(__dirname, 'pages/review.html'),
+          fairPlay: path.resolve(__dirname, 'pages/fair-play.html'),
           attendance: path.resolve(__dirname, 'pages/attendance.html'),
           targets: path.resolve(__dirname, 'pages/targets.html'),
           weeklyTests: path.resolve(__dirname, 'pages/weekly-tests.html'),

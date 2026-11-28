@@ -40,6 +40,7 @@ import { getScoreFeedback } from './scoreColors.js';
 import { DemoDB, getSupabase } from './supabaseClient.js';
 import { formatSecondsToMMSS } from './timeUtils.js';
 import { showToast } from './toast.js';
+import { showFairPlayNotice } from './fairPlayNotice.js';
 import { submitHomeworkCompletion } from './homeworkData.js';
 import { showRoundRewards } from './xpRewards.js';
 import { celebrate } from './motion.js';
@@ -950,6 +951,7 @@ async function submitCompletedPracticeSet(answersArray, recordedDuration = null)
         throw new Error(data.error || 'Could not submit your practice round.');
       }
       resultData = data;
+      showFairPlayNotice(data);
     } else if (isDemoMode()) {
       resultData = DemoDB.mockBasicsDrillSubmit(
         activeSessionId,

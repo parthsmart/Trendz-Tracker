@@ -84,6 +84,7 @@ import {
 } from './weeklyTestRunner.js';
 import { submitHomeworkCompletion } from './homeworkData.js';
 import { showToast } from './toast.js';
+import { showFairPlayNotice } from './fairPlayNotice.js';
 import { showRoundRewards } from './xpRewards.js';
 
 const STORAGE_PREFIX = 'trendz_memoriad_settings_v1_';
@@ -2562,6 +2563,7 @@ async function submitCurrentSession(finishedBy = lastFinishedBy || 'finish') {
       }
     }
     lastSubmissionResult = response;
+    showFairPlayNotice(response);
     lastSubmissionError = null;
 
     // Check for homework assignment linking

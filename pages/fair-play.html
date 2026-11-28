@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fair Play Checks &mdash; Trendz Tracker</title>
+    <meta name="description" content="Teacher review of unusually fast practice results: approve or void, with an audit trail." />
+    <link rel="stylesheet" href="/css/style.css" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#2563EB" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Trendz Tracker" />
+  </head>
+  <body>
+    <div class="app-layout">
+      <!-- Zone 1, 2, 3: App Header -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <!-- Zone 1: Wordmark & Brand -->
+          <a href="/pages/admin.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="4" y="2" width="16" height="20" rx="2"></rect>
+                <line x1="8" y1="6" x2="16" y2="6"></line>
+                <line x1="16" y1="14" x2="16" y2="18"></line>
+                <path d="M16 10h.01"></path>
+                <path d="M12 10h.01"></path>
+                <path d="M8 10h.01"></path>
+                <path d="M12 14h.01"></path>
+                <path d="M8 14h.01"></path>
+                <path d="M12 18h.01"></path>
+                <path d="M8 18h.01"></path>
+              </svg>
+            </span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <!-- Zone 2: Navigation Links (Phase 14b Standard Order) -->
+          <nav class="nav-zone" id="admin-nav-zone" aria-label="Admin Primary Navigation"></nav>
+
+          <!-- Zone 3: User Details, Hamburger & Logout Action -->
+          <div class="actions-zone">
+            <button type="button" id="btn-nav-hamburger" class="nav-hamburger-btn" aria-label="Toggle navigation menu" aria-expanded="false">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+              </svg>
+            </button>
+            <div class="meta-row" style="font-size: var(--text-sm); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Admin</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-role" style="color: var(--text-muted);">Teacher</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main class="main-content">
+        <div class="container">
+          <div id="demo-banner-placeholder"></div>
+
+          <div class="section-header-row" style="margin-bottom: var(--space-4);">
+            <div>
+              <h1>Fair Play Checks</h1>
+              <p style="font-size: var(--text-sm);">
+                Unusually fast results are saved and wait here for a quick look. Approve to put them on the record boards;
+                void to remove them from boards, XP and coins. Students only see &ldquo;Under review&rdquo;.
+              </p>
+            </div>
+            <div style="display: flex; gap: var(--space-2); align-items: center;">
+              <label for="fp-status-filter" class="sr-only">Show</label>
+              <select id="fp-status-filter" class="form-select">
+                <option value="open" selected>Waiting for review</option>
+                <option value="voided">Voided</option>
+                <option value="approved">Approved</option>
+                <option value="all">All</option>
+              </select>
+              <button type="button" id="fp-refresh" class="btn btn-outline btn-sm">Refresh</button>
+            </div>
+          </div>
+
+          <section class="card" aria-labelledby="fp-queue-title">
+            <h2 id="fp-queue-title" class="sr-only">Review queue</h2>
+            <div id="fp-queue" aria-live="polite"><div class="loading-state">Loading checks...</div></div>
+          </section>
+
+          <section class="card" id="fp-thresholds-section" style="display: none; margin-top: var(--space-6);" aria-labelledby="fp-thr-title">
+            <h2 id="fp-thr-title">Thresholds</h2>
+            <p style="font-size: var(--text-sm); color: var(--text-muted);">
+              Seconds per question. Below <strong>Reject</strong> a result is impossible and not saved; below <strong>Flag</strong>
+              (per correct answer) it is saved and sent here. Level &lsquo;*&rsquo; means any level. Admins only.
+            </p>
+            <div id="fp-thresholds"><div class="loading-state">Loading thresholds...</div></div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <div id="fp-history-overlay" class="audit-drawer-overlay" style="display: none;">
+      <div class="audit-drawer" role="dialog" aria-modal="true" aria-labelledby="fp-history-title">
+        <div class="modal-header" style="border-bottom: 1px solid var(--border-hairline); padding: var(--space-4);">
+          <h2 class="modal-title" id="fp-history-title">History</h2>
+          <button type="button" class="btn-modal-close" id="fp-history-close" aria-label="Close">&times;</button>
+        </div>
+        <div class="audit-timeline" id="fp-history-list"></div>
+      </div>
+    </div>
+
+    <script type="module" src="/js/fairPlayReview.js"></script>
+  </body>
+</html>
