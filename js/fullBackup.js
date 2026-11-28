@@ -20,7 +20,7 @@ import { buildXlsx, readXlsx, XLSX_MAX_ROWS, XLSX_MAX_SHEET_NAME } from './xlsx.
 export const FULL_BACKUP_FORMAT_VERSION = 1;
 
 /** Latest migration file in supabase/migrations (kept in sync by tests/fullBackup.test.js). */
-export const FULL_BACKUP_SCHEMA_VERSION = '41_social_friends_feed';
+export const FULL_BACKUP_SCHEMA_VERSION = '42_fair_play_guardrails';
 
 export const FULL_BACKUP_PAGE_SIZE = 1000;
 
@@ -68,6 +68,10 @@ export const FULL_BACKUP_KNOWN_TABLES = Object.freeze([
   'daily_tasks',
   'daily_todo_log',
   'drill_sessions',
+  'fair_play_audit',
+  'fair_play_rate_hits',
+  'fair_play_reviews',
+  'fair_play_thresholds',
   'duel_ratings',
   'duels',
   'feed_items',

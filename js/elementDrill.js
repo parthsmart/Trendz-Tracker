@@ -46,6 +46,7 @@ import {
 } from './weeklyTestRunner.js';
 import { submitHomeworkCompletion } from './homeworkData.js';
 import { showToast } from './toast.js';
+import { showFairPlayNotice } from './fairPlayNotice.js';
 import { showRoundRewards } from './xpRewards.js';
 import { cue, practiceStarted, practiceEnded } from './feedback.js';
 
@@ -1041,6 +1042,7 @@ async function submitWorksheet(isAutoOrRetry = false) {
       }
 
       resultData = body;
+      showFairPlayNotice(body);
     } else if (isDemoMode()) {
       if (attemptedCount === 0) {
         hasSubmitted = true;
