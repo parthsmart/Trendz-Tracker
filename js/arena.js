@@ -16,6 +16,7 @@ import { isSupabaseConfigured } from './config.js';
 import { ensureXpStyles, escapeXpHtml as esc } from './xpRewards.js';
 import { ensureAvatarStyles, signAvatarUrls } from './avatars.js';
 import { celebrate, celebrateOnce } from './motion.js';
+import { cue } from './feedback.js';
 import {
   buildClassVsClassHtml,
   buildDuelFormHtml,
@@ -97,7 +98,7 @@ async function loadLeague() {
   $('ar-league').innerHTML = buildLeagueHtml(data, urls);
   const last = data?.last;
   if (state.isStudent && last && Number(last.tier_after) > Number(last.tier_before)) {
-    celebrateOnce(`league_${data?.week?.from || ''}`, 'big', $('ar-league').querySelector('.ar-last'));
+    if (celebrateOnce(`league_${data?.week?.from || ''}`, 'big', $('ar-league').querySelector('.ar-last'))) cue('levelup');
   }
   if (!state.isStudent && Array.isArray(data?.tiers)) {
     const wrap = $('ar-staff-tiers');

@@ -46,7 +46,9 @@ import {
 } from './weeklyTestRunner.js';
 import { submitHomeworkCompletion } from './homeworkData.js';
 import { showToast } from './toast.js';
+import { showFairPlayNotice } from './fairPlayNotice.js';
 import { showRoundRewards } from './xpRewards.js';
+import { cue, practiceStarted, practiceEnded } from './feedback.js';
 
 const TIMER_INTERVAL_MS = 250;
 const EXPIRY_GRACE_SECONDS = 30;
@@ -85,10 +87,12 @@ function renderPrepCountdownOverlay(startCount, onComplete) {
   document.body.appendChild(overlay);
 
   const numEl = document.getElementById('prep-num');
+  cue('tick');
   const timer = setInterval(() => {
     count--;
     if (count > 0) {
       if (numEl) numEl.textContent = String(count);
+      cue('tick');
     } else if (count === 0) {
       if (numEl) {
         numEl.textContent = 'GO!';
@@ -832,6 +836,7 @@ function renderWorksheet(payload) {
 
   const startWorksheetSession = () => {
     setWorksheetInputsDisabled(false);
+    practiceStarted(isTestMode ? 'test' : 'practice');
     worksheetStartPerfMs = performance.now();
     worksheetEndPerfMs = worksheetStartPerfMs + activeTimeLimitSec * 1000;
     const graceSec = isTestMode ? TEST_EXPIRY_GRACE_SECONDS : EXPIRY_GRACE_SECONDS;
@@ -1037,6 +1042,7 @@ async function submitWorksheet(isAutoOrRetry = false) {
       }
 
       resultData = body;
+      showFairPlayNotice(body);
     } else if (isDemoMode()) {
       if (attemptedCount === 0) {
         hasSubmitted = true;
@@ -1187,6 +1193,7 @@ function showExpiredBanner(message) {
 
 function renderResultScreen(result) {
   stopTimers();
+  practiceEnded();
 
   const introScreen = document.getElementById('drill-intro-screen');
   const worksheetScreen = document.getElementById('drill-worksheet-screen');
@@ -1304,7 +1311,7 @@ function renderResultScreen(result) {
             ? '— (blank)'
             : String(item.given);
         const statusWord = isCorrect ? 'Correct' : 'Wrong';
-        const statusClass = isCorrect ? 'score-tag-perfect' : 'score-tag-alert';
+        const statusClass = isCorrect ? 'ans-right' : 'ans-wrong';
 
         const qLayout = questionLayout(item.question);
         const qDisplay = formatQuestionText(item.question);
@@ -1320,7 +1327,7 @@ function renderResultScreen(result) {
               ${escapeHtml(item.expected_display)}
             </td>
             <td>
-              <span class="score-tag ${statusClass}">${statusWord}</span>
+              <span class="${statusClass}">${statusWord}</span>
             </td>
           </tr>
         `;

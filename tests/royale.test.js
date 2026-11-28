@@ -1,6 +1,6 @@
 /**
  * Battle royale: the shared rules (shared/royale.js), the join API (api/_royale.js),
- * the SQL (supabase/migrations/40_battle_royale.sql, in PGlite) and the page.
+ * the SQL (supabase/migrations/46_battle_royale.sql, in PGlite) and the page.
  */
 
 import { after, before, describe, it } from 'node:test';

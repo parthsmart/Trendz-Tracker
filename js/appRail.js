@@ -280,7 +280,7 @@ async function loadProfilePreview(panel) {
     const xp = await import('./xpRewards.js');
     const data = await xp.callXpRpc('my_profile', { p_student: null });
     box.innerHTML = buildProfileXpHtml(data, data ? xp.tierProgress(xp.seasonXp(data), data.tier) : null);
-    const path = data?.profile?.avatar_path;
+    const path = await import('./avatarStore.js').then((m) => m.shownAvatarRef(null, data?.profile?.avatar_path)).catch(() => data?.profile?.avatar_path);
     if (path) {
       const { signAvatarUrls } = await import('./avatars.js');
       const url = (await signAvatarUrls([path])).get(path);

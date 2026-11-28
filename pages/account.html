@@ -8,6 +8,7 @@
 
     <!-- Design tokens & unified styles -->
     <link rel="stylesheet" href="/css/style.css" />
+    <script src="/theme-boot.js"></script>
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#2563EB" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -119,19 +120,85 @@
             </section>
           </div>
 
-          <!-- Preferences (saved on this device) -->
-          <section class="card ac-card" aria-labelledby="account-prefs-heading" data-account-role="student">
+          <!-- Settings: sound, music, vibration, large numbers, motion -->
+          <section class="card ac-card" id="settings" aria-labelledby="account-prefs-heading">
             <div class="ac-card-h">
-              <h2 id="account-prefs-heading">Preferences</h2>
-              <span class="ac-sub">Saved on this device</span>
+              <h2 id="account-prefs-heading">Settings</h2>
+              <span class="ac-sub" id="pref-saved-note">Saved on this device</span>
             </div>
-            <div class="ac-row" data-account-role="student">
-              <span class="ac-row-t"><b>Flash Anzan sound</b><span>Play a beep with each number</span></span>
+            <div class="ac-row">
+              <span class="ac-row-t"><b>Sound effects</b><span>Right, wrong, start, finish, best scores and wins</span></span>
+              <label class="ac-switch">
+                <input type="checkbox" id="pref-sound" />
+                <span class="ac-switch-ui" aria-hidden="true"></span>
+                <span class="sr-only">Sound effects</span>
+              </label>
+            </div>
+            <div class="ac-row is-sub" id="pref-volume-row">
+              <span class="ac-row-t"><b>Volume</b><span>Try a sound</span></span>
+              <div class="tt-test-btns">
+                <select id="pref-volume" class="ac-select" aria-label="Volume">
+                  <option value="0.25">Quiet</option>
+                  <option value="0.5">Medium</option>
+                  <option value="0.75">Loud</option>
+                  <option value="1">Loudest</option>
+                </select>
+                <button type="button" class="btn btn-outline btn-sm" data-try-cue="correct" aria-label="Play the right-answer sound">✓ Right</button>
+                <button type="button" class="btn btn-outline btn-sm" data-try-cue="wrong" aria-label="Play the wrong-answer sound">✗ Wrong</button>
+                <button type="button" class="btn btn-outline btn-sm" data-try-cue="pb" aria-label="Play the personal-best sound">🏅 Best</button>
+              </div>
+            </div>
+            <div class="ac-row is-sub" data-account-role="student">
+              <span class="ac-row-t"><b>Flash Anzan beep</b><span>Play a beep with each number</span></span>
               <label class="ac-switch">
                 <input type="checkbox" id="pref-flash-sound" />
                 <span class="ac-switch-ui" aria-hidden="true"></span>
-                <span class="sr-only">Flash Anzan sound</span>
+                <span class="sr-only">Flash Anzan beep</span>
               </label>
+            </div>
+            <div class="ac-row" data-account-role="student">
+              <span class="ac-row-t"><b>Background music</b><span>Soft music while you practise</span></span>
+              <div class="tt-test-btns">
+                <button type="button" class="btn btn-outline btn-sm" id="pref-music-try">▶ Listen</button>
+                <label class="ac-switch">
+                  <input type="checkbox" id="pref-music" />
+                  <span class="ac-switch-ui" aria-hidden="true"></span>
+                  <span class="sr-only">Background music</span>
+                </label>
+              </div>
+            </div>
+            <div class="ac-row is-sub" id="pref-music-tests-row" data-account-role="student">
+              <span class="ac-row-t"><b>Music in tests too</b><span>Weekly tests and Memoriad competition rounds stay quiet unless this is on</span></span>
+              <label class="ac-switch">
+                <input type="checkbox" id="pref-music-tests" />
+                <span class="ac-switch-ui" aria-hidden="true"></span>
+                <span class="sr-only">Music in tests too</span>
+              </label>
+            </div>
+            <div class="ac-row" id="pref-vibrate-row">
+              <span class="ac-row-t"><b>Vibration</b><span id="pref-vibrate-note">A little buzz on your phone for right and wrong answers</span></span>
+              <label class="ac-switch">
+                <input type="checkbox" id="pref-vibrate" />
+                <span class="ac-switch-ui" aria-hidden="true"></span>
+                <span class="sr-only">Vibration</span>
+              </label>
+            </div>
+            <div class="ac-row">
+              <span class="ac-row-t"><b>Large numbers</b><span>Bigger numbers on practice and test screens</span></span>
+              <label class="ac-switch">
+                <input type="checkbox" id="pref-large-numbers" />
+                <span class="ac-switch-ui" aria-hidden="true"></span>
+                <span class="sr-only">Large numbers</span>
+              </label>
+            </div>
+            <div class="ac-row">
+              <span class="ac-row-t"><b>Animations</b><span id="pref-motion-note">Auto picks what this device can handle</span></span>
+              <select id="pref-motion" class="ac-select" aria-label="Animations">
+                <option value="auto">Auto</option>
+                <option value="full">Full</option>
+                <option value="lite">Light</option>
+                <option value="off">Off (reduce motion)</option>
+              </select>
             </div>
           </section>
 
@@ -143,15 +210,6 @@
             <div class="ac-row">
               <span class="ac-row-t"><b>Password</b><span id="account-password-text">Forgot it or want a new one? Ask your trainer to reset it.</span></span>
               <span class="ac-tag" id="account-password-tag">🔒 Managed by your trainer</span>
-            </div>
-            <div class="ac-row">
-              <span class="ac-row-t"><b>Animations</b><span id="pref-motion-note">Auto picks what this device can handle</span></span>
-              <select id="pref-motion" class="ac-select" aria-label="Animations">
-                <option value="auto">Auto</option>
-                <option value="full">Full</option>
-                <option value="lite">Light</option>
-                <option value="off">Off</option>
-              </select>
             </div>
             <div class="ac-row" id="account-install-row" style="display: none;">
               <span class="ac-row-t"><b>Install the app</b><span>Add Trendz Tracker to your home screen</span></span>

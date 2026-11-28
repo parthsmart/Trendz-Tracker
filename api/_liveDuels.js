@@ -18,6 +18,7 @@ import {
   stripBasicsExpected,
 } from './_drills.js';
 import { isUuid, newDuelSeed } from './_duels.js';
+import { blockedIdsFor, isBlockedPair } from './_socialBlocks.js';
 import {
   GHOST_WAIT_SECONDS,
   INVITE_SECONDS,
@@ -97,6 +98,22 @@ async function centreOf(db, studentId) {
   try {
     const { data } = await db.rpc('live_duel_centre_of', { p_student: studentId });
     return data || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The ids in `ids` that may duel `meId` live (migration 43: same centre, or both
+ * centres opened to each other in centre_visibility). Null when the check failed,
+ * so callers fall back to same-centre only.
+ */
+export async function pairableIds(db, meId, ids) {
+  if (!ids.length) return [];
+  try {
+    const { data, error } = await db.rpc('live_duel_pairable_ids', { p_me: meId, p_ids: ids });
+    if (error || !Array.isArray(data)) return null;
+    return data;
   } catch {
     return null;
   }
@@ -226,7 +243,13 @@ export async function handleLiveQueue({ student, adminSupabase: db, res, now = D
     .neq('student_id', student.id)
     .gt('seen_at', staleIso)
     .limit(50);
-  const other = pickLiveOpponent(me, waiting || [], now);
+  const blocked = await blockedIdsFor(db, student.id);
+  const rows = (waiting || []).filter((w) => !blocked.has(w.student_id));
+  const allowed = await pairableIds(db, student.id, rows.map((r) => r.student_id));
+  const open = allowed
+    ? rows.filter((r) => allowed.includes(r.student_id))
+    : rows.filter((r) => (r.centre_id ?? null) === (centreId ?? null));
+  const other = pickLiveOpponent(me, open, now);
   if (other) {
     const { data: claimed } = await db.rpc('live_duel_claim_pair', { p_a: other.student_id, p_b: student.id });
     if (claimed === true) {
@@ -441,7 +464,10 @@ export async function handleLiveGhost({ body = {}, student, adminSupabase: db, r
   }
 }
 
-/** { action: 'live_invite', opponent_id } — challenge a student at your level (any centre) to race right now. */
+/**
+ * { action: 'live_invite', opponent_id } — challenge a student at your level to race right now:
+ * a classmate, or a student of a centre that is open to yours for duels (both ways).
+ */
 export async function handleLiveInvite({ body, student, adminSupabase: db, res, now = Date.now() }) {
   const opponentId = String(body.opponent_id || '').trim();
   if (!isUuid(opponentId)) return res.status(400).json({ error: 'Choose a classmate to challenge.' });
@@ -454,13 +480,17 @@ export async function handleLiveInvite({ body, student, adminSupabase: db, res, 
     .select('id, role, active, level, leaderboard_visible')
     .eq('id', opponentId)
     .maybeSingle();
-  if (!opponent || opponent.role !== 'student' || !opponent.active || opponent.leaderboard_visible === false) {
+  if (!opponent || opponent.role !== 'student' || !opponent.active || opponent.leaderboard_visible === false
+      || await isBlockedPair(db, student.id, opponent.id)) {
     return res.status(404).json({ error: 'That classmate is not available for duels.' });
   }
   if (!sameLiveLevel(opponent.level, student.level)) {
     return res.status(400).json({ error: 'You can only duel students at your level.' });
   }
-  // Any centre: live challenges are open to every student at the same level.
+  const allowed = await pairableIds(db, student.id, [opponent.id]);
+  if (!allowed || !allowed.includes(opponent.id)) {
+    return res.status(403).json({ error: 'That student is not open to duels with your centre.' });
+  }
   const myCentre = await centreOf(db, student.id);
   const { data: pending } = await db
     .from('live_duels')
@@ -507,6 +537,9 @@ export async function handleLiveRematch({ body, student, adminSupabase: db, res,
   }
   if (duel.kind === 'tournament') return res.status(409).json({ error: 'Tournament matches have no rematch.' });
   if (duel.rematch_id) return res.status(200).json({ duel_id: duel.rematch_id });
+  if (duel.b_id && await isBlockedPair(db, duel.a_id, duel.b_id)) {
+    return res.status(404).json({ error: 'A rematch is not available.' });
+  }
 
   const gate = await startGate(db, student, now);
   if (gate) return respond(res, gate);
@@ -539,6 +572,13 @@ export async function handleLiveRematch({ body, student, adminSupabase: db, res,
       p_payload: { side },
     });
     return res.status(200).json({ waiting: true });
+  }
+
+  // A grant may have been removed since the last race.
+  const otherId = side === 'a' ? duel.b_id : duel.a_id;
+  const allowed = await pairableIds(db, student.id, [otherId]);
+  if (!allowed || !allowed.includes(otherId)) {
+    return res.status(403).json({ error: 'Duels between your centres are closed now.' });
   }
 
   // Both asked: whoever claims rematch_id first creates the new duel.

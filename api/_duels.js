@@ -8,6 +8,7 @@
  */
 
 import { parseBasicsCategoryName } from './_drills.js';
+import { isBlockedPair } from './_socialBlocks.js';
 
 export const DUEL_SECONDS = 60;
 export const DUELS_PER_DAY = 3;
@@ -61,7 +62,8 @@ export async function handleDuelCreate({ body, student, adminSupabase, res }) {
   const rows = Array.isArray(pair) ? pair : [];
   const opponent = rows.find((row) => row.id === opponentId);
   const me = rows.find((row) => row.id === student.id);
-  if (!opponent || opponent.role !== 'student' || !opponent.active || opponent.leaderboard_visible === false) {
+  if (!opponent || opponent.role !== 'student' || !opponent.active || opponent.leaderboard_visible === false
+      || await isBlockedPair(adminSupabase, student.id, opponent.id)) {
     return res.status(404).json({ error: 'That classmate is not available for duels.' });
   }
   if (!sameCentre(me, opponent)) {

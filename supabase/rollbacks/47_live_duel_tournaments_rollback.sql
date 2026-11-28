@@ -1,4 +1,4 @@
--- Rollback for 41_live_duel_tournaments.sql.
+-- Rollback for 47_live_duel_tournaments.sql.
 -- Drops the tournament tables and functions and puts reward_balance() back to the
 -- phase 27 version. Badges already given stay. Store balance from reward_credits is
 -- dropped with the table, so take a backup first if prizes were given.

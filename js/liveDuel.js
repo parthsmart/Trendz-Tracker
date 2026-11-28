@@ -17,6 +17,7 @@ import { showToast } from './toast.js';
 import { getSupabase } from './supabaseClient.js';
 import { isSupabaseConfigured } from './config.js';
 import { celebrate } from './motion.js';
+import { cue, practiceStarted, practiceEnded } from './feedback.js';
 import { getDuelHub } from './duelPresence.js';
 import { ensureAvatarStyles, signAvatarUrls } from './avatars.js';
 import { enterRoyale, loadRoyaleHome, royaleBusy, setupRoyale } from './royale.js';
@@ -417,13 +418,16 @@ function startRace() {
     const now = serverNow();
     if (now < startMs) {
       $('ld-countdown').hidden = false;
-      $('ld-countdown').textContent = String(Math.ceil((startMs - now) / 1000));
+      const left = String(Math.ceil((startMs - now) / 1000));
+      if ($('ld-countdown').textContent !== left) cue('tick');
+      $('ld-countdown').textContent = left;
       $('ld-timer').textContent = String(d.seconds || 60);
       $('ld-answer').disabled = true;
       return;
     }
     if (!$('ld-countdown').hidden) {
       $('ld-countdown').hidden = true;
+      practiceStarted('test');
       await ensureQuestions();
       $('ld-answer').disabled = false;
       $('ld-answer').focus();
@@ -515,6 +519,7 @@ function flash(ok) {
   el.classList.remove('is-right', 'is-wrong');
   void el.offsetWidth;
   el.classList.add(ok ? 'is-right' : 'is-wrong');
+  cue(ok ? 'correct' : 'wrong');
 }
 
 function showEmote(key, cls) {
@@ -581,7 +586,11 @@ function showResults() {
     ghost: Boolean(d.other?.ghost),
   });
   $('ld-results-body').innerHTML = buildResultHtml(d);
-  if (d.result === 'won') celebrate('big', $('ld-results-body'));
+  practiceEnded({ cue: d.result !== 'won' });
+  if (d.result === 'won') {
+    celebrate('big', $('ld-results-body'));
+    cue('win');
+  }
   // Watch for the other player's rematch request or the new duel.
   if (!d.other?.ghost) {
     st.poll = setInterval(refreshResults, 3000);

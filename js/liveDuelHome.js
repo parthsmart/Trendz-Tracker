@@ -1,7 +1,7 @@
 /**
  * Trendz Tracker - student home "Live Duels" card (js/liveDuelHome.js)
  *
- * Shows how many players are online right now (same level, any centre, as duel
+ * Shows how many players are online right now (same level, own centre or a centre opened to it, as duel
  * matchmaking), a small overlapping row of their avatars, and a Play button.
  *
  * "Online" is Supabase Realtime presence on the private `duel-lobby` channel, kept
@@ -76,7 +76,7 @@ export function buildLiveDuelHomeHtml({ online = [], invites = [], rating = null
       <div class="ldh-ic" aria-hidden="true">⚔️</div>
       <div class="ldh-text">
         <h2 id="ldh-title">Live Duels <span class="ldh-live">LIVE</span></h2>
-        <p>60-second maths race against a student at your level, from any centre.</p>
+        <p>60-second maths race against a student at your level.</p>
         <div class="ldh-online" aria-live="polite">${status}</div>
       </div>
       <div class="ldh-cta">

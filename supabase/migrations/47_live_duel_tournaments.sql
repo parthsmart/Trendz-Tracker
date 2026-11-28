@@ -1,4 +1,4 @@
--- Phase 41: Live duel tournaments.
+-- Phase 47: Live duel tournaments.
 --
 --   * Admins, directors and centre heads create a tournament: name, level, 8 / 16 / 32
 --     players, one centre (centre heads: their own) or all centres (owner / director /
@@ -17,7 +17,7 @@
 --   * Everything moves lazily in tournament_tick(), called from the state RPCs.
 --   * The rules live in shared/tournament.js; tests check the two agree.
 --
--- No data is deleted. Rollback: supabase/rollbacks/41_live_duel_tournaments_rollback.sql
+-- No data is deleted. Rollback: supabase/rollbacks/47_live_duel_tournaments_rollback.sql
 
 -- ---------------------------------------------------------------------------
 -- 1. Live duels can be tournament matches
