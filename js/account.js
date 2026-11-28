@@ -22,6 +22,7 @@ import { signAvatarUrl } from './avatars.js';
 import { celebrate, getAutoMotionLevel } from './motion.js';
 import { getPrefs, setPrefs, onPrefsChange } from './prefs.js';
 import { cue, canVibrate, previewMusic, isMusicPlaying, stopMusic } from './feedback.js';
+import { shownAvatarRef } from './avatarStore.js';
 
 // Same key js/flash.js reads, so the switch here changes the Flash Anzan setting.
 const FLASH_SOUND_KEY = 'trendz_flash_sound_v1';
@@ -57,7 +58,7 @@ function renderDetails(p) {
   const joined = formatJoined(p.created_at);
 
   setText('account-avatar', name.trim().charAt(0).toUpperCase() || 'S');
-  if (p.avatar_path) showAccountPhoto(p.avatar_path);
+  shownAvatarRef(p.id, p.avatar_path).then((ref) => { if (ref) showAccountPhoto(ref); }).catch(() => {});
   setText('account-name', name);
   setText('account-code', code);
   setText('account-level', level);

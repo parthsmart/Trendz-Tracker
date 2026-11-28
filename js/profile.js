@@ -20,6 +20,8 @@ import {
   signAvatarUrl,
   uploadAvatar,
 } from './avatars.js';
+import { shownAvatarRef } from './avatarStore.js';
+import { mountProfileExtras } from './profileExtras.js';
 import {
   FAVOURITE_LABELS,
   MOTTO_MAX,
@@ -57,7 +59,8 @@ async function renderAvatar(path, name) {
   if (!el) return;
   el.textContent = avatarInitial(name);
   el.classList.remove('has-photo');
-  const url = path ? await signAvatarUrl(path) : null;
+  const shown = await shownAvatarRef(state.targetId, path).catch(() => path);
+  const url = shown ? await signAvatarUrl(shown) : null;
   if (url) {
     el.textContent = '';
     const img = document.createElement('img');
@@ -131,6 +134,7 @@ function render(data) {
   }
 
   renderAvatar(p.avatar_path, name);
+  mountProfileExtras({ studentId: state.targetId, own, onAvatarChange: () => renderAvatar(state.data?.profile?.avatar_path, name) });
   $('pf-loading').hidden = true;
   $('pf-error').hidden = true;
   $('pf-content').hidden = false;

@@ -6,9 +6,14 @@
  * `set_my_avatar` RPC records it on the profile (the database checks the folder is the
  * caller's own). Pages show photos through short-lived signed URLs; the database decides
  * who may see a photo (`avatar_path` comes back null when names are hidden).
+ *
+ * A student who picked a cartoon avatar gets a `look:1|...` token in `avatar_path`
+ * instead (from avatar_visible() in SQL). signAvatarUrls turns those tokens into inline
+ * SVG data URIs, so every page shows avatars without any change of its own.
  */
 
 import { getSupabase } from './supabaseClient.js';
+import { isLookToken, lookTokenDataUri } from '../shared/avatarArt.js';
 
 export const AVATAR_BUCKET = 'avatars';
 export const AVATAR_SIZE = 256;
@@ -28,6 +33,11 @@ function escapeHtml(value) {
 
 export function isAvatarPath(path) {
   return typeof path === 'string' && AVATAR_PATH_RE.test(path);
+}
+
+/** True for a photo path or a cartoon avatar token. */
+export function isAvatarRef(value) {
+  return isAvatarPath(value) || isLookToken(value);
 }
 
 /** First letter for the fallback circle. */
@@ -69,6 +79,10 @@ export function ensureAvatarStyles(doc = globalThis.document) {
 export async function signAvatarUrls(paths) {
   const out = new Map();
   const now = Date.now();
+  for (const t of new Set((paths || []).filter(isLookToken))) {
+    const uri = lookTokenDataUri(t);
+    if (uri) out.set(t, uri);
+  }
   const wanted = [...new Set((paths || []).filter(isAvatarPath))];
   const toSign = [];
   for (const p of wanted) {
@@ -100,6 +114,7 @@ export async function signAvatarUrls(paths) {
 }
 
 export async function signAvatarUrl(path) {
+  if (isLookToken(path)) return lookTokenDataUri(path);
   if (!isAvatarPath(path)) return null;
   const map = await signAvatarUrls([path]);
   return map.get(path) || null;
