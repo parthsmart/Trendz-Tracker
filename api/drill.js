@@ -18,6 +18,10 @@
  *   Live duels (api/_liveDuels.js): matchmaking, ghost races, live challenges and
  *   rematches. Answers are graded by the live_duel_answer RPC, never here.
  *
+ * - { action: 'royale_join' }
+ *   Battle royale (api/_royale.js): joins the waiting game at the student's level.
+ *   Rounds, answers and eliminations run in the royale_* RPCs.
+ *
  * - { action: 'submit', session_id, answers }
  *   Verifies active student caller, loads the student's open session, checks
  *   expiry (started_at + time_limit_seconds + 30s) and minimum plausible completion
@@ -60,6 +64,7 @@ import {
 } from './_dailyChallenge.js';
 import { claimDuelStart, handleDuelCancel, handleDuelCreate, recordDuelResult } from './_duels.js';
 import { handleGhostOptions, handleLiveGhost, handleLiveInvite, handleLiveQueue, handleLiveRematch } from './_liveDuels.js';
+import { handleRoyaleJoin } from './_royale.js';
 
 export const RATE_LIMIT_SETS_PER_HOUR = 60;
 export const EXPIRY_GRACE_SECONDS = 30;
@@ -174,6 +179,10 @@ export default async function handler(req, res) {
 
   if (action === 'ghost_options') {
     return handleGhostOptions({ student, adminSupabase, res });
+  }
+
+  if (action === 'royale_join') {
+    return handleRoyaleJoin({ student, adminSupabase, res });
   }
 
   if (action === 'live_invite') {

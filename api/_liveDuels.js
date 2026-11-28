@@ -83,7 +83,7 @@ export function liveDuelWindow(nowMs, seconds = LIVE_DUEL_SECONDS) {
   return { start_at: new Date(start).toISOString(), end_at: new Date(start + seconds * 1000).toISOString() };
 }
 
-async function liveEnabled(db) {
+export async function liveEnabled(db) {
   try {
     const { data, error } = await db.rpc('live_duel_enabled');
     if (error) return true;
@@ -125,7 +125,7 @@ async function overHourlyLimit(db, studentId, nowMs) {
   return (count || 0) >= LIVE_DUELS_PER_HOUR;
 }
 
-async function ratingOf(db, studentId) {
+export async function ratingOf(db, studentId) {
   const { data } = await db.from('duel_ratings').select('rating').eq('student_id', studentId).maybeSingle();
   return Number(data?.rating) || RATING_START;
 }
