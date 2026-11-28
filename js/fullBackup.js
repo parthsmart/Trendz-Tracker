@@ -20,7 +20,7 @@ import { buildXlsx, readXlsx, XLSX_MAX_ROWS, XLSX_MAX_SHEET_NAME } from './xlsx.
 export const FULL_BACKUP_FORMAT_VERSION = 1;
 
 /** Latest migration file in supabase/migrations (kept in sync by tests/fullBackup.test.js). */
-export const FULL_BACKUP_SCHEMA_VERSION = '45_live_duel_ghost_targets';
+export const FULL_BACKUP_SCHEMA_VERSION = '46_battle_royale';
 
 export const FULL_BACKUP_PAGE_SIZE = 1000;
 
@@ -119,6 +119,10 @@ export const FULL_BACKUP_KNOWN_TABLES = Object.freeze([
   'rollout_boundaries',
   'round_series',
   'rounds',
+  'royale_answers',
+  'royale_games',
+  'royale_keys',
+  'royale_players',
   'safety_reports',
   'score_correction_requests',
   'simple_practice_results',

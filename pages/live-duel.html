@@ -68,10 +68,14 @@
             <nav class="ld-modes" role="tablist" aria-label="Live duel modes">
               <button type="button" role="tab" class="ld-mode active" aria-selected="true" data-ld-mode="duel">⚡ Duel</button>
               <button type="button" role="tab" class="ld-mode" aria-selected="false" data-ld-mode="ghost">👻 Ghost race</button>
+              <button type="button" role="tab" class="ld-mode" aria-selected="false" data-ld-mode="royale">👑 Battle royale</button>
             </nav>
             <section class="ld-mode-pane" id="ld-mode-ghost" data-ld-pane="ghost" hidden>
               <div class="ld-panel-head"><h2>👻 Ghost race</h2></div>
               <div id="ld-ghost"><p class="ar-dim">Loading…</p></div>
+            </section>
+            <section class="ld-mode-pane" id="ld-mode-royale" data-ld-pane="royale" hidden>
+              <div id="ld-royale"><p class="ar-dim">Loading…</p></div>
             </section>
             <div id="ld-lobby-body" class="ld-mode-pane" data-ld-pane="duel">
               <p class="ld-off" id="ld-off" hidden>Live duels are switched off right now. Your teacher can turn them back on.</p>
@@ -132,6 +136,20 @@
               <button type="submit" class="btn btn-primary">Enter</button>
             </form>
             <div class="ld-emotes" id="ld-emotes"></div>
+          </section>
+
+          <section class="card ar-panel br-game" id="ld-royale-game" hidden>
+            <div class="ld-race-head" id="br-head"></div>
+            <div id="br-strip"></div>
+            <div id="br-play" hidden>
+              <p class="ar-dim ld-qnum" id="br-qnum"></p>
+              <div id="br-question" class="ld-question"></div>
+              <form id="br-form" class="ld-form" autocomplete="off">
+                <input id="br-answer" class="input ld-answer num" inputmode="numeric" maxlength="20" aria-label="Your answer" disabled />
+                <button type="submit" class="btn btn-primary">Enter</button>
+              </form>
+            </div>
+            <div id="br-note" aria-live="polite"></div>
           </section>
 
           <section class="card ar-panel" id="ld-results" hidden>
