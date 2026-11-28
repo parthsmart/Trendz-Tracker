@@ -18,6 +18,7 @@ import {
   stripBasicsExpected,
 } from './_drills.js';
 import { isUuid, newDuelSeed } from './_duels.js';
+import { blockedIdsFor, isBlockedPair } from './_socialBlocks.js';
 import {
   GHOST_WAIT_SECONDS,
   INVITE_SECONDS,
@@ -99,7 +100,7 @@ async function centreOf(db, studentId) {
 }
 
 /**
- * The ids in `ids` that may duel `meId` live (migration 41: same centre, or both
+ * The ids in `ids` that may duel `meId` live (migration 43: same centre, or both
  * centres opened to each other in centre_visibility). Null when the check failed,
  * so callers fall back to same-centre only.
  */
@@ -238,7 +239,8 @@ export async function handleLiveQueue({ student, adminSupabase: db, res, now = D
     .neq('student_id', student.id)
     .gt('seen_at', staleIso)
     .limit(50);
-  const rows = waiting || [];
+  const blocked = await blockedIdsFor(db, student.id);
+  const rows = (waiting || []).filter((w) => !blocked.has(w.student_id));
   const allowed = await pairableIds(db, student.id, rows.map((r) => r.student_id));
   const open = allowed
     ? rows.filter((r) => allowed.includes(r.student_id))
@@ -358,7 +360,8 @@ export async function handleLiveInvite({ body, student, adminSupabase: db, res, 
     .select('id, role, active, level, leaderboard_visible')
     .eq('id', opponentId)
     .maybeSingle();
-  if (!opponent || opponent.role !== 'student' || !opponent.active || opponent.leaderboard_visible === false) {
+  if (!opponent || opponent.role !== 'student' || !opponent.active || opponent.leaderboard_visible === false
+      || await isBlockedPair(db, student.id, opponent.id)) {
     return res.status(404).json({ error: 'That classmate is not available for duels.' });
   }
   if (!sameLiveLevel(opponent.level, student.level)) {
@@ -413,6 +416,9 @@ export async function handleLiveRematch({ body, student, adminSupabase: db, res,
     return res.status(409).json({ error: 'This duel has not finished yet.' });
   }
   if (duel.rematch_id) return res.status(200).json({ duel_id: duel.rematch_id });
+  if (duel.b_id && await isBlockedPair(db, duel.a_id, duel.b_id)) {
+    return res.status(404).json({ error: 'A rematch is not available.' });
+  }
 
   const gate = await startGate(db, student, now);
   if (gate) return respond(res, gate);

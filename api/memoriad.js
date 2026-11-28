@@ -16,6 +16,7 @@
  */
 
 import { getDrillServerClient, verifyStudentCaller } from './_supabaseAdmin.js';
+import { assessFairPlay, loadFairPlayThresholds, reviewAfterSave } from './_fairPlay.js';
 import { resolveAndValidateDailyTask } from './_dailyTasks.js';
 import { resolveAndValidateHomework } from './_homework.js';
 import {
@@ -542,8 +543,34 @@ async function handleSubmit(body, student, adminClient, res) {
     .update({ result_id: resultRow.id })
     .eq('id', session.id);
 
+  // Fair play: a run much faster than the thresholds, or whose browser time is far below the
+  // server clock, is saved and sent to a teacher for a quick check (never dropped).
+  const fairPlayRows = await loadFairPlayThresholds(adminClient);
+  const fairPlayLevel =
+    moduleKey === 'division' ? session.settings?.dividend_digits : session.settings?.digits;
+  const fairPlayAttempt = {
+    kind: 'memoriad',
+    key: moduleKey,
+    level: fairPlayLevel ?? '*',
+    attempted: evaluation.attempted,
+    correct: evaluation.correct,
+    usedSeconds,
+    serverSeconds: Math.min(timeLimit, serverElapsed),
+  };
+  const fairPlay = await reviewAfterSave(adminClient, {
+    studentId: student.id,
+    sourceTable: 'activity_results',
+    sourceId: resultRow.id,
+    verdict: assessFairPlay(fairPlayAttempt, fairPlayRows),
+    attempt: fairPlayAttempt,
+    rows: fairPlayRows,
+    label: evaluation.title,
+    detail: { official_points: resultSettings.official_points ?? null },
+  });
+
   return res.status(200).json({
     ...evaluation,
+    ...(fairPlay.under_review ? { under_review: true, review_message: fairPlay.message } : {}),
     official_points: resultSettings.official_points ?? null,
     time_limit_seconds: timeLimit,
     total: evaluation.attempted,

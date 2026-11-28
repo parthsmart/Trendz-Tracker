@@ -20,7 +20,7 @@ import { buildXlsx, readXlsx, XLSX_MAX_ROWS, XLSX_MAX_SHEET_NAME } from './xlsx.
 export const FULL_BACKUP_FORMAT_VERSION = 1;
 
 /** Latest migration file in supabase/migrations (kept in sync by tests/fullBackup.test.js). */
-export const FULL_BACKUP_SCHEMA_VERSION = '41_cross_centre_live_duels';
+export const FULL_BACKUP_SCHEMA_VERSION = '43_cross_centre_live_duels';
 
 export const FULL_BACKUP_PAGE_SIZE = 1000;
 
@@ -68,8 +68,15 @@ export const FULL_BACKUP_KNOWN_TABLES = Object.freeze([
   'daily_tasks',
   'daily_todo_log',
   'drill_sessions',
+  'fair_play_audit',
+  'fair_play_rate_hits',
+  'fair_play_reviews',
+  'fair_play_thresholds',
   'duel_ratings',
   'duels',
+  'feed_items',
+  'friend_requests',
+  'friendships',
   'homework_assignments',
   'homework_bound_sessions',
   'homework_completions',
@@ -109,8 +116,14 @@ export const FULL_BACKUP_KNOWN_TABLES = Object.freeze([
   'rollout_boundaries',
   'round_series',
   'rounds',
+  'safety_reports',
   'score_correction_requests',
   'simple_practice_results',
+  'social_prefs',
+  'social_rate_events',
+  'social_reactions',
+  'social_settings',
+  'student_blocks',
   'student_messages',
   'student_practice_access',
   'student_preferences',

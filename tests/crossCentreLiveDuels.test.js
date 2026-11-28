@@ -1,5 +1,5 @@
 /**
- * Multi-centre step 5c: live duels across centres follow centre_visibility (migration 41).
+ * Multi-centre step 5c: live duels across centres follow centre_visibility (migration 43).
  *
  * PGlite with the live duel migrations (31, 34, 35) on minimal centre tables:
  *  - the lobby (live_duel_online_players) lists another centre's student only when
@@ -23,8 +23,8 @@ const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 const M31 = read('supabase/migrations/31_live_duels.sql');
 const M34 = read('supabase/migrations/34_live_duel_mate_avatars.sql');
 const M35 = read('supabase/migrations/35_live_duel_fair_open.sql');
-const M41 = read('supabase/migrations/41_cross_centre_live_duels.sql');
-const R41 = read('supabase/rollbacks/41_cross_centre_live_duels_rollback.sql');
+const M43 = read('supabase/migrations/43_cross_centre_live_duels.sql');
+const R43 = read('supabase/rollbacks/43_cross_centre_live_duels_rollback.sql');
 
 const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const BRN = id(901);
@@ -79,7 +79,7 @@ const BASE = `
   CREATE FUNCTION public.has_teacher_permission(p_teacher_id uuid, p_permission text) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$;
 `;
 
-async function freshDb({ with41 = true } = {}) {
+async function freshDb({ with43 = true } = {}) {
   const db = new PGlite();
   await db.exec(BASE);
   await db.exec(M31);
@@ -100,7 +100,7 @@ async function freshDb({ with41 = true } = {}) {
     `INSERT INTO public.student_xp_events (student_id, day, xp) VALUES ($1, current_date, 50), ($2, current_date, 10)`,
     [S.NEHA, S.KIRAN],
   );
-  if (with41) await db.exec(M41);
+  if (with43) await db.exec(M43);
   return db;
 }
 
@@ -128,14 +128,14 @@ const grant = (db, source, viewer, mode, extra = {}) => db.query(
 );
 const pairable = async (db, a, b) => (await one(db, 'SELECT public.live_duel_pairable($1, $2) AS ok', [a, b])).ok;
 
-describe('cross-centre live duels (migration 41)', () => {
+describe('cross-centre live duels (migration 43)', () => {
   let db;
   beforeEach(async () => {
     db = await freshDb();
   });
 
   it('applies twice without errors (idempotent)', async () => {
-    await db.exec(M41);
+    await db.exec(M43);
     assert.deepEqual(await lobby(db, S.ASHA), ['Ravi']);
   });
 
@@ -256,29 +256,29 @@ describe('cross-centre live duels (migration 41)', () => {
   });
 });
 
-describe('migration 41 rollback', () => {
+describe('migration 43 rollback', () => {
   let db;
   before(async () => {
     db = await freshDb();
   });
 
-  it('brings back the pre-41 lobby (every centre) and removes the helpers', async () => {
-    await db.exec(R41);
-    await db.exec(R41);
+  it('brings back the pre-43 lobby (every centre) and removes the helpers', async () => {
+    await db.exec(R43);
+    await db.exec(R43);
     assert.deepEqual(await lobby(db, S.ASHA), ['Kiran', 'Meera', 'Neha', 'Ravi']);
     const left = await rows(db, "SELECT proname FROM pg_proc WHERE proname LIKE 'live_duel_pairable%' OR proname = 'live_duel_visible_to'");
     assert.deepEqual(left, []);
-    await db.exec(M41);
+    await db.exec(M43);
     assert.deepEqual(await lobby(db, S.ASHA), ['Ravi'], 're-applies cleanly');
   });
 
-  it('documents the pre-41 leak: without 41 the lobby lists every centre', async () => {
-    const old = await freshDb({ with41: false });
+  it('documents the pre-43 leak: without 43 the lobby lists every centre', async () => {
+    const old = await freshDb({ with43: false });
     assert.deepEqual(await lobby(old, S.ASHA), ['Kiran', 'Meera', 'Neha', 'Ravi']);
   });
 
-  it('migration 41 changes no tables and deletes nothing', () => {
-    const code = M41.replace(/--.*$/gm, '');
+  it('migration 43 changes no tables and deletes nothing', () => {
+    const code = M43.replace(/--.*$/gm, '');
     assert.doesNotMatch(code, /\b(DROP|DELETE FROM public\.(?!live_duel_queue)|TRUNCATE|ALTER TABLE)\b/i);
   });
 });

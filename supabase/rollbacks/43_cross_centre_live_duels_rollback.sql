@@ -1,5 +1,5 @@
--- Rollback for migration 41 (multi-centre step 5c, cross-centre live duels).
--- Puts back the definitions that were live before 41 (from migrations 31 and 35:
+-- Rollback for migration 43 (multi-centre step 5c, cross-centre live duels).
+-- Puts back the definitions that were live before 43 (from migrations 31 and 35:
 -- the lobby lists every centre and any two centres can be paired), then removes
 -- the three helper functions. No data is touched. Safe to run more than once.
 

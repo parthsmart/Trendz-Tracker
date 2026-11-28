@@ -22,7 +22,7 @@
 -- Students of the same centre duel exactly as before. Async duels stay inside a
 -- centre (migration 37). Ghost runs stay inside a centre (api/_liveDuels.js).
 -- No table changes and no data changes.
--- Rollback: supabase/rollbacks/41_cross_centre_live_duels_rollback.sql
+-- Rollback: supabase/rollbacks/43_cross_centre_live_duels_rollback.sql
 
 -- 1. Visibility helpers (service role and SECURITY DEFINER callers only) -----------
 
