@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Community - Trendz Tracker</title>
+    <meta name="description" content="Moderate friends, reports and the class feed on Trendz Tracker." />
+
+    <!-- Design tokens & unified styles -->
+    <link rel="stylesheet" href="/css/style.css" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#2563EB" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Trendz Tracker" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- Top Bar Contract: 3-Zone Navigation -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <!-- Zone 1: Wordmark & Brand -->
+          <a href="/index.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <!-- Mobile Menu Toggle -->
+          <button type="button" class="mobile-menu-btn" id="btn-mobile-menu" aria-label="Toggle Navigation" aria-expanded="false">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+
+          <!-- Zone 2: Navigation Links -->
+          <nav class="nav-zone" id="student-nav-zone" aria-label="Primary Navigation"></nav>
+
+          <!-- Zone 3: User Details & Logout Action -->
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Student</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-code" class="num" style="color: var(--text-muted);">STU</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Page Content -->
+      <main class="main-content">
+        <div class="container" style="max-width: 1040px;">
+          <div id="config-banner-placeholder"></div>
+          <header class="sc-hero">
+            <h1>🛡️ Community</h1>
+            <p class="sc-meta">Approve friend requests, look at reports and keep the class feed kind. Students cannot write messages: only preset cheers.</p>
+          </header>
+          <div id="cm-centre-wrap" class="sc-card" hidden></div>
+          <div class="sc-grid">
+            <div>
+              <section class="sc-card" aria-labelledby="cm-requests-title">
+                <h2 id="cm-requests-title">Friend requests to approve</h2>
+                <div id="cm-requests"><p class="sc-empty">Loading…</p></div>
+              </section>
+              <section class="sc-card" aria-labelledby="cm-reports-title">
+                <h2 id="cm-reports-title">Reports</h2>
+                <div id="cm-reports"></div>
+              </section>
+              <section class="sc-card" aria-labelledby="cm-friends-title">
+                <h2 id="cm-friends-title">Friendships</h2>
+                <div id="cm-friendships"></div>
+              </section>
+            </div>
+            <div>
+              <section class="sc-card" id="cm-settings-card" hidden aria-labelledby="cm-settings-title">
+                <h2 id="cm-settings-title">Centre switches</h2>
+                <div id="cm-settings"></div>
+              </section>
+              <section class="sc-card" aria-labelledby="cm-feed-title">
+                <h2 id="cm-feed-title">Class feed</h2>
+                <ul class="sc-list" id="cm-feed"></ul>
+              </section>
+              <section class="sc-card" aria-labelledby="cm-blocks-title">
+                <h2 id="cm-blocks-title">Blocks</h2>
+                <div id="cm-blocks"></div>
+              </section>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+    <script type="module" src="/js/community.js"></script>
+  </body>
+</html>

@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Friends - Trendz Tracker</title>
+    <meta name="description" content="Friends and your class feed on Trendz Tracker." />
+
+    <!-- Design tokens & unified styles -->
+    <link rel="stylesheet" href="/css/style.css" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#2563EB" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Trendz Tracker" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- Top Bar Contract: 3-Zone Navigation -->
+      <header class="app-header">
+        <div class="container header-inner">
+          <!-- Zone 1: Wordmark & Brand -->
+          <a href="/pages/student.html" class="brand-zone">
+            <span class="brand-icon" aria-hidden="true">🧮</span>
+            <span>Trendz Tracker</span>
+          </a>
+
+          <!-- Mobile Menu Toggle -->
+          <button type="button" class="mobile-menu-btn" id="btn-mobile-menu" aria-label="Toggle Navigation" aria-expanded="false">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+
+          <!-- Zone 2: Navigation Links -->
+          <nav class="nav-zone" id="student-nav-zone" aria-label="Student Primary Navigation"></nav>
+
+          <!-- Zone 3: User Details & Logout Action -->
+          <div class="actions-zone">
+            <div class="meta-row" style="font-size: var(--text-xs); display: none;" id="user-pill-container">
+              <span id="header-user-name" style="font-weight: 600; color: var(--text-main);">Student</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span id="header-user-code" class="num" style="color: var(--text-muted);">STU</span>
+            </div>
+            <button type="button" id="btn-header-logout" class="btn btn-outline btn-sm">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Page Content -->
+      <main class="main-content">
+        <div class="container" style="max-width: 960px;">
+          <div id="config-banner-placeholder"></div>
+          <header class="sc-hero">
+            <h1>🤝 Friends &amp; my class</h1>
+            <p class="sc-meta">Friends are classmates from your centre. They both say yes, then your teacher approves. There is no chat: only cheers like 👏 and 🎉.</p>
+          </header>
+          <div id="sc-off" class="sc-card" hidden></div>
+          <div class="sc-grid">
+            <div>
+              <section class="sc-card" id="sc-requests-card" hidden aria-labelledby="sc-requests-title">
+                <h2 id="sc-requests-title">Friend requests</h2>
+                <div id="sc-requests"></div>
+              </section>
+              <section class="sc-card" aria-labelledby="sc-friends-title">
+                <h2 id="sc-friends-title">My friends</h2>
+                <div id="sc-friends"><p class="sc-empty">Loading…</p></div>
+              </section>
+              <section class="sc-card" aria-labelledby="sc-add-title">
+                <h2 id="sc-add-title">Add a classmate</h2>
+                <label class="sc-meta" for="sc-search">Find a classmate</label>
+                <input id="sc-search" class="form-input" type="search" autocomplete="off" placeholder="Type a name" />
+                <div id="sc-classmates"></div>
+              </section>
+            </div>
+            <div>
+              <section class="sc-card" aria-labelledby="sc-feed-title">
+                <h2 id="sc-feed-title">My class <span class="sc-tabs" role="tablist" aria-label="Who to show">
+                  <button type="button" class="sc-tab" role="tab" id="sc-tab-level" aria-selected="true" data-scope="level">My level</button>
+                  <button type="button" class="sc-tab" role="tab" id="sc-tab-centre" aria-selected="false" data-scope="centre">Whole centre</button>
+                </span></h2>
+                <ul class="sc-list" id="sc-feed"><li class="sc-empty">Loading…</li></ul>
+              </section>
+              <section class="sc-card" aria-labelledby="sc-mine-title">
+                <h2 id="sc-mine-title">My moments</h2>
+                <label class="sc-meta"><input type="checkbox" id="sc-auto-post" /> Share my new levels, badges and personal bests with my class</label>
+                <div id="sc-mine"></div>
+              </section>
+              <section class="sc-card" id="sc-blocked-card" hidden aria-labelledby="sc-blocked-title">
+                <h2 id="sc-blocked-title">Blocked</h2>
+                <div id="sc-blocked"></div>
+              </section>
+              <p class="sc-safe">🛡️ If someone is unkind, tap <strong>Report</strong> or <strong>Block</strong>. Your teacher sees reports. Blocked classmates cannot see you, challenge you or send you requests.</p>
+            </div>
+          </div>
+          <dialog id="sc-report-dialog" class="sc-dialog" aria-labelledby="sc-report-title">
+            <form method="dialog">
+              <h2 id="sc-report-title">Tell your teacher</h2>
+              <p class="sc-meta">What happened? Pick one.</p>
+              <div id="sc-report-reasons" class="sc-actions"></div>
+              <div class="sc-actions" style="margin-top:12px"><button class="btn btn-outline btn-sm" value="cancel">Cancel</button></div>
+            </form>
+          </dialog>
+        </div>
+      </main>
+    </div>
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+    <script type="module" src="/js/friends.js"></script>
+  </body>
+</html>
