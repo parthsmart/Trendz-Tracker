@@ -200,6 +200,14 @@ export const NAV_CONFIG = Object.freeze({
       desktopPlacement: 'menu-only',
     }),
     Object.freeze({
+      id: 'student-journey',
+      label: 'Journey',
+      href: '/pages/journey.html',
+      group: 'Account',
+      inline: false,
+      desktopPlacement: 'menu-only',
+    }),
+    Object.freeze({
       id: 'student-account',
       label: 'Account',
       href: '/pages/account.html',
@@ -288,6 +296,15 @@ export const NAV_CONFIG = Object.freeze({
       inline: true,
       desktopPlacement: 'inline',
       isHub: true,
+    }),
+
+    Object.freeze({
+      id: 'admin-journey',
+      label: 'Journey & Seasons',
+      href: '/pages/journey.html',
+      group: 'Account',
+      inline: false,
+      desktopPlacement: 'menu-only',
     }),
 
     // Account & Sign out
@@ -414,6 +431,14 @@ export const NAV_CONFIG = Object.freeze({
       inline: false,
       desktopPlacement: 'content-dropdown',
       permission: 'can_manage_resources',
+    }),
+    Object.freeze({
+      id: 'teacher-journey',
+      label: 'Level-up checks',
+      href: '/pages/journey.html',
+      group: 'Account',
+      inline: false,
+      desktopPlacement: 'menu-only',
     }),
 
     // Account & Sign out

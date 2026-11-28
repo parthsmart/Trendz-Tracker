@@ -20,7 +20,7 @@ import { buildXlsx, readXlsx, XLSX_MAX_ROWS, XLSX_MAX_SHEET_NAME } from './xlsx.
 export const FULL_BACKUP_FORMAT_VERSION = 1;
 
 /** Latest migration file in supabase/migrations (kept in sync by tests/fullBackup.test.js). */
-export const FULL_BACKUP_SCHEMA_VERSION = '47_live_duel_tournaments';
+export const FULL_BACKUP_SCHEMA_VERSION = '48_world_journey_seasons';
 
 export const FULL_BACKUP_PAGE_SIZE = 1000;
 
@@ -162,6 +162,15 @@ export const FULL_BACKUP_KNOWN_TABLES = Object.freeze([
   'xp_season_results',
   'xp_seasons',
   'xp_awards',
+  // World layer: mascots, journey islands and themed seasons.
+  'student_mascots',
+  'world_mascot_items',
+  'themed_seasons',
+  'season_podiums',
+  'journey_stages',
+  'journey_level_starts',
+  'journey_sessions',
+  'journey_levelup_flags',
 ]);
 
 /** Tables whose rows are sensitive beyond normal student data (flagged in README). */
