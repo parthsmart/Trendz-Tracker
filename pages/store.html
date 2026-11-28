@@ -8,6 +8,7 @@
 
     <!-- Design tokens & unified styles -->
     <link rel="stylesheet" href="/css/style.css" />
+    <script src="/theme-boot.js"></script>
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#2563EB" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -63,6 +64,13 @@
             <p class="ar-dim">Spend the XP you earn on rewards and collect them from your trainer at the centre. <a href="/pages/arena.html">Open the Arena ›</a></p>
           </header>
 
+          <nav class="ar-tabs store-tabs" role="tablist" aria-label="Store sections">
+            <button type="button" role="tab" class="ar-tab is-active" id="store-tab-prizes" aria-controls="store-pane-prizes" aria-selected="true">🎁 Prizes (XP)</button>
+            <button type="button" role="tab" class="ar-tab" id="store-tab-avatar" aria-controls="store-pane-avatar" aria-selected="false">🙂 Avatar shop (coins)</button>
+          </nav>
+
+          <div id="store-pane-prizes" role="tabpanel" aria-labelledby="store-tab-prizes">
+
           <section class="card ar-panel" id="panel-rewards">
             <div id="ar-rewards"><p class="ar-dim">Loading…</p></div>
             <form class="ar-item-form" id="ar-item-form" hidden>
@@ -80,10 +88,18 @@
               </div>
             </form>
           </section>
+          </div>
+
+          <div id="store-pane-avatar" role="tabpanel" aria-labelledby="store-tab-avatar" hidden>
+            <section class="card ar-panel" id="panel-avatar-shop">
+              <div id="av-shop"><p class="ar-dim">Loading…</p></div>
+            </section>
+          </div>
         </div>
       </main>
     </div>
     <div id="toast-container" class="toast-container" aria-live="polite"></div>
     <script type="module" src="/js/arena.js"></script>
+    <script type="module" src="/js/avatarShop.js"></script>
   </body>
 </html>

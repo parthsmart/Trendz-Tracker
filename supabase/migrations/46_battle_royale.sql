@@ -1,4 +1,4 @@
--- Phase 40: Battle royale on the Live Duel page.
+-- Phase 46: Battle royale on the Live Duel page.
 --
 --   * Up to 20 students at one level, from any centre. The API (action
 --     'royale_join') creates the game with 12 rounds of questions and the answer

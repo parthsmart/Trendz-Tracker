@@ -41,6 +41,7 @@ import {
 } from './answerSlots.js';
 import { highlightedColumns, normalizeColumnsPerStep } from './columnHighlight.js';
 import { fetchStudentEffectiveAccess, isMemoriadAllowed } from './studentAccess.js';
+import { practiceStarted, practiceEnded } from './feedback.js';
 import {
   pressMultStepKey,
   getMultCheckedBoxes,
@@ -83,6 +84,7 @@ import {
 } from './weeklyTestRunner.js';
 import { submitHomeworkCompletion } from './homeworkData.js';
 import { showToast } from './toast.js';
+import { showFairPlayNotice } from './fairPlayNotice.js';
 import { showRoundRewards } from './xpRewards.js';
 
 const STORAGE_PREFIX = 'trendz_memoriad_settings_v1_';
@@ -1201,6 +1203,8 @@ function getActiveStageLimitSeconds() {
 function enterStagePhase() {
   stopAllTimers();
   phase = 'stage';
+  // Memoriad rounds follow competition format: music only if allowed in tests.
+  practiceStarted('test');
   stageInputsLocked = false;
   document.body.classList.add('memoriad-stage-mode');
 
@@ -2517,6 +2521,7 @@ async function submitCurrentSession(finishedBy = lastFinishedBy || 'finish') {
 
   const answers = collectCurrentAnswers();
   phase = 'results';
+  practiceEnded();
   document.body.classList.remove('memoriad-stage-mode');
 
   const normalContainer = document.getElementById('memoriad-normal-container');
@@ -2558,6 +2563,7 @@ async function submitCurrentSession(finishedBy = lastFinishedBy || 'finish') {
       }
     }
     lastSubmissionResult = response;
+    showFairPlayNotice(response);
     lastSubmissionError = null;
 
     // Check for homework assignment linking

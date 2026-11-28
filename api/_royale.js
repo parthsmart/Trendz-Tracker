@@ -4,7 +4,7 @@
  * { action: 'royale_join' } puts the student in the waiting game at their level,
  * creating it (12 rounds of questions plus the answer key) when there is none.
  * Everything after that runs in SECURITY DEFINER RPCs from
- * supabase/migrations/40_battle_royale.sql: royale_state, royale_answer (graded
+ * supabase/migrations/46_battle_royale.sql: royale_state, royale_answer (graded
  * there), royale_leave and my_royale. Expected answers are written to royale_keys
  * and never returned.
  */

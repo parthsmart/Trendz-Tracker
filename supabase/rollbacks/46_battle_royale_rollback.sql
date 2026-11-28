@@ -1,4 +1,4 @@
--- Rollback for 40_battle_royale.sql: removes battle royale (games, players, answers,
+-- Rollback for 46_battle_royale.sql: removes battle royale (games, players, answers,
 -- keys and functions). XP already awarded and royale_win badges students earned stay.
 
 DROP FUNCTION IF EXISTS public.royale_leave(uuid);

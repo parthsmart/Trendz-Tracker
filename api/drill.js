@@ -63,12 +63,18 @@ import {
   resolveTodaysChallenge,
 } from './_dailyChallenge.js';
 import { claimDuelStart, handleDuelCancel, handleDuelCreate, recordDuelResult } from './_duels.js';
+import { assessFairPlay, loadFairPlayThresholds, reviewAfterSave } from './_fairPlay.js';
 import { handleGhostOptions, handleLiveGhost, handleLiveInvite, handleLiveQueue, handleLiveRematch } from './_liveDuels.js';
 import { handleRoyaleJoin } from './_royale.js';
 
 export const RATE_LIMIT_SETS_PER_HOUR = 60;
 export const EXPIRY_GRACE_SECONDS = 30;
 export const MIN_SECONDS_PER_ATTEMPT = 0.25;
+
+/** Extra response fields when a saved result went to the teacher review queue. */
+export function fairPlayResponse(fairPlay) {
+  return fairPlay?.under_review ? { under_review: true, review_message: fairPlay.message } : {};
+}
 export const MAX_ANSWER_LENGTH = 40;
 
 /**
@@ -980,7 +986,27 @@ async function handleSubmitDrill({ body, student, adminSupabase, res }) {
     .update({ result_id: insertedResult.id })
     .eq('id', session.id);
 
-  return res.status(200).json(graded);
+  // Fair play: unusually fast runs are saved and flagged for a teacher, never dropped.
+  const fairPlayRows = await loadFairPlayThresholds(adminSupabase);
+  const fairPlayAttempt = {
+    kind: 'element',
+    key: drillKey,
+    attempted: graded.attempted,
+    correct: graded.correct,
+    usedSeconds: effectiveElapsed,
+    serverSeconds: Math.min(timeLimitSeconds, Math.max(0, serverElapsed - prepSeconds)),
+  };
+  const fairPlay = await reviewAfterSave(adminSupabase, {
+    studentId: student.id,
+    sourceTable: 'activity_results',
+    sourceId: insertedResult.id,
+    verdict: assessFairPlay(fairPlayAttempt, fairPlayRows),
+    attempt: fairPlayAttempt,
+    rows: fairPlayRows,
+    label: drillObj.title,
+  });
+
+  return res.status(200).json({ ...graded, ...fairPlayResponse(fairPlay) });
 }
 
 async function handleSubmitBasicsSession({
@@ -1302,6 +1328,27 @@ async function handleSubmitBasicsSession({
     });
   }
 
+  // Fair play: flag (never drop) unusually fast Basics runs and duel rounds.
+  const fairPlayRows = await loadFairPlayThresholds(adminSupabase);
+  const fairPlayAttempt = {
+    kind: session.settings?.duel_id ? 'duel' : 'basics',
+    key: session.activity_name || '*',
+    attempted: check.attempted,
+    correct: check.correct,
+    usedSeconds: check.used_seconds ?? check.time_seconds,
+    serverSeconds: Math.max(0, (isTimed ? Math.min(timeLimitSeconds + prepSeconds, serverElapsed) : serverElapsed) - prepSeconds),
+  };
+  const fairPlay = await reviewAfterSave(adminSupabase, {
+    studentId: student.id,
+    sourceTable: 'results',
+    sourceId: insertedResult.id,
+    verdict: assessFairPlay(fairPlayAttempt, fairPlayRows),
+    attempt: fairPlayAttempt,
+    rows: fairPlayRows,
+    label: session.activity_name || 'Basics practice',
+    detail: session.settings?.duel_id ? { duel_id: session.settings.duel_id } : undefined,
+  });
+
   const duel = session.settings?.duel_id
     ? await recordDuelResult(adminSupabase, session, student, {
         correct: check.correct,
@@ -1321,6 +1368,7 @@ async function handleSubmitBasicsSession({
     attempted_per_minute: check.attempted_per_minute,
     detail: check.detail,
     result_id: insertedResult.id,
+    ...fairPlayResponse(fairPlay),
   });
 }
 

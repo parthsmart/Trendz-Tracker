@@ -19,6 +19,7 @@ import { isSupabaseConfigured } from './config.js';
 import { fetchStudentEffectiveAccess } from './studentAccess.js';
 import { formatSecondsToMMSS, parseTimeToSeconds } from './timeUtils.js';
 import { showToast } from './toast.js';
+import { practiceStarted, practiceEnded } from './feedback.js';
 import {
   SIMPLE_GROUPS,
   SIMPLE_LIMITS,
@@ -220,6 +221,7 @@ function startRun() {
   $('play-time-fill').style.width = '0%';
   setPickerDisabled(true);
   showStage('play');
+  practiceStarted('practice');
   renderQuestion();
 }
 
@@ -242,6 +244,7 @@ async function finishRun() {
   if (!run || run.done) return;
   run.done = true;
   clearInterval(run.timer);
+  practiceEnded();
   const limit = run.seconds || SIMPLE_LIMITS.maxSeconds;
   const seconds = Math.min(limit, Math.round(elapsedSeconds(run)));
   const marked = markSimpleRound(run.attempts.slice(0, SIMPLE_LIMITS.maxTotal));

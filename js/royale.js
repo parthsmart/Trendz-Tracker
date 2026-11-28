@@ -3,7 +3,7 @@
  *
  * The Battle royale tab (#ld-royale) and the game screen (#ld-royale-game).
  * Joining goes through /api/drill (action 'royale_join'); everything else is a
- * SECURITY DEFINER RPC (supabase/migrations/40_battle_royale.sql): my_royale for
+ * SECURITY DEFINER RPC (supabase/migrations/46_battle_royale.sql): my_royale for
  * the tab, royale_state polled about once a second (it also moves the game on),
  * royale_answer for each answer (graded on the server) and royale_leave.
  */
