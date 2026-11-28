@@ -49,6 +49,7 @@ import { submitHomeworkCompletion } from './homeworkData.js';
 import { flashSummary } from './todoForm.js';
 import { setupPracticeRecordsSection } from './practiceRecordsCard.js';
 import { showRoundRewards } from './xpRewards.js';
+import { cue, practiceStarted, practiceEnded } from './feedback.js';
 import {
   parseTestRunnerQuery,
   parsePracticeRunId,
@@ -471,6 +472,7 @@ function showScreen(screenName) {
   const appHeaderEl = document.querySelector('.app-header');
 
   const isPlaying = screenName === 'play';
+  if (isPlaying) practiceStarted(isTestMode ? 'test' : 'practice');
   // Full-screen stage (css/studentPages.css): the number fills the screen, no counter.
   document.body.classList.toggle('flash-playing', isPlaying);
   document.body.classList.toggle('flash-test-mode', Boolean(isTestMode));
@@ -1036,6 +1038,8 @@ function renderTestSectionErrorScreen(message) {
  *   shared score colour feedback, "Saved as part of <test title>", and "Back to Weekly Test".
  */
 function renderTestTryResultScreen(result, finishedTry) {
+  practiceEnded();
+  document.getElementById('result-outcome-banner')?.classList.remove('ans-banner-right', 'ans-banner-wrong');
   const done = Boolean(result?.done);
   const tryNo = Number(result?.try_no) || activeTryNo;
   const qCount = Number(result?.question_count) || activeQuestionCount;
@@ -1145,6 +1149,8 @@ function renderTestTryResultScreen(result, finishedTry) {
  */
 function renderTryResultScreen(result, finishedTry) {
   const isCorrect = Boolean(result?.correct);
+  practiceEnded({ cue: false });
+  cue(isCorrect ? 'correct' : 'wrong');
   const expected = result?.expected ?? '—';
   const given =
     result?.given !== undefined ? result.given : finishedTry?.pendingAnswer ?? null;
@@ -1158,17 +1164,14 @@ function renderTryResultScreen(result, finishedTry) {
   const outcomeSub = document.getElementById('result-outcome-sub');
   if (outcomeSub) outcomeSub.style.display = 'none';
   if (outcomeBanner && outcomeLabel) {
-    if (isCorrect) {
-      outcomeBanner.style.background = 'rgba(22, 163, 74, 0.08)';
-      outcomeBanner.style.borderColor = 'var(--color-score-perfect)';
-      outcomeLabel.style.color = 'var(--color-score-perfect)';
-      outcomeLabel.textContent = 'Correct';
-    } else {
-      outcomeBanner.style.background = 'rgba(220, 38, 38, 0.08)';
-      outcomeBanner.style.borderColor = 'var(--color-score-danger)';
-      outcomeLabel.style.color = 'var(--color-score-danger)';
-      outcomeLabel.textContent = 'Wrong';
-    }
+    // Blue/orange with a ✓ / ✗ mark (css/theme.css): readable with colour blindness.
+    outcomeBanner.style.background = '';
+    outcomeBanner.style.borderColor = '';
+    outcomeLabel.style.color = '';
+    outcomeBanner.classList.toggle('ans-banner-right', isCorrect);
+    outcomeBanner.classList.toggle('ans-banner-wrong', !isCorrect);
+    outcomeLabel.classList.add('ans-banner-label');
+    outcomeLabel.textContent = isCorrect ? 'Correct' : 'Wrong';
   }
 
   const summaryHeaderEl = document.getElementById('results-settings-summary');

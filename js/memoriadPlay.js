@@ -41,6 +41,7 @@ import {
 } from './answerSlots.js';
 import { highlightedColumns, normalizeColumnsPerStep } from './columnHighlight.js';
 import { fetchStudentEffectiveAccess, isMemoriadAllowed } from './studentAccess.js';
+import { practiceStarted, practiceEnded } from './feedback.js';
 import {
   pressMultStepKey,
   getMultCheckedBoxes,
@@ -1201,6 +1202,8 @@ function getActiveStageLimitSeconds() {
 function enterStagePhase() {
   stopAllTimers();
   phase = 'stage';
+  // Memoriad rounds follow competition format: music only if allowed in tests.
+  practiceStarted('test');
   stageInputsLocked = false;
   document.body.classList.add('memoriad-stage-mode');
 
@@ -2517,6 +2520,7 @@ async function submitCurrentSession(finishedBy = lastFinishedBy || 'finish') {
 
   const answers = collectCurrentAnswers();
   phase = 'results';
+  practiceEnded();
   document.body.classList.remove('memoriad-stage-mode');
 
   const normalContainer = document.getElementById('memoriad-normal-container');
