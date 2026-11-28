@@ -20,7 +20,7 @@ import { buildXlsx, readXlsx, XLSX_MAX_ROWS, XLSX_MAX_SHEET_NAME } from './xlsx.
 export const FULL_BACKUP_FORMAT_VERSION = 1;
 
 /** Latest migration file in supabase/migrations (kept in sync by tests/fullBackup.test.js). */
-export const FULL_BACKUP_SCHEMA_VERSION = '43_cross_centre_live_duels';
+export const FULL_BACKUP_SCHEMA_VERSION = '44_avatar_store';
 
 export const FULL_BACKUP_PAGE_SIZE = 1000;
 
@@ -52,6 +52,7 @@ export const FULL_BACKUP_KNOWN_TABLES = Object.freeze([
   'attendance',
   'attendance_audit',
   'attendance_sessions',
+  'avatar_items',
   'backup_runs',
   'backup_state',
   'badge_catalogue',
@@ -62,6 +63,8 @@ export const FULL_BACKUP_KNOWN_TABLES = Object.freeze([
   'centre_staff',
   'centre_visibility',
   'centres',
+  'chest_claims',
+  'collectible_cards',
   'competition_settings',
   'daily_challenge_attempts',
   'daily_task_recipients',
@@ -131,9 +134,14 @@ export const FULL_BACKUP_KNOWN_TABLES = Object.freeze([
   'student_leagues',
   'student_rounds',
   'student_xp_events',
+  'student_avatar_items',
+  'student_cards',
+  'student_coin_ledger',
+  'student_style',
   'teacher_audit_log',
   'teacher_permissions',
   'teacher_student_assignments',
+  'title_catalogue',
   'weekly_test_attempts',
   'weekly_test_practice_runs',
   'weekly_test_practice_attempts',
