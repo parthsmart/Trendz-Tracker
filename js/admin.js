@@ -22,9 +22,13 @@ import { fillLevelSelect, levelFilterOptionsHtml, matchesLevelFilter } from '../
 import { DemoDB, getSupabase, clearStaleSupabaseSession } from './supabaseClient.js';
 import { showToast } from './toast.js';
 import { buildModalLiveSummary, setMoreOptionsOpen } from './formPattern.js';
+import { centreCellHtml, loadCentreLabels, showsCentreColumn } from './centreColumn.js';
 
 let submitAndAddAnotherStudent = false;
 let currentLoggedInProfile = null;
+// Owners and directors see every centre, so the roster shows each student's centre.
+let showCentre = false;
+let centreLabels = new Map();
 
 let allStudents = [];
 let currentFilter = {
@@ -80,11 +84,15 @@ async function loadStudents() {
           allStudents = data || [];
         }
       } else {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('id, student_code, full_name, level, role, active, leaderboard_visible, created_at')
-          .eq('role', 'student')
-          .order('created_at', { ascending: false });
+        const [{ data, error }, labels] = await Promise.all([
+          supabase
+            .from('profiles')
+            .select('id, student_code, full_name, level, role, active, leaderboard_visible, created_at, centre_id')
+            .eq('role', 'student')
+            .order('created_at', { ascending: false }),
+          showCentre ? loadCentreLabels(supabase) : Promise.resolve(new Map()),
+        ]);
+        centreLabels = labels;
 
         if (error) {
           const msg = error.message || '';
@@ -209,6 +217,7 @@ function renderTable() {
       <td style="color: var(--text-muted);">
         ${student.level ? escapeHtml(student.level) : '<span style="color: var(--text-dim);">—</span>'}
       </td>
+      ${showCentre ? centreCellHtml(centreLabels, student.centre_id, escapeHtml) : ''}
       <td>
         <span class="status-indicator ${student.active ? 'active' : 'inactive'}">
           ${student.active ? 'Active' : 'Inactive'}
@@ -481,6 +490,9 @@ async function initAdmin() {
   const profile = await requireAuth(['teacher', 'admin']);
   if (!profile) return;
   currentLoggedInProfile = profile;
+  showCentre = showsCentreColumn(profile);
+  const centreHeader = document.getElementById('students-centre-col');
+  if (centreHeader) centreHeader.hidden = !showCentre;
 
   if (profile.role === 'teacher') {
     if (profile.permissions?.can_view_students === false) {

@@ -24,6 +24,15 @@
  *   task?: object|null
  * }>}
  */
+const NETWORK_ROLES = new Set(['owner', 'director', 'admin']);
+
+/** A task with no centre is for every centre; otherwise the student must be in it. */
+export function isTaskInStudentCentre(task, student) {
+  if (!task?.centre_id) return true;
+  if (NETWORK_ROLES.has(student?.role)) return true;
+  return Boolean(student?.centre_id) && student.centre_id === task.centre_id;
+}
+
 export async function resolveAndValidateDailyTask(
   adminSupabase,
   todoTaskId,
@@ -68,7 +77,7 @@ export async function resolveAndValidateDailyTask(
     // 2. Fetch the task
     const { data: task, error: dbErr } = await adminSupabase
       .from('daily_tasks')
-      .select('id, title, section, category_id, activity_key, duration_seconds, level, target_scope, active, flash_digits, flash_count, flash_speed_ms, flash_mode')
+      .select('id, title, section, category_id, activity_key, duration_seconds, level, target_scope, active, flash_digits, flash_count, flash_speed_ms, flash_mode, centre_id')
       .eq('id', cleanId)
       .maybeSingle();
 
@@ -85,6 +94,15 @@ export async function resolveAndValidateDailyTask(
         ok: false,
         statusCode: 404,
         error: 'Assigned daily task not found or is no longer active.',
+      };
+    }
+
+    // Tasks of one centre are only for that centre's students (multi-centre step 5d).
+    if (!isTaskInStudentCentre(task, student)) {
+      return {
+        ok: false,
+        statusCode: 403,
+        error: 'This daily task belongs to another centre.',
       };
     }
 

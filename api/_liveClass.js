@@ -58,7 +58,7 @@ async function authenticateCaller(supabase, req) {
 
   const { data: rawProfile, error: profError } = await supabase
     .from('profiles')
-    .select('id, full_name, role, level, active')
+    .select('id, full_name, role, level, active, centre_id')
     .eq('id', user.id)
     .single();
   const profile = normalizeProfileRole(rawProfile);
@@ -83,6 +83,7 @@ async function authenticateCaller(supabase, req) {
     fullName: profile.full_name || 'User',
     role: profile.role,
     level: profile.level,
+    centreId: profile.centre_id || null,
     cohostEmail: profile.role === 'teacher' ? getTeacherWebinarEmail(user) : '',
   };
 }
@@ -92,6 +93,11 @@ async function authenticateCaller(supabase, req) {
  */
 export function isStudentInAudience(student, liveClass) {
   if (!student || student.role !== 'student') return false;
+
+  // A class of one centre is only for that centre's students (multi-centre step 5d).
+  if (liveClass.centre_id && (student.centreId ?? student.centre_id) !== liveClass.centre_id) {
+    return false;
+  }
 
   // 1. Explicit target student IDs list takes precedence
   if (Array.isArray(liveClass.target_student_ids) && liveClass.target_student_ids.length > 0) {
@@ -446,6 +452,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
             invited_teacher_ids,
             target_level,
             target_student_ids,
+            centre_id,
             scheduled_start_time,
             duration_minutes,
             status,
@@ -473,6 +480,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
                 invited_teacher_ids,
                 target_level,
                 target_student_ids,
+                centre_id,
                 scheduled_start_time,
                 duration_minutes,
                 status,
@@ -646,6 +654,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
             invited_teacher_ids,
             target_level,
             target_student_ids,
+            centre_id,
             scheduled_start_time,
             duration_minutes,
             status,
@@ -673,6 +682,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
                 invited_teacher_ids,
                 target_level,
                 target_student_ids,
+                centre_id,
                 scheduled_start_time,
                 duration_minutes,
                 status,
@@ -986,6 +996,7 @@ export async function handleLiveClassRequest(req, res, options = {}) {
             invited_teacher_ids,
             target_level,
             target_student_ids,
+            centre_id,
             scheduled_start_time,
             duration_minutes,
             status,

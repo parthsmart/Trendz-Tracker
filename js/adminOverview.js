@@ -33,6 +33,7 @@ import { getISTDateString, formatDisplayDateIST } from './stats.js';
 import { getSupabase, DemoDB } from './supabaseClient.js';
 import { showToast } from './toast.js';
 import { levelFilterOptionsHtml, matchesLevelFilter } from '../shared/levels.js';
+import { centreCellHtml, loadCentreLabels, loadStudentCentres, showsCentreColumn } from './centreColumn.js';
 
 export function formatTimeIST(dateVal) {
   if (!dateVal) return 'Unavailable';
@@ -50,6 +51,9 @@ const PAGE_SIZE = 25;
 
 // State
 let allOverviewData = [];
+// Owners and directors see every centre, so the overview shows each student's centre.
+let showCentre = false;
+let centreLabels = new Map();
 let todayIST = '';
 let currentSearch = '';
 let currentLevelFilter = '';
@@ -92,6 +96,9 @@ async function initAdminOverview() {
 
   setupAdminNav(profile);
   renderStaffHome(profile);
+  showCentre = showsCentreColumn(profile);
+  const centreHeader = document.getElementById('overview-centre-col');
+  if (centreHeader) centreHeader.hidden = !showCentre;
   setupModalListeners();
   renderDemoBanner();
 
@@ -605,6 +612,7 @@ async function loadOverviewData() {
             todayIST,
             buildOtherPracticeRows(roundsRes?.data || null, weeklyRes?.data || null)
           );
+          if (showCentre) await attachCentres(supabase, allOverviewData);
           updateDashboard();
           return;
         } else if (error) {
@@ -629,6 +637,17 @@ async function loadOverviewData() {
     todayIST = getISTDateString(new Date());
     allOverviewData = isSupabaseConfigured() ? [] : DemoDB.getAdminOverview();
     updateDashboard();
+  }
+}
+
+/** Adds each student's centre to the overview rows (owners and directors only). */
+async function attachCentres(supabase, rowsList) {
+  try {
+    const [labels, centres] = await Promise.all([loadCentreLabels(supabase), loadStudentCentres(supabase)]);
+    centreLabels = labels;
+    for (const row of rowsList) row.centre_id = centres.get(row.student_id) || null;
+  } catch (err) {
+    console.warn('Could not load centres for the overview:', err);
   }
 }
 
@@ -898,6 +917,7 @@ function renderTable() {
         <td style="color: var(--text-muted);">
           ${student.level ? escapeHtml(student.level) : '<span style="color: var(--text-dim);">—</span>'}
         </td>
+        ${showCentre ? centreCellHtml(centreLabels, student.centre_id, escapeHtml) : ''}
         <td>
           ${streakDisplay}
         </td>

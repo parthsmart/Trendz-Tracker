@@ -372,3 +372,16 @@ Step 5 is split into smaller parts. Each part has its own migration and PR, so t
 - Before 43 the lobby listed online students of every centre at your level; that is closed now.
 - Unchanged: async duels and ghost runs stay inside a centre; the duel board (`live_duel_board`) and `my_live_duels` mates stay per centre.
 - Rollback: `supabase/rollbacks/43_cross_centre_live_duels_rollback.sql` (restores the pre-43 functions and drops the helpers; no data changes).
+
+### Step 5d implementation notes (migration 45, content and staff tools per centre)
+
+- Migration number 45: 44 was taken by the avatar store.
+- `centre_id` added to announcements, daily_tasks, resources, weekly_tests, homework_assignments and live_classes. Every existing row is backfilled to the default centre (BAR), so today's content keeps reaching the same people. `reward_items.centre_id` is nullable: NULL means "every centre", so the store is unchanged until a centre gets items of its own.
+- `content_centre_stamp` trigger (BEFORE INSERT OR UPDATE): a signed-in teacher, centre head or vice head always writes into their own centre and cannot move a row to another centre (a forged `centre_id` is overwritten). Owners and directors may set any centre or NULL (all centres). Server code (service role) without a centre takes the author's centre. Homework for one student and live classes for listed students must target students of the row's centre.
+- `content_student_centre` trigger: recipients, weekly-test attempts and practice runs, and store redemptions must belong to the content's centre. Homework completions from another centre are skipped quietly instead of failing a bulk job.
+- Read policies (announcements, daily tasks, resources, weekly tests, live classes, store items) add `content_centre_visible(centre_id)`; admins and network roles still see everything. A teacher who is the host or an invited teacher of a live class still sees it.
+- Functions scoped: `my_weekly_tests`, `get_eligible_live_classes_for_student`, `is_student_homework_recipient`, `reward_shop`, `reward_request`, `weekly_test_practice_block_reason` (now the test's own centre, not its creator's) and `teacher_bulk_apply_level_access` (teachers reach only students of their own centre).
+- APIs: `/api/daily-task` refuses a task from another centre (403); live classes check the student's centre before join.
+- Admin overview and student roster show a Centre column to owners and directors only.
+- Production dry run (2026-11-28, rolled back): all 21 active non-network people see exactly the same rows and function results after 45; all content backfilled to BAR; rollback restores every policy and the 7 function bodies byte for byte.
+- Rollback: `supabase/rollbacks/45_centre_content_rollback.sql` (restores the policies and pre-45 functions, drops the triggers and helpers; keeps the new columns and their data).

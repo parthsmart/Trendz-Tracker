@@ -419,7 +419,7 @@ export async function verifyStudentCaller(req) {
   // 2. Query public.profiles to verify account is active
   const { data: rawProfile, error: profileError } = await supabase
     .from('profiles')
-    .select('id, student_code, full_name, role, level, active')
+    .select('id, student_code, full_name, role, level, active, centre_id')
     .eq('id', user.id)
     .single();
   const profile = normalizeProfileRole(rawProfile);
