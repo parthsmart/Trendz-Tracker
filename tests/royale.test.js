@@ -282,11 +282,18 @@ describe('battle royale SQL (PGlite)', () => {
       CREATE FUNCTION public.today_ist() RETURNS date LANGUAGE sql STABLE AS $$ SELECT (now() AT TIME ZONE 'Asia/Kolkata')::date $$;
       CREATE FUNCTION public.display_name_for(p_name text, p_code text) RETURNS text LANGUAGE sql IMMUTABLE AS $$ SELECT COALESCE(p_name, p_code) $$;
       CREATE FUNCTION public.avatar_visible(p_student uuid, p_path text) RETURNS text LANGUAGE sql STABLE AS $$ SELECT p_path $$;
+      CREATE FUNCTION public.is_admin() RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$;
+      CREATE FUNCTION public.is_teacher(p_uid uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$;
+      CREATE FUNCTION public.is_teacher_assigned_to_student(p_teacher_id uuid, p_student_id uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$;
+      CREATE FUNCTION public.has_teacher_permission(p_teacher_id uuid, p_permission text) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$;
       CREATE FUNCTION public.live_duel_grade(p_answer text, p_expected text) RETURNS boolean LANGUAGE sql IMMUTABLE AS $$
         SELECT btrim(COALESCE(p_answer, '')) = btrim(COALESCE(p_expected, '')) $$;
     `);
     const xp = read('supabase/migrations/23_phase23_xp_and_personal_bests.sql');
     await db.exec(xp.slice(xp.indexOf('CREATE TABLE IF NOT EXISTS public.student_xp_events'), xp.indexOf('-- Per-source mapping')));
+    await db.exec(`ALTER TABLE public.student_xp_events DROP CONSTRAINT IF EXISTS student_xp_events_source_check;
+      ALTER TABLE public.student_xp_events ADD CONSTRAINT student_xp_events_source_check
+        CHECK (source IN ('result', 'activity', 'jmcwc', 'duel'));`);
     await db.exec(ROYALE_SQL);
     await db.query(
       `INSERT INTO public.profiles (id, role, level, full_name) VALUES
@@ -423,6 +430,65 @@ describe('battle royale page', () => {
     const page = read('pages/live-duel.html');
     assert.match(page, /data-ld-mode="royale"/);
     assert.match(page, /id="ld-royale"/);
+    assert.match(page, /id="ld-royale-game"/);
+    assert.match(page, /id="br-form"/);
+    const js = read('js/liveDuel.js');
+    assert.match(js, /const MODES = \['duel', 'ghost', 'royale'\]/);
+    assert.match(js, /'ld-royale-game'\]/);
     assert.match(read('api/drill.js'), /action === 'royale_join'/);
+  });
+});
+
+describe('battle royale view', async () => {
+  const view = await import('../js/royaleView.js');
+  const T0 = Date.parse('2026-11-28T10:00:00Z');
+  const iso = (s) => new Date(T0 + s * 1000).toISOString();
+
+  it('works out the phase from the clock', () => {
+    const live = { status: 'live', round: 1, round_start_at: iso(5), round_end_at: iso(35) };
+    assert.deepEqual(view.royalePhase(live, T0), { phase: 'countdown', secs: 5 });
+    assert.deepEqual(view.royalePhase(live, T0 + 6000), { phase: 'round', secs: 29 });
+    assert.deepEqual(view.royalePhase(live, T0 + 36000), { phase: 'settling', secs: 0 });
+    assert.equal(view.royalePhase({ ...live, round: 2 }, T0).phase, 'break');
+    assert.deepEqual(view.royalePhase({ status: 'waiting', start_at: iso(20) }, T0), { phase: 'waiting', secs: 20 });
+    assert.equal(view.royalePhase({ status: 'done' }, T0).phase, 'done');
+    assert.deepEqual([5, 89, 90, 1603].map(view.waitText), ['5s', '89s', '1:30', '26:43']);
+  });
+
+  it('shows the join card, waiting count and recent places', () => {
+    const html = view.buildRoyaleHomeHtml({ waiting: { count: 3, start_at: iso(600) }, wins: 2,
+      recent: [{ place: 1, size: 6, xp: 52, category_name: 'Mix' }] });
+    assert.match(html, /data-royale-join/);
+    assert.match(html, /<b class="num">3<\/b> of 20 waiting/);
+    assert.match(html, /1st/);
+    assert.match(html, /\+52 XP/);
+    assert.match(view.buildRoyaleHomeHtml({}, { disabled: true }), /data-royale-join disabled/);
+  });
+
+  it('fades players who are out and marks me', () => {
+    const html = view.buildRoyaleStripHtml([
+      { id: 1, name: 'Asha', alive: true, me: true },
+      { id: 2, name: '<b>Ben</b>', alive: false, place: 3 },
+    ]);
+    assert.match(html, /<b class="num">1<\/b> of <span class="num">2<\/span> left/);
+    assert.match(html, /br-player is-in is-me/);
+    assert.match(html, /br-player is-out/);
+    assert.match(html, />3rd</);
+    assert.equal(html.includes('<b>Ben</b>'), false, 'names are escaped');
+  });
+
+  it('tells players who are out, through, or the winner', () => {
+    const out = view.buildRoyaleNoteHtml({ me: { alive: false, place: 7 } }, { phase: 'round', secs: 10 });
+    assert.match(out, /out in <b>7th<\/b>/);
+    assert.match(out, /data-royale-back/);
+    const through = view.buildRoyaleNoteHtml({ round: 3, me: { alive: true, last_round_correct: 6 } }, { phase: 'break', secs: 4 });
+    assert.match(through, /through with <b class="num">6<\/b>/);
+    assert.match(view.buildRoyaleNoteHtml({ players: [{}], me: { alive: true } }, { phase: 'waiting', secs: 9 }), /data-royale-leave/);
+    const win = view.buildRoyaleFinalHtml({ me: { place: 1, xp: 61 }, players: [{}, {}], winner: 'Asha' });
+    assert.match(win, /You won the battle royale/);
+    assert.match(win, /Royale winner/);
+    const lost = view.buildRoyaleFinalHtml({ me: { place: 2, xp: 30 }, players: [{}, {}], winner: 'Asha' });
+    assert.match(lost, /You came 2nd of 2/);
+    assert.match(lost, /Winner: <b>Asha<\/b>/);
   });
 });

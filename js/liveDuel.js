@@ -19,6 +19,7 @@ import { isSupabaseConfigured } from './config.js';
 import { celebrate } from './motion.js';
 import { getDuelHub } from './duelPresence.js';
 import { ensureAvatarStyles, signAvatarUrls } from './avatars.js';
+import { enterRoyale, loadRoyaleHome, royaleBusy, setupRoyale } from './royale.js';
 import {
   GHOST_WAIT_SECONDS,
   LIVE_DUEL_GRACE_SECONDS,
@@ -43,7 +44,7 @@ import {
 
 const $ = (id) => document.getElementById(id);
 const MUTE_KEY = 'tt.liveDuel.muted';
-const VIEWS = ['ld-lobby', 'ld-search', 'ld-waiting', 'ld-race', 'ld-results', 'ld-staff'];
+const VIEWS = ['ld-lobby', 'ld-search', 'ld-waiting', 'ld-race', 'ld-results', 'ld-staff', 'ld-royale-game'];
 
 const st = {
   viewer: null,
@@ -210,7 +211,7 @@ function foundDuel(id) {
 
 /* --------------------------------------------------------- Mode tabs */
 
-const MODES = ['duel', 'ghost'];
+const MODES = ['duel', 'ghost', 'royale'];
 
 function setMode(mode) {
   const m = MODES.includes(mode) ? mode : 'duel';
@@ -225,6 +226,7 @@ function setMode(mode) {
   else url.searchParams.set('mode', m);
   window.history.replaceState(null, '', url);
   if (m === 'ghost') loadGhostOptions();
+  if (m === 'royale') loadRoyaleHome();
 }
 
 async function loadGhostOptions() {
@@ -648,6 +650,15 @@ async function initLiveDuelPage() {
   }
   setupLobbyActions();
   setupModeActions();
+  setupRoyale({
+    rpc,
+    drillApi,
+    showToast,
+    celebrate: () => celebrate('big'),
+    enabled: () => st.home?.enabled !== false,
+    show,
+    back: () => { show('ld-lobby'); setMode('royale'); },
+  });
   setupRaceActions();
   setupResultActions();
 
@@ -655,10 +666,10 @@ async function initLiveDuelPage() {
   // invites arrive as a pop-up with Accept / Reject, here and on every other page.
   st.hub = await getDuelHub(viewer);
   if (st.hub) {
-    st.hub.blockPopups(() => Boolean(st.duel && st.duel.status === 'live'));
+    st.hub.blockPopups(() => Boolean(st.duel && st.duel.status === 'live') || royaleBusy());
     st.hub.on('matched', (p) => {
       if (!p.duel_id || st.duel?.id === p.duel_id) return;
-      if (st.duel && st.duel.status === 'live') return;
+      if ((st.duel && st.duel.status === 'live') || royaleBusy()) return;
       st.searching = false;
       clearTimeout(st.searchTimer);
       enterDuel(p.duel_id);
@@ -696,7 +707,11 @@ async function initLiveDuelPage() {
   const params = new URLSearchParams(window.location.search);
   const duelId = params.get('duel');
   if (duelId) await enterDuel(duelId);
-  else {
+  else if (params.get('royale')) {
+    await loadLobby();
+    show('ld-lobby');
+    if (!(await enterRoyale(params.get('royale')))) setMode('royale');
+  } else {
     await loadLobby();
     if (params.get('mode')) setMode(params.get('mode'));
   }
