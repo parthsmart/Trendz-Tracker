@@ -2,12 +2,12 @@
  * Trendz Tracker - Student comfort settings at runtime (js/prefs.js)
  *
  * - Keeps one settings object (see shared/studentPrefs.js) in localStorage.
- * - Applies it to <html>: data-theme, data-large-numbers (data-motion is set by motion.js).
+ * - Applies it to <html>: data-large-numbers (data-motion is set by motion.js).
  * - For signed-in students, loads the database copy once per page and saves changes
  *   back (debounced), so settings follow the student across devices.
  *   The device copy is the fallback whenever the database cannot be reached.
  *
- * public/theme-boot.js applies theme and large numbers before the page paints.
+ * public/theme-boot.js applies large numbers and reduced motion before the page paints.
  */
 
 import {
@@ -15,7 +15,6 @@ import {
   normalizePrefs,
   parseStoredPrefs,
   serializePrefs,
-  resolveTheme,
   mergePrefs,
   prefsEqual,
   diffFromDefaults,
@@ -50,14 +49,6 @@ function writeLocal(prefs, updatedAt) {
   }
 }
 
-function systemDark() {
-  try {
-    return Boolean(globalThis.matchMedia?.('(prefers-color-scheme: dark)')?.matches);
-  } catch {
-    return false;
-  }
-}
-
 function load() {
   if (state.prefs) return state.prefs;
   const stored = readLocal();
@@ -80,14 +71,8 @@ export function getPrefs() {
 export function applyPrefs(prefs = load(), doc = globalThis.document) {
   const root = doc?.documentElement;
   if (!root) return;
-  const theme = resolveTheme(prefs.theme, systemDark());
-  root.dataset.theme = theme;
-  root.dataset.themeChoice = prefs.theme;
-  root.style.colorScheme = theme;
   if (prefs.largeNumbers) root.dataset.largeNumbers = 'on';
   else delete root.dataset.largeNumbers;
-  const meta = doc.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', theme === 'dark' ? '#0F172A' : '#2563EB');
   if (getMotionPreference() !== prefs.motion) setMotionPreference(prefs.motion);
 }
 
@@ -193,17 +178,12 @@ export function syncPrefsForProfile(profile) {
   return state.syncing;
 }
 
-/** Wires system theme changes and other tabs. Called once by guard.js. */
+/** Applies the settings and follows changes made in other tabs. Called once by guard.js. */
 let started = false;
 export function initPrefs() {
   if (started || typeof document === 'undefined') return getPrefs();
   started = true;
   applyPrefs(load());
-  try {
-    globalThis.matchMedia?.('(prefers-color-scheme: dark)')?.addEventListener?.('change', () => applyPrefs(load()));
-  } catch {
-    /* old Safari */
-  }
   globalThis.addEventListener?.('storage', (e) => {
     if (e.key !== PREFS_STORAGE_KEY) return;
     const stored = readLocal();

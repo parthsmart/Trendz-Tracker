@@ -9,7 +9,6 @@ import {
   normalizePrefs,
   diffFromDefaults,
   prefsEqual,
-  resolveTheme,
   mergePrefs,
   musicAllowed,
   parseStoredPrefs,
@@ -19,10 +18,10 @@ import { CUES, BUZZ, SOUND_SPECS, soundLength, cuePlan } from '../js/feedback.js
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-test('prefs: defaults are quiet-friendly (music off, theme follows system)', () => {
+test('prefs: defaults are quiet-friendly (music off)', () => {
   assert.equal(DEFAULT_PREFS.music, false);
   assert.equal(DEFAULT_PREFS.musicInTests, false);
-  assert.equal(DEFAULT_PREFS.theme, 'system');
+  assert.equal('theme' in DEFAULT_PREFS, false, 'dark mode was removed');
   assert.equal(DEFAULT_PREFS.motion, 'auto');
   assert.deepEqual(normalizePrefs(undefined), { ...DEFAULT_PREFS });
 });
@@ -30,7 +29,7 @@ test('prefs: defaults are quiet-friendly (music off, theme follows system)', () 
 test('prefs: normalize drops unknown keys and bad values', () => {
   const p = normalizePrefs({ sound: 'yes', theme: 'neon', motion: 'off', largeNumbers: true, volume: 0.3, evil: '<x>' });
   assert.equal(p.sound, DEFAULT_PREFS.sound);
-  assert.equal(p.theme, 'system');
+  assert.equal('theme' in p, false);
   assert.equal(p.motion, 'off');
   assert.equal(p.largeNumbers, true);
   assert.equal(p.volume, 0.25);
@@ -40,27 +39,20 @@ test('prefs: normalize drops unknown keys and bad values', () => {
 
 test('prefs: only differences from defaults are stored', () => {
   assert.deepEqual(diffFromDefaults(DEFAULT_PREFS), {});
-  assert.deepEqual(diffFromDefaults({ theme: 'dark', music: true }), { theme: 'dark', music: true });
+  assert.deepEqual(diffFromDefaults({ theme: 'dark', music: true }), { music: true });
   assert.ok(prefsEqual({}, DEFAULT_PREFS));
-  assert.ok(!prefsEqual({ theme: 'dark' }, {}));
-});
-
-test('prefs: theme resolves against the system setting', () => {
-  assert.equal(resolveTheme('system', true), 'dark');
-  assert.equal(resolveTheme('system', false), 'light');
-  assert.equal(resolveTheme('light', true), 'light');
-  assert.equal(resolveTheme('dark', false), 'dark');
+  assert.ok(!prefsEqual({ music: true }, {}));
 });
 
 test('prefs: newer copy wins when device and database disagree', () => {
-  const local = { prefs: { theme: 'dark' }, updatedAt: 2000 };
-  const remote = { prefs: { theme: 'light' }, updatedAt: new Date(1000).toISOString() };
-  assert.equal(mergePrefs(local, remote).prefs.theme, 'dark');
-  assert.equal(mergePrefs({ ...local, updatedAt: 500 }, remote).prefs.theme, 'light');
+  const local = { prefs: { music: true }, updatedAt: 2000 };
+  const remote = { prefs: { music: false }, updatedAt: new Date(1000).toISOString() };
+  assert.equal(mergePrefs(local, remote).prefs.music, true);
+  assert.equal(mergePrefs({ ...local, updatedAt: 500 }, remote).prefs.music, false);
   assert.equal(mergePrefs(local, null).source, 'local');
   assert.equal(mergePrefs(null, remote).source, 'remote');
   // Never-saved device copy loses to the account copy.
-  assert.equal(mergePrefs({ prefs: { theme: 'dark' }, updatedAt: 0 }, remote).source, 'remote');
+  assert.equal(mergePrefs({ prefs: { music: true }, updatedAt: 0 }, remote).source, 'remote');
 });
 
 test('prefs: music stays out of tests and Memoriad competitions unless allowed', () => {
@@ -72,16 +64,16 @@ test('prefs: music stays out of tests and Memoriad competitions unless allowed',
 });
 
 test('prefs: device copy round-trips and tolerates junk', () => {
-  const text = serializePrefs({ theme: 'dark', largeNumbers: true }, 1234);
+  const text = serializePrefs({ music: true, largeNumbers: true }, 1234);
   const back = parseStoredPrefs(text);
   assert.equal(back.updatedAt, 1234);
-  assert.equal(back.prefs.theme, 'dark');
+  assert.equal(back.prefs.music, true);
   assert.equal(back.prefs.largeNumbers, true);
   assert.equal(parseStoredPrefs('{not json'), null);
   assert.equal(parseStoredPrefs(''), null);
 });
 
-test('prefs: theme-boot.js reads the same storage key and format', () => {
+test('prefs: theme-boot.js reads the same storage key and never sets a dark theme', () => {
   const boot = fs.readFileSync(path.join(ROOT, 'public', 'theme-boot.js'), 'utf8');
   assert.match(boot, /localStorage\.getItem\('tt_prefs'\)/);
   assert.match(boot, /raw\.p/);

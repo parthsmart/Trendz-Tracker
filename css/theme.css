@@ -1,16 +1,13 @@
 /**
- * Trendz Tracker - Themes & accessibility (css/theme.css)
+ * Trendz Tracker - Accessibility (css/theme.css)
  *
- *   html[data-theme="dark"]       dark palette (set by public/theme-boot.js and js/prefs.js;
- *                                 follows the system setting unless the student picks one)
  *   html[data-large-numbers="on"] bigger numbers on practice and test screens
  *   html[data-motion="off"]       reduced motion: no animations or transitions (js/motion.js)
  *
  * Right/wrong marking uses a colour-blind-safe pair (blue / orange, after Okabe-Ito)
  * and always carries a ✓ / ✗ mark, so colour is never the only signal.
  *
- * Pages keep using the tokens in variables.css; this file only swaps their values
- * and patches the few places that hard-code light colours. Add new overrides here
+ * Pages keep using the tokens in variables.css. Add new accessibility overrides here
  * rather than editing page styles.
  */
 
@@ -20,11 +17,10 @@
   --answer-wrong: #B54708;          /* 5.3:1 on white */
   --answer-wrong-subtle: #FDEBD9;
   --focus-outline: #1D4ED8;
-  --overlay-scrim: rgba(255, 255, 255, 0.88);
   --large-num-scale: 1;
 }
 
-/* Aliases for token names some pages use with light fallbacks (so they follow the theme). */
+/* Aliases for token names some pages use with light fallbacks (so they resolve to the real tokens). */
 :root {
   --bg-surface-soft: var(--bg-surface-subtle);
   --bg-muted: var(--bg-surface-subtle);
@@ -37,88 +33,6 @@
   --primary-blue-muted: var(--color-primary-subtle);
   --text-secondary: var(--text-muted);
 }
-
-/* --------------------------------------------------------------------------
-   Dark palette. Body text tokens keep >= 7:1 on the page colour; muted >= 4.5:1.
-   -------------------------------------------------------------------------- */
-html[data-theme="dark"] {
-  color-scheme: dark;
-
-  --bg-page: #0B1220;
-  --bg-surface: #121B2D;
-  --bg-surface-subtle: #18233A;
-  --border-color: #2A3854;
-
-  --shadow-overlay: 0 10px 28px rgba(0, 0, 0, 0.55);
-
-  --text-main: #E7EDF6;             /* 15.6:1 on #0B1220 */
-  --text-muted: #B8C4D6;            /* 10.2:1 */
-  --text-dim: #9AA9C0;              /* 7.4:1 */
-  --text-inverse: #FFFFFF;
-
-  --color-primary: #2F6FEB;         /* buttons keep white text at 4.6:1 */
-  --color-primary-hover: #4A82F0;
-  --color-primary-subtle: #16264A;
-  --color-primary-text: #9DBBFF;
-  --color-focus-ring: rgba(122, 162, 255, 0.45);
-  --focus-outline: #8FB0FF;
-
-  --chip-neutral-bg: #1C2840;
-  --chip-neutral-text: #CBD5E1;
-
-  --color-success: #4ADE80;
-  --color-success-subtle: #0F2E1D;
-  --color-success-text: #86EFAC;
-  --color-success-border: #1F5C38;
-
-  --color-warning: #FBBF24;
-  --color-warning-subtle: #33240A;
-  --color-warning-text: #FCD34D;
-  --color-warning-border: #6B4A10;
-
-  --color-danger: #E5484D;         /* white text 4.0:1, as text on the page 4.6:1 */
-  --color-danger-hover: #F06A6E;
-  --color-danger-subtle: #3A1414;
-  --color-danger-text: #FCA5A5;
-  --color-danger-border: #7F1D1D;
-
-  --color-score-perfect: #4ADE80;
-  --color-score-perfect-subtle: #0F2E1D;
-  --color-score-warning: #FBBF24;
-  --color-score-warning-subtle: #33240A;
-  --color-score-alert: #7DD3FC;
-  --color-score-alert-subtle: #0C2A3D;
-  --color-score-danger: #F87171;
-  --color-score-danger-subtle: #3A1414;
-
-  --answer-right: #8EC5FF;
-  --answer-right-subtle: #11284A;
-  --answer-wrong: #FFB070;
-  --answer-wrong-subtle: #3A2210;
-  --overlay-scrim: rgba(11, 18, 32, 0.9);
-}
-
-/* Elements that hard-code light colours in page styles */
-html[data-theme="dark"] img:not([src$=".svg"]):not(.no-dim) { filter: brightness(0.92); }
-html[data-theme="dark"] input,
-html[data-theme="dark"] select,
-html[data-theme="dark"] textarea {
-  background-color: var(--bg-surface);
-  color: var(--text-main);
-  border-color: var(--border-color);
-}
-html[data-theme="dark"] input::placeholder,
-html[data-theme="dark"] textarea::placeholder { color: var(--text-dim); }
-html[data-theme="dark"] table th { background-color: var(--bg-surface-subtle); color: var(--text-muted); }
-html[data-theme="dark"] .ld-track { background: var(--bg-surface-subtle); }
-html[data-theme="dark"] .ld-countdown { color: var(--color-primary-text); }
-html[data-theme="dark"] .toast { background: var(--bg-surface); color: var(--text-main); border-color: var(--border-color); }
-html[data-theme="dark"] .modal,
-html[data-theme="dark"] .modal-content,
-html[data-theme="dark"] .modal-dialog { background: var(--bg-surface); color: var(--text-main); }
-html[data-theme="dark"] #btn-show-sql-guide { background: var(--bg-surface) !important; }
-html[data-theme="dark"] code,
-html[data-theme="dark"] kbd { background: var(--bg-surface-subtle); color: var(--text-main); }
 
 /* --------------------------------------------------------------------------
    Right / wrong marks (colour-blind safe, never colour alone)
@@ -206,27 +120,10 @@ html[data-motion="off"] *::after {
   scroll-behavior: auto !important;
 }
 
-/* Smooth theme switch (skipped when motion is off) */
-html[data-motion="full"].tt-theme-switching *,
-html[data-motion="lite"].tt-theme-switching * {
-  transition: background-color 0.25s ease, color 0.25s ease, border-color 0.25s ease !important;
-}
-
 /* --------------------------------------------------------------------------
    Settings panel (Account page)
    -------------------------------------------------------------------------- */
-.tt-seg { display: inline-flex; border: 1px solid var(--border-color); border-radius: var(--radius-full); padding: 2px; background: var(--bg-surface-subtle); }
-.tt-seg button { border: 0; background: transparent; color: var(--text-muted); font: inherit; font-size: var(--text-sm); font-weight: 600; padding: 6px 12px; border-radius: var(--radius-full); cursor: pointer; }
-.tt-seg button[aria-pressed="true"] { background: var(--bg-surface); color: var(--text-main); box-shadow: 0 1px 3px rgba(15, 23, 42, 0.15); }
-.tt-seg button:hover:not([aria-pressed="true"]) { color: var(--text-main); }
 .ac-row.is-sub { padding-left: var(--space-6); }
 .ac-row.is-sub .ac-row-t b { font-weight: 600; }
 .ac-row.is-off { opacity: 0.55; }
 .tt-test-btns { display: flex; flex-wrap: wrap; gap: 6px; }
-
-/* Small spots found by the dark-mode contrast check */
-html[data-theme="dark"] .wt-kind { color: var(--color-primary-text); }
-html[data-theme="dark"] [style*="background: #fff"],
-html[data-theme="dark"] [style*="background:#fff"],
-html[data-theme="dark"] [style*="background: #FFF"],
-html[data-theme="dark"] [style*="background: white"] { background: var(--bg-surface) !important; }
