@@ -183,6 +183,14 @@ export const NAV_CONFIG = Object.freeze({
       desktopPlacement: 'menu-only',
     }),
     Object.freeze({
+      id: 'student-friends',
+      label: 'Friends',
+      href: '/pages/friends.html',
+      group: 'Account',
+      inline: false,
+      desktopPlacement: 'menu-only',
+    }),
+    Object.freeze({
       id: 'student-store',
       label: 'Store',
       href: '/pages/store.html',
@@ -282,6 +290,14 @@ export const NAV_CONFIG = Object.freeze({
     }),
 
     // Account & Sign out
+    Object.freeze({
+      id: 'admin-community',
+      label: 'Community',
+      href: '/pages/community.html',
+      group: 'Account',
+      inline: false,
+      desktopPlacement: 'menu-only',
+    }),
     Object.freeze({
       id: 'admin-account',
       label: 'Account',
@@ -400,6 +416,14 @@ export const NAV_CONFIG = Object.freeze({
     }),
 
     // Account & Sign out
+    Object.freeze({
+      id: 'teacher-community',
+      label: 'Community',
+      href: '/pages/community.html',
+      group: 'Account',
+      inline: false,
+      desktopPlacement: 'menu-only',
+    }),
     Object.freeze({
       id: 'teacher-account',
       label: 'Account',
