@@ -98,7 +98,7 @@ test('Admin mobile surface has exactly 1 Monthly Report entry and 1 Settings ent
   assert.ok(accountGroup, 'Expected Account group on mobile surface');
   assert.deepEqual(
     accountGroup.items.map((i) => i.label),
-    ['Account', 'Sign out']
+    ['Community', 'Account', 'Sign out']
   );
 
   // Across all mobile items, check counts of Monthly Report and Settings

@@ -30,6 +30,7 @@ import { renderXpProgressCard } from './xpRewards.js';
 import { renderDailyChallengeCard, renderStarsCard } from './homeGamify.js';
 import { renderLeaguePill } from './arenaHome.js';
 import { renderLiveDuelHome } from './liveDuelHome.js';
+import { renderMyClassCard } from './myClassCard.js';
 import {
   renderPracticeTiles,
   renderHeroIdentity,
@@ -86,6 +87,8 @@ async function initStudentDashboard() {
   loadAndRenderStudentLiveClassCard(currentStudentId);
   renderLiveDuelHome(document.getElementById('live-duel-home'), loggedInProfile)
     .catch((err) => console.warn('Could not load live duels:', err));
+  renderMyClassCard(document.getElementById('my-class-card'), loggedInProfile)
+    .catch((err) => console.warn('Could not load my class:', err));
   const xpCard = document.getElementById('xp-progress-card');
   const xpReady = renderXpProgressCard(xpCard, {
     studentId: currentStudentId,

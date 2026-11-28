@@ -11,6 +11,8 @@ import { showToast } from './toast.js';
 import { initStudentNotificationBell } from './notificationBadge.js';
 import { setupHeaderNavigation, isFullScreenStageActive } from './headerNav.js';
 import { initMotion } from './motion.js';
+import { initPrefs, syncPrefsForProfile } from './prefs.js';
+import { initFeedback } from './feedback.js';
 import { formatShortFirstName } from './navConfig.js';
 import { readProfileCache } from './profileCache.js';
 import { markPerf, reportPagePerf } from './perf.js';
@@ -43,6 +45,8 @@ export function checkProductionConfigLock() {
 export async function requireAuth(allowedRoles = ['student', 'teacher', 'admin']) {
   markPerf('tt:guard-start');
   initMotion({ isQuiet: isFullScreenStageActive });
+  initPrefs();
+  initFeedback();
   if (checkProductionConfigLock()) {
     return null;
   }
@@ -125,6 +129,8 @@ export async function requireAuth(allowedRoles = ['student', 'teacher', 'admin']
   setupHeaderNavigation(profile);
   setupHeaderUserUI(profile);
   renderConfigBanner();
+  // Sound, theme and other comfort settings follow the person across devices.
+  syncPrefsForProfile(profile);
   if (profile.role === 'student') {
     initStudentNotificationBell(profile);
     // Online for live duels on every page, and personal challenges pop up anywhere.

@@ -8,6 +8,7 @@
     
     <!-- Design tokens & unified styles -->
     <link rel="stylesheet" href="/css/style.css" />
+    <script src="/theme-boot.js"></script>
     <link rel="stylesheet" href="/css/studentHome.css" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#2563EB" />
@@ -140,6 +141,8 @@
             </section>
             <!-- Live duels: who is online now, with a play button (filled by js/liveDuelHome.js) -->
             <section class="ldh" id="live-duel-home" aria-labelledby="ldh-title" hidden></section>
+            <!-- My class: positive moments at my level + friend requests (js/myClassCard.js) -->
+            <section class="sc-card" id="my-class-card" aria-labelledby="my-class-title" hidden></section>
 
             <!-- Today's live class (Webinar.gg) -->
             <div id="student-live-class-card-container"></div>

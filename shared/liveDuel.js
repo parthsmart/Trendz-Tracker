@@ -238,7 +238,7 @@ export function ratingWindow(waitSeconds) {
 /**
  * Picks the best waiting opponent for `me` from queue rows
  * ({ student_id, level, centre_id, rating, joined_at, seen_at }).
- * Same level only, from any centre; rating gap inside the wider of the two windows;
+ * Same level only (the API first drops students of centres not opened to yours); rating gap inside the wider of the two windows;
  * closest rating first, then whoever has waited longest. Stale rows (not seen
  * for QUEUE_STALE_SECONDS) are skipped. Returns the row or null.
  */

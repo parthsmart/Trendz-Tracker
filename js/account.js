@@ -19,7 +19,10 @@ import { registerInstallTrigger, isStandalone } from './pwaInstall.js';
 import { logoutUser } from './auth.js';
 import { showToast } from './toast.js';
 import { signAvatarUrl } from './avatars.js';
-import { celebrate, getAutoMotionLevel, getMotionPreference, setMotionPreference } from './motion.js';
+import { celebrate, getAutoMotionLevel } from './motion.js';
+import { getPrefs, setPrefs, onPrefsChange } from './prefs.js';
+import { cue, canVibrate, previewMusic, isMusicPlaying, stopMusic } from './feedback.js';
+import { shownAvatarRef } from './avatarStore.js';
 
 // Same key js/flash.js reads, so the switch here changes the Flash Anzan setting.
 const FLASH_SOUND_KEY = 'trendz_flash_sound_v1';
@@ -55,7 +58,7 @@ function renderDetails(p) {
   const joined = formatJoined(p.created_at);
 
   setText('account-avatar', name.trim().charAt(0).toUpperCase() || 'S');
-  if (p.avatar_path) showAccountPhoto(p.avatar_path);
+  shownAvatarRef(p.id, p.avatar_path).then((ref) => { if (ref) showAccountPhoto(ref); }).catch(() => {});
   setText('account-name', name);
   setText('account-code', code);
   setText('account-level', level);
@@ -175,30 +178,114 @@ async function renderAccess(profile) {
 }
 
 const MOTION_LABELS = { full: 'Full', lite: 'Light', off: 'Off' };
-
 function motionNote(pref) {
-  if (pref !== 'auto') return 'Saved on this device';
+  if (pref === 'off') return 'Animations and moving effects are off';
+  if (pref !== 'auto') return 'Your choice';
   return `Auto picked ${MOTION_LABELS[getAutoMotionLevel()] || 'Full'} for this device`;
 }
 
-function setupMotionPreference() {
-  const select = document.getElementById('pref-motion');
-  const note = document.getElementById('pref-motion-note');
-  if (!select || select.dataset.ready) return;
-  select.dataset.ready = '1';
-  select.value = getMotionPreference();
-  if (note) note.textContent = motionNote(select.value);
-  select.addEventListener('change', () => {
-    const level = setMotionPreference(select.value);
-    if (note) note.textContent = motionNote(select.value);
-    if (level !== 'off') celebrate('small', select);
+function bindSwitch(id, key, onChange) {
+  const input = document.getElementById(id);
+  if (!input || input.dataset.ready) return;
+  input.dataset.ready = '1';
+  input.addEventListener('change', () => {
+    const next = setPrefs({ [key]: input.checked });
+    onChange?.(next);
   });
 }
 
-function setupPreferences() {
-  setupMotionPreference();
+/** Fills the Settings card from the current settings (also when another device's copy arrives). */
+function renderSettings(p = getPrefs()) {
+  const set = (id, v) => {
+    const el = document.getElementById(id);
+    if (el) el.checked = Boolean(v);
+  };
+  set('pref-sound', p.sound);
+  set('pref-music', p.music);
+  set('pref-music-tests', p.musicInTests);
+  set('pref-vibrate', p.vibrate && canVibrate());
+  set('pref-large-numbers', p.largeNumbers);
+  const vol = document.getElementById('pref-volume');
+  if (vol) vol.value = String(p.volume);
+  document.getElementById('pref-volume-row')?.classList.toggle('is-off', !p.sound);
+  document.getElementById('pref-music-tests-row')?.classList.toggle('is-off', !p.music);
+  const testsInput = document.getElementById('pref-music-tests');
+  if (testsInput) testsInput.disabled = !p.music;
+  const motion = document.getElementById('pref-motion');
+  if (motion) motion.value = p.motion;
+  const motionText = document.getElementById('pref-motion-note');
+  if (motionText) motionText.textContent = motionNote(p.motion);
+}
+
+function setupSettingsPanel(profile) {
+  const card = document.getElementById('settings');
+  if (!card || card.dataset.ready) return;
+  card.dataset.ready = '1';
+  const saved = document.getElementById('pref-saved-note');
+  if (saved && profile?.id && !isDemoMode()) saved.textContent = 'Saved to your account, on every device';
+
+  if (!canVibrate()) {
+    const v = document.getElementById('pref-vibrate');
+    if (v) v.disabled = true;
+    const note = document.getElementById('pref-vibrate-note');
+    if (note) note.textContent = 'This device or browser cannot vibrate';
+    document.getElementById('pref-vibrate-row')?.classList.add('is-off');
+  }
+
+  bindSwitch('pref-sound', 'sound', (p) => {
+    if (p.sound) cue('correct');
+  });
+  bindSwitch('pref-music', 'music', (p) => {
+    if (!p.music && isMusicPlaying()) stopMusic();
+  });
+  bindSwitch('pref-music-tests', 'musicInTests');
+  bindSwitch('pref-vibrate', 'vibrate', (p) => {
+    if (p.vibrate) cue('correct');
+  });
+  bindSwitch('pref-large-numbers', 'largeNumbers');
+
+  document.getElementById('pref-volume')?.addEventListener('change', (e) => {
+    setPrefs({ volume: Number(e.target.value) });
+    cue('correct');
+  });
+  card.querySelectorAll('[data-try-cue]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const p = getPrefs();
+      if (!p.sound) {
+        showToast('info', 'Sound effects are off. Turn them on to hear this.', 2500);
+        return;
+      }
+      cue(btn.dataset.tryCue);
+      if (btn.dataset.tryCue === 'pb') celebrate('pb', btn);
+    });
+  });
+  document.getElementById('pref-music-try')?.addEventListener('click', (e) => {
+    if (isMusicPlaying()) {
+      stopMusic();
+      e.currentTarget.textContent = '▶ Listen';
+      return;
+    }
+    previewMusic(8000);
+    const btn = e.currentTarget;
+    btn.textContent = '■ Stop';
+    setTimeout(() => {
+      btn.textContent = '▶ Listen';
+    }, 8000);
+  });
+  document.getElementById('pref-motion')?.addEventListener('change', (e) => {
+    const next = setPrefs({ motion: e.target.value });
+    if (next.motion !== 'off') celebrate('small', e.target);
+  });
+
+  renderSettings();
+  onPrefsChange(renderSettings);
+}
+
+function setupPreferences(profile = null) {
+  setupSettingsPanel(profile);
   const sound = document.getElementById('pref-flash-sound');
-  if (sound) {
+  if (sound && !sound.dataset.ready) {
+    sound.dataset.ready = '1';
     try {
       sound.checked = localStorage.getItem(FLASH_SOUND_KEY) === 'true';
     } catch {
@@ -207,13 +294,12 @@ function setupPreferences() {
     sound.addEventListener('change', () => {
       try {
         localStorage.setItem(FLASH_SOUND_KEY, String(sound.checked));
-        showToast('success', sound.checked ? 'Flash Anzan sound is on.' : 'Flash Anzan sound is off.', 2500);
+        showToast('success', sound.checked ? 'Flash Anzan beep is on.' : 'Flash Anzan beep is off.', 2500);
       } catch {
         showToast('error', 'Could not save this setting on this device.');
       }
     });
   }
-
 }
 
 function setupActions() {
@@ -343,14 +429,14 @@ async function initAccountPage() {
   if (profile.role !== 'student') {
     showRoleSections(true);
     renderStaffAccount(profile);
-    setupPreferences();
+    setupPreferences(profile);
     setupActions();
     return;
   }
 
   showRoleSections(false);
   renderDetails(profile);
-  setupPreferences();
+  setupPreferences(profile);
   setupActions();
 
   // Fill in fields the cached profile may not carry (joined date, leaderboard visibility).
