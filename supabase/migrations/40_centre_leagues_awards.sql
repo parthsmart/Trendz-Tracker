@@ -1,12 +1,36 @@
--- Rollback of migration 39 (step 5b): leagues and awards network-wide again.
+-- Multi-centre step 5b: leagues, Star of the Month and Champion of the Week per centre.
 --
--- Restores the production definitions from before migration 39 (2026-11-28).
--- xp_awards.centre_id and its index are kept so no data is lost; the old
--- functions simply ignore the column.
+--   league_members()        groups are drawn per centre (tier, centre, level), so a
+--                           league group never mixes two centres. It now also
+--                           returns centre_id (internal function: service_role only).
+--   league_settle_week()    ranks each group inside its own centre.
+--   league_board()          students see their own group; teachers and centre heads
+--                           see the groups of their centre; owners and directors see
+--                           every centre (the group label then starts with the centre code).
+--   xp_awards.centre_id     new nullable column: the centre the winner belonged to.
+--                           Existing rows are filled from the winner's centre.
+--   xp_settle_period()      one winner per centre and level (was one per level).
+--   star_of_month()         shows the winners of your own centre.
+--
+-- No data is deleted. Past weeks and months stay as they were settled.
+-- Rollback: supabase/rollbacks/40_centre_leagues_awards_rollback.sql
+
+-- 1. Award centre --------------------------------------------------------------
+
+ALTER TABLE public.xp_awards ADD COLUMN IF NOT EXISTS centre_id uuid REFERENCES public.centres(id);
+
+UPDATE public.xp_awards a
+   SET centre_id = p.centre_id
+  FROM public.profiles p
+ WHERE p.id = a.student_id AND a.centre_id IS NULL AND p.centre_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS xp_awards_centre_idx ON public.xp_awards (kind, period_start, centre_id);
+
+-- 2. League groups per centre ----------------------------------------------------
 
 DROP FUNCTION IF EXISTS public.league_members(date);
 CREATE FUNCTION public.league_members(p_week date)
- RETURNS TABLE(student_id uuid, tier smallint, lvl text, group_no integer, xp bigint, dn text, av text)
+ RETURNS TABLE(student_id uuid, tier smallint, lvl text, group_no integer, xp bigint, dn text, av text, centre_id uuid)
  LANGUAGE sql
  STABLE SECURITY DEFINER
  SET search_path TO 'public', 'pg_temp'
@@ -17,14 +41,15 @@ AS $function$
            public.display_name_for(p.full_name, p.student_code) AS dn,
            public.avatar_visible(p.id, p.avatar_path) AS av,
            COALESCE((SELECT sum(x.xp) FROM public.student_xp_events x
-                      WHERE x.student_id = p.id AND x.day BETWEEN p_week AND p_week + 6), 0)::bigint AS xp
+                      WHERE x.student_id = p.id AND x.day BETWEEN p_week AND p_week + 6), 0)::bigint AS xp,
+           p.centre_id
       FROM public.profiles p
       LEFT JOIN public.student_leagues sl ON sl.student_id = p.id
      WHERE p.role = 'student' AND p.active AND p.leaderboard_visible
   )
   SELECT b.id, b.tier, b.lvl,
-         ((row_number() OVER (PARTITION BY b.tier, b.lvl ORDER BY md5(b.id::text || p_week::text)) - 1) / 20)::integer,
-         b.xp, b.dn, b.av
+         ((row_number() OVER (PARTITION BY b.tier, b.centre_id, b.lvl ORDER BY md5(b.id::text || p_week::text)) - 1) / 20)::integer,
+         b.xp, b.dn, b.av, b.centre_id
     FROM base b;
 $function$;
 REVOKE ALL ON FUNCTION public.league_members(date) FROM PUBLIC, anon, authenticated;
@@ -47,8 +72,8 @@ BEGIN
 
   WITH m AS (
     SELECT lm.*,
-           (rank() OVER (PARTITION BY lm.tier, lm.lvl, lm.group_no ORDER BY lm.xp DESC))::integer AS rk,
-           (count(*) OVER (PARTITION BY lm.tier, lm.lvl, lm.group_no))::integer AS sz
+           (rank() OVER (PARTITION BY lm.tier, lm.centre_id, lm.lvl, lm.group_no ORDER BY lm.xp DESC))::integer AS rk,
+           (count(*) OVER (PARTITION BY lm.tier, lm.centre_id, lm.lvl, lm.group_no))::integer AS sz
       FROM public.league_members(p_week) lm
   )
   INSERT INTO public.league_results (week_start, student_id, tier_before, tier_after, group_no, rank, group_size, xp)
@@ -85,6 +110,8 @@ CREATE OR REPLACE FUNCTION public.league_board(p_tier smallint DEFAULT NULL::sma
 AS $function$
 DECLARE
   v_me uuid := auth.uid();
+  v_net boolean := public.is_network_admin();
+  v_centre uuid := public.my_centre();
   v_staff boolean;
   v_week date := date_trunc('week', public.today_ist())::date;
   v_mine record;
@@ -93,7 +120,8 @@ DECLARE
   v_last jsonb;
 BEGIN
   IF v_me IS NULL THEN RAISE EXCEPTION 'Not allowed'; END IF;
-  v_staff := public.is_admin() OR public.is_teacher(v_me);
+  v_staff := public.is_admin() OR v_net OR public.is_teacher(v_me)
+             OR COALESCE(public.my_role() IN ('centre_head', 'vice_centre_head'), false);
 
   BEGIN
     PERFORM public.league_settle();
@@ -104,7 +132,8 @@ BEGIN
   CREATE TEMP TABLE IF NOT EXISTS _league_m ON COMMIT DROP AS
     SELECT * FROM public.league_members(v_week) WITH NO DATA;
   TRUNCATE _league_m;
-  INSERT INTO _league_m SELECT * FROM public.league_members(v_week);
+  INSERT INTO _league_m SELECT * FROM public.league_members(v_week)
+   WHERE v_net OR centre_id = v_centre;
 
   SELECT * INTO v_mine FROM _league_m WHERE student_id = v_me;
 
@@ -118,19 +147,23 @@ BEGIN
 
   WITH g AS (
     SELECT m.*,
-           (rank() OVER (PARTITION BY m.lvl, m.group_no ORDER BY m.xp DESC))::integer AS rk,
-           (count(*) OVER (PARTITION BY m.lvl, m.group_no))::integer AS sz
+           (rank() OVER (PARTITION BY m.centre_id, m.lvl, m.group_no ORDER BY m.xp DESC))::integer AS rk,
+           (count(*) OVER (PARTITION BY m.centre_id, m.lvl, m.group_no))::integer AS sz,
+           c.code AS centre_code
       FROM _league_m m
+      LEFT JOIN public.centres c ON c.id = m.centre_id
      WHERE m.tier = v_tier
-       AND (v_staff OR (m.lvl = v_mine.lvl AND m.group_no = v_mine.group_no))
+       AND (v_staff OR (m.centre_id IS NOT DISTINCT FROM v_mine.centre_id
+                        AND m.lvl = v_mine.lvl AND m.group_no = v_mine.group_no))
   )
   SELECT COALESCE(jsonb_agg(jsonb_build_object(
            'rank', g.rk, 'display_name', g.dn, 'xp', g.xp, 'is_me', g.student_id = v_me,
            'avatar_path', g.av,
            'zone', CASE WHEN public.league_zone(v_tier, g.rk, g.sz, g.xp) = 'down' AND NOT v_staff AND g.student_id <> v_me
                         THEN '' ELSE public.league_zone(v_tier, g.rk, g.sz, g.xp) END,
-           'group', CASE WHEN v_staff THEN NULLIF(g.lvl, '') || ' ' ELSE '' END || 'Group ' || (g.group_no + 1)
-         ) ORDER BY g.lvl, g.group_no, g.rk, g.dn), '[]'::jsonb)
+           'group', CASE WHEN v_net THEN COALESCE(g.centre_code, '-') || ' ' ELSE '' END
+                    || CASE WHEN v_staff THEN NULLIF(g.lvl, '') || ' ' ELSE '' END || 'Group ' || (g.group_no + 1)
+         ) ORDER BY g.centre_code, g.lvl, g.group_no, g.rk, g.dn), '[]'::jsonb)
     INTO v_rows FROM g;
 
   SELECT jsonb_build_object('week_start', r.week_start, 'tier_before', r.tier_before, 'tier_after', r.tier_after,
@@ -154,6 +187,8 @@ BEGIN
 END;
 $function$;
 
+-- 3. Week and month winners per centre ---------------------------------------------
+
 CREATE OR REPLACE FUNCTION public.xp_settle_period(p_kind text, p_from date, p_to date)
  RETURNS void
  LANGUAGE plpgsql
@@ -171,17 +206,17 @@ BEGIN
     RETURN;
   END IF;
 
-  INSERT INTO public.xp_awards (kind, period_start, period_end, level, student_id, xp)
-  SELECT p_kind, p_from, p_to, r.level, r.student_id, r.xp
+  INSERT INTO public.xp_awards (kind, period_start, period_end, level, student_id, xp, centre_id)
+  SELECT p_kind, p_from, p_to, r.level, r.student_id, r.xp, r.centre_id
     FROM (
-      SELECT v.*, rank() OVER (PARTITION BY v.level ORDER BY v.xp DESC) AS rk
+      SELECT v.*, rank() OVER (PARTITION BY v.centre_id, v.level ORDER BY v.xp DESC) AS rk
         FROM (
-          SELECT p.level, x.student_id, sum(x.xp) AS xp
+          SELECT p.centre_id, p.level, x.student_id, sum(x.xp) AS xp
             FROM public.student_xp_events x
             JOIN public.profiles p ON p.id = x.student_id
            WHERE x.day BETWEEN p_from AND p_to
              AND p.role = 'student' AND p.active AND p.leaderboard_visible
-           GROUP BY p.level, x.student_id
+           GROUP BY p.centre_id, p.level, x.student_id
         ) v
        WHERE v.xp > 0
     ) r
@@ -204,6 +239,8 @@ CREATE OR REPLACE FUNCTION public.star_of_month(p_level text DEFAULT NULL::text)
 AS $function$
 DECLARE
   v_me uuid := auth.uid();
+  v_net boolean := public.is_network_admin();
+  v_centre uuid := public.my_centre();
   v_level text;
   v_today date := public.today_ist();
   v_month date := (date_trunc('month', v_today) - interval '1 month')::date;
@@ -216,7 +253,8 @@ BEGIN
     RAISE WARNING 'xp_settle_awards failed: %', SQLERRM;
   END;
 
-  IF public.is_admin() OR public.is_teacher(v_me) THEN
+  IF public.is_admin() OR v_net OR public.is_teacher(v_me)
+     OR COALESCE(public.my_role() IN ('centre_head', 'vice_centre_head'), false) THEN
     v_level := p_level;
   ELSE
     SELECT p.level INTO v_level FROM public.profiles p WHERE p.id = v_me;
@@ -235,6 +273,7 @@ BEGIN
                  'avatar_path', public.avatar_visible(p.id, p.avatar_path)) ORDER BY p.full_name)
           FROM public.xp_awards a JOIN public.profiles p ON p.id = a.student_id
          WHERE a.kind = 'month' AND a.period_start = v_month
+           AND (v_net OR a.centre_id = v_centre)
            AND a.level IS NOT DISTINCT FROM v_level AND p.active), '[]'::jsonb)
     ),
     'week', jsonb_build_object(
@@ -247,6 +286,7 @@ BEGIN
                  'avatar_path', public.avatar_visible(p.id, p.avatar_path)) ORDER BY p.full_name)
           FROM public.xp_awards a JOIN public.profiles p ON p.id = a.student_id
          WHERE a.kind = 'week' AND a.period_start = v_week
+           AND (v_net OR a.centre_id = v_centre)
            AND a.level IS NOT DISTINCT FROM v_level AND p.active), '[]'::jsonb)
     )
   );

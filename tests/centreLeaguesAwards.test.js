@@ -1,7 +1,7 @@
 /**
  * Multi-centre step 5b: leagues, Star of the Month and Champion of the Week per centre.
  *
- *  - migration 39 on PGlite after migrations 30, 32 and 33, with the pre-39
+ *  - migration 40 on PGlite after migrations 30, 32 and 33, with the pre-40
  *    production definitions (the rollback file) as the starting point;
  *  - league groups never mix two centres; students, teachers and centre heads see
  *    their own centre; owners and directors see every centre;
@@ -23,8 +23,8 @@ const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
 const MIGRATION_30 = read('supabase/migrations/30_multi_centre_schema.sql');
 const MIGRATION_32 = read('supabase/migrations/32_multi_centre_data.sql');
 const MIGRATION_33 = read('supabase/migrations/33_centres_guard.sql');
-const MIGRATION_39 = read('supabase/migrations/39_centre_leagues_awards.sql');
-const ROLLBACK_39 = read('supabase/rollbacks/39_centre_leagues_awards_rollback.sql');
+const MIGRATION_40 = read('supabase/migrations/40_centre_leagues_awards.sql');
+const ROLLBACK_40 = read('supabase/rollbacks/40_centre_leagues_awards_rollback.sql');
 
 const id = (n) => `00000000-0000-0000-0000-${String(n).padStart(12, '0')}`;
 const P = {
@@ -181,17 +181,17 @@ async function settle(db) {
 }
 
 /**
- * Starts from the pre-39 production functions (the rollback file), records one
+ * Starts from the pre-40 production functions (the rollback file), records one
  * award the old way (no centre), then sets up centres BRN and KTA and, unless
- * `with39` is false, applies migration 39.
+ * `with40` is false, applies migration 40.
  */
-async function freshDb({ with39 = true } = {}) {
+async function freshDb({ with40 = true } = {}) {
   const db = new PGlite();
   await db.exec(BASE);
   await db.exec(MIGRATION_30);
   await db.exec(MIGRATION_32);
   await db.exec(MIGRATION_33);
-  await db.exec(ROLLBACK_39);
+  await db.exec(ROLLBACK_40);
   // Production grants: the settle functions are internal (service_role only).
   await db.exec(`REVOKE ALL ON FUNCTION public.league_settle_week(date), public.xp_settle_period(text, date, date)
                    FROM PUBLIC, anon, authenticated`);
@@ -209,14 +209,14 @@ async function freshDb({ with39 = true } = {}) {
   ]) {
     await db.query('SELECT public.set_person_role($1, $2, $3)', [target, role, centre]);
   }
-  if (with39) {
+  if (with40) {
     await rows(db, 'SELECT 1');
-    await db.exec(MIGRATION_39);
+    await db.exec(MIGRATION_40);
   }
   return { db, brn, kta };
 }
 
-describe('migration 39: league groups per centre', () => {
+describe('migration 40: league groups per centre', () => {
   it('a student only sees their own centre in their league group', async () => {
     const { db } = await freshDb();
     const b = await board(db, P.STU_B1);
@@ -314,7 +314,7 @@ describe('migration 39: league groups per centre', () => {
   });
 });
 
-describe('migration 39: Star of the Month and Champion of the Week per centre', () => {
+describe('migration 40: Star of the Month and Champion of the Week per centre', () => {
   it('settles one winner per centre and level, with the centre recorded', async () => {
     const { db, brn, kta } = await freshDb();
     await settle(db);
@@ -352,16 +352,16 @@ describe('migration 39: Star of the Month and Champion of the Week per centre', 
     assert.deepEqual(winners(await stars(db, P.DIRECTOR, 'Level 1'), 'week'), ['Asha', 'Kiran']);
   });
 
-  it('fills in the centre of awards settled before migration 39', async () => {
+  it('fills in the centre of awards settled before migration 40', async () => {
     const { db, brn } = await freshDb();
     const old = await rows(db, "SELECT centre_id, xp FROM public.xp_awards WHERE period_start = '2026-01-05'");
     assert.deepEqual(old.map((r) => [r.centre_id, Number(r.xp)]), [[brn, 55]]);
   });
 });
 
-describe('migration 39: files and rollback', () => {
-  it('before migration 39 a league group mixed centres (the bug this fixes)', async () => {
-    const { db } = await freshDb({ with39: false });
+describe('migration 40: files and rollback', () => {
+  it('before migration 40 a league group mixed centres (the bug this fixes)', async () => {
+    const { db } = await freshDb({ with40: false });
     assert.deepEqual(boardNames(await board(db, P.STU_B1)), ['Asha', 'Kiran', 'Ravi']);
   });
 
@@ -370,8 +370,8 @@ describe('migration 39: files and rollback', () => {
     await settle(db);
     const before = (await rows(db, 'SELECT count(*)::int AS n FROM public.xp_awards'))[0].n;
     await rows(db, 'SELECT 1');
-    await db.exec(ROLLBACK_39);
-    await db.exec(ROLLBACK_39); // idempotent
+    await db.exec(ROLLBACK_40);
+    await db.exec(ROLLBACK_40); // idempotent
     const after = (await rows(db, 'SELECT count(*)::int AS n FROM public.xp_awards'))[0].n;
     assert.equal(after, before);
     // Asha (Baran) and Kiran (Kota) both won their group and moved up: one mixed tier-2 group again.
@@ -382,10 +382,10 @@ describe('migration 39: files and rollback', () => {
   });
 
   it('the migration deletes no data and drops only the league_members function', () => {
-    const sql = MIGRATION_39.replace(/--.*$/gm, '');
+    const sql = MIGRATION_40.replace(/--.*$/gm, '');
     assert.doesNotMatch(sql, /\bDELETE\b|\bTRUNCATE\s+(TABLE\s+)?public\b|DROP\s+(TABLE|COLUMN|SCHEMA|INDEX)/i);
     assert.deepEqual(sql.match(/DROP\s+FUNCTION[^;]*/gi), ['DROP FUNCTION IF EXISTS public.league_members(date)']);
     assert.match(sql, /ADD COLUMN IF NOT EXISTS centre_id uuid/);
-    assert.doesNotMatch(ROLLBACK_39.replace(/--.*$/gm, ''), /DROP\s+(TABLE|COLUMN|INDEX)|\bDELETE\b/i);
+    assert.doesNotMatch(ROLLBACK_40.replace(/--.*$/gm, ''), /DROP\s+(TABLE|COLUMN|INDEX)|\bDELETE\b/i);
   });
 });

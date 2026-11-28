@@ -6,6 +6,8 @@
 @import './appRail.css';
 @import './studentPages.css';
 @import './staffPages.css';
+@import './theme.css';
+@import './theme-dark-auto.css';
 
 /* ==========================================================================
    2. Base Reset & Typography
