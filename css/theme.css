@@ -1,0 +1,232 @@
+/**
+ * Trendz Tracker - Themes & accessibility (css/theme.css)
+ *
+ *   html[data-theme="dark"]       dark palette (set by public/theme-boot.js and js/prefs.js;
+ *                                 follows the system setting unless the student picks one)
+ *   html[data-large-numbers="on"] bigger numbers on practice and test screens
+ *   html[data-motion="off"]       reduced motion: no animations or transitions (js/motion.js)
+ *
+ * Right/wrong marking uses a colour-blind-safe pair (blue / orange, after Okabe-Ito)
+ * and always carries a ✓ / ✗ mark, so colour is never the only signal.
+ *
+ * Pages keep using the tokens in variables.css; this file only swaps their values
+ * and patches the few places that hard-code light colours. Add new overrides here
+ * rather than editing page styles.
+ */
+
+:root {
+  --answer-right: #0B5CAD;          /* 6.6:1 on white */
+  --answer-right-subtle: #E0EEFC;
+  --answer-wrong: #B54708;          /* 5.3:1 on white */
+  --answer-wrong-subtle: #FDEBD9;
+  --focus-outline: #1D4ED8;
+  --overlay-scrim: rgba(255, 255, 255, 0.88);
+  --large-num-scale: 1;
+}
+
+/* Aliases for token names some pages use with light fallbacks (so they follow the theme). */
+:root {
+  --bg-surface-soft: var(--bg-surface-subtle);
+  --bg-muted: var(--bg-surface-subtle);
+  --color-surface: var(--bg-surface);
+  --surface: var(--bg-surface);
+  --primary-blue: var(--color-primary);
+  --primary: var(--color-primary);
+  --primary-blue-hover: var(--color-primary-hover);
+  --primary-blue-subtle: var(--color-primary-subtle);
+  --primary-blue-muted: var(--color-primary-subtle);
+  --text-secondary: var(--text-muted);
+}
+
+/* --------------------------------------------------------------------------
+   Dark palette. Body text tokens keep >= 7:1 on the page colour; muted >= 4.5:1.
+   -------------------------------------------------------------------------- */
+html[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg-page: #0B1220;
+  --bg-surface: #121B2D;
+  --bg-surface-subtle: #18233A;
+  --border-color: #2A3854;
+
+  --shadow-overlay: 0 10px 28px rgba(0, 0, 0, 0.55);
+
+  --text-main: #E7EDF6;             /* 15.6:1 on #0B1220 */
+  --text-muted: #B8C4D6;            /* 10.2:1 */
+  --text-dim: #9AA9C0;              /* 7.4:1 */
+  --text-inverse: #FFFFFF;
+
+  --color-primary: #2F6FEB;         /* buttons keep white text at 4.6:1 */
+  --color-primary-hover: #4A82F0;
+  --color-primary-subtle: #16264A;
+  --color-primary-text: #9DBBFF;
+  --color-focus-ring: rgba(122, 162, 255, 0.45);
+  --focus-outline: #8FB0FF;
+
+  --chip-neutral-bg: #1C2840;
+  --chip-neutral-text: #CBD5E1;
+
+  --color-success: #4ADE80;
+  --color-success-subtle: #0F2E1D;
+  --color-success-text: #86EFAC;
+  --color-success-border: #1F5C38;
+
+  --color-warning: #FBBF24;
+  --color-warning-subtle: #33240A;
+  --color-warning-text: #FCD34D;
+  --color-warning-border: #6B4A10;
+
+  --color-danger: #E5484D;         /* white text 4.0:1, as text on the page 4.6:1 */
+  --color-danger-hover: #F06A6E;
+  --color-danger-subtle: #3A1414;
+  --color-danger-text: #FCA5A5;
+  --color-danger-border: #7F1D1D;
+
+  --color-score-perfect: #4ADE80;
+  --color-score-perfect-subtle: #0F2E1D;
+  --color-score-warning: #FBBF24;
+  --color-score-warning-subtle: #33240A;
+  --color-score-alert: #7DD3FC;
+  --color-score-alert-subtle: #0C2A3D;
+  --color-score-danger: #F87171;
+  --color-score-danger-subtle: #3A1414;
+
+  --answer-right: #8EC5FF;
+  --answer-right-subtle: #11284A;
+  --answer-wrong: #FFB070;
+  --answer-wrong-subtle: #3A2210;
+  --overlay-scrim: rgba(11, 18, 32, 0.9);
+}
+
+/* Elements that hard-code light colours in page styles */
+html[data-theme="dark"] img:not([src$=".svg"]):not(.no-dim) { filter: brightness(0.92); }
+html[data-theme="dark"] input,
+html[data-theme="dark"] select,
+html[data-theme="dark"] textarea {
+  background-color: var(--bg-surface);
+  color: var(--text-main);
+  border-color: var(--border-color);
+}
+html[data-theme="dark"] input::placeholder,
+html[data-theme="dark"] textarea::placeholder { color: var(--text-dim); }
+html[data-theme="dark"] table th { background-color: var(--bg-surface-subtle); color: var(--text-muted); }
+html[data-theme="dark"] .ld-track { background: var(--bg-surface-subtle); }
+html[data-theme="dark"] .ld-countdown { color: var(--color-primary-text); }
+html[data-theme="dark"] .toast { background: var(--bg-surface); color: var(--text-main); border-color: var(--border-color); }
+html[data-theme="dark"] .modal,
+html[data-theme="dark"] .modal-content,
+html[data-theme="dark"] .modal-dialog { background: var(--bg-surface); color: var(--text-main); }
+html[data-theme="dark"] #btn-show-sql-guide { background: var(--bg-surface) !important; }
+html[data-theme="dark"] code,
+html[data-theme="dark"] kbd { background: var(--bg-surface-subtle); color: var(--text-main); }
+
+/* --------------------------------------------------------------------------
+   Right / wrong marks (colour-blind safe, never colour alone)
+   -------------------------------------------------------------------------- */
+.ans-right,
+.ans-wrong {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.ans-right { background: var(--answer-right-subtle); color: var(--answer-right); }
+.ans-wrong { background: var(--answer-wrong-subtle); color: var(--answer-wrong); }
+.ans-right::before { content: '✓'; font-weight: 900; }
+.ans-wrong::before { content: '✗'; font-weight: 900; }
+
+.ans-banner-right { background: var(--answer-right-subtle) !important; border-color: var(--answer-right) !important; }
+.ans-banner-wrong { background: var(--answer-wrong-subtle) !important; border-color: var(--answer-wrong) !important; }
+.ans-banner-right .ans-banner-label { color: var(--answer-right) !important; }
+.ans-banner-wrong .ans-banner-label { color: var(--answer-wrong) !important; }
+.ans-banner-right .ans-banner-label::before { content: '✓ '; }
+.ans-banner-wrong .ans-banner-label::before { content: '✗ '; }
+
+/* Live duel answer flash: blue/orange plus a mark */
+@keyframes tt-ans-right { 30% { border-color: var(--answer-right); background: var(--answer-right-subtle); } }
+@keyframes tt-ans-wrong { 30% { border-color: var(--answer-wrong); background: var(--answer-wrong-subtle); transform: translateX(-4px); } 60% { transform: translateX(4px); } }
+.ld-question.is-right .ld-q { animation-name: tt-ans-right; }
+.ld-question.is-wrong .ld-q { animation-name: tt-ans-wrong; }
+.ld-question { position: relative; }
+.ld-question.is-right::after,
+.ld-question.is-wrong::after {
+  position: absolute;
+  top: -6px;
+  right: calc(50% - 120px);
+  font-size: 22px;
+  font-weight: 900;
+  animation: tt-mark-fade 0.7s ease-out forwards;
+  pointer-events: none;
+}
+.ld-question.is-right::after { content: '✓'; color: var(--answer-right); }
+.ld-question.is-wrong::after { content: '✗'; color: var(--answer-wrong); }
+@keyframes tt-mark-fade { 0% { opacity: 0; transform: scale(0.6); } 25% { opacity: 1; transform: scale(1.1); } 100% { opacity: 0; transform: scale(1); } }
+
+/* --------------------------------------------------------------------------
+   Keyboard focus: a clear ring on every control, only for keyboard users
+   -------------------------------------------------------------------------- */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 3px solid var(--focus-outline);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px var(--color-focus-ring);
+}
+:where(input, select, textarea):focus-visible { outline-offset: 0; }
+
+/* --------------------------------------------------------------------------
+   Large numbers (practice and test screens)
+   -------------------------------------------------------------------------- */
+html[data-large-numbers="on"] { --large-num-scale: 1.3; }
+html[data-large-numbers="on"] :is(
+  .simple-question, .ld-q, .ld-q-rows, .ld-answer,
+  #screen-player .num, #drill-worksheet-screen .num, #flash-play-screen .num,
+  .element-question-text, .practice-question, .question-display, .player-question,
+  .mem-card, .mem-problem, .memoriad-stage .num, .answer-slot, .step-box
+) {
+  font-size: calc(1em * var(--large-num-scale));
+  line-height: 1.25;
+}
+html[data-large-numbers="on"] :is(#screen-player, #drill-worksheet-screen, .simple-play, .memoriad-stage) input:not([type="checkbox"]):not([type="radio"]) {
+  font-size: max(22px, 1.3em);
+  min-height: 48px;
+}
+
+/* --------------------------------------------------------------------------
+   Reduced motion: honour the student's "Off" and the system setting
+   -------------------------------------------------------------------------- */
+html[data-motion="off"] *,
+html[data-motion="off"] *::before,
+html[data-motion="off"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* Smooth theme switch (skipped when motion is off) */
+html[data-motion="full"].tt-theme-switching *,
+html[data-motion="lite"].tt-theme-switching * {
+  transition: background-color 0.25s ease, color 0.25s ease, border-color 0.25s ease !important;
+}
+
+/* --------------------------------------------------------------------------
+   Settings panel (Account page)
+   -------------------------------------------------------------------------- */
+.tt-seg { display: inline-flex; border: 1px solid var(--border-color); border-radius: var(--radius-full); padding: 2px; background: var(--bg-surface-subtle); }
+.tt-seg button { border: 0; background: transparent; color: var(--text-muted); font: inherit; font-size: var(--text-sm); font-weight: 600; padding: 6px 12px; border-radius: var(--radius-full); cursor: pointer; }
+.tt-seg button[aria-pressed="true"] { background: var(--bg-surface); color: var(--text-main); box-shadow: 0 1px 3px rgba(15, 23, 42, 0.15); }
+.tt-seg button:hover:not([aria-pressed="true"]) { color: var(--text-main); }
+.ac-row.is-sub { padding-left: var(--space-6); }
+.ac-row.is-sub .ac-row-t b { font-weight: 600; }
+.ac-row.is-off { opacity: 0.55; }
+.tt-test-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* Small spots found by the dark-mode contrast check */
+html[data-theme="dark"] .wt-kind { color: var(--color-primary-text); }
+html[data-theme="dark"] [style*="background: #fff"],
+html[data-theme="dark"] [style*="background:#fff"],
+html[data-theme="dark"] [style*="background: #FFF"],
+html[data-theme="dark"] [style*="background: white"] { background: var(--bg-surface) !important; }
