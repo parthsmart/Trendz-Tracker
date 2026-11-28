@@ -1,4 +1,4 @@
--- Phase 37: Ghost race targets on the Live Duel page.
+-- Phase 39: Ghost race targets on the Live Duel page.
 --
 --   * "Beat my best" and "Race a topper" ghost races (live_duels.ghost->>'target'
 --     is 'best' or 'topper') are unrated: no rating change and no played/won count,
