@@ -22,6 +22,10 @@
  *   Battle royale (api/_royale.js): joins the waiting game at the student's level.
  *   Rounds, answers and eliminations run in the royale_* RPCs.
  *
+ * - { action: 'tournament_check_in', match_id }
+ *   Tournaments (api/_tournaments.js): checks the student in to their match and,
+ *   once both players are in, starts its live duel. Brackets run in the tournament_* RPCs.
+ *
  * - { action: 'submit', session_id, answers }
  *   Verifies active student caller, loads the student's open session, checks
  *   expiry (started_at + time_limit_seconds + 30s) and minimum plausible completion
@@ -65,6 +69,7 @@ import {
 import { claimDuelStart, handleDuelCancel, handleDuelCreate, recordDuelResult } from './_duels.js';
 import { handleGhostOptions, handleLiveGhost, handleLiveInvite, handleLiveQueue, handleLiveRematch } from './_liveDuels.js';
 import { handleRoyaleJoin } from './_royale.js';
+import { handleTournamentCheckIn } from './_tournaments.js';
 
 export const RATE_LIMIT_SETS_PER_HOUR = 60;
 export const EXPIRY_GRACE_SECONDS = 30;
@@ -183,6 +188,10 @@ export default async function handler(req, res) {
 
   if (action === 'royale_join') {
     return handleRoyaleJoin({ student, adminSupabase, res });
+  }
+
+  if (action === 'tournament_check_in') {
+    return handleTournamentCheckIn({ body, student, adminSupabase, res });
   }
 
   if (action === 'live_invite') {

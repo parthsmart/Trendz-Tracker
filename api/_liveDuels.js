@@ -505,6 +505,7 @@ export async function handleLiveRematch({ body, student, adminSupabase: db, res,
   if (duel.status !== 'done' && duel.status !== 'expired') {
     return res.status(409).json({ error: 'This duel has not finished yet.' });
   }
+  if (duel.kind === 'tournament') return res.status(409).json({ error: 'Tournament matches have no rematch.' });
   if (duel.rematch_id) return res.status(200).json({ duel_id: duel.rematch_id });
 
   const gate = await startGate(db, student, now);

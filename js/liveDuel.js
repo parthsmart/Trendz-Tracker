@@ -21,6 +21,13 @@ import { getDuelHub } from './duelPresence.js';
 import { ensureAvatarStyles, signAvatarUrls } from './avatars.js';
 import { enterRoyale, loadRoyaleHome, royaleBusy, setupRoyale } from './royale.js';
 import {
+  loadTournamentHome,
+  loadTournamentStaff,
+  onTournamentReady,
+  pauseTournaments,
+  setupTournaments,
+} from './tournament.js';
+import {
   GHOST_WAIT_SECONDS,
   LIVE_DUEL_GRACE_SECONDS,
   LIVE_DUEL_MIN_MS_PER_ANSWER,
@@ -211,7 +218,7 @@ function foundDuel(id) {
 
 /* --------------------------------------------------------- Mode tabs */
 
-const MODES = ['duel', 'ghost', 'royale'];
+const MODES = ['duel', 'ghost', 'royale', 'tourney'];
 
 function setMode(mode) {
   const m = MODES.includes(mode) ? mode : 'duel';
@@ -227,6 +234,8 @@ function setMode(mode) {
   window.history.replaceState(null, '', url);
   if (m === 'ghost') loadGhostOptions();
   if (m === 'royale') loadRoyaleHome();
+  if (m === 'tourney') loadTournamentHome();
+  else pauseTournaments();
 }
 
 async function loadGhostOptions() {
@@ -615,6 +624,7 @@ async function loadStaff() {
   show('ld-staff');
   const { data, error } = await rpc('live_duels_staff', { p_days: 7 });
   $('ld-staff-body').innerHTML = error ? '<p class="ar-dim">Could not load live duels.</p>' : buildStaffHtml(data);
+  await loadTournamentStaff();
 }
 
 function setupStaffActions() {
@@ -643,7 +653,17 @@ async function initLiveDuelPage() {
   st.supabase = await getSupabase();
   try { st.muted = localStorage.getItem(MUTE_KEY) === '1'; } catch { st.muted = false; }
 
+  const tournamentDeps = {
+    rpc,
+    drillApi,
+    showToast,
+    enabled: () => st.home?.enabled !== false,
+    enterDuel: (id) => { pauseTournaments(); enterDuel(id); },
+    inDuel: () => Boolean(st.duel),
+  };
+
   if (viewer.role !== 'student') {
+    setupTournaments({ ...tournamentDeps, enterDuel: () => {} });
     setupStaffActions();
     await loadStaff();
     return;
@@ -659,6 +679,7 @@ async function initLiveDuelPage() {
     show,
     back: () => { show('ld-lobby'); setMode('royale'); },
   });
+  setupTournaments(tournamentDeps);
   setupRaceActions();
   setupResultActions();
 
@@ -673,6 +694,9 @@ async function initLiveDuelPage() {
       st.searching = false;
       clearTimeout(st.searchTimer);
       enterDuel(p.duel_id);
+    });
+    st.hub.on('tournament_ready', () => {
+      if (!st.duel && !royaleBusy()) onTournamentReady();
     });
     st.hub.on('invite', () => {
       if (!st.duel && !st.searching) loadLobby();
