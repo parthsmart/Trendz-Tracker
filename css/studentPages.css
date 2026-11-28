@@ -820,3 +820,22 @@ body.has-app-rail .lb-rest-note td { text-align: center; color: var(--text-muted
   .ld-spinner, .ld-bubble, .ld-question .ld-q { animation: none !important; }
   .ld-fill { transition: none; }
 }
+
+/* ---------- Live duel: mode tabs and Ghost race ---------- */
+.ld-modes { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 var(--space-4, 16px); padding: 4px; background: var(--surface-muted, #f1f5f9); border-radius: 12px; width: fit-content; max-width: 100%; }
+.ld-mode { border: 0; background: transparent; padding: 8px 14px; border-radius: 9px; font: inherit; font-size: 14px; font-weight: 600; color: var(--text-muted, #475569); cursor: pointer; white-space: nowrap; }
+.ld-mode:hover { color: var(--text-main, #0f172a); }
+.ld-mode.active { background: #fff; color: var(--text-main, #0f172a); box-shadow: 0 1px 3px rgba(15, 23, 42, .12); }
+.ld-ghost-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.ld-ghost-card { border: 1px solid var(--border-hairline, #e2e8f0); border-radius: 14px; padding: 18px; background: #fff; display: flex; flex-direction: column; gap: 8px; }
+.ld-ghost-card h3 { margin: 0; font-size: 1.1rem; }
+.ld-ghost-card .btn { margin-top: auto; align-self: flex-start; }
+.ld-ghost-card.is-empty { background: var(--surface-muted, #f8fafc); }
+.ld-ghost-ic { font-size: 28px; line-height: 1; }
+.ld-ghost-line { margin: 0; color: var(--text-muted, #475569); font-size: 14px; }
+.ld-ghost-note { margin: 12px 0 0; font-size: 13px; }
+.ld-pb { margin: 4px 0 8px; font-weight: 700; color: #15803d; font-size: 1.05rem; }
+@media (max-width: 560px) {
+  .ld-modes { width: 100%; }
+  .ld-mode { flex: 1; padding: 8px 6px; font-size: 13px; }
+}

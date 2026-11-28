@@ -65,7 +65,15 @@
           </header>
 
           <section id="ld-lobby" hidden>
-            <div id="ld-lobby-body">
+            <nav class="ld-modes" role="tablist" aria-label="Live duel modes">
+              <button type="button" role="tab" class="ld-mode active" aria-selected="true" data-ld-mode="duel">⚡ Duel</button>
+              <button type="button" role="tab" class="ld-mode" aria-selected="false" data-ld-mode="ghost">👻 Ghost race</button>
+            </nav>
+            <section class="ld-mode-pane" id="ld-mode-ghost" data-ld-pane="ghost" hidden>
+              <div class="ld-panel-head"><h2>👻 Ghost race</h2></div>
+              <div id="ld-ghost"><p class="ar-dim">Loading…</p></div>
+            </section>
+            <div id="ld-lobby-body" class="ld-mode-pane" data-ld-pane="duel">
               <p class="ld-off" id="ld-off" hidden>Live duels are switched off right now. Your teacher can turn them back on.</p>
               <div id="ld-invites"></div>
               <section class="ld-arena" aria-labelledby="ld-arena-title">

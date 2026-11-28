@@ -30,6 +30,14 @@ import {
   decideLiveResult,
   eloDelta,
   ghostTimelineFromAnswers,
+  GHOST_MIN_ATTEMPTED,
+  compareRuns,
+  isGhostTarget,
+  pickBestRun,
+  pickTopperRun,
+  runSides,
+  shortName,
+  weekStartIst,
   gradeLiveAnswer,
   isLiveDuelEmote,
   liveDuelBonusXp,
@@ -53,6 +61,7 @@ import {
 import { equalIntegerAnswer, parseBasicsCategoryName, parseIntegerAnswer } from '../api/_drills.js';
 import {
   buildLiveDuelQuestions,
+  handleGhostOptions,
   handleLiveGhost,
   handleLiveInvite,
   handleLiveQueue,
@@ -66,6 +75,10 @@ const ROOT = path.resolve(__dirname, '..');
 const MIGRATION = fs.readFileSync(path.join(ROOT, 'supabase/migrations/31_live_duels.sql'), 'utf8');
 const MATE_AVATARS = fs.readFileSync(path.join(ROOT, 'supabase/migrations/34_live_duel_mate_avatars.sql'), 'utf8');
 const FAIR_OPEN = fs.readFileSync(path.join(ROOT, 'supabase/migrations/35_live_duel_fair_open.sql'), 'utf8');
+const GHOST_TARGETS_SQL = fs.readFileSync(
+  path.join(ROOT, 'supabase/migrations', fs.readdirSync(path.join(ROOT, 'supabase/migrations')).find((f) => /_live_duel_ghost_targets\.sql$/.test(f))),
+  'utf8',
+);
 
 /* ===================================================================== 1 */
 
@@ -646,6 +659,7 @@ describe('live duel SQL (PGlite)', () => {
     await db.exec(MIGRATION);
     await db.exec(MATE_AVATARS);
     await db.exec(FAIR_OPEN);
+    await db.exec(GHOST_TARGETS_SQL);
     await db.query(
       `INSERT INTO public.profiles (id, role, level, full_name) VALUES
         ($1, 'student', 'Level 2', 'Asha'), ($2, 'student', 'Level 2', 'Ben'),
@@ -658,6 +672,7 @@ describe('live duel SQL (PGlite)', () => {
     await db.exec(MIGRATION);
     await db.exec(MATE_AVATARS);
     await db.exec(FAIR_OPEN);
+    await db.exec(GHOST_TARGETS_SQL);
   });
 
   it('grades each answer, broadcasts progress and enforces order', async () => {
@@ -749,6 +764,31 @@ describe('live duel SQL (PGlite)', () => {
     assert.equal(d.b_rating_delta, null);
     const ev = await one("SELECT bonus_xp FROM public.student_xp_events WHERE source_id = $1", [`${duel}:a`]);
     assert.equal(ev.bonus_xp, 3);
+  });
+
+  it('leaves rating alone for "beat my best" and "race a topper" ghosts, but still gives the half bonus', async () => {
+    const before = await one('SELECT rating, played FROM public.duel_ratings WHERE student_id = $1', [A]);
+    const ghost = { label: 'Your best', bot: false, target: 'best', target_correct: 1, timeline: [[3000, 1], [70000, 1]] };
+    const duel = await liveDuel({ b: null, ghost, ago: 20_000 });
+    await answer(A, duel, 0, '1');
+    await answer(A, duel, 1, '2');
+    await endNow(duel);
+    const state = await as(A, async () => (await one('SELECT public.live_duel_state($1) AS s', [duel])).s);
+    assert.equal(state.result, 'won');
+    assert.equal(state.other.target, 'best');
+    assert.equal(state.other.target_correct, 1);
+    assert.equal(state.me.rating_delta, null, 'not rated');
+    const after = await one('SELECT rating, played FROM public.duel_ratings WHERE student_id = $1', [A]);
+    assert.deepEqual(after, before);
+    const ev = await one('SELECT bonus_xp FROM public.student_xp_events WHERE source_id = $1', [`${duel}:a`]);
+    assert.equal(ev.bonus_xp, 8, 'won bonus 15, halved for a ghost');
+    const quick = await liveDuel({ b: null, ghost: { label: 'Practice bot', bot: true, timeline: [[3000, 1]] }, ago: 20_000 });
+    await answer(A, quick, 0, '1');
+    await answer(A, quick, 1, '2');
+    await endNow(quick);
+    const q = await as(A, async () => (await one('SELECT public.live_duel_state($1) AS s', [quick])).s);
+    assert.ok(q.me.rating_delta > 0, 'quick-match ghosts stay rated');
+    assert.equal(q.other.target, null);
   });
 
   it('expires a duel nobody played without XP or rating changes', async () => {
@@ -912,5 +952,125 @@ describe('live duel page', () => {
     assert.match(page, /src="\/js\/liveDuel\.js"/);
     const { isNavItemCurrent } = await import('../js/navConfig.js');
     assert.equal(isNavItemCurrent({ href: '/pages/duels.html' }, '/pages/live-duel.html'), true);
+  });
+});
+
+/* ============================================================ Ghost race */
+describe('ghost race', () => {
+  const NOW = Date.parse('2026-11-26T08:00:00Z'); // Thursday
+  const run = (id, a, b, ac, bc, extra = {}) => ({
+    id, kind: 'quick', status: 'done', flagged: false, a_id: a, b_id: b, a_correct: ac, b_correct: bc,
+    a_attempted: 10, b_attempted: 10, a_last_correct_ms: 50_000, b_last_correct_ms: 50_000,
+    level: 'Level 2', category_id: `cat-${id}`, category_name: '1d3r', seed: 100 + ac + bc,
+    finished_at: new Date(NOW - 3600_000).toISOString(), ...extra,
+  });
+  const answersFor = (duelId, studentId, n = 6) => Array.from({ length: n }, (_, i) => ({
+    duel_id: duelId, student_id: studentId, q_index: i, correct: true, ms: 2000 * (i + 1),
+  }));
+
+  it('picks runs: most correct, then sooner, then fewer attempts; skips flagged and short runs', () => {
+    assert.equal(isGhostTarget('best'), true);
+    assert.equal(isGhostTarget('topper'), true);
+    assert.equal(isGhostTarget('rival'), false);
+    assert.equal(GHOST_MIN_ATTEMPTED, 5);
+    const rows = [
+      run('d1', 'stu-a', 'stu-b', 9, 12),
+      run('d2', 'stu-a', 'stu-c', 11, 4, { a_last_correct_ms: 40_000 }),
+      run('d3', 'stu-a', null, 11, 0, { kind: 'ghost', a_last_correct_ms: 55_000 }),
+      run('d4', 'stu-d', 'stu-a', 20, 2, { flagged: true }),
+      run('d5', 'stu-e', 'stu-a', 18, 3, { a_attempted: 4 }),
+    ];
+    assert.equal(runSides(rows).some((s) => s.duel.id === 'd4'), false, 'flagged');
+    assert.equal(runSides(rows).some((s) => s.student_id === null), false, 'ghost side');
+    assert.equal(pickBestRun(rows, 'stu-a').duel.id, 'd2', 'tie on 11 broken by time');
+    assert.equal(pickTopperRun(rows, 'stu-a').duel.id, 'd1', 'others only; flagged (d4) and short (d5) runs skipped');
+    assert.ok(compareRuns({ correct: 5, last_ms: 1, attempted: 9 }, { correct: 5, last_ms: 1, attempted: 6 }) > 0);
+    assert.equal(pickBestRun([], 'stu-a'), null);
+  });
+
+  it('starts the week on Monday in India time and shortens topper names', () => {
+    assert.equal(weekStartIst(NOW), '2026-11-22T18:30:00.000Z');
+    assert.equal(weekStartIst(Date.parse('2026-11-22T19:00:00Z')), '2026-11-22T18:30:00.000Z', 'Monday 00:30 IST');
+    assert.equal(shortName('asha kumar'), 'Asha K.');
+    assert.equal(shortName('Ravi Shankar Iyer'), 'Ravi I.');
+    assert.equal(shortName('Meera'), 'Meera');
+    assert.equal(shortName('  '), 'A topper');
+  });
+
+  it('offers my best and this week\'s top run, never another student\'s full name', async () => {
+    const db = fakeDb({
+      live_duels: [run('mine', 'stu-a', 'stu-b', 9, 7), run('top', 'stu-c', 'stu-d', 15, 6), run('old', 'stu-e', 'stu-f', 25, 1, { finished_at: '2026-11-01T00:00:00Z' })],
+      profiles: [{ id: 'stu-c', full_name: 'Asha Kumar', student_code: 'T1' }],
+    });
+    const res = fakeRes();
+    await handleGhostOptions({ student: STU, adminSupabase: db, res, now: NOW });
+    assert.deepEqual(res.body.best, { name: 'Your best', correct: 9, attempted: 10 });
+    assert.deepEqual(res.body.topper, { name: 'Asha K.', correct: 15, attempted: 10 });
+    const none = fakeRes();
+    await handleGhostOptions({ student: { id: 'x', level: 'Level 9' }, adminSupabase: db, res: none, now: NOW });
+    assert.deepEqual(none.body, { best: null, topper: null });
+  });
+
+  it('races my best on the same questions, unrated, and re-races it on rematch', async () => {
+    const db = fakeDb({ live_duels: [run('mine', 'stu-a', 'stu-b', 9, 7)], live_duel_answers: answersFor('mine', 'stu-a') });
+    const res = fakeRes();
+    await handleLiveGhost({ body: { target: 'best' }, student: STU, adminSupabase: db, res, now: NOW });
+    assert.ok(res.body.duel_id, JSON.stringify(res.body));
+    const duel = db.tables.live_duels.find((d) => d.id === res.body.duel_id);
+    assert.equal(duel.kind, 'ghost');
+    assert.equal(duel.b_id, null);
+    assert.equal(duel.seed, 116);
+    assert.equal(duel.category_id, 'cat-mine');
+    assert.deepEqual([duel.ghost.target, duel.ghost.label, duel.ghost.target_correct, duel.ghost.source_duel], ['best', 'Your best', 9, 'mine']);
+    assert.equal(duel.ghost.timeline.length, 6);
+
+    Object.assign(duel, { id: '00000000-0000-4000-8000-0000000000bb', status: 'done', a_rematch: false, b_rematch: false, rematch_id: null });
+    const again = fakeRes();
+    await handleLiveRematch({ body: { duel_id: duel.id }, student: STU, adminSupabase: db, res: again, now: NOW });
+    const next = db.tables.live_duels.find((d) => d.id === again.body.duel_id);
+    assert.ok(next, JSON.stringify(again.body));
+    assert.equal(next.ghost.target, 'best');
+    assert.equal(next.rematch_of, duel.id);
+  });
+
+  it('races this week\'s topper by short name, and explains when there is nobody to race', async () => {
+    const db = fakeDb({
+      live_duels: [run('top', 'stu-c', 'stu-d', 15, 6)],
+      live_duel_answers: answersFor('top', 'stu-c', 8),
+      profiles: [{ id: 'stu-c', full_name: 'Asha Kumar', student_code: 'T1' }],
+    });
+    const res = fakeRes();
+    await handleLiveGhost({ body: { target: 'topper' }, student: STU, adminSupabase: db, res, now: NOW });
+    const duel = db.tables.live_duels.find((d) => d.id === res.body.duel_id);
+    assert.equal(duel.ghost.label, "Asha K. · week's top");
+    assert.equal(JSON.stringify(duel.ghost).includes('Kumar'), false);
+
+    const empty = fakeRes();
+    await handleLiveGhost({ body: { target: 'best' }, student: STU, adminSupabase: fakeDb(), res: empty, now: NOW });
+    assert.equal(empty.statusCode, 404);
+    assert.match(empty.body.error, /set your best/);
+    const bad = fakeRes();
+    await handleLiveGhost({ body: { target: 'everyone' }, student: STU, adminSupabase: fakeDb(), res: bad, now: NOW });
+    assert.equal(bad.statusCode, 400);
+  });
+
+  it('shows the ghost race cards and "New personal best!" without a rating', async () => {
+    const view = await import('../js/liveDuelView.js');
+    const html = view.buildGhostOptionsHtml({ best: { correct: 9, attempted: 10 }, topper: { name: '<i>Asha K.</i>', correct: 15 } });
+    assert.match(html, /data-ghost-target="best" >/);
+    assert.match(html, /&lt;i&gt;Asha/);
+    const empty = view.buildGhostOptionsHtml({ best: null, topper: null });
+    assert.match(empty, /set your best/);
+    assert.match(empty, /data-ghost-target="topper" disabled/);
+    const pb = view.buildResultHtml({ result: 'won', kind: 'ghost', me: { correct: 10, attempted: 11, xp: 20, rating: 1100 }, other: { name: 'Your best', correct: 9, target: 'best' } });
+    assert.match(pb, /New personal best!/);
+    assert.match(pb, /Not rated/);
+    assert.match(pb, /Race again/);
+    assert.doesNotMatch(pb, /Rating 1100/);
+    const lost = view.buildResultHtml({ result: 'lost', kind: 'ghost', me: {}, other: { name: 'Asha K.', target: 'topper' } });
+    assert.doesNotMatch(lost, /personal best/);
+    const page = fs.readFileSync(path.join(ROOT, 'pages/live-duel.html'), 'utf8');
+    assert.match(page, /data-ld-mode="ghost"/);
+    assert.match(page, /id="ld-ghost"/);
   });
 });

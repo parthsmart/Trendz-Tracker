@@ -31,6 +31,7 @@ import {
 import {
   buildBoardHtml,
   buildEmoteBarHtml,
+  buildGhostOptionsHtml,
   buildInvitesHtml,
   buildLanesHtml,
   buildOnlinePlayersHtml,
@@ -206,6 +207,52 @@ function foundDuel(id) {
   st.searching = false;
   clearTimeout(st.searchTimer);
   enterDuel(id);
+}
+
+/* --------------------------------------------------------- Mode tabs */
+
+const MODES = ['duel', 'ghost'];
+
+function setMode(mode) {
+  const m = MODES.includes(mode) ? mode : 'duel';
+  document.querySelectorAll('[data-ld-mode]').forEach((b) => {
+    const on = b.dataset.ldMode === m;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  document.querySelectorAll('[data-ld-pane]').forEach((p) => { p.hidden = p.dataset.ldPane !== m; });
+  const url = new URL(window.location.href);
+  if (m === 'duel') url.searchParams.delete('mode');
+  else url.searchParams.set('mode', m);
+  window.history.replaceState(null, '', url);
+  if (m === 'ghost') loadGhostOptions();
+}
+
+async function loadGhostOptions() {
+  try {
+    const opts = await drillApi({ action: 'ghost_options' });
+    $('ld-ghost').innerHTML = buildGhostOptionsHtml(opts, { disabled: st.home?.enabled === false });
+  } catch {
+    $('ld-ghost').innerHTML = '<p class="ar-dim">Could not load ghost races. Please refresh.</p>';
+  }
+}
+
+function setupModeActions() {
+  document.querySelectorAll('[data-ld-mode]').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.ldMode)));
+  $('ld-ghost').addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-ghost-target]');
+    if (!btn) return;
+    btn.disabled = true;
+    btn.textContent = 'Starting…';
+    try {
+      const res = await drillApi({ action: 'live_ghost', target: btn.dataset.ghostTarget });
+      enterDuel(res.duel_id);
+    } catch (err) {
+      showToast('error', err.message);
+      btn.disabled = false;
+      btn.textContent = '👻 Start race';
+    }
+  });
 }
 
 function setupLobbyActions() {
@@ -609,6 +656,7 @@ async function initLiveDuelPage() {
     return;
   }
   setupLobbyActions();
+  setupModeActions();
   setupRaceActions();
   setupResultActions();
 
@@ -654,9 +702,13 @@ async function initLiveDuelPage() {
     leaveDuelView();
   });
 
-  const duelId = new URLSearchParams(window.location.search).get('duel');
+  const params = new URLSearchParams(window.location.search);
+  const duelId = params.get('duel');
   if (duelId) await enterDuel(duelId);
-  else await loadLobby();
+  else {
+    await loadLobby();
+    if (params.get('mode')) setMode(params.get('mode'));
+  }
 
   window.addEventListener('pagehide', () => {
     if (st.searching) rpc('live_duel_leave_queue');

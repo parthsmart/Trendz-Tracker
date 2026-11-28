@@ -340,3 +340,66 @@ export function raceLanePercent(correct, otherCorrect) {
 export function secondsLeft(endMs, nowMs) {
   return Math.max(0, Math.ceil((endMs - nowMs) / 1000));
 }
+
+/* --------------------------------------------------------- Ghost race */
+
+/** Ghost race targets a student can pick in the lobby. */
+export const GHOST_TARGETS = Object.freeze(['best', 'topper']);
+/** A run needs at least this many answers to be raced as a ghost. */
+export const GHOST_MIN_ATTEMPTED = 5;
+
+export function isGhostTarget(t) {
+  return GHOST_TARGETS.includes(String(t ?? ''));
+}
+
+/**
+ * Each real side of finished duels as { duel, student_id, correct, attempted, last_ms }.
+ * Skips flagged duels (too-fast answers), the ghost side of ghost races and short runs.
+ */
+export function runSides(rows, minAttempted = GHOST_MIN_ATTEMPTED) {
+  const out = [];
+  for (const d of Array.isArray(rows) ? rows : []) {
+    if (!d || d.flagged || d.status !== 'done') continue;
+    for (const s of ['a', 'b']) {
+      const id = d[`${s}_id`];
+      const attempted = Number(d[`${s}_attempted`]) || 0;
+      if (!id || attempted < minAttempted) continue;
+      out.push({ duel: d, student_id: id, correct: Number(d[`${s}_correct`]) || 0, attempted, last_ms: d[`${s}_last_correct_ms`] ?? null });
+    }
+  }
+  return out;
+}
+
+/** Best first: most correct, then reached sooner, then fewer attempts (more accurate). */
+export function compareRuns(x, y) {
+  return y.correct - x.correct
+    || (x.last_ms ?? Infinity) - (y.last_ms ?? Infinity)
+    || x.attempted - y.attempted;
+}
+
+/** The student's own best run among finished duels, or null. */
+export function pickBestRun(rows, studentId) {
+  return runSides(rows).filter((s) => s.student_id === studentId).sort(compareRuns)[0] || null;
+}
+
+/** The best run by anyone else (this week's rows), or null. */
+export function pickTopperRun(rows, studentId) {
+  return runSides(rows).filter((s) => s.student_id !== studentId).sort(compareRuns)[0] || null;
+}
+
+/** Monday 00:00 India time of the week containing nowMs, as an ISO string. */
+export function weekStartIst(nowMs = Date.now()) {
+  const IST = 330 * 60 * 1000;
+  const local = new Date(nowMs + IST);
+  const day = (local.getUTCDay() + 6) % 7; // Monday = 0
+  const monday = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() - day);
+  return new Date(monday - IST).toISOString();
+}
+
+/** "Asha Kumar" -> "Asha K.": a topper ghost never shows a full name. */
+export function shortName(fullName, fallback = 'A topper') {
+  const parts = String(fullName ?? '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return fallback;
+  const cap = (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+  return parts.length > 1 ? `${cap(parts[0])} ${parts[parts.length - 1].charAt(0).toUpperCase()}.` : cap(parts[0]);
+}
