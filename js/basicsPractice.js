@@ -43,6 +43,7 @@ import { showToast } from './toast.js';
 import { submitHomeworkCompletion } from './homeworkData.js';
 import { showRoundRewards } from './xpRewards.js';
 import { celebrate } from './motion.js';
+import { cue, practiceStarted, practiceEnded } from './feedback.js';
 import {
   RUNNER_EXIT_CONFIRM_TEXT,
   parseTestRunnerQuery,
@@ -478,10 +479,12 @@ function renderPrepCountdownOverlay(startCount, onComplete) {
   document.body.appendChild(overlay);
 
   const numEl = document.getElementById('prep-num');
+  cue('tick');
   const timer = setInterval(() => {
     count--;
     if (count > 0) {
       if (numEl) numEl.textContent = String(count);
+      cue('tick');
     } else if (count === 0) {
       if (numEl) {
         numEl.textContent = 'GO!';
@@ -512,6 +515,7 @@ function showScreen(screenId) {
  */
 function startRoundTimer() {
   stopRoundTimer();
+  practiceStarted(isTestMode ? 'test' : 'practice');
   const nowPerf = performance.now();
   timerStartMs = nowPerf;
   const stopwatchEl = document.getElementById('player-stopwatch');
@@ -1049,8 +1053,8 @@ function renderReviewList() {
           ? String(item.expected_display)
           : String(item.expected ?? '');
       const statusChip = item.correct
-        ? '<span class="score-tag score-tag-perfect">Correct</span>'
-        : '<span class="score-tag score-tag-warning">Wrong</span>';
+        ? '<span class="ans-right">Correct</span>'
+        : '<span class="ans-wrong">Wrong</span>';
 
       return `
         <tr>
@@ -1070,6 +1074,7 @@ function renderReviewList() {
  * and renders the Results & Review screen.
  */
 async function renderResultsScreen(resultData) {
+  practiceEnded();
   showScreen('screen-results');
 
   const correct = Number(resultData.correct) || 0;
@@ -1459,7 +1464,10 @@ function showDuelOutcome(duel, anchor) {
     waiting: '⏳ <strong>Your score is in.</strong> We’ll show the result when your classmate has played.',
   };
   box.innerHTML = messages[duel?.result] || 'Your round is saved.';
-  if (duel?.result === 'won') celebrate('big', box);
+  if (duel?.result === 'won') {
+    celebrate('big', box);
+    cue('win');
+  }
   else if (duel?.result === 'draw') celebrate('small', box);
 }
 

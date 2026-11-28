@@ -9,6 +9,7 @@
 
 import { getSupabase, DemoDB } from './supabaseClient.js';
 import { celebrate, celebrateOnce, countUpWithin } from './motion.js';
+import { cue } from './feedback.js';
 
 const STYLE_ID = 'xp-rewards-style';
 const CARD_CLASS = 'xp-round-card';
@@ -287,6 +288,9 @@ export async function showRoundRewards({ sourceId, anchor = null, container = nu
   else host.insertBefore(card, host.firstElementChild?.nextSibling || null);
   const hasBadge = Array.isArray(summary.new_badges) && summary.new_badges.length > 0;
   celebrate(hasBadge ? 'big' : summary.round?.personal_best ? 'pb' : 'small', card);
+  // New badge = level-up fanfare; personal best = sparkle (the finish sound already played).
+  if (hasBadge) cue('levelup');
+  else if (summary.round?.personal_best) cue('pb');
   countUpWithin(card);
   return card;
 }
