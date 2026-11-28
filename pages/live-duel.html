@@ -69,6 +69,7 @@
               <button type="button" role="tab" class="ld-mode active" aria-selected="true" data-ld-mode="duel">⚡ Duel</button>
               <button type="button" role="tab" class="ld-mode" aria-selected="false" data-ld-mode="ghost">👻 Ghost race</button>
               <button type="button" role="tab" class="ld-mode" aria-selected="false" data-ld-mode="royale">👑 Battle royale</button>
+              <button type="button" role="tab" class="ld-mode" aria-selected="false" data-ld-mode="tourney">🏆 Tournaments</button>
             </nav>
             <section class="ld-mode-pane" id="ld-mode-ghost" data-ld-pane="ghost" hidden>
               <div class="ld-panel-head"><h2>👻 Ghost race</h2></div>
@@ -76,6 +77,9 @@
             </section>
             <section class="ld-mode-pane" id="ld-mode-royale" data-ld-pane="royale" hidden>
               <div id="ld-royale"><p class="ar-dim">Loading…</p></div>
+            </section>
+            <section class="ld-mode-pane" id="ld-mode-tourney" data-ld-pane="tourney" hidden>
+              <div id="ld-tourney"><p class="ar-dim">Loading…</p></div>
             </section>
             <div id="ld-lobby-body" class="ld-mode-pane" data-ld-pane="duel">
               <p class="ld-off" id="ld-off" hidden>Live duels are switched off right now. Your teacher can turn them back on.</p>
@@ -160,6 +164,7 @@
           <section class="card ar-panel" id="ld-staff" hidden>
             <h2>Live duels</h2>
             <div id="ld-staff-body"><p class="ar-dim">Loading…</p></div>
+            <div id="ld-staff-tourney" class="tn-staff"></div>
           </section>
         </div>
       </main>

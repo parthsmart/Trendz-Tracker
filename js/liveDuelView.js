@@ -85,10 +85,11 @@ export function buildResultHtml(state) {
         <span class="ld-chip">📈 ${esc(ratingLine)}</span>
         ${me.rating && !unrated ? `<span class="ld-chip">Rating ${Number(me.rating)}</span>` : ''}
       </div>`}
-      ${other.rematch && !me.rematch ? `<p class="ld-note">${esc(other.name)} wants a rematch!</p>` : ''}
-      <div class="ld-actions">
-        <button type="button" class="btn btn-primary" data-rematch ${me.rematch ? 'disabled' : ''}>${unrated ? 'Race again' : rematchLabel}</button>
-        <a class="btn btn-outline" href="/pages/live-duel.html">Back to lobby</a>
+      ${other.rematch && !me.rematch && state?.kind !== 'tournament' ? `<p class="ld-note">${esc(other.name)} wants a rematch!</p>` : ''}
+      <div class="ld-actions">${state?.kind === 'tournament'
+        ? '<a class="btn btn-primary" href="/pages/live-duel.html?mode=tourney">🏆 Back to the bracket</a>'
+        : `<button type="button" class="btn btn-primary" data-rematch ${me.rematch ? 'disabled' : ''}>${unrated ? 'Race again' : rematchLabel}</button>
+        <a class="btn btn-outline" href="/pages/live-duel.html">Back to lobby</a>`}
       </div>
     </div>`;
 }

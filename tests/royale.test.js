@@ -433,7 +433,7 @@ describe('battle royale page', () => {
     assert.match(page, /id="ld-royale-game"/);
     assert.match(page, /id="br-form"/);
     const js = read('js/liveDuel.js');
-    assert.match(js, /const MODES = \['duel', 'ghost', 'royale'\]/);
+    assert.match(js, /const MODES = \['duel', 'ghost', 'royale', 'tourney']/);
     assert.match(js, /'ld-royale-game'\]/);
     assert.match(read('api/drill.js'), /action === 'royale_join'/);
   });
